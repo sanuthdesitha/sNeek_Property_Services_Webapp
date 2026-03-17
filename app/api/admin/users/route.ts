@@ -6,7 +6,6 @@ import bcrypt from "bcryptjs";
 import { createUserByAdminSchema } from "@/lib/validations/user";
 import { getAppSettings, setProfileOverrideForUser } from "@/lib/settings";
 import { z } from "zod";
-import { issueSignupOtp } from "@/lib/auth/registration-otp";
 import { getUserExtendedProfiles, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 
@@ -126,7 +125,8 @@ export async function POST(req: NextRequest) {
         passwordHash,
         role: payload.role,
         phone: payload.phone || payload.contactNumber || undefined,
-        isActive: false,
+        isActive: true,
+        emailVerified: new Date(),
         clientId,
       },
       select: {
@@ -157,9 +157,8 @@ export async function POST(req: NextRequest) {
       requiresOnboarding: true,
       tutorialSeen: false,
       requiresPasswordReset: false,
-      welcomeEmailSent: false,
+      welcomeEmailSent: true,
     });
-    const emailResult = await issueSignupOtp(created.email);
 
     await db.auditLog.create({
       data: {
@@ -171,7 +170,7 @@ export async function POST(req: NextRequest) {
           email: created.email,
           role: created.role,
           clientId: created.clientId,
-          otpSent: emailResult.ok,
+          activationMode: "ADMIN_CREATED_ACTIVE",
         } as any,
       },
     });
@@ -179,9 +178,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ...created,
-        requiresVerification: true,
-        otpSent: emailResult.ok,
-        warning: emailResult.ok ? undefined : emailResult.error ?? "Could not send OTP email.",
+        requiresVerification: false,
+        otpSent: false,
+        warning: undefined,
       },
       { status: 201 }
     );

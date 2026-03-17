@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branding, setBranding] = useState({ companyName: "sNeek Property Services", logoUrl: "" });
@@ -37,19 +35,25 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    try {
+      const res = await signIn("credentials", {
+        email: form.email,
+        password: form.password,
+        redirect: false,
+        callbackUrl: "/",
+      });
 
-    const res = await signIn("credentials", {
-      email: form.email,
-      password: form.password,
-      redirect: false,
-    });
+      if (res?.error || !res?.ok) {
+        setError("Invalid email or password.");
+        setLoading(false);
+        return;
+      }
 
-    if (res?.error) {
-      setError("Invalid email or password.");
+      const target = typeof res.url === "string" && res.url.trim() ? res.url : "/";
+      window.location.assign(target);
+    } catch {
+      setError("Sign in failed. Please try again.");
       setLoading(false);
-    } else {
-      router.push("/");
-      router.refresh();
     }
   }
 

@@ -226,9 +226,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       if (!res.ok) throw new Error(body.error ?? "Failed to create account.");
 
       toast({
-        title: body.warning ? "Account created, OTP email failed" : "Account created",
-        description: body.warning ? String(body.warning) : "OTP sent to user email.",
-        variant: body.warning ? "destructive" : "default",
+        title: "Account created",
+        description: "The account is active immediately and can sign in now.",
+        variant: "default",
       });
       setForm({
         name: "",
