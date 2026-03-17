@@ -1,0 +1,679 @@
+// sneek-ops-dashboard – Prisma schema v1
+// Timezone: Australia/Sydney (stored as UTC, displayed via date-fns-tz)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  OPS_MANAGER
+  CLEANER
+  CLIENT
+  LAUNDRY
+}
+
+enum JobType {
+  AIRBNB_TURNOVER
+  DEEP_CLEAN
+  END_OF_LEASE
+  GENERAL_CLEAN
+  POST_CONSTRUCTION
+  PRESSURE_WASH
+  WINDOW_CLEAN
+  LAWN_MOWING
+  SPECIAL_CLEAN
+  COMMERCIAL_RECURRING
+}
+
+enum JobStatus {
+  UNASSIGNED
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  QA_REVIEW
+  COMPLETED
+  INVOICED
+}
+
+enum LaundryStatus {
+  PENDING
+  CONFIRMED
+  PICKED_UP
+  DROPPED
+  FLAGGED
+}
+
+enum LaundryFlag {
+  NO_WINDOW
+  BUFFER_REQUIRED
+  EXPRESS_OR_EXTRA_LINEN_REQUIRED
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+}
+
+enum StockTxType {
+  USED
+  RESTOCKED
+  ADJUSTED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  CONVERTED
+}
+
+enum PayAdjustmentType {
+  HOURLY
+  FIXED
+}
+
+enum PayAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUOTED
+  CONVERTED
+  LOST
+}
+
+enum IntegrationProvider {
+  ICAL_HOSPITABLE
+  ICAL_OTHER
+}
+
+enum SyncStatus {
+  IDLE
+  SYNCING
+  SUCCESS
+  ERROR
+}
+
+// ─────────────────────────────────────────────
+// Auth (NextAuth v4 compatible)
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          Role      @default(CLEANER)
+  phone         String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  jobAssignments JobAssignment[]
+  timeLogs      TimeLog[]
+  formSubmissions FormSubmission[]
+  auditLogs     AuditLog[]        @relation("AuditUser")
+  notifications Notification[]
+  payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
+  payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
+  icalSyncRunsTriggered IcalSyncRun[] @relation("IcalSyncTriggeredBy")
+  icalSyncRunsReverted  IcalSyncRun[] @relation("IcalSyncRevertedBy")
+  // Client link (optional)
+  clientId      String?
+  client        Client?   @relation(fields: [clientId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Clients + Properties
+// ─────────────────────────────────────────────
+
+model Client {
+  id          String   @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  notes       String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  properties  Property[]
+  users       User[]
+  quotes      Quote[]
+  leads       QuoteLead[]
+}
+
+model Property {
+  id                  String   @id @default(cuid())
+  clientId            String
+  name                String
+  address             String
+  suburb              String
+  state               String   @default("NSW")
+  postcode            String?
+  notes               String?  @db.Text
+  accessInfo          Json?    // { lockbox, codes, parking, other }
+  linenBufferSets     Int      @default(0)
+  inventoryEnabled    Boolean  @default(false)
+  defaultCheckinTime  String   @default("14:00")  // HH:mm
+  defaultCheckoutTime String   @default("10:00")  // HH:mm
+  hasBalcony          Boolean  @default(false)
+  bedrooms            Int      @default(1)
+  bathrooms           Int      @default(1)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  client              Client        @relation(fields: [clientId], references: [id])
+  integration         Integration?
+  reservations        Reservation[]
+  jobs                Job[]
+  propertyStock       PropertyStock[]
+  laundryTasks        LaundryTask[]
+  icalSyncRuns        IcalSyncRun[]
+}
+
+model Integration {
+  id                String              @id @default(cuid())
+  propertyId        String              @unique
+  provider          IntegrationProvider @default(ICAL_HOSPITABLE)
+  icalUrl           String?             @db.Text
+  isEnabled         Boolean             @default(false)
+  lastSyncAt        DateTime?
+  lastSyncEtag      String?
+  lastSyncModified  String?
+  syncStatus        SyncStatus          @default(IDLE)
+  syncError         String?             @db.Text
+  notes             String?             @db.Text
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  property          Property            @relation(fields: [propertyId], references: [id])
+  syncRuns          IcalSyncRun[]
+}
+
+model IcalSyncRun {
+  id            String      @id @default(cuid())
+  integrationId String
+  propertyId    String
+  triggeredById String?
+  revertedById  String?
+  mode          String      @default("MANUAL")
+  status        String      @default("RUNNING")
+  summary       Json?
+  snapshot      Json?
+  error         String?     @db.Text
+  createdAt     DateTime    @default(now())
+  completedAt   DateTime?
+  revertedAt    DateTime?
+
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  property      Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  triggeredBy   User?       @relation("IcalSyncTriggeredBy", fields: [triggeredById], references: [id])
+  revertedBy    User?       @relation("IcalSyncRevertedBy", fields: [revertedById], references: [id])
+
+  @@index([integrationId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model Reservation {
+  id          String   @id @default(cuid())
+  propertyId  String
+  uid         String   // iCal UID
+  startDate   DateTime // check-in (UTC)
+  endDate     DateTime // check-out (UTC)
+  summary     String?
+  guestName   String?
+  source      String?  @default("ical")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property    Property  @relation(fields: [propertyId], references: [id])
+  job         Job?
+
+  @@unique([propertyId, uid])
+}
+
+// ─────────────────────────────────────────────
+// Jobs
+// ─────────────────────────────────────────────
+
+model Job {
+  id              String    @id @default(cuid())
+  propertyId      String
+  reservationId   String?   @unique
+  jobType         JobType
+  status          JobStatus @default(UNASSIGNED)
+  scheduledDate   DateTime  // date of cleaning (UTC start of day)
+  startTime       String?   // HH:mm (property local)
+  endTime         String?   // HH:mm (property local)
+  dueTime         String?   // latest completion HH:mm
+  estimatedHours  Float?
+  actualHours     Float?
+  notes           String?   @db.Text
+  internalNotes   String?   @db.Text
+  // reminder overrides (null = use system defaults)
+  reminder24hSent Boolean   @default(false)
+  reminder2hSent  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  property        Property        @relation(fields: [propertyId], references: [id])
+  reservation     Reservation?    @relation(fields: [reservationId], references: [id])
+  assignments     JobAssignment[]
+  timeLogs        TimeLog[]
+  formSubmissions FormSubmission[]
+  qaReviews       QAReview[]
+  laundryTask     LaundryTask?
+  report          Report?
+  issueTickets    IssueTicket[]
+  payAdjustments  CleanerPayAdjustment[]
+  auditLogs       AuditLog[]      @relation("AuditJob")
+}
+
+model CleanerPayAdjustment {
+  id              String              @id @default(cuid())
+  jobId           String
+  cleanerId       String
+  type            PayAdjustmentType
+  requestedHours  Float?
+  requestedRate   Float?
+  requestedAmount Float
+  approvedAmount  Float?
+  status          PayAdjustmentStatus @default(PENDING)
+  cleanerNote     String?             @db.Text
+  adminNote       String?             @db.Text
+  requestedAt     DateTime            @default(now())
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  job             Job                 @relation(fields: [jobId], references: [id])
+  cleaner         User                @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
+  reviewedBy      User?               @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
+
+  @@index([cleanerId, status])
+  @@index([jobId, status])
+}
+
+model JobAssignment {
+  id          String   @id @default(cuid())
+  jobId       String
+  userId      String
+  isPrimary   Boolean  @default(false)
+  payRate     Float?   // hourly rate at time of assignment
+  assignedAt  DateTime @default(now())
+  removedAt   DateTime?
+
+  job         Job  @relation(fields: [jobId], references: [id])
+  user        User @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, userId])
+}
+
+model TimeLog {
+  id        String   @id @default(cuid())
+  jobId     String
+  userId    String
+  startedAt DateTime
+  stoppedAt DateTime?
+  durationM Int?     // minutes (computed on stop)
+  notes     String?
+
+  job       Job  @relation(fields: [jobId], references: [id])
+  user      User @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Forms Engine
+// ─────────────────────────────────────────────
+
+model FormTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  serviceType JobType
+  version     Int      @default(1)
+  isActive    Boolean  @default(true)
+  schema      Json     // full template JSON (sections → fields → logic)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  submissions FormSubmission[]
+}
+
+model FormSubmission {
+  id             String   @id @default(cuid())
+  jobId          String
+  templateId     String
+  submittedById  String
+  data           Json     // cleaner's answers keyed by field id
+  laundryReady   Boolean?
+  bagLocation    String?
+  autoQaScore    Float?   // computed on submission
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job            Job          @relation(fields: [jobId], references: [id])
+  template       FormTemplate @relation(fields: [templateId], references: [id])
+  submittedBy    User         @relation(fields: [submittedById], references: [id])
+  media          SubmissionMedia[]
+  stockTxs       StockTx[]
+}
+
+model SubmissionMedia {
+  id           String    @id @default(cuid())
+  submissionId String
+  fieldId      String
+  mediaType    MediaType
+  url          String    @db.Text
+  s3Key        String
+  sizeBytes    Int?
+  mimeType     String?
+  label        String?
+  createdAt    DateTime  @default(now())
+
+  submission   FormSubmission @relation(fields: [submissionId], references: [id])
+}
+
+model QAReview {
+  id           String   @id @default(cuid())
+  jobId        String
+  reviewedById String?  // null if auto-generated
+  score        Float
+  passed       Boolean
+  notes        String?  @db.Text
+  flags        Json?    // array of field ids that failed
+  createdAt    DateTime @default(now())
+
+  job          Job  @relation(fields: [jobId], references: [id])
+}
+
+model IssueTicket {
+  id          String   @id @default(cuid())
+  jobId       String
+  title       String
+  description String?  @db.Text
+  severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status      String   @default("OPEN")   // OPEN | IN_PROGRESS | RESOLVED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job         Job @relation(fields: [jobId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Inventory
+// ─────────────────────────────────────────────
+
+model InventoryItem {
+  id              String   @id @default(cuid())
+  name            String
+  sku             String?  @unique
+  category        String
+  location        String   @default("CLEANERS_CUPBOARD")
+  unit            String   @default("unit")
+  supplier        String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  propertyStocks  PropertyStock[]
+}
+
+model PropertyStock {
+  id                String   @id @default(cuid())
+  propertyId        String
+  itemId            String
+  onHand            Float    @default(0)
+  parLevel          Float    @default(0)
+  reorderThreshold  Float    @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  property          Property      @relation(fields: [propertyId], references: [id])
+  item              InventoryItem @relation(fields: [itemId], references: [id])
+  transactions      StockTx[]
+
+  @@unique([propertyId, itemId])
+}
+
+model StockTx {
+  id            String      @id @default(cuid())
+  propertyStockId String
+  submissionId  String?
+  txType        StockTxType
+  quantity      Float       // positive = add, negative = deduct
+  notes         String?
+  createdAt     DateTime    @default(now())
+
+  propertyStock PropertyStock  @relation(fields: [propertyStockId], references: [id])
+  submission    FormSubmission? @relation(fields: [submissionId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Laundry
+// ─────────────────────────────────────────────
+
+model LaundryTask {
+  id              String        @id @default(cuid())
+  jobId           String        @unique
+  propertyId      String
+  pickupDate      DateTime      // UTC date
+  dropoffDate     DateTime      // UTC date
+  status          LaundryStatus @default(PENDING)
+  flagReason      LaundryFlag?
+  flagNotes       String?
+  confirmedAt     DateTime?
+  pickedUpAt      DateTime?
+  droppedAt       DateTime?
+  notifyLaundry   Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  job             Job               @relation(fields: [jobId], references: [id])
+  property        Property          @relation(fields: [propertyId], references: [id])
+  confirmations   LaundryConfirmation[]
+}
+
+model LaundryConfirmation {
+  id            String   @id @default(cuid())
+  laundryTaskId String
+  confirmedById String
+  laundryReady  Boolean
+  bagLocation   String?
+  photoUrl      String?  @db.Text
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  laundryTask   LaundryTask @relation(fields: [laundryTaskId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Reports
+// ─────────────────────────────────────────────
+
+model Report {
+  id          String   @id @default(cuid())
+  jobId       String   @unique
+  htmlContent String?  @db.Text
+  pdfUrl      String?  @db.Text
+  s3Key       String?
+  sentToClient Boolean @default(false)
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job         Job @relation(fields: [jobId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Price Book + Quotes
+// ─────────────────────────────────────────────
+
+model PriceBook {
+  id          String   @id @default(cuid())
+  jobType     JobType
+  bedrooms    Int?
+  bathrooms   Int?
+  baseRate    Float
+  addOns      Json     // { oven, fridge, balcony, heavyMess, sameDay, ... }
+  multipliers Json     // { conditionLevel: { light, standard, heavy } }
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([jobType, bedrooms, bathrooms])
+}
+
+model QuoteLead {
+  id            String     @id @default(cuid())
+  clientId      String?
+  serviceType   JobType
+  name          String
+  email         String
+  phone         String?
+  address       String?
+  suburb        String?
+  bedrooms      Int?
+  bathrooms     Int?
+  hasBalcony    Boolean    @default(false)
+  notes         String?    @db.Text
+  estimateMin   Float?
+  estimateMax   Float?
+  status        LeadStatus @default(NEW)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  client        Client? @relation(fields: [clientId], references: [id])
+  quotes        Quote[]
+}
+
+model Quote {
+  id            String      @id @default(cuid())
+  leadId        String?
+  clientId      String?
+  serviceType   JobType
+  lineItems     Json        // array of { label, unitPrice, qty, total }
+  subtotal      Float
+  gstAmount     Float
+  totalAmount   Float
+  notes         String?     @db.Text
+  validUntil    DateTime?
+  status        QuoteStatus @default(DRAFT)
+  convertedJobId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  lead          QuoteLead? @relation(fields: [leadId], references: [id])
+  client        Client?    @relation(fields: [clientId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Notifications + Audit
+// ─────────────────────────────────────────────
+
+model Notification {
+  id          String              @id @default(cuid())
+  userId      String?
+  jobId       String?
+  channel     NotificationChannel
+  subject     String?
+  body        String              @db.Text
+  status      NotificationStatus  @default(PENDING)
+  sentAt      DateTime?
+  errorMsg    String?
+  createdAt   DateTime            @default(now())
+
+  user        User?               @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  jobId       String?
+  action      String
+  entity      String   // e.g. "Job", "PriceBook", "User"
+  entityId    String
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  user        User @relation("AuditUser", fields: [userId], references: [id])
+  job         Job? @relation("AuditJob", fields: [jobId], references: [id])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

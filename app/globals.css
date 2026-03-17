@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 44 48% 97%;
+    --foreground: 195 26% 16%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 195 26% 16%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 195 26% 16%;
+
+    --primary: 188 78% 30%;
+    --primary-foreground: 43 100% 96%;
+
+    --secondary: 186 26% 90%;
+    --secondary-foreground: 193 31% 22%;
+
+    --muted: 38 34% 92%;
+    --muted-foreground: 196 12% 41%;
+
+    --accent: 24 84% 92%;
+    --accent-foreground: 20 55% 28%;
+
+    --destructive: 0 72% 52%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 188 20% 83%;
+    --input: 188 20% 83%;
+    --ring: 188 78% 30%;
+
+    --radius: 0.9rem;
+  }
+
+  .dark {
+    --background: 210 21% 10%;
+    --foreground: 43 70% 95%;
+    --card: 210 21% 12%;
+    --card-foreground: 43 70% 95%;
+    --popover: 210 21% 12%;
+    --popover-foreground: 43 70% 95%;
+    --primary: 188 70% 46%;
+    --primary-foreground: 210 21% 10%;
+    --secondary: 207 18% 20%;
+    --secondary-foreground: 43 70% 95%;
+    --muted: 208 16% 18%;
+    --muted-foreground: 205 12% 72%;
+    --accent: 27 36% 24%;
+    --accent-foreground: 43 70% 95%;
+    --destructive: 0 63% 44%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 208 15% 28%;
+    --input: 208 15% 28%;
+    --ring: 188 70% 46%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans), "Segoe UI", sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    background-image:
+      radial-gradient(circle at 12% 14%, rgba(255, 177, 95, 0.18), transparent 32%),
+      radial-gradient(circle at 86% 6%, rgba(37, 169, 184, 0.2), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(248, 245, 238, 0.9) 100%);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.2);
+  }
+
+  a {
+    transition: color 160ms ease;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply border border-white/60 bg-white/75 backdrop-blur-sm shadow-[0_12px_45px_-24px_rgba(23,73,78,0.55)];
+  }
+
+  .page-fade {
+    animation: pageFade 360ms ease both;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 8px;
+}
+
+/* FullCalendar overrides */
+.fc .fc-toolbar-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.fc .fc-button-primary {
+  background-color: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+.fc-event {
+  cursor: pointer;
+}
