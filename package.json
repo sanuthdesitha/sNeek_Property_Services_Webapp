@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next dev",
-    "prebuild": "npm run db:generate && npm run db:deploy && npm run admin:bootstrap && npm run playwright:install",
+    "prebuild": "node ./scripts/prebuild.cjs",
     "build": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next build",
     "start": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next start -H 0.0.0.0 -p 3000",
+    "setup:runtime": "npm run db:deploy && npm run admin:bootstrap && npm run playwright:install",
     "lint": "next lint",
     "predeploy:check": "tsx scripts/predeploy-check.ts",
     "backup:create": "tsx scripts/backup/create-backup.ts --include-uploads --json-export",
