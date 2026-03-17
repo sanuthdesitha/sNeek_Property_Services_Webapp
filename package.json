@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next dev",
-    "prebuild": "npm run db:generate && npm run db:deploy && npm run playwright:install",
+    "prebuild": "npm run db:generate && npm run db:deploy && npm run admin:bootstrap && npm run playwright:install",
     "build": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next build",
     "start": "node -r ./scripts/fs-readlink-patch.cjs ./node_modules/next/dist/bin/next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
+    "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "playwright:install": "playwright install chromium",
     "workers:dev": "tsx watch workers/boss.ts"
   },
