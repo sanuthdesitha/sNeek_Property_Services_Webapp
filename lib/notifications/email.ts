@@ -1,8 +1,21 @@
 import { Resend } from "resend";
 import { logger } from "@/lib/logger";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
+let resendClient: Resend | null = null;
+
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    return null;
+  }
+
+  if (!resendClient) {
+    resendClient = new Resend(apiKey);
+  }
+
+  return resendClient;
+}
 
 export interface EmailPayload {
   to: string | string[];
@@ -20,6 +33,12 @@ export async function sendEmailDetailed(
   payload: EmailPayload
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    const resend = getResendClient();
+    if (!resend) {
+      logger.warn({ to: payload.to, subject: payload.subject }, "Email skipped because RESEND_API_KEY is not configured");
+      return { ok: false, error: "RESEND_API_KEY is not configured" };
+    }
+
     await resend.emails.send({
       from: payload.from ?? FROM,
       to: Array.isArray(payload.to) ? payload.to : [payload.to],
