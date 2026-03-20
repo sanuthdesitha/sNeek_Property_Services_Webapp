@@ -163,33 +163,6 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       toast({ title: "Name, email, and password are required.", variant: "destructive" });
       return;
     }
-    if (!form.contactNumber.trim()) {
-      toast({ title: "Contact number is required.", variant: "destructive" });
-      return;
-    }
-    if (!form.address.trim()) {
-      toast({ title: "Address is required.", variant: "destructive" });
-      return;
-    }
-    if (form.role === "CLIENT" && form.clientId === "new" && !form.clientName.trim()) {
-      toast({ title: "Client name is required for new client account.", variant: "destructive" });
-      return;
-    }
-    if ((form.role === "CLIENT" || form.role === "LAUNDRY") && !form.businessName.trim()) {
-      toast({ title: "Business name is required for this role.", variant: "destructive" });
-      return;
-    }
-    if ((form.role === "CLIENT" || form.role === "LAUNDRY") && !form.abn.trim()) {
-      toast({ title: "ABN is required for this role.", variant: "destructive" });
-      return;
-    }
-    if (form.role === "CLEANER" || form.role === "LAUNDRY") {
-      const bank = form.bankDetails;
-      if (!bank.accountName.trim() || !bank.bankName.trim() || !bank.bsb.trim() || !bank.accountNumber.trim()) {
-        toast({ title: "Full bank details are required for cleaner/laundry accounts.", variant: "destructive" });
-        return;
-      }
-    }
 
     setSaving(true);
     try {
@@ -312,34 +285,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       toast({ title: "Name and email are required.", variant: "destructive" });
       return;
     }
-    if (accountForm.role === "CLEANER" || accountForm.role === "CLIENT" || accountForm.role === "LAUNDRY") {
-      if (!accountForm.contactNumber.trim()) {
-        toast({ title: "Contact number is required.", variant: "destructive" });
-        return;
-      }
-      if (!accountForm.address.trim()) {
-        toast({ title: "Address is required.", variant: "destructive" });
-        return;
-      }
-    }
     if (accountForm.role === "CLIENT" && !accountForm.clientId) {
       toast({ title: "Client role must be linked to a client profile.", variant: "destructive" });
       return;
-    }
-    if ((accountForm.role === "CLIENT" || accountForm.role === "LAUNDRY") && !accountForm.businessName.trim()) {
-      toast({ title: "Business name is required for this role.", variant: "destructive" });
-      return;
-    }
-    if ((accountForm.role === "CLIENT" || accountForm.role === "LAUNDRY") && !accountForm.abn.trim()) {
-      toast({ title: "ABN is required for this role.", variant: "destructive" });
-      return;
-    }
-    if (accountForm.role === "CLEANER" || accountForm.role === "LAUNDRY") {
-      const bank = accountForm.bankDetails;
-      if (!bank.accountName.trim() || !bank.bankName.trim() || !bank.bsb.trim() || !bank.accountNumber.trim()) {
-        toast({ title: "Full bank details are required for cleaner/laundry accounts.", variant: "destructive" });
-        return;
-      }
     }
 
     setBusyUserId(editingUser.id);
@@ -477,23 +425,23 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       </section>
 
       <Tabs defaultValue="list">
-        <TabsList>
+        <TabsList className="flex w-full flex-wrap justify-start gap-2 overflow-x-auto">
           <TabsTrigger value="list">Accounts</TabsTrigger>
           {canManage ? <TabsTrigger value="create">Create Account</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="list">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">All Accounts</CardTitle>
-              <Select
+            <Card>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-base">All Accounts</CardTitle>
+                <Select
                 value={roleFilter}
                 onValueChange={(value) => {
                   setRoleFilter(value);
                   loadUsers(value);
                 }}
               >
-                <SelectTrigger className="w-44">
+                  <SelectTrigger className="w-full sm:w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -544,7 +492,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                         ) : null}
                         {user.profileEditOverride ? <p className="text-xs text-primary">Custom profile permission override active</p> : null}
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                         {(!user.emailVerified || !user.isActive) ? (
                           <Button size="sm" variant="secondary" disabled={busyUserId === user.id} onClick={() => resendOtp(user.id)}>
                             <Mail className="mr-2 h-4 w-4" />
@@ -627,14 +575,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label>Contact number</Label>
+                    <Label>Contact number (optional)</Label>
                     <Input
                       value={form.contactNumber}
                       onChange={(e) => setForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Address</Label>
+                    <Label>Address (optional)</Label>
                     <Input
                       value={form.address}
                       onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
@@ -645,14 +593,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                 {(form.role === "CLIENT" || form.role === "LAUNDRY") ? (
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label>Business name</Label>
+                      <Label>Business name (optional)</Label>
                       <Input
                         value={form.businessName}
                         onChange={(e) => setForm((prev) => ({ ...prev, businessName: e.target.value }))}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>ABN</Label>
+                      <Label>ABN (optional)</Label>
                       <Input value={form.abn} onChange={(e) => setForm((prev) => ({ ...prev, abn: e.target.value }))} />
                     </div>
                   </div>
@@ -660,7 +608,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
 
                 {(form.role === "CLEANER" || form.role === "LAUNDRY") ? (
                   <div className="space-y-3 rounded-md border p-4">
-                    <p className="text-sm font-medium">Bank details</p>
+                    <p className="text-sm font-medium">Bank details (optional)</p>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-1.5">
                         <Label>Account name</Label>
@@ -733,7 +681,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                     {form.clientId === "new" ? (
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
-                          <Label>Client Name</Label>
+                          <Label>Client Name (optional)</Label>
                           <Input value={form.clientName} onChange={(e) => setForm((prev) => ({ ...prev, clientName: e.target.value }))} />
                         </div>
                         <div className="space-y-1.5">
@@ -813,14 +761,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Contact number</Label>
+                  <Label>Contact number (optional)</Label>
                   <Input
                     value={accountForm.contactNumber}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Address</Label>
+                  <Label>Address (optional)</Label>
                   <Input
                     value={accountForm.address}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, address: e.target.value }))}
@@ -830,14 +778,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
               {(accountForm.role === "CLIENT" || accountForm.role === "LAUNDRY") ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label>Business name</Label>
+                    <Label>Business name (optional)</Label>
                     <Input
                       value={accountForm.businessName}
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, businessName: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>ABN</Label>
+                    <Label>ABN (optional)</Label>
                     <Input
                       value={accountForm.abn}
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, abn: e.target.value }))}
@@ -847,7 +795,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
               ) : null}
               {(accountForm.role === "CLEANER" || accountForm.role === "LAUNDRY") ? (
                 <div className="space-y-3 rounded-md border p-4">
-                  <p className="text-sm font-medium">Bank details</p>
+                  <p className="text-sm font-medium">Bank details (optional)</p>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label>Account name</Label>

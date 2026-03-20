@@ -103,39 +103,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           : null
         : existingExtended?.bankDetails ?? null;
 
-    if (targetRole === Role.CLEANER || targetRole === Role.CLIENT || targetRole === Role.LAUNDRY) {
-      if (!nextAddress) {
-        return NextResponse.json({ error: "Address is required." }, { status: 400 });
-      }
-      if (!nextContactNumber) {
-        return NextResponse.json({ error: "Contact number is required." }, { status: 400 });
-      }
-    }
-    if (targetRole === Role.CLIENT || targetRole === Role.LAUNDRY) {
-      if (!nextBusinessName) {
-        return NextResponse.json({ error: "Business name is required for this role." }, { status: 400 });
-      }
-      if (!nextAbn) {
-        return NextResponse.json({ error: "ABN is required for this role." }, { status: 400 });
-      }
-    }
-    if (targetRole === Role.CLEANER || targetRole === Role.LAUNDRY) {
-      if (
-        !nextBankDetails?.accountName ||
-        !nextBankDetails.bankName ||
-        !nextBankDetails.bsb ||
-        !nextBankDetails.accountNumber
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              "Full bank details are required for cleaner/laundry accounts (account name, bank, BSB, account number).",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     const data: Record<string, unknown> = {};
     if (body.name !== undefined) data.name = body.name;
     if (nextEmail !== undefined) data.email = nextEmail;

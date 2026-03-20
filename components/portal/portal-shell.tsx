@@ -57,7 +57,7 @@ export function PortalShell({
 
       <header className="sticky top-0 z-40 border-b border-white/60 bg-white/80 px-3 py-3 shadow-sm backdrop-blur-xl sm:px-4 lg:px-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               {logoUrl ? (
                 <img
@@ -82,7 +82,7 @@ export function PortalShell({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
               <Button
                 variant="outline"
                 size="sm"
@@ -90,8 +90,8 @@ export function PortalShell({
                 className="rounded-full bg-white/80 text-muted-foreground hover:text-foreground"
               >
                 <Link href={settingsHref}>
-                  <Settings2 className="mr-1.5 h-4 w-4" />
-                  Settings
+                  <Settings2 className="h-4 w-4 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Settings</span>
                 </Link>
               </Button>
               <Button
@@ -100,10 +100,8 @@ export function PortalShell({
                 className="rounded-full bg-white/80 text-muted-foreground hover:text-foreground"
                 onClick={handleSignOut}
               >
-                <>
-                  <LogOut className="mr-1.5 h-4 w-4" />
-                  Sign out
-                </>
+                <LogOut className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">Sign out</span>
               </Button>
             </div>
           </div>
@@ -135,7 +133,7 @@ export function PortalShell({
         </div>
       </header>
 
-      <main className={cn("page-fade relative z-10 mx-auto w-full px-3 py-4 pb-20 sm:px-4 lg:px-6", maxWidthClass)}>
+      <main className={cn("page-fade relative z-10 mx-auto w-full px-3 py-4 pb-24 sm:px-4 lg:px-6", maxWidthClass)}>
         {children}
       </main>
     </div>
