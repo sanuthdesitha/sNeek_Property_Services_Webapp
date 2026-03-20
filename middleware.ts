@@ -15,21 +15,21 @@ export default withAuth(
     let role = token?.role as Role | undefined;
     if (token) {
       const validation = await validateActiveSession(req);
-      if (!validation.valid) {
+      if (validation.valid === false) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/api/auth/local-signout", req.url)));
       }
-      role = validation.role;
+      role = validation.role ?? role;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
       const isOnboardingPage = pathname === "/onboarding";
-      if (validation.requiresPasswordReset && !isForcePasswordPage) {
+      if (validation.valid !== "indeterminate" && validation.requiresPasswordReset && !isForcePasswordPage) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/force-password-reset", req.url)));
       }
-      if (!validation.requiresPasswordReset && isForcePasswordPage) {
+      if (validation.valid !== "indeterminate" && !validation.requiresPasswordReset && isForcePasswordPage) {
         return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
       }
 
-      if (!validation.requiresPasswordReset) {
+      if (validation.valid !== "indeterminate" && !validation.requiresPasswordReset) {
         if (validation.requiresOnboarding && !isOnboardingPage) {
           return applySecurityHeaders(NextResponse.redirect(new URL("/onboarding", req.url)));
         }
@@ -155,8 +155,8 @@ async function validateActiveSession(req: NextRequestWithAuth) {
     };
   } catch {
     return {
-      valid: false as const,
-      role: undefined,
+      valid: "indeterminate" as const,
+      role: req.nextauth.token?.role as Role | undefined,
       requiresPasswordReset: false,
       requiresOnboarding: false,
     };
