@@ -1478,22 +1478,25 @@ export default function CleanerJobPage() {
                       const qtyUsed = getInventoryValue(stock.item.id);
                       const remaining = Math.max(0, Number(stock.onHand ?? 0) - qtyUsed);
                       return (
-                        <div key={stock.item.id} className="grid grid-cols-[1fr_90px_120px] items-center gap-2 rounded-md border p-2">
+                        <div
+                          key={stock.item.id}
+                          className="rounded-md border p-2 sm:grid sm:grid-cols-[minmax(0,1fr)_110px_130px] sm:items-center sm:gap-3"
+                        >
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{stock.item.name}</p>
+                            <p className="text-sm font-medium leading-snug sm:truncate">{stock.item.name}</p>
                             <p className="text-xs text-muted-foreground">
                               On hand: {Number(stock.onHand).toFixed(0)} {stock.item.unit}
                               {stock.item.sku ? ` - ${stock.item.sku}` : ""}
                             </p>
                           </div>
-                          <div>
+                          <div className="mt-3 sm:mt-0">
                             <Label className="text-[10px] text-muted-foreground">Used</Label>
-                            <div className="mt-1 flex items-center gap-1">
+                            <div className="mt-1 flex items-center gap-2">
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-9 w-9 shrink-0 p-0"
                                 onClick={() => adjustInventoryUsage(stock.item.id, -1)}
                                 disabled={qtyUsed <= 0}
                                 aria-label={`Decrease ${stock.item.name} usage`}
@@ -1506,13 +1509,13 @@ export default function CleanerJobPage() {
                                 step="1"
                                 value={String(qtyUsed)}
                                 onChange={(e) => updateInventoryUsage(stock.item.id, e.target.value)}
-                                className="h-8 w-16 text-right"
+                                className="h-9 min-w-0 flex-1 text-center sm:w-16 sm:flex-none sm:text-right"
                               />
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-9 w-9 shrink-0 p-0"
                                 onClick={() => adjustInventoryUsage(stock.item.id, 1)}
                                 aria-label={`Increase ${stock.item.name} usage`}
                               >
@@ -1520,7 +1523,7 @@ export default function CleanerJobPage() {
                               </Button>
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="mt-3 rounded-md bg-muted/40 px-2 py-2 text-left sm:mt-0 sm:bg-transparent sm:px-0 sm:py-0 sm:text-right">
                             <p className="text-[10px] text-muted-foreground">After submit</p>
                             <p className="text-sm font-semibold">
                               {remaining.toFixed(0)} {stock.item.unit}
