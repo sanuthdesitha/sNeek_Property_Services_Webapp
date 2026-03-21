@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 
 export function NewClientForm() {
@@ -19,11 +20,17 @@ export function NewClientForm() {
     phone: "",
     address: "",
     notes: "",
+    sendPortalInvite: false,
+    welcomeNote: "",
   });
 
   async function createClient() {
     if (!form.name.trim()) {
       toast({ title: "Name is required", variant: "destructive" });
+      return;
+    }
+    if (form.sendPortalInvite && !form.email.trim()) {
+      toast({ title: "Email is required to send an invite", variant: "destructive" });
       return;
     }
 
@@ -40,7 +47,11 @@ export function NewClientForm() {
         throw new Error(payload.error ?? "Failed to create client.");
       }
 
-      toast({ title: "Client created" });
+      toast({
+        title: payload.invited ? "Client created and invited" : "Client created",
+        description: payload.warning ?? undefined,
+        variant: payload.warning ? "destructive" : "default",
+      });
       router.push(`/admin/clients/${payload.id}`);
       router.refresh();
     } catch (err: any) {
@@ -122,6 +133,38 @@ export function NewClientForm() {
               onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
               placeholder="Internal notes about this client..."
             />
+          </div>
+
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="sendPortalInvite"
+                checked={form.sendPortalInvite}
+                onCheckedChange={(checked) =>
+                  setForm((prev) => ({ ...prev, sendPortalInvite: checked === true }))
+                }
+              />
+              <div className="space-y-1">
+                <Label htmlFor="sendPortalInvite" className="cursor-pointer">
+                  Send portal invite
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Create a linked client portal account and email them a temporary password to complete setup.
+                </p>
+              </div>
+            </div>
+
+            {form.sendPortalInvite ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="welcomeNote">Welcome note</Label>
+                <Textarea
+                  id="welcomeNote"
+                  value={form.welcomeNote}
+                  onChange={(e) => setForm((prev) => ({ ...prev, welcomeNote: e.target.value }))}
+                  placeholder="Welcome to sNeek Property Services. Please sign in, reset your password, and complete your account details."
+                />
+              </div>
+            ) : null}
           </div>
 
           <div className="flex justify-end">

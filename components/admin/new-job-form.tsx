@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { JobAttachmentsInput } from "@/components/admin/job-attachments-input";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 import type { JobReferenceAttachment, JobTimingPreset } from "@/lib/jobs/meta";
 
@@ -19,8 +20,12 @@ const JOB_TYPES = [
   "AIRBNB_TURNOVER","DEEP_CLEAN","END_OF_LEASE","GENERAL_CLEAN","POST_CONSTRUCTION",
   "PRESSURE_WASH","WINDOW_CLEAN","LAWN_MOWING","SPECIAL_CLEAN","COMMERCIAL_RECURRING",
 ] as const;
+const AIRBNB_JOB_TYPE = "AIRBNB_TURNOVER" as const;
+const NON_AIRBNB_RESEARCH_FIELDS_NOTE =
+  "Non-Airbnb jobs can capture site contact, access, scope, hazards, floors, and service area so the resolved cleaner form and instructions match the service type.";
 
 type TimingRule = { enabled: boolean; preset: JobTimingPreset; time: string };
+type SiteMode = "existing_property" | "service_site";
 type BulkScheduleLine = {
   scheduledDate: string;
   startTime?: string;
@@ -28,13 +33,18 @@ type BulkScheduleLine = {
   endTime?: string;
 };
 type FormState = {
-  propertyId: string; jobType: (typeof JOB_TYPES)[number]; scheduledDate: string;
+  propertyId: string; clientId: string; siteMode: SiteMode; jobType: (typeof JOB_TYPES)[number]; scheduledDate: string;
   startTime: string; dueTime: string; endTime: string; estimatedHours: string;
   notes: string; internalNotes: string; tagsText: string; attachments: JobReferenceAttachment[];
+  siteName: string; siteAddress: string; siteSuburb: string; siteState: string; sitePostcode: string;
+  siteContactName: string; siteContactPhone: string; serviceAreaSqm: string; floorCount: string;
+  siteBedrooms: string; siteBathrooms: string; siteHasBalcony: boolean;
+  scopeOfWork: string; accessInstructions: string; parkingInstructions: string; hazardNotes: string; equipmentNotes: string;
   isDraft: boolean; earlyCheckin: TimingRule; lateCheckout: TimingRule;
 };
 type PropertyOption = { id: string; name: string; suburb: string };
 type PropertyWithDefaults = PropertyOption & { defaultCleanDurationHours: number };
+type ClientOption = { id: string; name: string };
 type CleanerOption = { id: string; name: string | null; email: string | null; isActive?: boolean };
 type JobTemplateOption = {
   id: string; name: string; jobType: (typeof JOB_TYPES)[number]; startTime?: string; dueTime?: string;
@@ -51,8 +61,12 @@ const emptyRule = (preset: JobTimingPreset = "none"): TimingRule => ({
 });
 
 const initialForm = (propertyId = ""): FormState => ({
-  propertyId, jobType: "AIRBNB_TURNOVER", scheduledDate: "", startTime: "10:00", dueTime: "15:00",
+  propertyId, clientId: "", siteMode: "existing_property", jobType: "AIRBNB_TURNOVER", scheduledDate: "", startTime: "10:00", dueTime: "15:00",
   endTime: "", estimatedHours: "", notes: "", internalNotes: "", tagsText: "", attachments: [],
+  siteName: "", siteAddress: "", siteSuburb: "", siteState: "NSW", sitePostcode: "",
+  siteContactName: "", siteContactPhone: "", serviceAreaSqm: "", floorCount: "",
+  siteBedrooms: "", siteBathrooms: "", siteHasBalcony: false,
+  scopeOfWork: "", accessInstructions: "", parkingInstructions: "", hazardNotes: "", equipmentNotes: "",
   isDraft: false, earlyCheckin: emptyRule(), lateCheckout: emptyRule(),
 });
 
@@ -125,6 +139,7 @@ function parseBulkScheduleLines(input: string) {
 export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }) {
   const router = useRouter();
   const [properties, setProperties] = useState<PropertyWithDefaults[]>([]);
+  const [clients, setClients] = useState<ClientOption[]>([]);
   const [cleaners, setCleaners] = useState<CleanerOption[]>([]);
   const [jobTemplates, setJobTemplates] = useState<JobTemplateOption[]>([]);
   const [templateToApply, setTemplateToApply] = useState("");
@@ -144,6 +159,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
 
   useEffect(() => {
     fetch("/api/admin/properties", { cache: "no-store" }).then((r) => r.json()).then((data) => setProperties(Array.isArray(data) ? data.map((p: any) => ({ id: p.id, name: p.name, suburb: p.suburb, defaultCleanDurationHours: typeof p?.accessInfo?.defaultCleanDurationHours === "number" ? p.accessInfo.defaultCleanDurationHours : 3 })) : []));
+    fetch("/api/admin/clients", { cache: "no-store" }).then((r) => r.json()).then((data) => setClients(Array.isArray(data) ? data.map((c: any) => ({ id: c.id, name: c.name })) : []));
     fetch(`/api/admin/users?role=CLEANER&includeInactive=1&t=${Date.now()}`, { cache: "no-store" }).then((r) => r.json()).then((data) => setCleaners(Array.isArray(data) ? data : []));
     fetch("/api/admin/job-templates", { cache: "no-store" }).then((r) => r.json()).then((data) => setJobTemplates(Array.isArray(data) ? data : []));
   }, []);
@@ -163,6 +179,23 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
     }));
   }, [form.propertyId, properties]);
 
+  useEffect(() => {
+    if (form.jobType === AIRBNB_JOB_TYPE) {
+      setForm((prev) => ({
+        ...prev,
+        siteMode: "existing_property",
+      }));
+      return;
+    }
+    if (form.earlyCheckin.enabled || form.lateCheckout.enabled) {
+      setForm((prev) => ({
+        ...prev,
+        earlyCheckin: emptyRule(),
+        lateCheckout: emptyRule(),
+      }));
+    }
+  }, [form.jobType, form.earlyCheckin.enabled, form.lateCheckout.enabled]);
+
   const cleanerOptions = useMemo(() => cleaners.map((c) => ({
     id: c.id,
     label: c.name ?? c.email ?? c.id,
@@ -170,7 +203,10 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
     disabled: c.isActive === false,
   })), [cleaners]);
   const propertyOptions = useMemo(() => properties.map((p) => ({ id: p.id, label: `${p.name} (${p.suburb})` })), [properties]);
+  const clientOptions = useMemo(() => clients.map((c) => ({ id: c.id, label: c.name })), [clients]);
   const parsedBulkLines = useMemo(() => parseBulkScheduleLines(bulkDatesText), [bulkDatesText]);
+  const isAirbnbTurnover = form.jobType === AIRBNB_JOB_TYPE;
+  const usesExistingProperty = isAirbnbTurnover || form.siteMode === "existing_property";
 
   function setRule(kind: "earlyCheckin" | "lateCheckout", preset: JobTimingPreset) {
     setForm((prev) => {
@@ -217,7 +253,11 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
       const payload = {
         name, jobType: form.jobType, startTime: form.startTime || emptyValue, dueTime: form.dueTime || emptyValue, endTime: form.endTime || emptyValue,
         estimatedHours: form.estimatedHours ? Number(form.estimatedHours) : emptyValue, notes: form.notes || emptyValue, internalNotes: form.internalNotes || emptyValue,
-        isDraft: form.isDraft, tags: parseTags(form.tagsText), attachments: form.attachments, earlyCheckin: apiRule(form.earlyCheckin), lateCheckout: apiRule(form.lateCheckout),
+        isDraft: form.isDraft,
+        tags: parseTags(form.tagsText),
+        attachments: form.attachments,
+        earlyCheckin: form.jobType === AIRBNB_JOB_TYPE ? apiRule(form.earlyCheckin) : { enabled: false, preset: "none" as const },
+        lateCheckout: form.jobType === AIRBNB_JOB_TYPE ? apiRule(form.lateCheckout) : { enabled: false, preset: "none" as const },
       };
       const res = await fetch(mode === "new" ? "/api/admin/job-templates" : `/api/admin/job-templates/${id}`, {
         method: mode === "new" ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -260,7 +300,13 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
   }
 
   function buildPlan() {
-    const propertyIds = bulkPropertyIds.length > 0 ? bulkPropertyIds : form.propertyId ? [form.propertyId] : [];
+    const propertyIds = usesExistingProperty
+      ? bulkPropertyIds.length > 0
+        ? bulkPropertyIds
+        : form.propertyId
+          ? [form.propertyId]
+          : []
+      : ["__service_site__"];
     const lines = parsedBulkLines.valid.length > 0 ? parsedBulkLines.valid : form.scheduledDate ? [{ scheduledDate: form.scheduledDate }] : [];
     return propertyIds.flatMap((propertyId) =>
       lines.map((line) => ({
@@ -275,7 +321,12 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
 
   async function submitJobs(asDraft: boolean) {
     const plan = buildPlan();
-    if (plan.length === 0) return toast({ title: "Choose at least one property and date.", variant: "destructive" });
+    if (plan.length === 0) {
+      return toast({
+        title: usesExistingProperty ? "Choose at least one property and date." : "Add at least one date for this service site job.",
+        variant: "destructive",
+      });
+    }
     if (plan.some((item) => !isValidDate(item.scheduledDate))) return toast({ title: "One or more dates are invalid.", variant: "destructive" });
     if (parsedBulkLines.invalid.length > 0) {
       return toast({
@@ -283,6 +334,14 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
         description: "Use YYYY-MM-DD or YYYY-MM-DD HH:mm HH:mm [HH:mm].",
         variant: "destructive",
       });
+    }
+    if (usesExistingProperty && !isAirbnbTurnover && !form.propertyId && bulkPropertyIds.length === 0) {
+      return toast({ title: "Select an existing property or switch to Service site.", variant: "destructive" });
+    }
+    if (!usesExistingProperty) {
+      if (!form.siteName.trim() || !form.siteAddress.trim() || !form.siteSuburb.trim()) {
+        return toast({ title: "Service site name, address, and suburb are required.", variant: "destructive" });
+      }
     }
     if ((form.earlyCheckin.enabled && form.earlyCheckin.preset === "custom" && !form.earlyCheckin.time) || (form.lateCheckout.enabled && form.lateCheckout.preset === "custom" && !form.lateCheckout.time)) {
       return toast({ title: "Custom turnaround times are required.", variant: "destructive" });
@@ -303,10 +362,49 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           throw new Error(`Due time must be after start time for ${item.scheduledDate}.`);
         }
         const payload = {
-          propertyId: item.propertyId, jobType: form.jobType, scheduledDate: `${item.scheduledDate}T00:00:00.000Z`,
+          propertyId: usesExistingProperty ? item.propertyId : undefined,
+          clientId: !usesExistingProperty && form.clientId ? form.clientId : undefined,
+          jobType: form.jobType, scheduledDate: `${item.scheduledDate}T00:00:00.000Z`,
           startTime, dueTime, endTime,
           estimatedHours: useBulkAllocatedHours ? bulkEstimatedHours : defaultEstimatedHours, notes: form.notes || undefined, internalNotes: form.internalNotes || undefined,
-          isDraft: asDraft, tags: parseTags(form.tagsText), attachments: form.attachments, earlyCheckin: apiRule(form.earlyCheckin), lateCheckout: apiRule(form.lateCheckout),
+          isDraft: asDraft, tags: parseTags(form.tagsText), attachments: form.attachments,
+          earlyCheckin: isAirbnbTurnover ? apiRule(form.earlyCheckin) : undefined,
+          lateCheckout: isAirbnbTurnover ? apiRule(form.lateCheckout) : undefined,
+          serviceSite: !usesExistingProperty
+            ? {
+                name: form.siteName.trim(),
+                address: form.siteAddress.trim(),
+                suburb: form.siteSuburb.trim(),
+                state: form.siteState.trim() || "NSW",
+                postcode: form.sitePostcode.trim() || undefined,
+                bedrooms: form.siteBedrooms ? Number(form.siteBedrooms) : undefined,
+                bathrooms: form.siteBathrooms ? Number(form.siteBathrooms) : undefined,
+                hasBalcony: form.siteHasBalcony,
+              }
+            : undefined,
+          serviceContext:
+            !isAirbnbTurnover ||
+            form.scopeOfWork ||
+            form.accessInstructions ||
+            form.parkingInstructions ||
+            form.hazardNotes ||
+            form.equipmentNotes ||
+            form.siteContactName ||
+            form.siteContactPhone ||
+            form.serviceAreaSqm ||
+            form.floorCount
+              ? {
+                  scopeOfWork: form.scopeOfWork.trim() || undefined,
+                  accessInstructions: form.accessInstructions.trim() || undefined,
+                  parkingInstructions: form.parkingInstructions.trim() || undefined,
+                  hazardNotes: form.hazardNotes.trim() || undefined,
+                  equipmentNotes: form.equipmentNotes.trim() || undefined,
+                  siteContactName: form.siteContactName.trim() || undefined,
+                  siteContactPhone: form.siteContactPhone.trim() || undefined,
+                  serviceAreaSqm: form.serviceAreaSqm ? Number(form.serviceAreaSqm) : undefined,
+                  floorCount: form.floorCount ? Number(form.floorCount) : undefined,
+                }
+              : undefined,
         };
         const createRes = await fetch("/api/admin/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const createdJob = await createRes.json().catch(() => ({}));
@@ -364,13 +462,127 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           <Card>
             <CardHeader><CardTitle className="text-base">Job Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1.5"><Label>Property</Label><Select value={form.propertyId} onValueChange={(value) => setForm((prev) => ({ ...prev, propertyId: value }))}><SelectTrigger><SelectValue placeholder="Select property" /></SelectTrigger><SelectContent>{properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.suburb})</SelectItem>)}</SelectContent></Select></div>
-                <div className="space-y-1.5"><Label>Job Type</Label><Select value={form.jobType} onValueChange={(value: (typeof JOB_TYPES)[number]) => setForm((prev) => ({ ...prev, jobType: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{JOB_TYPES.map((jobType) => <SelectItem key={jobType} value={jobType}>{jobType.replace(/_/g, " ")}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5">
+                <Label>Job Type</Label>
+                <Select value={form.jobType} onValueChange={(value: (typeof JOB_TYPES)[number]) => setForm((prev) => ({ ...prev, jobType: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{JOB_TYPES.map((jobType) => <SelectItem key={jobType} value={jobType}>{jobType.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Cleaner forms resolve by job type first, then any property-specific override configured on the property.</p>
               </div>
+
+              {isAirbnbTurnover ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Property</Label>
+                    <Select value={form.propertyId} onValueChange={(value) => setForm((prev) => ({ ...prev, propertyId: value }))}>
+                      <SelectTrigger><SelectValue placeholder="Select property" /></SelectTrigger>
+                      <SelectContent>{properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.suburb})</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-border/70 p-3">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="radio" name="site-mode" checked={form.siteMode === "existing_property"} onChange={() => setForm((prev) => ({ ...prev, siteMode: "existing_property" }))} />
+                        Use existing property
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="radio" name="site-mode" checked={form.siteMode === "service_site"} onChange={() => setForm((prev) => ({ ...prev, siteMode: "service_site", propertyId: "" }))} />
+                        Create service site for this job
+                      </label>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">{NON_AIRBNB_RESEARCH_FIELDS_NOTE}</p>
+                  </div>
+
+                  {usesExistingProperty ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Property</Label>
+                        <Select value={form.propertyId} onValueChange={(value) => setForm((prev) => ({ ...prev, propertyId: value }))}>
+                          <SelectTrigger><SelectValue placeholder="Select property" /></SelectTrigger>
+                          <SelectContent>{properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.suburb})</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 rounded-lg border border-border/70 p-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label>Client (optional)</Label>
+                          <Select value={form.clientId || "__none__"} onValueChange={(value) => setForm((prev) => ({ ...prev, clientId: value === "__none__" ? "" : value }))}>
+                            <SelectTrigger><SelectValue placeholder="No linked client" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">No linked client</SelectItem>
+                              {clientOptions.map((client) => <SelectItem key={client.id} value={client.id}>{client.label}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Site Name</Label>
+                          <Input value={form.siteName} onChange={(e) => setForm((prev) => ({ ...prev, siteName: e.target.value }))} placeholder="Example: Bondi Gym - Level 2" />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Service Address</Label>
+                        <GoogleAddressInput
+                          value={form.siteAddress}
+                          onChange={(value) => setForm((prev) => ({ ...prev, siteAddress: value }))}
+                          onResolved={(parts) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              siteAddress: parts.address || prev.siteAddress,
+                              siteSuburb: parts.suburb || prev.siteSuburb,
+                              siteState: parts.state || prev.siteState,
+                              sitePostcode: parts.postcode || prev.sitePostcode,
+                            }))
+                          }
+                          placeholder="Start typing the address"
+                        />
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-1.5"><Label>Suburb</Label><Input value={form.siteSuburb} onChange={(e) => setForm((prev) => ({ ...prev, siteSuburb: e.target.value }))} /></div>
+                        <div className="space-y-1.5"><Label>State</Label><Input value={form.siteState} onChange={(e) => setForm((prev) => ({ ...prev, siteState: e.target.value }))} /></div>
+                        <div className="space-y-1.5"><Label>Postcode</Label><Input value={form.sitePostcode} onChange={(e) => setForm((prev) => ({ ...prev, sitePostcode: e.target.value }))} /></div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-4">
+                        <div className="space-y-1.5"><Label>Bedrooms</Label><Input type="number" min="0" value={form.siteBedrooms} onChange={(e) => setForm((prev) => ({ ...prev, siteBedrooms: e.target.value }))} placeholder="0" /></div>
+                        <div className="space-y-1.5"><Label>Bathrooms</Label><Input type="number" min="0" value={form.siteBathrooms} onChange={(e) => setForm((prev) => ({ ...prev, siteBathrooms: e.target.value }))} placeholder="0" /></div>
+                        <div className="space-y-1.5"><Label>Floors / Levels</Label><Input type="number" min="1" value={form.floorCount} onChange={(e) => setForm((prev) => ({ ...prev, floorCount: e.target.value }))} placeholder="1" /></div>
+                        <div className="space-y-1.5"><Label>Service Area (sqm)</Label><Input type="number" min="0" step="0.5" value={form.serviceAreaSqm} onChange={(e) => setForm((prev) => ({ ...prev, serviceAreaSqm: e.target.value }))} placeholder="120" /></div>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={form.siteHasBalcony} onChange={(e) => setForm((prev) => ({ ...prev, siteHasBalcony: e.target.checked }))} />
+                        Site has balcony / external area
+                      </label>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {!isAirbnbTurnover ? (
+                <div className="space-y-4 rounded-lg border border-border/70 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5"><Label>On-site Contact Name</Label><Input value={form.siteContactName} onChange={(e) => setForm((prev) => ({ ...prev, siteContactName: e.target.value }))} placeholder="Building manager / owner / tenant" /></div>
+                    <div className="space-y-1.5"><Label>On-site Contact Phone</Label><Input value={form.siteContactPhone} onChange={(e) => setForm((prev) => ({ ...prev, siteContactPhone: e.target.value }))} placeholder="0412 345 678" /></div>
+                  </div>
+                  <div className="space-y-1.5"><Label>Scope of Work</Label><Textarea value={form.scopeOfWork} onChange={(e) => setForm((prev) => ({ ...prev, scopeOfWork: e.target.value }))} placeholder="Rooms, surfaces, add-ons, completion standard, keys to collect, or commercial scope notes." /></div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5"><Label>Access Instructions</Label><Textarea value={form.accessInstructions} onChange={(e) => setForm((prev) => ({ ...prev, accessInstructions: e.target.value }))} placeholder="Reception sign-in, alarm, lift, inductions, key handover." /></div>
+                    <div className="space-y-1.5"><Label>Parking / Arrival Notes</Label><Textarea value={form.parkingInstructions} onChange={(e) => setForm((prev) => ({ ...prev, parkingInstructions: e.target.value }))} placeholder="Loading zone, visitor parking, gate code, trolley access." /></div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5"><Label>Hazards / Safety Notes</Label><Textarea value={form.hazardNotes} onChange={(e) => setForm((prev) => ({ ...prev, hazardNotes: e.target.value }))} placeholder="Pets, sharps, mould, restricted areas, chemicals, ladder work." /></div>
+                    <div className="space-y-1.5"><Label>Equipment / Utilities Notes</Label><Textarea value={form.equipmentNotes} onChange={(e) => setForm((prev) => ({ ...prev, equipmentNotes: e.target.value }))} placeholder="Water and power access, onsite equipment, consumables, pressure washer connection." /></div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5"><Label>Scheduled Date</Label><Input type="date" value={form.scheduledDate} onChange={(e) => setForm((prev) => ({ ...prev, scheduledDate: e.target.value }))} /></div>
-                <div className="space-y-1.5"><Label>Fixed / Allocated Pay Hours</Label><Input type="number" step="0.25" min="0" value={form.estimatedHours} onChange={(e) => setForm((prev) => ({ ...prev, estimatedHours: e.target.value }))} /><p className="text-xs text-muted-foreground">When set, cleaner pay uses these hours (split across assignees).</p></div>
+                <div className="space-y-1.5"><Label>Fixed / Allocated Pay Hours</Label><Input type="number" step="0.25" min="0" value={form.estimatedHours} onChange={(e) => setForm((prev) => ({ ...prev, estimatedHours: e.target.value }))} /><p className="text-xs text-muted-foreground">{usesExistingProperty && form.propertyId ? "Prefilled from the property's default clean duration when selected. " : ""}When set, cleaner pay uses these hours (split across assignees).</p></div>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-1.5"><Label>Start Time</Label><Input type="time" value={form.startTime} onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))} /></div>
@@ -381,6 +593,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
             </CardContent>
           </Card>
 
+          {isAirbnbTurnover ? (
           <Card>
             <CardHeader><CardTitle className="text-base">Turnaround Flags</CardTitle></CardHeader>
             <CardContent className="space-y-4">
@@ -455,6 +668,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               </div>
             </CardContent>
           </Card>
+          ) : null}
 
           <Card>
             <CardHeader><CardTitle className="text-base">Notes, Tags, Files</CardTitle></CardHeader>
@@ -471,7 +685,13 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           <Card className="relative z-20">
             <CardHeader><CardTitle className="text-base">Bulk Create</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-1.5"><Label>Bulk properties</Label><MultiSelectDropdown options={propertyOptions} selected={bulkPropertyIds} onChange={setBulkPropertyIds} placeholder="Use single property above" emptyText="No properties." /></div>
+              {usesExistingProperty ? (
+                <div className="space-y-1.5"><Label>Bulk properties</Label><MultiSelectDropdown options={propertyOptions} selected={bulkPropertyIds} onChange={setBulkPropertyIds} placeholder="Use single property above" emptyText="No properties." /></div>
+              ) : (
+                <div className="rounded-lg border border-border/70 p-3 text-xs text-muted-foreground">
+                  Service-site jobs can create multiple dates here. The same service site details above will be reused for each planned job.
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Bulk schedule lines</Label>
                 <Textarea value={bulkDatesText} onChange={(e) => setBulkDatesText(e.target.value)} placeholder={"2026-03-05\n2026-03-06 10:00 15:00\n2026-03-07 12:30 16:30 17:00"} />
@@ -497,20 +717,22 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                     disabled={!useBulkAllocatedHours}
                     placeholder="2"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setUseBulkAllocatedHours(true);
-                      setBulkAllocatedHours("2");
-                      setForm((prev) => ({ ...prev, jobType: "AIRBNB_TURNOVER" }));
-                    }}
-                  >
-                    Airbnb 2h preset
-                  </Button>
+                  {isAirbnbTurnover ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setUseBulkAllocatedHours(true);
+                        setBulkAllocatedHours("2");
+                        setForm((prev) => ({ ...prev, jobType: AIRBNB_JOB_TYPE }));
+                      }}
+                    >
+                      Airbnb 2h preset
+                    </Button>
+                  ) : null}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{plannedCount === 0 ? "Choose a property and date." : plannedCount === 1 ? "One job will be created." : `${plannedCount} jobs will be created.`}</p>
+              <p className="text-xs text-muted-foreground">{plannedCount === 0 ? (usesExistingProperty ? "Choose a property and date." : "Choose at least one date.") : plannedCount === 1 ? "One job will be created." : `${plannedCount} jobs will be created.`}</p>
             </CardContent>
           </Card>
 

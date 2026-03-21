@@ -1,6 +1,7 @@
 import { JobType, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAppSettings } from "@/lib/settings";
 
 const RECURRING_RULES_KEY = "recurring_job_rules_v1";
@@ -223,8 +224,10 @@ export async function generateRecurringJobs(input: {
         internalNoteText: rule.notes ?? "",
         tags: [`recurring:${rule.id}`, `recurring-name:${rule.name}`],
       });
+      const jobNumber = await reserveJobNumber(db);
       const createdJob = await db.job.create({
         data: {
+          jobNumber,
           propertyId: rule.propertyId,
           jobType: rule.jobType,
           status: "UNASSIGNED",

@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
@@ -9,16 +8,7 @@ import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { resolveAppUrl } from "@/lib/app-url";
-
-function generateTempPassword(length = 12) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  const bytes = randomBytes(length);
-  let out = "";
-  for (let i = 0; i < length; i += 1) {
-    out += alphabet[bytes[i] % alphabet.length];
-  }
-  return out;
-}
+import { generateTempPassword } from "@/lib/auth/temp-password";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Role, JobStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -101,8 +102,10 @@ export async function POST(
               internalNoteText: `Auto-generated rework for job ${job.id}.`,
               tags: ["auto-rework", reworkTag],
             });
+            const jobNumber = await reserveJobNumber(tx);
             await tx.job.create({
               data: {
+                jobNumber,
                 propertyId: job.propertyId,
                 jobType: job.jobType,
                 status: JobStatus.UNASSIGNED,

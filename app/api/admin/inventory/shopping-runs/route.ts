@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { listShoppingRunsForAdmin } from "@/lib/inventory/shopping-runs";
+import { listShoppingRunsForAdminDetailed } from "@/lib/inventory/shopping-runs";
 
 export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const runs = await listShoppingRunsForAdmin();
+    const runs = await listShoppingRunsForAdminDetailed();
     return NextResponse.json(runs);
   } catch (err: any) {
     const status =

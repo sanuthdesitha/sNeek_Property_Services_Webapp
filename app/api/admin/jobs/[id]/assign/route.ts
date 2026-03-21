@@ -10,6 +10,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveNotificationRuleRecipients } from "@/lib/phase4/notification-rules";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { resolveAppUrl } from "@/lib/app-url";
+import { getJobReference } from "@/lib/jobs/job-number";
 
 export async function POST(
   req: NextRequest,
@@ -22,6 +23,7 @@ export async function POST(
       where: { id: params.id },
       select: {
         id: true,
+        jobNumber: true,
         status: true,
         jobType: true,
         scheduledDate: true,
@@ -119,6 +121,7 @@ export async function POST(
     }
 
     const jobLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
+    const jobReference = getJobReference(job);
     const when = `${job.scheduledDate.toISOString().slice(0, 10)}${job.startTime ? ` ${job.startTime}` : ""}${job.dueTime ? ` - ${job.dueTime}` : ""}`;
     const timingHighlights = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes));
     const timingText = timingHighlights.length > 0 ? timingHighlights.join(" | ") : "Standard schedule";
@@ -128,11 +131,11 @@ export async function POST(
     for (const [userId, user] of Array.from(targetUsers.entries())) {
       const stillAssigned = currentAssignedIds.has(userId);
       const subject = stillAssigned
-        ? `${companyName}: Job assignment updated`
-        : `${companyName}: Job removed from your schedule`;
+        ? `${companyName}: Job assignment updated (${jobReference})`
+        : `${companyName}: Job removed from your schedule (${jobReference})`;
       const bodyText = stillAssigned
-        ? `You have been assigned to ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
-        : `You have been removed from ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`;
+        ? `${jobReference}: You have been assigned to ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
+        : `${jobReference}: You have been removed from ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`;
       const jobUrl = resolveAppUrl(`/cleaner/jobs/${job.id}`, req);
 
       await db.notification.create({
@@ -159,6 +162,7 @@ export async function POST(
             userName: user.name ?? user.email,
             jobType: job.jobType.replace(/_/g, " "),
             propertyName: jobLabel,
+            jobNumber: jobReference,
             when,
             jobUrl,
             timingFlags: timingText,
@@ -187,7 +191,7 @@ export async function POST(
       if (user.phone && /^\+\d{8,15}$/.test(user.phone)) {
         const smsOk = await sendSms(
           user.phone,
-          `${companyName}: ${stillAssigned ? "Assigned" : "Removed"} ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
+          `${companyName}: ${jobReference} ${stillAssigned ? "Assigned" : "Removed"} ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
         );
 
         await db.notification.create({
@@ -223,7 +227,7 @@ export async function POST(
             jobId: job.id,
             channel: NotificationChannel.PUSH,
             subject: `${companyName}: Rule alert`,
-            body: `${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`,
+            body: `${jobReference}: ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),

@@ -12,7 +12,8 @@ import { compressVideoToMp4 } from "@/lib/media/video-compression";
 export const runtime = "nodejs";
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20MB
-const MAX_VIDEO_BYTES = Number(process.env.VIDEO_MAX_UPLOAD_MB ?? 300) * 1024 * 1024;
+const MAX_VIDEO_BYTES = Number(process.env.VIDEO_MAX_UPLOAD_MB ?? 150) * 1024 * 1024;
+const MAX_STORED_VIDEO_BYTES = Number(process.env.VIDEO_MAX_STORED_MB ?? 25) * 1024 * 1024;
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".3gp", ".mpeg", ".mpg"]);
 
 function isVideoUpload(file: File): boolean {
@@ -74,18 +75,39 @@ export async function POST(req: NextRequest) {
       let compressed = false;
       try {
         await writeUploadedFileToPath(file, inputPath);
+        const inStat = await fs.stat(inputPath);
 
         try {
           await compressVideoToMp4(inputPath, outputPath);
-          const outStat = await fs.stat(outputPath);
-          const inStat = await fs.stat(inputPath);
-          compressed = outStat.size > 0 && outStat.size <= inStat.size * 1.05;
+          let outStat = await fs.stat(outputPath);
+
+          if (outStat.size > MAX_STORED_VIDEO_BYTES) {
+            await compressVideoToMp4(inputPath, outputPath, {
+              maxDimension: 854,
+              crf: 36,
+              maxRateKbps: 650,
+              bufferKbps: 1300,
+              audioBitrateKbps: 48,
+            });
+            outStat = await fs.stat(outputPath);
+          }
+
+          compressed = outStat.size > 0 && outStat.size < inStat.size;
         } catch {
           compressed = false;
         }
 
         const finalPath = compressed ? outputPath : inputPath;
         const finalStat = await fs.stat(finalPath);
+        if (finalStat.size > MAX_STORED_VIDEO_BYTES) {
+          const limitMb = Math.floor(MAX_STORED_VIDEO_BYTES / (1024 * 1024));
+          return NextResponse.json(
+            {
+              error: `Compressed video is still too large. Keep uploads under ${limitMb}MB after compression or trim the clip before uploading.`,
+            },
+            { status: 400 }
+          );
+        }
         const key = `${folder}/${session.user.id}/${randomUUID()}.${compressed ? "mp4" : ext.replace(/^\./, "")}`;
 
         await s3

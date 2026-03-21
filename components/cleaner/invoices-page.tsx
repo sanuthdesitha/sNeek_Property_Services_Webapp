@@ -34,6 +34,16 @@ interface InvoicePreview {
   hours: number;
   estimatedPay: number;
   rows: InvoiceRow[];
+  expenseRows?: Array<{
+    runId: string;
+    date: string;
+    runName: string;
+    properties: string;
+    amount: number;
+    paymentMethod: string;
+    note?: string;
+  }>;
+  expenseTotal?: number;
   pendingAdjustmentCount?: number;
   pendingAdjustmentAmount?: number;
 }
@@ -257,6 +267,11 @@ export function CleanerInvoicesPage() {
                   <Badge variant="secondary">Paid Hours: {Number(invoicePreview.hours ?? 0).toFixed(2)}</Badge>
                   <Badge variant="secondary">Estimated Pay: {money(invoicePreview.estimatedPay)}</Badge>
                   <Badge variant="secondary">Jobs: {invoicePreview.rows.length}</Badge>
+                  {Number(invoicePreview.expenseTotal ?? 0) > 0 ? (
+                    <Badge variant="secondary">
+                      Shopping reimbursements: {money(invoicePreview.expenseTotal)}
+                    </Badge>
+                  ) : null}
                   {Number(invoicePreview.pendingAdjustmentCount ?? 0) > 0 ? (
                     <Badge variant="warning">
                       Pending approvals: {Number(invoicePreview.pendingAdjustmentCount ?? 0)} ({money(invoicePreview.pendingAdjustmentAmount)})
@@ -270,6 +285,15 @@ export function CleanerInvoicesPage() {
                 ) : null}
 
                 <div className="max-h-[60vh] space-y-2 overflow-auto">
+                  {(invoicePreview.expenseRows ?? []).map((row) => (
+                    <div key={row.runId} className="rounded border border-emerald-200 bg-emerald-50/60 p-2">
+                      <p className="text-xs font-medium">Shopping reimbursement - {row.runName}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {row.date} | {row.properties} | {row.paymentMethod} | Total: {money(row.amount)}
+                      </p>
+                      {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
+                    </div>
+                  ))}
                   {payableJobs.map((row) => (
                     <div key={row.jobId} className="rounded border p-2">
                       <p className="text-xs font-medium">{row.jobName} - {row.jobType}</p>

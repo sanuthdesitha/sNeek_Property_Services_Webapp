@@ -10,6 +10,9 @@ import { sendSms } from "@/lib/notifications/sms";
 import { ensureLaundryTaskForJob } from "@/lib/laundry/planner";
 import { resolveAppUrl } from "@/lib/app-url";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { getAppSettings } from "@/lib/settings";
+import { renderEmailTemplate } from "@/lib/email-templates";
+import { getJobReference } from "@/lib/jobs/job-number";
 import {
   JobStatus,
   LaundryStatus,
@@ -18,6 +21,8 @@ import {
   NotificationStatus,
   Role,
 } from "@prisma/client";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 
 function extractUploads(data: Record<string, unknown>): Record<string, string[]> {
   const uploads = (data as { uploads?: unknown }).uploads;
@@ -106,28 +111,45 @@ function requiredUploadFieldIds(
 async function notifyLaundryPartners(params: {
   propertyName: string;
   jobId: string;
+  jobNumber: string;
+  cleanDate: Date;
   bagLocation: string;
   laundryPhotoUrl: string;
   portalUrl: string;
 }) {
+  const settings = await getAppSettings();
   const laundryUsers = await db.user.findMany({
     where: { role: Role.LAUNDRY, isActive: true },
     select: { id: true, name: true, email: true, phone: true },
+  });
+  const cleanDateLabel = format(
+    toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
+    "EEEE, dd MMMM yyyy"
+  );
+  const emailTemplate = renderEmailTemplate(settings, "laundryReady", {
+    propertyName: params.propertyName,
+    jobNumber: params.jobNumber,
+    cleanDate: cleanDateLabel,
+    bagLocation: params.bagLocation,
+    laundryPhotoUrl: params.laundryPhotoUrl,
+    portalUrl: params.portalUrl,
+    actionUrl: params.portalUrl,
+    actionLabel: "Open laundry portal",
   });
 
   for (const user of laundryUsers) {
     if (user.email) {
       await sendEmail({
         to: user.email,
-        subject: `Laundry ready: ${params.propertyName}`,
-        html: `<p>Laundry is ready for pickup.</p><p><strong>Property:</strong> ${params.propertyName}</p><p><strong>Bag location:</strong> ${params.bagLocation}</p><p><a href="${params.laundryPhotoUrl}">Laundry photo</a></p><p><a href="${params.portalUrl}">Open Laundry Portal</a></p>`,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
       });
     }
 
     if (user.phone) {
       await sendSms(
         user.phone,
-        `Laundry ready for ${params.propertyName}. Location: ${params.bagLocation}.`
+        `${params.jobNumber}: Laundry ready for ${params.propertyName} on ${cleanDateLabel}. Location: ${params.bagLocation}.`
       );
     }
 
@@ -136,8 +158,8 @@ async function notifyLaundryPartners(params: {
         userId: user.id,
         jobId: params.jobId,
         channel: NotificationChannel.EMAIL,
-        subject: "Laundry ready",
-        body: `Laundry ready for ${params.propertyName} at ${params.bagLocation}`,
+        subject: `Laundry ready - ${params.jobNumber}`,
+        body: `${params.jobNumber} ready for pickup at ${params.propertyName} on ${cleanDateLabel}. Location: ${params.bagLocation}`,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },
@@ -145,7 +167,7 @@ async function notifyLaundryPartners(params: {
   }
 }
 
-async function alertAdminsLaundryNotReady(jobId: string, propertyName: string) {
+async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, jobNumber: string) {
   const adminUsers = await db.user.findMany({
     where: { role: Role.ADMIN, isActive: true },
     select: { id: true },
@@ -157,8 +179,8 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string) {
         userId: admin.id,
         jobId,
         channel: NotificationChannel.EMAIL,
-        subject: "Laundry not ready",
-        body: `Cleaner submitted job for ${propertyName} with laundry_ready=NO. Laundry partner was not notified.`,
+        subject: `Laundry not ready - ${jobNumber}`,
+        body: `${jobNumber}: Cleaner submitted job for ${propertyName} with laundry_ready=NO. Laundry partner was not notified.`,
         status: NotificationStatus.PENDING,
       },
     });
@@ -372,6 +394,8 @@ export async function POST(
           await notifyLaundryPartners({
             propertyName: job.property.name,
             jobId: job.id,
+            jobNumber: getJobReference(job),
+            cleanDate: job.scheduledDate,
             bagLocation: bagLocation!,
             laundryPhotoUrl,
             portalUrl: resolveAppUrl("/laundry", req),
@@ -394,7 +418,7 @@ export async function POST(
             },
           });
 
-          await alertAdminsLaundryNotReady(job.id, job.property.name);
+          await alertAdminsLaundryNotReady(job.id, job.property.name, getJobReference(job));
         }
       }
     }

@@ -169,6 +169,7 @@ async function seedDemoData() {
     where: { id: "demo-job-001" },
     create: {
       id: "demo-job-001",
+      jobNumber: "JOB-000001",
       propertyId: property.id,
       jobType: JobType.AIRBNB_TURNOVER,
       status: JobStatus.ASSIGNED,

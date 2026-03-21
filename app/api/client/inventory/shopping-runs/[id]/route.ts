@@ -9,9 +9,36 @@ import {
   deleteShoppingRunForOwner,
   getShoppingRunForOwner,
   saveShoppingRunForOwner,
+  type ShoppingRunAttachment,
+  type ShoppingRunPayment,
   type ShoppingRunRow,
   type ShoppingRunStatus,
 } from "@/lib/inventory/shopping-runs";
+
+const attachmentSchema = z.object({
+  key: z.string().min(1),
+  url: z.string().url(),
+  name: z.string().min(1).max(160),
+  mimeType: z.string().max(120).optional().nullable(),
+  sizeBytes: z.number().nonnegative().optional().nullable(),
+});
+
+const paymentSchema = z.object({
+  method: z.enum([
+    "COMPANY_CARD",
+    "CLIENT_CARD",
+    "CLEANER_PERSONAL_CARD",
+    "ADMIN_PERSONAL_CARD",
+    "CASH",
+    "BANK_TRANSFER",
+    "OTHER",
+  ]),
+  paidByScope: z.enum(["COMPANY", "CLIENT", "CLEANER", "ADMIN", "OTHER"]),
+  paidByUserId: z.string().optional().nullable(),
+  paidByName: z.string().max(160).optional().nullable(),
+  note: z.string().max(1000).optional().nullable(),
+  receipts: z.array(attachmentSchema).max(40).optional().default([]),
+});
 
 const patchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -35,6 +62,10 @@ const patchSchema = z.object({
         plannedQty: z.number().min(0),
         include: z.boolean(),
         purchased: z.boolean(),
+        actualPurchasedQty: z.number().min(0).optional().default(0),
+        actualUnitCost: z.number().min(0).nullable().optional(),
+        actualLineCost: z.number().min(0).nullable().optional(),
+        checkedAt: z.string().optional().nullable(),
         note: z.string().max(500).optional().nullable(),
         priority: z.enum(["Emergency", "High", "Medium"]).optional(),
         estimatedUnitCost: z.number().min(0).nullable().optional(),
@@ -43,6 +74,10 @@ const patchSchema = z.object({
     )
     .max(5000)
     .optional(),
+  payment: paymentSchema.optional(),
+  startedAt: z.string().optional().nullable(),
+  completedAt: z.string().optional().nullable(),
+  reimbursementNote: z.string().max(1000).optional().nullable(),
 });
 
 async function getClientContext(userId: string) {
@@ -89,10 +124,31 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...row,
       suburb: row.suburb ?? "",
       supplier: row.supplier ?? null,
+      actualPurchasedQty: row.actualPurchasedQty ?? 0,
+      actualUnitCost: row.actualUnitCost ?? null,
+      actualLineCost: row.actualLineCost ?? null,
+      checkedAt: row.checkedAt ?? undefined,
       note: row.note ?? undefined,
       estimatedUnitCost: row.estimatedUnitCost ?? null,
       estimatedLineCost: row.estimatedLineCost ?? null,
     }));
+    const payment: ShoppingRunPayment | undefined = body.payment
+      ? {
+          ...body.payment,
+          paidByUserId: body.payment.paidByUserId ?? null,
+          paidByName: body.payment.paidByName ?? null,
+          note: body.payment.note ?? undefined,
+          receipts: (body.payment.receipts ?? []).map(
+            (attachment): ShoppingRunAttachment => ({
+              key: attachment.key,
+              url: attachment.url,
+              name: attachment.name,
+              mimeType: attachment.mimeType ?? undefined,
+              sizeBytes: attachment.sizeBytes ?? undefined,
+            })
+          ),
+        }
+      : undefined;
     const saved = await saveShoppingRunForOwner({
       id: existing.id,
       name: body.name?.trim() ?? existing.name,
@@ -102,6 +158,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       clientId,
       planningScope: body.planningScope ?? existing.planningScope,
       rows,
+      payment,
+      startedAt: body.startedAt ?? undefined,
+      completedAt: body.completedAt ?? undefined,
+      reimbursementNote: body.reimbursementNote ?? undefined,
     });
     return NextResponse.json(saved);
   } catch (err: any) {

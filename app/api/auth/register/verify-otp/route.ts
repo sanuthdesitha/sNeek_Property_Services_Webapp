@@ -73,6 +73,9 @@ export async function POST(req: NextRequest) {
       const template = renderEmailTemplate(settings, "welcomeAccount", {
         userName: user.name ?? user.email,
         role: user.role.replace(/_/g, " "),
+        email: user.email,
+        tempPassword: "",
+        welcomeNote: "",
         actionUrl: resolveAppUrl("/onboarding", req),
         actionLabel: "Complete onboarding",
       });

@@ -8,6 +8,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
+import { getJobReference } from "@/lib/jobs/job-number";
 
 const createSchema = z.object({
   jobId: z.string().trim().min(1),
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
         job: {
           select: {
             id: true,
+            jobNumber: true,
             jobType: true,
             scheduledDate: true,
             property: { select: { name: true, suburb: true } },
@@ -130,6 +132,7 @@ export async function POST(req: NextRequest) {
         job: {
           select: {
             id: true,
+            jobNumber: true,
             jobType: true,
             scheduledDate: true,
             property: { select: { name: true, suburb: true } },
@@ -142,6 +145,7 @@ export async function POST(req: NextRequest) {
       cleanerName: session.user.name ?? session.user.email,
       propertyName: created.job.property.name,
       jobType: created.job.jobType.replace(/_/g, " "),
+      jobNumber: getJobReference(created.job),
       requestType: created.type,
       requestedAmount: `$${created.requestedAmount.toFixed(2)}`,
       cleanerNote: created.cleanerNote ?? "-",
@@ -166,8 +170,8 @@ export async function POST(req: NextRequest) {
           userId: admin.id,
           jobId: created.job.id,
           channel: NotificationChannel.PUSH,
-          subject: "Cleaner extra pay request",
-          body: `${session.user.name ?? session.user.email} requested ${created.type} extra pay for ${
+          subject: `Cleaner extra pay request (${getJobReference(created.job)})`,
+          body: `${getJobReference(created.job)}: ${session.user.name ?? session.user.email} requested ${created.type} extra pay for ${
             created.job.property.name
           } (${created.requestedAmount.toFixed(2)}).`,
           status: NotificationStatus.SENT,

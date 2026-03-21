@@ -307,6 +307,7 @@ model Reservation {
 
 model Job {
   id              String    @id @default(cuid())
+  jobNumber       String    @unique
   propertyId      String
   reservationId   String?   @unique
   jobType         JobType

@@ -11,6 +11,7 @@ import {
   getCleanerInvoiceData,
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
+import { markCleanerShoppingRunsInvoiced } from "@/lib/inventory/shopping-runs";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -74,6 +75,11 @@ export async function POST(req: NextRequest) {
     if (!emailResult.ok) {
       return NextResponse.json({ error: emailResult.error ?? "Failed to send invoice email." }, { status: 502 });
     }
+
+    await markCleanerShoppingRunsInvoiced({
+      cleanerId: session.user.id,
+      runIds: data.expenseRows.map((row) => row.runId),
+    });
 
     return NextResponse.json({
       ok: true,

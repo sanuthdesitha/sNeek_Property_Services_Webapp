@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { Role, QuoteStatus } from "@prisma/client";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
 
 const schema = z.object({
   propertyId: z.string().min(1),
@@ -26,8 +27,10 @@ export async function POST(
       );
     }
 
+    const jobNumber = await reserveJobNumber(db);
     const job = await db.job.create({
       data: {
+        jobNumber,
         propertyId,
         jobType: quote.serviceType,
         scheduledDate: new Date(scheduledDate),

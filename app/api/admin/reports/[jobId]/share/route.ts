@@ -12,6 +12,7 @@ import { ensureStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { getJobReference } from "@/lib/jobs/job-number";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]).optional(),
@@ -19,12 +20,16 @@ const schema = z.object({
 
 const TZ = "Australia/Sydney";
 
-async function buildReportAttachment(report: { pdfUrl: string | null; htmlContent: string | null }, jobId: string) {
+async function buildReportAttachment(
+  report: { pdfUrl: string | null; htmlContent: string | null },
+  jobId: string,
+  jobNumber: string
+) {
   try {
     const pdf = await getJobReportPdfBuffer(report, jobId);
     if (!pdf) return null;
     return {
-      filename: `job-report-${jobId}.pdf`,
+      filename: `${jobNumber.toLowerCase()}-report.pdf`,
       content: pdf,
       contentType: "application/pdf",
     };
@@ -83,6 +88,7 @@ export async function POST(
     const clientPortalUrl = resolveAppUrl("/client/reports", req);
     const emailTemplate = renderEmailTemplate(settings, "cleaningReportShared", {
       clientName: job.property.client?.name ?? "Client",
+      jobNumber: getJobReference(job),
       propertyName: job.property.name,
       jobType: job.jobType.replace(/_/g, " "),
       cleanDate: format(toZonedTime(job.scheduledDate, TZ), "EEEE, dd MMMM yyyy"),
@@ -91,7 +97,7 @@ export async function POST(
       actionLabel: "Open client portal",
     });
 
-    const attachment = await buildReportAttachment(report, params.jobId);
+    const attachment = await buildReportAttachment(report, params.jobId, getJobReference(job));
     if (!attachment) {
       return NextResponse.json(
         {
@@ -114,7 +120,7 @@ export async function POST(
       data: {
         channel: NotificationChannel.EMAIL,
         subject: emailTemplate.subject,
-        body: `Report ${params.jobId} sent to ${recipients.join(", ")}`,
+        body: `Report ${getJobReference(job)} sent to ${recipients.join(", ")}`,
         status: sent ? NotificationStatus.SENT : NotificationStatus.FAILED,
         sentAt: sent ? new Date() : undefined,
         errorMsg: sent

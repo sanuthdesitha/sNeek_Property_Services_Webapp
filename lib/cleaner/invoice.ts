@@ -2,6 +2,7 @@ import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { listCleanerReimbursableShoppingRuns } from "@/lib/inventory/shopping-runs";
 
 interface InvoiceOptions {
   userId: string;
@@ -41,6 +42,16 @@ export interface CleanerInvoiceData {
     extraRequestNote?: string;
     comment?: string;
   }>;
+  expenseRows: Array<{
+    runId: string;
+    date: string;
+    runName: string;
+    properties: string;
+    amount: number;
+    paymentMethod: string;
+    note?: string;
+  }>;
+  expenseTotal: number;
   pendingAdjustmentCount: number;
   pendingAdjustmentAmount: number;
   companyName: string;
@@ -211,8 +222,24 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
+  const shoppingExpenseRuns = await listCleanerReimbursableShoppingRuns({
+    cleanerId: options.userId,
+    start,
+    end,
+  });
+  const expenseRows = shoppingExpenseRuns.map((run) => ({
+    runId: run.id,
+    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU"),
+    runName: run.name,
+    properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
+    amount: Number(run.totals.actualTotalCost ?? 0),
+    paymentMethod: run.payment.method.replace(/_/g, " "),
+    note: run.reimbursementNote || run.payment.note || undefined,
+  }));
+  const expenseTotal = expenseRows.reduce((sum, row) => sum + row.amount, 0);
+
   const hours = rows.reduce((sum, row) => sum + row.hours, 0);
-  const estimatedPay = rows.reduce((sum, row) => sum + row.amount, 0);
+  const estimatedPay = rows.reduce((sum, row) => sum + row.amount, 0) + expenseTotal;
   const pendingAdjustmentAmount = pendingAdjustments.reduce(
     (sum, row) => sum + Number(row.requestedAmount ?? 0),
     0
@@ -227,6 +254,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     estimatedPay,
     showSpentHours,
     rows,
+    expenseRows,
+    expenseTotal,
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,
@@ -245,6 +274,20 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
   const includeCommentColumn = data.rows.some((row) =>
     Boolean((row.comment && row.comment.trim()) || (row.extraRequestNote && row.extraRequestNote.trim()))
   );
+  const expenseRowsHtml = data.expenseRows
+    .map(
+      (row) => `
+        <tr>
+          <td class="cell">${row.date}</td>
+          <td class="cell">${escapeHtml(row.runName)}</td>
+          <td class="cell">${escapeHtml(row.properties)}</td>
+          <td class="cell">${escapeHtml(row.paymentMethod)}</td>
+          <td class="cell right">${formatCurrency(row.amount)}</td>
+          <td class="cell">${row.note ? escapeHtml(row.note) : "-"}</td>
+        </tr>
+      `
+    )
+    .join("");
   const logoHtml = data.logoUrl
     ? `<img class="logo" src="${escapeHtml(data.logoUrl)}" alt="${escapeHtml(data.companyName)} logo" />`
     : "";
@@ -333,6 +376,10 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <div class="value">${formatCurrency(data.estimatedPay)}</div>
           </div>
           <div class="box">
+            <div class="label">Shopping Reimbursements</div>
+            <div class="value">${formatCurrency(data.expenseTotal)}</div>
+          </div>
+          <div class="box">
             <div class="label">Payable Jobs</div>
             <div class="value">${data.rows.length}</div>
           </div>
@@ -344,6 +391,27 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
 
         <p class="rule">Pay rule: fixed/allocated hours are paid in full and split equally across assigned cleaners. If fixed hours are not set, pay uses the cleaner's clocked timer. Approved extras are added per job.</p>
         ${changedRowsCount > 0 ? `<p class="changed-note">Hours overridden on ${changedRowsCount} row(s). Changed rows are highlighted.</p>` : ""}
+
+        ${
+          data.expenseRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">Shopping reimbursements</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Run</th>
+                    <th>Properties</th>
+                    <th>Paid By</th>
+                    <th class="right">Amount</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>${expenseRowsHtml}</tbody>
+              </table>
+            `
+            : ""
+        }
 
         ${
           data.rows.length > 0

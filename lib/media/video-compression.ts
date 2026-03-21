@@ -6,11 +6,29 @@ export interface CompressVideoResult {
   stderr: string;
 }
 
-export async function compressVideoToMp4(inputPath: string, outputPath: string): Promise<CompressVideoResult> {
+interface CompressVideoOptions {
+  maxDimension?: number;
+  crf?: number;
+  maxRateKbps?: number;
+  bufferKbps?: number;
+  audioBitrateKbps?: number;
+}
+
+export async function compressVideoToMp4(
+  inputPath: string,
+  outputPath: string,
+  options: CompressVideoOptions = {}
+): Promise<CompressVideoResult> {
   const executable = typeof ffmpegPath === "string" ? ffmpegPath : process.env.FFMPEG_PATH;
   if (!executable) {
     throw new Error("FFmpeg executable is not available.");
   }
+
+  const maxDimension = options.maxDimension ?? 960;
+  const crf = options.crf ?? 34;
+  const maxRateKbps = options.maxRateKbps ?? 900;
+  const bufferKbps = options.bufferKbps ?? maxRateKbps * 2;
+  const audioBitrateKbps = options.audioBitrateKbps ?? 64;
 
   const args = [
     "-y",
@@ -21,21 +39,25 @@ export async function compressVideoToMp4(inputPath: string, outputPath: string):
     "-map",
     "0:a?",
     "-vf",
-    "scale='min(1280,iw)':-2",
+    `scale='min(${maxDimension},iw)':-2`,
     "-c:v",
     "libx264",
+    "-pix_fmt",
+    "yuv420p",
     "-preset",
-    "veryfast",
+    "faster",
     "-crf",
-    "30",
+    String(crf),
     "-maxrate",
-    "1500k",
+    `${maxRateKbps}k`,
     "-bufsize",
-    "3000k",
+    `${bufferKbps}k`,
     "-c:a",
     "aac",
     "-b:a",
-    "96k",
+    `${audioBitrateKbps}k`,
+    "-map_metadata",
+    "-1",
     "-movflags",
     "+faststart",
     outputPath,

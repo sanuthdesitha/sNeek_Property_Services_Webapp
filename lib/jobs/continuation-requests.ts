@@ -3,6 +3,7 @@ import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 
@@ -437,8 +438,10 @@ export async function decideContinuationRequest(input: {
   continuationMeta.tags = Array.from(new Set([...(continuationMeta.tags ?? []), `continuation-of:${currentJob.id}`]));
 
   const createdContinuation = await db.$transaction(async (tx) => {
+    const jobNumber = await reserveJobNumber(tx);
     const continuation = await tx.job.create({
       data: {
+        jobNumber,
         propertyId: currentJob.propertyId,
         jobType: currentJob.jobType,
         status: assignedCleanerExists ? JobStatus.ASSIGNED : JobStatus.UNASSIGNED,

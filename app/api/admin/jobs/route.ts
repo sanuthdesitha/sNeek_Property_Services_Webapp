@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { createJobSchema } from "@/lib/validations/job";
 import { Role } from "@prisma/client";
 import { applyJobTimingRules, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
 
 function normalizeRule(
   rule:
@@ -27,6 +29,8 @@ export async function POST(req: NextRequest) {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createJobSchema.parse(await req.json());
     const {
+      propertyId,
+      clientId,
       startTime,
       dueTime,
       internalNotes,
@@ -36,6 +40,8 @@ export async function POST(req: NextRequest) {
       transportAllowances,
       earlyCheckin,
       lateCheckout,
+      serviceSite,
+      serviceContext,
       ...rest
     } = body;
     const normalizedEarlyCheckin = normalizeRule(earlyCheckin) ?? { enabled: false, preset: "none" as const };
@@ -46,9 +52,23 @@ export async function POST(req: NextRequest) {
       earlyCheckin: normalizedEarlyCheckin,
       lateCheckout: normalizedLateCheckout,
     });
+    const jobNumber = await reserveJobNumber(db);
+    const resolvedPropertyId =
+      propertyId ??
+      (
+        await ensureServiceSiteProperty(db, {
+          clientId,
+          jobType: body.jobType,
+          estimatedHours: body.estimatedHours,
+          serviceSite: serviceSite!,
+          serviceContext,
+        })
+      ).id;
     const job = await db.job.create({
       data: {
         ...rest,
+        propertyId: resolvedPropertyId,
+        jobNumber,
         startTime: timing.startTime,
         dueTime: timing.dueTime,
         scheduledDate: new Date(body.scheduledDate),
@@ -60,6 +80,7 @@ export async function POST(req: NextRequest) {
           transportAllowances,
           earlyCheckin: normalizedEarlyCheckin,
           lateCheckout: normalizedLateCheckout,
+          serviceContext,
         }),
       },
       include: { property: true },

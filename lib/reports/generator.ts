@@ -335,6 +335,7 @@ function buildReportHtml({ job, submission, qa, localDate, settings }: any): str
   <h1>${escapeHtml(companyName)} Cleaning Report</h1>
 </div>
 <p><strong>${escapeHtml(job.property.name)}</strong> - ${escapeHtml(job.property.address)}, ${escapeHtml(job.property.suburb)}</p>
+<p>Job Number: ${escapeHtml(job.jobNumber ?? job.id)}</p>
 <p>Date: ${escapeHtml(localDate)} | Type: ${escapeHtml(job.jobType.replace(/_/g, " "))}</p>
 <p>Cleaners: ${escapeHtml(job.assignments.map((a: any) => a.user.name).join(", ") || "N/A")}</p>
 ${

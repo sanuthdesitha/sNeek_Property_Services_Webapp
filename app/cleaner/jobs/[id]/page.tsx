@@ -27,7 +27,10 @@ type Step = "overview" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
 type RenderableFormStep = Exclude<Step, "overview">;
 const CLIENT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const CLIENT_MAX_VIDEO_BYTES = 300 * 1024 * 1024;
+const CLIENT_MAX_VIDEO_BYTES = 150 * 1024 * 1024;
+const IMAGE_MAX_DIMENSION = 1600;
+const IMAGE_TARGET_BYTES = 1.5 * 1024 * 1024;
+const IMAGE_MIN_QUALITY = 0.45;
 type UploadItemStatus = "queued" | "uploading" | "uploaded" | "failed";
 type UploadSource = "camera" | "gallery";
 
@@ -280,6 +283,59 @@ export default function CleanerJobPage() {
     }
   }
 
+  function getScaledDimensions(width: number, height: number, maxDimension: number) {
+    if (!width || !height) return { width: maxDimension, height: maxDimension };
+    const ratio = Math.min(1, maxDimension / Math.max(width, height));
+    return {
+      width: Math.max(1, Math.round(width * ratio)),
+      height: Math.max(1, Math.round(height * ratio)),
+    };
+  }
+
+  async function canvasToCompressedJpeg(
+    canvas: HTMLCanvasElement,
+    originalName: string,
+    targetBytes: number
+  ): Promise<File | null> {
+    let quality = 0.82;
+    let width = canvas.width;
+    let height = canvas.height;
+    let workingCanvas = canvas;
+    let blob: Blob | null = null;
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      blob = await new Promise<Blob | null>((resolve) =>
+        workingCanvas.toBlob(resolve, "image/jpeg", quality)
+      );
+      if (!blob) return null;
+      if (blob.size <= targetBytes || (quality <= IMAGE_MIN_QUALITY && attempt >= 2)) {
+        break;
+      }
+
+      if (quality > IMAGE_MIN_QUALITY) {
+        quality = Math.max(IMAGE_MIN_QUALITY, quality - 0.1);
+        continue;
+      }
+
+      width = Math.max(900, Math.round(width * 0.85));
+      height = Math.max(900, Math.round(height * 0.85));
+      const resized = document.createElement("canvas");
+      resized.width = width;
+      resized.height = height;
+      const ctx = resized.getContext("2d");
+      if (!ctx) break;
+      ctx.drawImage(workingCanvas, 0, 0, width, height);
+      workingCanvas = resized;
+    }
+
+    if (!blob) return null;
+    const baseName = originalName.replace(/\.[^.]+$/, "") || "upload";
+    return new File([blob], `${baseName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
+  }
+
   async function getBrandLogoImage(logoUrl: string): Promise<HTMLImageElement | null> {
     if (!logoUrl) return null;
     if (!logoImagePromiseRef.current) {
@@ -305,8 +361,13 @@ export default function CleanerJobPage() {
   async function stampCameraPhoto(file: File, options: { cleanerName: string; companyName: string; logoUrl: string; timezone: string }) {
     const sourceImage = await loadImageFromFile(file);
     const canvas = document.createElement("canvas");
-    canvas.width = sourceImage.naturalWidth || sourceImage.width;
-    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+    const dimensions = getScaledDimensions(
+      sourceImage.naturalWidth || sourceImage.width,
+      sourceImage.naturalHeight || sourceImage.height,
+      IMAGE_MAX_DIMENSION
+    );
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
 
@@ -351,19 +412,28 @@ export default function CleanerJobPage() {
       textY += lineHeight;
     }
 
-    const outputType = file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, outputType === "image/png" ? "image/png" : "image/jpeg", 0.92)
+    const compressed = await canvasToCompressedJpeg(canvas, file.name, IMAGE_TARGET_BYTES);
+    return compressed ?? file;
+  }
+
+  async function compressGalleryImage(file: File): Promise<File> {
+    const sourceImage = await loadImageFromFile(file);
+    const canvas = document.createElement("canvas");
+    const dimensions = getScaledDimensions(
+      sourceImage.naturalWidth || sourceImage.width,
+      sourceImage.naturalHeight || sourceImage.height,
+      IMAGE_MAX_DIMENSION
     );
-    if (!blob) return file;
-    return new File([blob], file.name, {
-      type: blob.type || outputType,
-      lastModified: Date.now(),
-    });
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
+    const compressed = await canvasToCompressedJpeg(canvas, file.name, IMAGE_TARGET_BYTES);
+    return compressed ?? file;
   }
 
   async function preprocessFilesForUpload(files: File[], source: UploadSource): Promise<File[]> {
-    if (source !== "camera") return files;
     const cleanerName =
       (typeof payload?.viewerName === "string" && payload.viewerName.trim()) ||
       "Cleaner";
@@ -377,24 +447,30 @@ export default function CleanerJobPage() {
       "Australia/Sydney";
 
     const processed: File[] = [];
-    let stampFailures = 0;
+    let imagePrepFailures = 0;
     for (const file of files) {
       if (!isImageFile(file) || isVideoFile(file)) {
         processed.push(file);
         continue;
       }
       try {
-        const stamped = await stampCameraPhoto(file, { cleanerName, companyName, logoUrl, timezone });
-        processed.push(stamped);
+        const prepared =
+          source === "camera"
+            ? await stampCameraPhoto(file, { cleanerName, companyName, logoUrl, timezone })
+            : await compressGalleryImage(file);
+        processed.push(prepared);
       } catch {
-        stampFailures += 1;
+        imagePrepFailures += 1;
         processed.push(file);
       }
     }
-    if (stampFailures > 0) {
+    if (imagePrepFailures > 0) {
       toast({
-        title: "Some photos could not be stamped",
-        description: `${stampFailures} camera photo(s) were uploaded without watermark.`,
+        title: "Some images were not compressed",
+        description:
+          source === "camera"
+            ? `${imagePrepFailures} camera photo(s) were uploaded without full optimization.`
+            : `${imagePrepFailures} gallery image(s) were uploaded without compression.`,
         variant: "destructive",
       });
     }
@@ -695,6 +771,9 @@ export default function CleanerJobPage() {
   const jobTimingHighlights: string[] = Array.isArray(payload?.jobTimingHighlights)
     ? payload.jobTimingHighlights.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const serviceContext = payload?.jobMeta?.serviceContext ?? {};
+  const hasServiceContext =
+    Boolean(serviceContext && typeof serviceContext === "object" && Object.keys(serviceContext).length > 0);
   const carryForwardTasks: Array<any> = Array.isArray(payload?.carryForwardTasks) ? payload.carryForwardTasks : [];
   const canUseSelectAll = Boolean(payload?.canUseSelectAll);
   const sectionsWithAutoInventory = useMemo(() => {
@@ -1026,7 +1105,7 @@ export default function CleanerJobPage() {
   function validateUploadSizes(fileArray: File[]): string | null {
     for (const file of fileArray) {
       if (isVideoFile(file) && file.size > CLIENT_MAX_VIDEO_BYTES) {
-        return `Video "${file.name}" is too large. Max 300MB.`;
+        return `Video "${file.name}" is too large. Max 150MB before compression.`;
       }
       if (!isVideoFile(file) && file.size > CLIENT_MAX_IMAGE_BYTES) {
         return `File "${file.name}" is too large. Max 20MB for images.`;
@@ -1097,12 +1176,7 @@ export default function CleanerJobPage() {
 
   async function uploadOneFile(file: File, onProgress?: (progress: number) => void): Promise<string> {
     if (isVideoFile(file)) {
-      try {
-        return await uploadViaDirect(file, onProgress);
-      } catch {
-        onProgress?.(0);
-        return uploadViaPresign(file, onProgress);
-      }
+      return uploadViaDirect(file, onProgress);
     }
 
     try {
@@ -2051,6 +2125,26 @@ export default function CleanerJobPage() {
         </Card>
       )}
 
+      {hasServiceContext ? (
+        <Card className="border-border/70">
+          <CardContent className="grid gap-3 p-3 text-sm md:grid-cols-2">
+            {serviceContext.scopeOfWork ? <div><p className="text-xs text-muted-foreground">Scope of work</p><p>{serviceContext.scopeOfWork}</p></div> : null}
+            {serviceContext.accessInstructions ? <div><p className="text-xs text-muted-foreground">Access instructions</p><p>{serviceContext.accessInstructions}</p></div> : null}
+            {serviceContext.parkingInstructions ? <div><p className="text-xs text-muted-foreground">Parking / arrival</p><p>{serviceContext.parkingInstructions}</p></div> : null}
+            {serviceContext.hazardNotes ? <div><p className="text-xs text-muted-foreground">Hazards / safety</p><p>{serviceContext.hazardNotes}</p></div> : null}
+            {serviceContext.equipmentNotes ? <div><p className="text-xs text-muted-foreground">Equipment / utilities</p><p>{serviceContext.equipmentNotes}</p></div> : null}
+            {serviceContext.siteContactName || serviceContext.siteContactPhone ? (
+              <div>
+                <p className="text-xs text-muted-foreground">On-site contact</p>
+                <p>{[serviceContext.siteContactName, serviceContext.siteContactPhone].filter(Boolean).join(" · ")}</p>
+              </div>
+            ) : null}
+            {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p>{serviceContext.serviceAreaSqm} sqm</p></div> : null}
+            {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p>{serviceContext.floorCount}</p></div> : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="flex gap-1 text-xs">
         {["overview", "checklist", "uploads", "laundry", "submit"].map((item, i) => (
           <div
@@ -2280,7 +2374,7 @@ export default function CleanerJobPage() {
         <div className="space-y-4">
           <h3 className="font-semibold">Uploads</h3>
           <p className="text-xs text-muted-foreground">
-            Images max 20MB each. Videos max 300MB each and are compressed automatically before storage.
+            Images are resized and compressed automatically. Videos must be under 150MB before upload and are compressed to a much smaller stored file on the server.
           </p>
           {hasPendingUploads ? (
             <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">

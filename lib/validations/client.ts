@@ -25,6 +25,8 @@ export const createClientSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
+  sendPortalInvite: z.boolean().optional(),
+  welcomeNote: z.string().max(4000).optional(),
 });
 
 export const updateClientSchema = createClientSchema.partial();

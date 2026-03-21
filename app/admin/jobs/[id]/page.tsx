@@ -607,6 +607,9 @@ export default function JobDetailPage() {
   if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>;
   if (!job || job.error) return <div className="p-8 text-destructive">Job not found.</div>;
   const jobMeta = job.jobMeta ?? parseJobInternalNotes(job.internalNotes);
+  const serviceContext = jobMeta.serviceContext ?? {};
+  const hasServiceContext = Object.keys(serviceContext).length > 0;
+  const isAirbnbTurnover = job.jobType === "AIRBNB_TURNOVER";
   const cleanerLookup = new Map(
     cleaners.map((cleaner: any) => [cleaner.id, cleaner.name ?? cleaner.email ?? cleaner.id])
   );
@@ -657,6 +660,27 @@ export default function JobDetailPage() {
           </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
+
+      {hasServiceContext ? (
+        <Card>
+          <CardHeader><CardTitle className="text-sm">Operational Context</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            {serviceContext.scopeOfWork ? <div><p className="text-xs text-muted-foreground">Scope of work</p><p className="text-sm">{serviceContext.scopeOfWork}</p></div> : null}
+            {serviceContext.accessInstructions ? <div><p className="text-xs text-muted-foreground">Access instructions</p><p className="text-sm">{serviceContext.accessInstructions}</p></div> : null}
+            {serviceContext.parkingInstructions ? <div><p className="text-xs text-muted-foreground">Parking / arrival</p><p className="text-sm">{serviceContext.parkingInstructions}</p></div> : null}
+            {serviceContext.hazardNotes ? <div><p className="text-xs text-muted-foreground">Hazards / safety</p><p className="text-sm">{serviceContext.hazardNotes}</p></div> : null}
+            {serviceContext.equipmentNotes ? <div><p className="text-xs text-muted-foreground">Equipment / utilities</p><p className="text-sm">{serviceContext.equipmentNotes}</p></div> : null}
+            {serviceContext.siteContactName || serviceContext.siteContactPhone ? (
+              <div>
+                <p className="text-xs text-muted-foreground">On-site contact</p>
+                <p className="text-sm">{[serviceContext.siteContactName, serviceContext.siteContactPhone].filter(Boolean).join(" · ")}</p>
+              </div>
+            ) : null}
+            {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p className="text-sm">{serviceContext.serviceAreaSqm} sqm</p></div> : null}
+            {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p className="text-sm">{serviceContext.floorCount}</p></div> : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -802,6 +826,7 @@ export default function JobDetailPage() {
               </div>
             )}
           </div>
+          {isAirbnbTurnover ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">
               <Label>Early check-in</Label>
@@ -913,6 +938,7 @@ export default function JobDetailPage() {
               ) : null}
             </div>
           </div>
+          ) : null}
           <JobAttachmentsInput
             value={editForm.attachments}
             onChange={(attachments) => setEditForm((prev) => ({ ...prev, attachments }))}

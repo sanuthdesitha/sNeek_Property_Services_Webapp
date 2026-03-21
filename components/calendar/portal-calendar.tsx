@@ -288,8 +288,16 @@ export function PortalCalendar({
             eventOrder="start,-duration,title"
             nowIndicator
             timeZone="Australia/Sydney"
-            eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
-            slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
+            eventTimeFormat={
+              isCompactViewport
+                ? { hour: "numeric", meridiem: "short" }
+                : { hour: "numeric", minute: "2-digit", meridiem: "short" }
+            }
+            slotLabelFormat={
+              isCompactViewport
+                ? { hour: "numeric", meridiem: "short" }
+                : { hour: "numeric", minute: "2-digit", meridiem: "short" }
+            }
             slotDuration="00:30:00"
             snapDuration="00:15:00"
             slotMinTime="06:00:00"
@@ -365,13 +373,13 @@ export function PortalCalendar({
           --fc-page-bg-color: transparent;
           --fc-neutral-bg-color: rgba(248, 250, 252, 0.72);
           --fc-today-bg-color: rgba(37, 99, 235, 0.06);
-          --fc-button-bg-color: #ffffff;
-          --fc-button-border-color: rgba(203, 213, 225, 0.9);
-          --fc-button-text-color: #334155;
-          --fc-button-hover-bg-color: #f8fafc;
-          --fc-button-hover-border-color: rgba(148, 163, 184, 0.9);
-          --fc-button-active-bg-color: #2563eb;
-          --fc-button-active-border-color: #2563eb;
+          --fc-button-bg-color: #0f766e;
+          --fc-button-border-color: #0f766e;
+          --fc-button-text-color: #f8fafc;
+          --fc-button-hover-bg-color: #115e59;
+          --fc-button-hover-border-color: #115e59;
+          --fc-button-active-bg-color: #134e4a;
+          --fc-button-active-border-color: #134e4a;
           --fc-button-active-text-color: #ffffff;
         }
         .fc .fc-toolbar.fc-header-toolbar {
@@ -390,6 +398,7 @@ export function PortalCalendar({
           box-shadow: none;
           font-weight: 600;
           padding: 0.45rem 0.85rem;
+          color: #f8fafc;
         }
         .fc .fc-col-header-cell-cushion,
         .fc .fc-daygrid-day-number {
@@ -463,6 +472,20 @@ export function PortalCalendar({
           font-size: 0.8rem;
           font-weight: 600;
           color: #64748b;
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          padding: 0 0.25rem;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        .fc .fc-timegrid-axis {
+          width: 4.3rem;
+        }
+        .fc .fc-timegrid-axis-frame,
+        .fc .fc-timegrid-slot-label-frame {
+          overflow: hidden;
         }
         .fc .fc-timegrid-slot {
           height: 2.9rem;
@@ -511,6 +534,19 @@ export function PortalCalendar({
           .fc .fc-button {
             padding: 0.4rem 0.65rem;
             font-size: 0.75rem;
+          }
+          .fc .fc-toolbar-chunk {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+          }
+          .fc .fc-timegrid-axis {
+            width: 3rem;
+          }
+          .fc .fc-timegrid-slot-label-cushion,
+          .fc .fc-timegrid-axis-cushion {
+            font-size: 0.68rem;
+            padding: 0 0.15rem;
           }
           .fc .fc-daygrid-day-events {
             margin-inline: 0.1rem;

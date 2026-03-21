@@ -14,6 +14,18 @@ export interface JobTimingRule {
   time?: string;
 }
 
+export interface JobServiceContext {
+  scopeOfWork?: string;
+  accessInstructions?: string;
+  parkingInstructions?: string;
+  hazardNotes?: string;
+  equipmentNotes?: string;
+  siteContactName?: string;
+  siteContactPhone?: string;
+  serviceAreaSqm?: number;
+  floorCount?: number;
+}
+
 export interface JobMeta {
   version: 1;
   internalNoteText: string;
@@ -23,6 +35,7 @@ export interface JobMeta {
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
   transportAllowances: Record<string, number>;
+  serviceContext?: JobServiceContext;
 }
 
 const DEFAULT_RULE: JobTimingRule = {
@@ -40,6 +53,7 @@ export function defaultJobMeta(): JobMeta {
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
     transportAllowances: {},
+    serviceContext: undefined,
   };
 }
 
@@ -69,6 +83,39 @@ function normalizeRule(input: unknown): JobTimingRule {
     preset: nextPreset,
     time: nextPreset === "custom" ? normalizeTime(source.time) : nextPreset !== "none" ? nextPreset : undefined,
   };
+}
+
+function normalizeServiceContext(input: unknown): JobServiceContext | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const source = input as Record<string, unknown>;
+  const next: JobServiceContext = {};
+
+  const assignString = (key: keyof JobServiceContext) => {
+    const raw = source[key];
+    if (typeof raw !== "string") return;
+    const value = raw.trim();
+    if (value) (next as Record<string, string | number | undefined>)[key] = value;
+  };
+
+  assignString("scopeOfWork");
+  assignString("accessInstructions");
+  assignString("parkingInstructions");
+  assignString("hazardNotes");
+  assignString("equipmentNotes");
+  assignString("siteContactName");
+  assignString("siteContactPhone");
+
+  const serviceAreaSqm = Number(source.serviceAreaSqm);
+  if (Number.isFinite(serviceAreaSqm) && serviceAreaSqm > 0) {
+    next.serviceAreaSqm = Number(serviceAreaSqm.toFixed(2));
+  }
+
+  const floorCount = Number(source.floorCount);
+  if (Number.isFinite(floorCount) && floorCount > 0) {
+    next.floorCount = Math.round(floorCount);
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
@@ -123,6 +170,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
               {}
             )
           : {},
+      serviceContext: normalizeServiceContext(parsed.serviceContext),
     };
   } catch {
     return { ...fallback, internalNoteText: raw };
@@ -153,6 +201,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
             {}
           )
         : {},
+    serviceContext: normalizeServiceContext(input.serviceContext),
   };
 
   const hasStructuredData =
@@ -161,7 +210,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.attachments.length > 0 ||
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
-    Object.keys(meta.transportAllowances).length > 0;
+    Object.keys(meta.transportAllowances).length > 0 ||
+    Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0);
 
   if (!hasStructuredData) {
     return meta.internalNoteText.trim() || undefined;
@@ -176,6 +226,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
     transportAllowances: meta.transportAllowances,
+    serviceContext: meta.serviceContext,
   });
 }
 

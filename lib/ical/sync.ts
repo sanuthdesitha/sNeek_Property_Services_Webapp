@@ -1,6 +1,7 @@
 import ICAL from "ical.js";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { SyncStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -285,8 +286,10 @@ async function syncTurnoverJobsForReservations(params: {
     }
 
     if (!existingJob) {
+      const jobNumber = await reserveJobNumber(db);
       const created = await db.job.create({
         data: {
+          jobNumber,
           propertyId: params.propertyId,
           reservationId: reservation.id,
           jobType: "AIRBNB_TURNOVER",

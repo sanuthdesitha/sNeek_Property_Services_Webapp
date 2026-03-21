@@ -6,6 +6,7 @@ export type AppEmailTemplateKey =
   | "welcomeAccount"
   | "jobAssigned"
   | "jobRemoved"
+  | "laundryReady"
   | "cleaningReportShared"
   | "laundryReport"
   | "cleanerInvoice"
@@ -25,6 +26,7 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "welcomeAccount",
   "jobAssigned",
   "jobRemoved",
+  "laundryReady",
   "cleaningReportShared",
   "laundryReport",
   "cleanerInvoice",
@@ -46,15 +48,30 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
   },
   welcomeAccount: {
     label: "Welcome Account",
-    variables: ["companyName", "logoUrl", "userName", "role", "actionUrl", "actionLabel"],
+    variables: ["companyName", "logoUrl", "userName", "role", "email", "tempPassword", "welcomeNote", "actionUrl", "actionLabel"],
   },
   jobAssigned: {
     label: "Job Assigned",
-    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobUrl", "userName", "actionUrl", "actionLabel"],
+    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName", "actionUrl", "actionLabel"],
   },
   jobRemoved: {
     label: "Job Removed",
-    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobUrl", "userName", "actionUrl", "actionLabel"],
+    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName", "actionUrl", "actionLabel"],
+  },
+  laundryReady: {
+    label: "Laundry Ready",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "jobNumber",
+      "cleanDate",
+      "bagLocation",
+      "laundryPhotoUrl",
+      "portalUrl",
+      "actionUrl",
+      "actionLabel",
+    ],
   },
   cleaningReportShared: {
     label: "Cleaning Report Shared",
@@ -62,6 +79,7 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
       "companyName",
       "logoUrl",
       "clientName",
+      "jobNumber",
       "propertyName",
       "jobType",
       "cleanDate",
@@ -84,7 +102,7 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
   },
   extraPayRequest: {
     label: "Extra Pay Request",
-    variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "jobType", "requestType", "requestedAmount", "cleanerNote", "actionUrl", "actionLabel"],
+    variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "jobType", "jobNumber", "requestType", "requestedAmount", "cleanerNote", "actionUrl", "actionLabel"],
   },
 };
 
@@ -168,36 +186,56 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <h2 style="margin:0 0 12px;">Welcome, {userName}</h2>
         <p>Your account has been activated and is ready to use.</p>
         <p><strong>Portal role:</strong> {role}</p>
+        <p><strong>Login email:</strong> {email}</p>
+        <p><strong>Temporary password:</strong> {tempPassword}</p>
+        <p>{welcomeNote}</p>
         <p>Complete your profile details after signing in so notifications, invoices, and approvals keep working correctly.</p>
       `,
     },
     jobAssigned: {
-      subject: "{companyName}: Job assignment updated",
+      subject: "{companyName}: Job assignment updated ({jobNumber})",
       html: `
         <h2 style="margin:0 0 12px;">Job assignment updated</h2>
         <p>Hello {userName},</p>
         <p>You have been assigned to <strong>{jobType}</strong> at <strong>{propertyName}</strong>.</p>
+        <p><strong>Job number:</strong> {jobNumber}</p>
         <p><strong>Scheduled:</strong> {when}</p>
         <p><strong>Timing notes:</strong> {timingFlags}</p>
       `,
     },
     jobRemoved: {
-      subject: "{companyName}: Job removed from your schedule",
+      subject: "{companyName}: Job removed from your schedule ({jobNumber})",
       html: `
         <h2 style="margin:0 0 12px;">Job removed from schedule</h2>
         <p>Hello {userName},</p>
         <p>You have been removed from <strong>{jobType}</strong> at <strong>{propertyName}</strong>.</p>
+        <p><strong>Job number:</strong> {jobNumber}</p>
         <p><strong>Scheduled:</strong> {when}</p>
         <p><strong>Timing notes:</strong> {timingFlags}</p>
       `,
     },
+    laundryReady: {
+      subject: "{companyName}: Laundry ready for pickup - {propertyName} ({jobNumber})",
+      html: `
+        <h2 style="margin:0 0 12px;">Laundry ready for pickup</h2>
+        <p>The cleaner has confirmed that laundry is ready for collection.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
+          <p style="margin:0;"><strong>Bag location:</strong> {bagLocation}</p>
+        </div>
+        <p><a href="{laundryPhotoUrl}" target="_blank" rel="noopener noreferrer">View laundry photo</a></p>
+      `,
+    },
     cleaningReportShared: {
-      subject: "{companyName} report for {propertyName} - {cleanDate}",
+      subject: "{companyName} report for {propertyName} - {cleanDate} ({jobNumber})",
       html: `
         <h2 style="margin:0 0 12px;">Cleaning report ready</h2>
         <p>Hello {clientName},</p>
         <p>Your <strong>{jobType}</strong> report for <strong>{propertyName}</strong> is ready.</p>
         <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
           <p style="margin:0 0 6px;"><strong>Cleaned date:</strong> {cleanDate}</p>
           <p style="margin:0;"><strong>Property:</strong> {propertyName}</p>
         </div>
@@ -234,11 +272,12 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     extraPayRequest: {
-      subject: "{companyName} - Extra Payment Request - {propertyName}",
+      subject: "{companyName} - Extra Payment Request - {propertyName} ({jobNumber})",
       html: `
         <h2 style="margin:0 0 12px;">Extra payment request submitted</h2>
         <p><strong>Cleaner:</strong> {cleanerName}</p>
         <p><strong>Property:</strong> {propertyName}</p>
+        <p><strong>Job number:</strong> {jobNumber}</p>
         <p><strong>Job:</strong> {jobType}</p>
         <p><strong>Request type:</strong> {requestType}</p>
         <p><strong>Requested amount:</strong> {requestedAmount}</p>
