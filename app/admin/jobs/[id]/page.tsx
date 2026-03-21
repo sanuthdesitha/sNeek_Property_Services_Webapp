@@ -121,6 +121,8 @@ export default function JobDetailPage() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resettingJob, setResettingJob] = useState(false);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [continuationRows, setContinuationRows] = useState<any[]>([]);
@@ -574,6 +576,34 @@ export default function JobDetailPage() {
     }
   }
 
+  async function resetJob() {
+    setResettingJob(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${params.id}`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not reset job.");
+      }
+      toast({
+        title: "Job reset",
+        description: "Assignments and operational progress were cleared, and the job is back to Unassigned.",
+      });
+      setResetOpen(false);
+      load();
+      loadTimeline();
+      loadContinuations();
+      router.refresh();
+    } catch (err: any) {
+      toast({
+        title: "Reset failed",
+        description: err.message ?? "Could not reset job.",
+        variant: "destructive",
+      });
+    } finally {
+      setResettingJob(false);
+    }
+  }
+
   if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>;
   if (!job || job.error) return <div className="p-8 text-destructive">Job not found.</div>;
   const jobMeta = job.jobMeta ?? parseJobInternalNotes(job.internalNotes);
@@ -616,12 +646,15 @@ export default function JobDetailPage() {
         <Button size="sm" variant="outline" onClick={downloadReport}>
           <FileText className="mr-2 h-4 w-4" /> Download Report
         </Button>
-        <Button size="sm" variant="outline" onClick={shareReport} disabled={sharing}>
-          <Send className="mr-2 h-4 w-4" /> {sharing ? "Sharing..." : "Share To Client"}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setDeleteOpen(true)}>
-          Delete Job
-        </Button>
+          <Button size="sm" variant="outline" onClick={shareReport} disabled={sharing}>
+            <Send className="mr-2 h-4 w-4" /> {sharing ? "Sharing..." : "Share To Client"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
+            Reset Job
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setDeleteOpen(true)}>
+            Delete Job
+          </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
 
@@ -1436,6 +1469,15 @@ export default function JobDetailPage() {
         confirmLabel="Delete job"
         loading={deletingJob}
         onConfirm={deleteJob}
+      />
+      <TwoStepConfirmDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        title="Reset this job"
+        description="This resets the job back to Unassigned, removes all assigned cleaners, clears submissions, reports, QA, laundry progress, time logs, and restores deducted inventory."
+        confirmLabel="Reset job"
+        loading={resettingJob}
+        onConfirm={resetJob}
       />
     </div>
   );

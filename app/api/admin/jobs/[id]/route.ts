@@ -6,6 +6,8 @@ import { Role, JobStatus } from "@prisma/client";
 import { z } from "zod";
 import { applyJobTimingRules, parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 
+const CONTINUATION_KEY = "job_continuation_requests_v1";
+
 function normalizeRule(
   rule:
     | {
@@ -143,10 +145,21 @@ export async function PATCH(
     delete data.earlyCheckin;
     delete data.lateCheckout;
 
-    const job = await db.job.update({
-      where: { id: params.id },
-      data,
-    });
+    let job;
+    if (body.status === JobStatus.UNASSIGNED) {
+      job = await db.$transaction(async (tx) => {
+        await tx.jobAssignment.deleteMany({ where: { jobId: params.id } });
+        return tx.job.update({
+          where: { id: params.id },
+          data,
+        });
+      });
+    } else {
+      job = await db.job.update({
+        where: { id: params.id },
+        data,
+      });
+    }
 
     await db.auditLog.create({
       data: {
@@ -204,6 +217,121 @@ export async function DELETE(
     });
 
     return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message }, { status });
+  }
+}
+
+export async function POST(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const jobId = params.id;
+
+    const existing = await db.job.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        propertyId: true,
+      },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+
+    const stockTxs = await db.stockTx.findMany({
+      where: { submission: { jobId } },
+      select: { id: true, propertyStockId: true, quantity: true },
+    });
+
+    const continuationSetting = await db.appSetting.findUnique({
+      where: { key: CONTINUATION_KEY },
+      select: { value: true },
+    });
+    const continuationValue =
+      continuationSetting?.value && typeof continuationSetting.value === "object"
+        ? (continuationSetting.value as Record<string, unknown>)
+        : null;
+    const continuationRequests = Array.isArray(continuationValue?.requests)
+      ? continuationValue.requests
+      : [];
+    const filteredContinuationRequests = continuationRequests.filter((request) => {
+      if (!request || typeof request !== "object") return false;
+      const row = request as Record<string, unknown>;
+      return row.jobId !== jobId && row.continuationJobId !== jobId;
+    });
+
+    await db.$transaction(async (tx) => {
+      for (const stockTx of stockTxs) {
+        await tx.propertyStock.update({
+          where: { id: stockTx.propertyStockId },
+          data: {
+            onHand: {
+              increment: Number((-stockTx.quantity).toFixed(2)),
+            },
+          },
+        });
+      }
+
+      await tx.stockTx.deleteMany({ where: { submission: { jobId } } });
+      await tx.submissionMedia.deleteMany({ where: { submission: { jobId } } });
+      await tx.formSubmission.deleteMany({ where: { jobId } });
+      await tx.timeLog.deleteMany({ where: { jobId } });
+      await tx.jobAssignment.deleteMany({ where: { jobId } });
+      await tx.qAReview.deleteMany({ where: { jobId } });
+      await tx.issueTicket.deleteMany({ where: { jobId } });
+      await tx.report.deleteMany({ where: { jobId } });
+      await tx.cleanerPayAdjustment.deleteMany({ where: { jobId } });
+      await tx.laundryConfirmation.deleteMany({ where: { laundryTask: { jobId } } });
+      await tx.laundryTask.deleteMany({ where: { jobId } });
+      await tx.notification.deleteMany({ where: { jobId } });
+
+      await tx.job.update({
+        where: { id: jobId },
+        data: {
+          status: JobStatus.UNASSIGNED,
+          actualHours: null,
+          reminder24hSent: false,
+          reminder2hSent: false,
+        },
+      });
+
+      await tx.appSetting.upsert({
+        where: { key: CONTINUATION_KEY },
+        create: {
+          key: CONTINUATION_KEY,
+          value: { requests: filteredContinuationRequests } as any,
+        },
+        update: {
+          value: { requests: filteredContinuationRequests } as any,
+        },
+      });
+    });
+
+    await db.auditLog.create({
+      data: {
+        userId: session.user.id,
+        jobId,
+        action: "RESET_JOB",
+        entity: "Job",
+        entityId: jobId,
+        after: {
+          status: JobStatus.UNASSIGNED,
+          clearedAssignments: true,
+          clearedSubmissions: true,
+          restoredInventoryTransactions: stockTxs.length,
+        } as any,
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      restoredInventoryTransactions: stockTxs.length,
+      clearedContinuationRequests: continuationRequests.length - filteredContinuationRequests.length,
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
