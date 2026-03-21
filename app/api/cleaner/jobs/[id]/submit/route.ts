@@ -265,7 +265,11 @@ export async function POST(
         jobId: params.id,
         templateId: body.templateId,
         submittedById: session.user.id,
-        data: body.data as any,
+        data: {
+          ...(body.data as Record<string, unknown>),
+          __templateSchema: template.schema,
+          __templateVersion: template.id,
+        } as any,
         laundryReady: body.laundryReady,
         bagLocation,
       },

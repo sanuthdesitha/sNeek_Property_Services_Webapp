@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
-import { generateJobReport, REPORT_TEMPLATE_VERSION } from "@/lib/reports/generator";
+import { ensureStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 
 export async function GET(
@@ -13,54 +13,7 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const format = searchParams.get("format");
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT, Role.CLEANER]);
-    let report = await db.report.findUnique({
-      where: { jobId: params.jobId },
-      include: {
-        job: { include: { property: true } },
-      },
-    });
-
-    const [latestSubmission, latestQa] = await Promise.all([
-      db.formSubmission.findFirst({
-        where: { jobId: params.jobId },
-        orderBy: { updatedAt: "desc" },
-        select: { updatedAt: true },
-      }),
-      db.qAReview.findFirst({
-        where: { jobId: params.jobId },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      }),
-    ]);
-
-    const hasCurrentTemplate = report?.htmlContent?.includes(
-      `report-template:${REPORT_TEMPLATE_VERSION}`
-    );
-
-    const isStale =
-      Boolean(report) &&
-      (!hasCurrentTemplate ||
-        (latestSubmission && latestSubmission.updatedAt > report!.updatedAt) ||
-        (latestQa && latestQa.createdAt > report!.updatedAt));
-
-    if (!report) {
-      await generateJobReport(params.jobId);
-      report = await db.report.findUnique({
-        where: { jobId: params.jobId },
-        include: {
-          job: { include: { property: true } },
-        },
-      });
-    } else if (isStale) {
-      await generateJobReport(params.jobId);
-      report = await db.report.findUnique({
-        where: { jobId: params.jobId },
-        include: {
-          job: { include: { property: true } },
-        },
-      });
-    }
-    if (!report) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const report = await ensureStoredJobReport(params.jobId);
 
     // Client role: enforce property ownership
     if (session.user.role === Role.CLIENT) {

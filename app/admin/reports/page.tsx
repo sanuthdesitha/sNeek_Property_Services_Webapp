@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
+import { downloadFromApi } from "@/lib/client/download";
 
 export default function ReportsPage() {
   const [reports, setReports] = useState<any[]>([]);
@@ -29,32 +30,15 @@ export default function ReportsPage() {
   }, []);
 
   async function downloadReport(jobId: string) {
-    const refreshRes = await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" });
-    if (!refreshRes.ok) {
-      const refreshBody = await refreshRes.json().catch(() => ({}));
+    try {
+      await downloadFromApi(`/api/reports/${jobId}/download`, `job-report-${jobId}.pdf`);
+    } catch (error: any) {
       toast({
-        title: "Report refresh failed",
-        description: refreshBody.error ?? "Could not refresh report before download.",
+        title: "Download failed",
+        description: error?.message ?? "Could not export report.",
         variant: "destructive",
       });
-      return;
     }
-
-    const res = await fetch(`/api/reports/${jobId}/download`);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      toast({ title: "Download failed", description: body.error ?? "Could not export report.", variant: "destructive" });
-      return;
-    }
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `job-report-${jobId}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
   }
 
   async function regenerateReport(jobId: string) {

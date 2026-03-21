@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { generateJobReport, REPORT_TEMPLATE_VERSION } from "@/lib/reports/generator";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { z } from "zod";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
+import { ensureStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -57,17 +57,7 @@ export async function POST(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    let report = await db.report.findUnique({ where: { jobId: params.jobId } });
-    const hasCurrentTemplate = report?.htmlContent?.includes(
-      `report-template:${REPORT_TEMPLATE_VERSION}`
-    );
-    if (!report || !hasCurrentTemplate) {
-      await generateJobReport(params.jobId);
-      report = await db.report.findUnique({ where: { jobId: params.jobId } });
-    }
-    if (!report) {
-      return NextResponse.json({ error: "Report is not available for sharing." }, { status: 404 });
-    }
+    const report = await ensureStoredJobReport(params.jobId);
 
     const explicitRecipients = body.to
       ? Array.isArray(body.to)

@@ -369,13 +369,6 @@ export default function JobDetailPage() {
   }
 
   async function downloadReport() {
-    const refreshRes = await fetch(`/api/admin/reports/${params.id}/generate`, { method: "POST" });
-    if (!refreshRes.ok) {
-      const body = await refreshRes.json().catch(() => ({}));
-      toast({ title: "Report refresh failed", description: body.error ?? "Could not refresh report.", variant: "destructive" });
-      return;
-    }
-
     try {
       await downloadFromApi(`/api/reports/${params.id}/download`, `job-report-${params.id}.pdf`);
     } catch (error: any) {

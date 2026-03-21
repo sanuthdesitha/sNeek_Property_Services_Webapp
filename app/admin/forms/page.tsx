@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { toast } from "@/hooks/use-toast";
+import { downloadFromApi } from "@/lib/client/download";
 
 const JOB_TYPES = [
   "AIRBNB_TURNOVER",
@@ -306,39 +307,21 @@ export default function FormsPage() {
 
   async function generateAndDownload(jobId: string) {
     setGeneratingJobId(jobId);
-    const res = await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" });
-    const body = await res.json();
-    if (!res.ok) {
+    try {
+      await downloadFromApi(`/api/reports/${jobId}/download`, `job-report-${jobId}.pdf`);
+      toast({ title: "Report downloaded" });
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.message ?? "Could not download report.",
+        variant: "destructive",
+      });
+    } finally {
       setGeneratingJobId(null);
-      toast({ title: "Report generation failed", description: body.error ?? "Try again.", variant: "destructive" });
-      return;
     }
-    const downloadRes = await fetch(`/api/reports/${jobId}/download`);
-    setGeneratingJobId(null);
-    if (!downloadRes.ok) {
-      const dBody = await downloadRes.json().catch(() => ({}));
-      toast({ title: "Download failed", description: dBody.error ?? "Could not download report.", variant: "destructive" });
-      return;
-    }
-    const blob = await downloadRes.blob();
-    const contentType = downloadRes.headers.get("content-type") ?? "";
-    const ext = contentType.includes("pdf") ? "pdf" : "html";
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `job-report-${jobId}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-    toast({ title: "Report downloaded" });
   }
 
   async function openSubmission(submission: any) {
-    const jobId = submission?.jobId;
-    if (jobId) {
-      await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" }).catch(() => null);
-    }
     setViewSubmission(submission);
   }
 

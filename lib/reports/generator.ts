@@ -115,8 +115,16 @@ function renderFieldMediaHtml(mediaRows: any[]): string {
 }
 
 function buildChecklistHtml(job: any, submission: any): { html: string; usedMediaIds: Set<string> } {
-  const sections = Array.isArray(submission?.template?.schema?.sections)
-    ? submission.template.schema.sections
+  const templateSchema =
+    submission?.data &&
+    typeof submission.data === "object" &&
+    submission.data.__templateSchema &&
+    typeof submission.data.__templateSchema === "object"
+      ? submission.data.__templateSchema
+      : submission?.template?.schema;
+
+  const sections = Array.isArray(templateSchema?.sections)
+    ? templateSchema.sections
     : [];
   const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
   const uploads = answers?.uploads && typeof answers.uploads === "object" ? answers.uploads : {};
