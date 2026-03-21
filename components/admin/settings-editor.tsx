@@ -1306,9 +1306,11 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
             {[
               ["showCalendar", "Show calendar"],
               ["showReports", "Show reports"],
+              ["showReportDownloads", "Allow report PDF downloads"],
               ["showInventory", "Show inventory"],
               ["showShopping", "Show shopping"],
               ["showOngoingJobs", "Show ongoing jobs"],
+              ["showLaundryUpdates", "Show laundry updates"],
               ["showLaundryCosts", "Show laundry costs"],
               ["showCases", "Show cases/issues"],
               ["showExtraPayRequests", "Show extra pay requests"],

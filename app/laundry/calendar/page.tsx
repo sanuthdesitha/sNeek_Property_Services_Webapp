@@ -5,12 +5,12 @@ import { getAppSettings } from "@/lib/settings";
 import { Role } from "@prisma/client";
 import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/portal-calendar";
 
-const LAUNDRY_COLORS: Record<string, { border: string; bg: string }> = {
-  PENDING: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)" },
-  CONFIRMED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)" },
-  PICKED_UP: { border: "#7c3aed", bg: "rgba(124,58,237,0.14)" },
-  DROPPED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)" },
-  FLAGGED: { border: "#dc2626", bg: "rgba(220,38,38,0.14)" },
+const LAUNDRY_COLORS: Record<string, { border: string; bg: string; label: string }> = {
+  PENDING: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "PENDING" },
+  CONFIRMED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "CONFIRMED" },
+  PICKED_UP: { border: "#7c3aed", bg: "rgba(124,58,237,0.14)", label: "PICKED UP" },
+  DROPPED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)", label: "DROPPED" },
+  FLAGGED: { border: "#dc2626", bg: "rgba(220,38,38,0.14)", label: "FLAGGED" },
 };
 
 export default async function LaundryCalendarPage() {
@@ -46,7 +46,7 @@ export default async function LaundryCalendarPage() {
         textColor: "#0f172a",
         extendedProps: {
           badgeLabel: task.status.replace(/_/g, " "),
-          subtitle: `Pickup • ${jobType}`,
+          subtitle: `Pickup | ${jobType}`,
           meta: task.property.suburb || undefined,
         },
       },
@@ -59,7 +59,7 @@ export default async function LaundryCalendarPage() {
         textColor: "#0f172a",
         extendedProps: {
           badgeLabel: task.status.replace(/_/g, " "),
-          subtitle: `Return • ${jobType}`,
+          subtitle: `Return | ${jobType}`,
           meta: task.property.suburb || undefined,
         },
       },
@@ -69,8 +69,9 @@ export default async function LaundryCalendarPage() {
   return (
     <PortalCalendar
       title="Laundry Calendar"
-      description="See pickups and returns across all laundry tasks in month, week, or day view."
+      description="See pickups and returns across all laundry tasks. Tap any event on mobile to preview the booking details."
       events={events}
+      legendItems={Object.values(LAUNDRY_COLORS).map((item) => ({ label: item.label.replace(/_/g, " "), color: item.border }))}
       emptyMessage="No laundry tasks scheduled right now."
     />
   );

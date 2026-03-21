@@ -21,9 +21,11 @@ export interface ClientPortalVisibility {
   showCases: boolean;
   showExtraPayRequests: boolean;
   showCleanerNames: boolean;
+  showLaundryUpdates: boolean;
   showLaundryCosts: boolean;
   showQuoteRequests: boolean;
   showApprovals: boolean;
+  showReportDownloads: boolean;
 }
 
 export interface CleanerPortalVisibility {
@@ -170,9 +172,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showCases: false,
     showExtraPayRequests: false,
     showCleanerNames: false,
+    showLaundryUpdates: true,
     showLaundryCosts: true,
     showQuoteRequests: true,
     showApprovals: true,
+    showReportDownloads: true,
   },
   cleanerPortalVisibility: {
     showJobs: true,
@@ -305,12 +309,16 @@ function sanitizeClientPortalVisibility(
         : fallback.showExtraPayRequests,
     showCleanerNames:
       typeof row.showCleanerNames === "boolean" ? row.showCleanerNames : fallback.showCleanerNames,
+    showLaundryUpdates:
+      typeof row.showLaundryUpdates === "boolean" ? row.showLaundryUpdates : fallback.showLaundryUpdates,
     showLaundryCosts:
       typeof row.showLaundryCosts === "boolean" ? row.showLaundryCosts : fallback.showLaundryCosts,
     showQuoteRequests:
       typeof row.showQuoteRequests === "boolean" ? row.showQuoteRequests : fallback.showQuoteRequests,
     showApprovals:
       typeof row.showApprovals === "boolean" ? row.showApprovals : fallback.showApprovals,
+    showReportDownloads:
+      typeof row.showReportDownloads === "boolean" ? row.showReportDownloads : fallback.showReportDownloads,
   };
 }
 

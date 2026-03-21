@@ -1,13 +1,23 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import type { EventContentArg } from "@fullcalendar/core";
+import type { EventClickArg, EventContentArg } from "@fullcalendar/core";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export type PortalCalendarEvent = {
   id: string;
@@ -26,18 +36,37 @@ export type PortalCalendarEvent = {
   };
 };
 
+type PortalCalendarLegendItem = {
+  label: string;
+  color: string;
+};
+
+type PortalCalendarSelectedEvent = {
+  title: string;
+  start: string;
+  end?: string;
+  badgeLabel: string;
+  subtitle?: string;
+  meta?: string;
+  href?: string;
+};
+
 export function PortalCalendar({
   title,
   description,
   events,
+  legendItems = [],
   emptyMessage = "No calendar items available.",
 }: {
   title: string;
   description: string;
   events: PortalCalendarEvent[];
+  legendItems?: PortalCalendarLegendItem[];
   emptyMessage?: string;
 }) {
   const router = useRouter();
+  const [selectedEvent, setSelectedEvent] = useState<PortalCalendarSelectedEvent | null>(null);
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
 
   const summary = useMemo(() => {
     const uniqueDays = new Set(events.map((event) => String(event.start).slice(0, 10))).size;
@@ -46,6 +75,22 @@ export function PortalCalendar({
       activeDays: uniqueDays,
     };
   }, [events]);
+
+  const legendCounts = useMemo(() => {
+    return events.reduce<Record<string, number>>((acc, event) => {
+      const key = event.extendedProps.badgeLabel;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+  }, [events]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const syncViewport = () => setIsCompactViewport(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
 
   function getEventTextPalette(backgroundColor?: string | null, borderColor?: string | null) {
     if (!backgroundColor) {
@@ -148,20 +193,47 @@ export function PortalCalendar({
         {details.subtitle ? (
           <div className={`truncate text-[11px] ${palette.secondary}`}>{details.subtitle}</div>
         ) : null}
-        {details.meta ? (
-          <div className={`truncate text-[11px] ${palette.tertiary}`}>{details.meta}</div>
-        ) : null}
+        {details.meta ? <div className={`truncate text-[11px] ${palette.tertiary}`}>{details.meta}</div> : null}
       </div>
     );
+  }
+
+  function openEventPreview(arg: EventClickArg) {
+    const details = arg.event.extendedProps as PortalCalendarEvent["extendedProps"];
+    setSelectedEvent({
+      title: arg.event.title,
+      start: arg.event.startStr,
+      end: arg.event.endStr ?? undefined,
+      badgeLabel: details.badgeLabel,
+      subtitle: details.subtitle,
+      meta: details.meta,
+      href: details.href,
+    });
+  }
+
+  function handleEventClick(arg: EventClickArg) {
+    const href = (arg.event.extendedProps as PortalCalendarEvent["extendedProps"]).href;
+    if (isCompactViewport || !href) {
+      openEventPreview(arg);
+      return;
+    }
+    if (href) router.push(href);
   }
 
   return (
     <div className="space-y-4">
       <Card className="border-primary/15">
-        <CardContent className="grid gap-4 p-4 sm:grid-cols-[1.2fr_0.8fr] sm:p-5">
+        <CardContent
+          className={`grid gap-4 p-4 sm:p-5 ${legendItems.length > 0 ? "xl:grid-cols-[1.05fr_0.55fr_0.6fr]" : "sm:grid-cols-[1.2fr_0.8fr]"}`}
+        >
           <div>
             <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
             <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+            {isCompactViewport ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Tap any job dot or event to open a detail popup without leaving the calendar.
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
@@ -173,6 +245,19 @@ export function PortalCalendar({
               <p className="text-2xl font-semibold">{summary.activeDays}</p>
             </div>
           </div>
+          {legendItems.length > 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+              <p className="text-xs text-muted-foreground">Legend</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {legendItems.map((item) => (
+                  <Badge key={item.label} variant="outline" className="gap-1.5 bg-white/85">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+                    {item.label} ({legendCounts[item.label] ?? 0})
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -193,10 +278,7 @@ export function PortalCalendar({
             buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day" }}
             events={events}
             eventContent={renderEventContent}
-            eventClick={({ event }) => {
-              const href = (event.extendedProps as PortalCalendarEvent["extendedProps"]).href;
-              if (href) router.push(href);
-            }}
+            eventClick={handleEventClick}
             height="auto"
             stickyHeaderDates
             dayMaxEventRows={4}
@@ -226,6 +308,45 @@ export function PortalCalendar({
           />
         </div>
       )}
+
+      <Dialog open={Boolean(selectedEvent)} onOpenChange={(open) => !open && setSelectedEvent(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedEvent?.title ?? "Calendar item"}</DialogTitle>
+            <DialogDescription>{selectedEvent?.badgeLabel ?? ""}</DialogDescription>
+          </DialogHeader>
+          {selectedEvent ? (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                <p className="font-medium">
+                  {selectedEvent.start
+                    ? format(new Date(selectedEvent.start), "EEE dd MMM yyyy, h:mm a")
+                    : "Time not set"}
+                  {selectedEvent.end ? ` - ${format(new Date(selectedEvent.end), "h:mm a")}` : ""}
+                </p>
+                {selectedEvent.subtitle ? (
+                  <p className="mt-1 text-muted-foreground">{selectedEvent.subtitle}</p>
+                ) : null}
+                {selectedEvent.meta ? <p className="mt-2 text-xs text-muted-foreground">{selectedEvent.meta}</p> : null}
+              </div>
+              {selectedEvent.href ? (
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const href = selectedEvent.href;
+                      setSelectedEvent(null);
+                      if (href) router.push(href);
+                    }}
+                  >
+                    Open details
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <style jsx global>{`
         .fc {
@@ -272,6 +393,7 @@ export function PortalCalendar({
           border-radius: 14px;
           padding: 0.2rem 0.35rem;
           box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+          cursor: pointer;
         }
         .fc .fc-daygrid-event {
           min-height: 1.55rem;
@@ -401,3 +523,5 @@ export function PortalCalendar({
     </div>
   );
 }
+
+

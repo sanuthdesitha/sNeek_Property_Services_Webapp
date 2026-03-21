@@ -38,6 +38,49 @@ function parseEventNotes(notes: string | null | undefined): any {
   }
 }
 
+function getAccessInfo(task: any) {
+  const accessInfo = task?.property?.accessInfo;
+  if (!accessInfo || typeof accessInfo !== "object") return null;
+  return accessInfo as Record<string, any>;
+}
+
+function LaundryAccessInstructions({ task }: { task: any }) {
+  const accessInfo = getAccessInfo(task);
+  if (!accessInfo) return null;
+
+  const attachments = Array.isArray(accessInfo.attachments) ? accessInfo.attachments : [];
+  const mediaItems = attachments
+    .filter((item: any) => item?.url)
+    .map((item: any, index: number) => ({
+      id: item.id ?? `${task.id}-access-${index}` ,
+      url: item.url,
+      label: item.label || item.name || "Access attachment",
+      mediaType: String(item.type || item.mediaType || "PHOTO").toUpperCase().includes("VIDEO") ? "VIDEO" : "PHOTO",
+    }));
+
+  const hasText = accessInfo.lockbox || accessInfo.codes || accessInfo.parking || accessInfo.instructions || accessInfo.other;
+  if (!hasText && mediaItems.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950">
+      <p className="font-semibold uppercase tracking-[0.14em] text-amber-800">Property access instructions</p>
+      <div className="mt-2 space-y-1">
+        {accessInfo.instructions ? <p>{accessInfo.instructions}</p> : null}
+        {accessInfo.lockbox ? <p>Lockbox: <strong>{accessInfo.lockbox}</strong></p> : null}
+        {accessInfo.codes ? <p>Codes: <strong>{accessInfo.codes}</strong></p> : null}
+        {accessInfo.parking ? <p>Parking: {accessInfo.parking}</p> : null}
+        {accessInfo.other ? <p>{accessInfo.other}</p> : null}
+      </div>
+      {mediaItems.length > 0 ? (
+        <div className="mt-3">
+          <p className="mb-1 font-medium text-amber-800">Access references</p>
+          <MediaGallery items={mediaItems as any} title="Access Instructions" className="grid grid-cols-1 gap-2 sm:grid-cols-2" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function buildTimeline(task: any) {
   const events: Array<{ at: Date; label: string }> = [];
   if (task.createdAt) events.push({ at: new Date(task.createdAt), label: "Task created" });
@@ -952,13 +995,16 @@ export default function LaundryPortal() {
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 Laundry Overview
               </p>
-              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Laundry Schedule</h1>
+              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Laundry Weekly Planner</h1>
               <p className="mt-2 text-sm text-muted-foreground sm:text-base">
                 {format(weekStart, "d MMM")} -{" "}
                 {format(addDays(weekStart, rangeMode === "day" ? 0 : rangeMode === "month" ? 30 : 6), "d MMM yyyy")}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
                 Pickup cutoff {laundryConfig.pickupCutoffTime} | Default pickup {laundryConfig.defaultPickupTime} | Default drop-off {laundryConfig.defaultDropoffTime} | Fallback outside {laundryConfig.maxOutdoorDays} day{laundryConfig.maxOutdoorDays === 1 ? "" : "s"} (manual jobs only)
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                You are viewing the {rangeMode === "day" ? "day" : rangeMode === "month" ? "month" : "week"} schedule. Use Previous and Next to move through the planner, then switch tabs to confirm pickups, returns, and history.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
@@ -1009,6 +1055,23 @@ export default function LaundryPortal() {
         description="Priority laundry actions that need quick follow-up."
         items={urgentItems}
       />
+
+      <Card>
+        <CardContent className="grid gap-3 p-4 text-sm text-muted-foreground md:grid-cols-3">
+          <div>
+            <p className="font-semibold text-foreground">1. Review the ready queue</p>
+            <p className="mt-1">Open the Ready Queue tab first to confirm which cleaner-submitted bags are ready for pickup.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-foreground">2. Move through the planner</p>
+            <p className="mt-1">Use Previous and Next to change weeks, or switch the range filter to day or month when planning ahead.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-foreground">3. Confirm pickup and return</p>
+            <p className="mt-1">Record pickup, then confirm the return with the final photo, location, and pricing details so the history stays accurate.</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -1125,6 +1188,7 @@ export default function LaundryPortal() {
                       <div className="min-w-0">
                         <p className="font-semibold">{task.property.name}</p>
                         <p className="text-sm text-muted-foreground">{task.property.suburb}</p>
+                        <LaundryAccessInstructions task={task} />
                         <p className="mt-2 text-sm">
                           <strong>Pickup:</strong> {format(new Date(task.pickupDate), "EEE dd MMM")}
                         </p>
@@ -1298,6 +1362,7 @@ export default function LaundryPortal() {
                           {" -> Drop "}
                           {format(new Date(task.dropoffDate), "dd MMM")}
                         </p>
+                        <LaundryAccessInstructions task={task} />
                       </div>
                       <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
                     </div>
@@ -1798,3 +1863,8 @@ export default function LaundryPortal() {
     </div>
   );
 }
+
+
+
+
+

@@ -247,30 +247,38 @@ export default async function CleanerDashboard() {
                 Next Job
               </p>
               {visibility.showJobs && nextJob ? (
-                <div className="mt-3 space-y-3">
-                  <div>
-                    <p className="text-base font-semibold">{nextJob.property.name}</p>
-                    <p className="text-sm text-muted-foreground">{nextJob.property.suburb}</p>
-                  </div>
-                  <div className="space-y-1 text-sm">
-                    <p>{format(toZonedTime(nextJob.scheduledDate, TZ), "EEE dd MMM yyyy")}</p>
-                    <p>
-                      {nextJob.startTime || "Time not set"}
-                      {nextJob.dueTime ? ` - ${nextJob.dueTime}` : ""}
-                    </p>
-                    <p className="text-muted-foreground">{nextJob.jobType.replace(/_/g, " ")}</p>
-                  </div>
-                  <Badge variant={STATUS_COLORS[nextJob.status]}>{nextJob.status.replace(/_/g, " ")}</Badge>
-                  {nextJobTimingHighlights.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {nextJobTimingHighlights.map((line) => (
-                        <Badge key={`next-${line}`} variant="warning">
-                          {line}
-                        </Badge>
-                      ))}
+                <Link
+                  href={`/cleaner/jobs/${nextJob.id}`}
+                  className="mt-3 block rounded-2xl border border-border/70 bg-white/70 p-3 transition hover:border-primary/35 hover:shadow-sm"
+                >
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-base font-semibold">{nextJob.property.name}</p>
+                      <p className="text-sm text-muted-foreground">{nextJob.property.suburb}</p>
                     </div>
-                  ) : null}
-                </div>
+                    <div className="space-y-1 text-sm">
+                      <p>{format(toZonedTime(nextJob.scheduledDate, TZ), "EEE dd MMM yyyy")}</p>
+                      <p>
+                        {nextJob.startTime || "Time not set"}
+                        {nextJob.dueTime ? ` - ${nextJob.dueTime}` : ""}
+                      </p>
+                      <p className="text-muted-foreground">{nextJob.jobType.replace(/_/g, " ")}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={STATUS_COLORS[nextJob.status]}>{nextJob.status.replace(/_/g, " ")}</Badge>
+                      <span className="text-xs font-medium text-primary">Open job</span>
+                    </div>
+                    {nextJobTimingHighlights.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {nextJobTimingHighlights.map((line) => (
+                          <Badge key={`next-${line}`} variant="warning">
+                            {line}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </Link>
               ) : visibility.showJobs ? (
                 <p className="mt-3 text-sm text-muted-foreground">No scheduled jobs in the next 7 days.</p>
               ) : (
@@ -500,3 +508,4 @@ export default async function CleanerDashboard() {
     </div>
   );
 }
+

@@ -5,13 +5,23 @@ import { Role } from "@prisma/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Building2, ClipboardList, FileText, Package, Plus } from "lucide-react";
+import { Building2, ClipboardList, FileText, Package, Plus, Shirt } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getClientImmediateAttention } from "@/lib/dashboard/immediate-attention";
+import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 
 const TZ = "Australia/Sydney";
+
+function parseConfirmationMeta(notes: string | null | undefined) {
+  if (!notes) return null;
+  try {
+    return JSON.parse(notes);
+  } catch {
+    return null;
+  }
+}
 
 export default async function ClientDashboard() {
   const session = await requireRole([Role.CLIENT]);
@@ -33,6 +43,7 @@ export default async function ClientDashboard() {
         include: {
           job: {
             select: {
+              id: true,
               scheduledDate: true,
               jobType: true,
               property: { select: { name: true, suburb: true } },
@@ -73,6 +84,27 @@ export default async function ClientDashboard() {
         },
         orderBy: [{ property: { name: "asc" } }, { item: { name: "asc" } }],
         take: 2000,
+      })
+    : [];
+
+  const laundryUpdates = client && visibility.showLaundryUpdates
+    ? await db.laundryTask.findMany({
+        where: { property: { clientId: client.id } },
+        select: {
+          id: true,
+          status: true,
+          pickupDate: true,
+          dropoffDate: true,
+          droppedAt: true,
+          property: { select: { name: true, suburb: true } },
+          confirmations: {
+            orderBy: { createdAt: "desc" },
+            take: 3,
+            select: { notes: true },
+          },
+        },
+        orderBy: [{ pickupDate: "asc" }],
+        take: 6,
       })
     : [];
 
@@ -234,7 +266,7 @@ export default async function ClientDashboard() {
                       {prop.address}, {prop.suburb}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {prop.bedrooms}bd • {prop.bathrooms}ba{prop.hasBalcony ? " • Balcony" : ""}
+                      {prop.bedrooms}bd | {prop.bathrooms}ba{prop.hasBalcony ? " | Balcony" : ""}
                     </p>
                   </div>
                 </div>
@@ -261,11 +293,11 @@ export default async function ClientDashboard() {
                     <div key={job.id} className="rounded-2xl border border-border/70 bg-white/70 p-3">
                       <p className="text-sm font-semibold">{job.property.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {job.property.suburb} • {job.jobType.replace(/_/g, " ")}
+                        {job.property.suburb} | {job.jobType.replace(/_/g, " ")}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {format(toZonedTime(job.scheduledDate, TZ), "dd MMM yyyy")}
-                        {job.startTime ? ` • ${job.startTime}` : ""}
+                        {job.startTime ? ` | ${job.startTime}` : ""}
                         {job.dueTime ? ` - ${job.dueTime}` : ""}
                       </p>
                       <span className="mt-2 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium">
@@ -276,6 +308,49 @@ export default async function ClientDashboard() {
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
                     No ongoing jobs at the moment.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {visibility.showLaundryUpdates ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Laundry Updates</CardTitle>
+                <CardDescription>Pickup and return progress for your current laundry tasks.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {laundryUpdates.length > 0 ? (
+                  laundryUpdates.map((task) => {
+                    const latestMeta = parseConfirmationMeta(task.confirmations[0]?.notes);
+                    const totalPrice = typeof latestMeta?.totalPrice === "number" ? latestMeta.totalPrice : null;
+                    return (
+                      <div key={task.id} className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+                            <Shirt className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold">{task.property.name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {task.property.suburb} | Pickup {format(toZonedTime(task.pickupDate, TZ), "dd MMM yyyy")} | Drop {format(toZonedTime(task.dropoffDate, TZ), "dd MMM yyyy")}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Status: {task.status.replace(/_/g, " ")}
+                              {task.droppedAt ? ` | Returned ${format(toZonedTime(task.droppedAt, TZ), "dd MMM yyyy")}` : ""}
+                            </p>
+                            {visibility.showLaundryCosts && totalPrice != null ? (
+                              <p className="mt-2 text-xs text-muted-foreground">Laundry charge: ${Number(totalPrice).toFixed(2)}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                    No laundry updates available right now.
                   </div>
                 )}
               </CardContent>
@@ -294,12 +369,15 @@ export default async function ClientDashboard() {
                     <div key={report.id} className="rounded-2xl border border-border/70 bg-white/70 p-3">
                       <p className="text-sm font-semibold">{report.job.property.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {report.job.jobType.replace(/_/g, " ")} •{" "}
-                        {format(toZonedTime(report.job.scheduledDate, TZ), "dd MMM yyyy")}
+                        {report.job.jobType.replace(/_/g, " ")} | {format(toZonedTime(report.job.scheduledDate, TZ), "dd MMM yyyy")}
                       </p>
-                      <Button size="sm" variant="outline" asChild className="mt-3">
-                        <a href={`/api/reports/${report.jobId}/download`}>Download PDF</a>
-                      </Button>
+                      {visibility.showReportDownloads ? (
+                        <div className="mt-3">
+                          <ClientReportDownloadButton jobId={report.job.id} />
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-xs text-muted-foreground">PDF downloads are hidden by admin.</p>
+                      )}
                     </div>
                   ))
                 ) : (

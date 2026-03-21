@@ -21,9 +21,11 @@ const clientPortalVisibilitySchema = z.object({
   showCases: z.boolean().optional(),
   showExtraPayRequests: z.boolean().optional(),
   showCleanerNames: z.boolean().optional(),
+  showLaundryUpdates: z.boolean().optional(),
   showLaundryCosts: z.boolean().optional(),
   showQuoteRequests: z.boolean().optional(),
   showApprovals: z.boolean().optional(),
+  showReportDownloads: z.boolean().optional(),
 });
 
 const cleanerPortalVisibilitySchema = z.object({

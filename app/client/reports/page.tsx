@@ -9,6 +9,7 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 
 const TZ = "Australia/Sydney";
 
@@ -40,6 +41,7 @@ export default async function ClientReportsPage({
   const appSettings = await getAppSettings();
   const range = (searchParams?.range as RangeType) || "monthly";
   const rangeType: RangeType = ["weekly", "monthly", "annual"].includes(range) ? range : "monthly";
+  const visibility = appSettings.clientPortalVisibility;
 
   const user = await db.user.findUnique({
     where: { id: session.user.id },
@@ -119,20 +121,22 @@ export default async function ClientReportsPage({
         <CardContent className="p-0">
           <div className="divide-y">
             {reports.map((report) => (
-              <div key={report.id} className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-sm">{report.job.property.name}</p>
+              <div key={report.id} className="flex items-center justify-between gap-3 px-6 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-sm">{report.job.property.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {report.job.jobType.replace(/_/g, " ")} - {" "}
                       {format(toZonedTime(report.job.scheduledDate, TZ), "dd MMM yyyy")}
                     </p>
                   </div>
                 </div>
-                <Button size="sm" variant="outline" asChild>
-                  <a href={`/api/reports/${report.job.id}/download`}>Download</a>
-                </Button>
+                {visibility.showReportDownloads ? (
+                  <ClientReportDownloadButton jobId={report.job.id} label="Download PDF" />
+                ) : (
+                  <span className="text-xs text-muted-foreground">PDF download hidden by admin</span>
+                )}
               </div>
             ))}
             {reports.length === 0 && (

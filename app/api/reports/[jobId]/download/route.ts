@@ -130,8 +130,15 @@ export async function GET(
               "Content-Disposition": `attachment; filename="job-report-${params.jobId}.pdf"`,
             },
           });
-        } catch {
-          // fall through to HTML response
+        } catch (error: any) {
+          return NextResponse.json(
+            {
+              error:
+                error?.message ||
+                "PDF generation failed. Ensure Playwright browsers are installed on the server.",
+            },
+            { status: 503 }
+          );
         }
       }
       return new NextResponse(report.htmlContent, {
@@ -143,3 +150,4 @@ export async function GET(
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 }
+

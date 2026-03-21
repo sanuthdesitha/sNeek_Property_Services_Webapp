@@ -4,14 +4,14 @@ import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Role } from "@prisma/client";
 import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/portal-calendar";
 
-const STATUS_COLORS: Record<string, { border: string; bg: string }> = {
-  UNASSIGNED: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)" },
-  ASSIGNED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)" },
-  IN_PROGRESS: { border: "#0f766e", bg: "rgba(15,118,110,0.14)" },
-  SUBMITTED: { border: "#4f46e5", bg: "rgba(79,70,229,0.14)" },
-  QA_REVIEW: { border: "#ea580c", bg: "rgba(234,88,12,0.14)" },
-  COMPLETED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)" },
-  INVOICED: { border: "#64748b", bg: "rgba(100,116,139,0.14)" },
+const STATUS_COLORS: Record<string, { border: string; bg: string; label: string }> = {
+  UNASSIGNED: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "UNASSIGNED" },
+  ASSIGNED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "ASSIGNED" },
+  IN_PROGRESS: { border: "#0f766e", bg: "rgba(15,118,110,0.14)", label: "IN PROGRESS" },
+  SUBMITTED: { border: "#4f46e5", bg: "rgba(79,70,229,0.14)", label: "SUBMITTED" },
+  QA_REVIEW: { border: "#ea580c", bg: "rgba(234,88,12,0.14)", label: "QA REVIEW" },
+  COMPLETED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)", label: "COMPLETED" },
+  INVOICED: { border: "#64748b", bg: "rgba(100,116,139,0.14)", label: "INVOICED" },
 };
 
 export default async function ClientCalendarPage() {
@@ -63,7 +63,7 @@ export default async function ClientCalendarPage() {
         subtitle: job.jobType.replace(/_/g, " "),
         meta: [job.property.suburb, job.startTime, job.dueTime, job.report ? "Report ready" : undefined]
           .filter(Boolean)
-          .join(" • "),
+          .join(" | "),
       },
     };
   });
@@ -71,8 +71,9 @@ export default async function ClientCalendarPage() {
   return (
     <PortalCalendar
       title="Property Service Calendar"
-      description="Track scheduled and completed services across your properties in one calendar view."
+      description="Track scheduled and completed services across your properties. On phone, tap any entry to see the job details popup."
       events={events}
+      legendItems={Object.values(STATUS_COLORS).map((item) => ({ label: item.label.replace(/_/g, " "), color: item.border }))}
       emptyMessage="No jobs available for your properties right now."
     />
   );
