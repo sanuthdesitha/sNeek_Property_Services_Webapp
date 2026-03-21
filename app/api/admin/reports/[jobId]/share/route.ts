@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
+import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 
@@ -19,45 +20,12 @@ const schema = z.object({
 const TZ = "Australia/Sydney";
 
 async function buildReportAttachment(report: { pdfUrl: string | null; htmlContent: string | null }, jobId: string) {
-  if (report.pdfUrl) {
-    try {
-      const response = await fetch(report.pdfUrl);
-      if (response.ok) {
-        return {
-          filename: `job-report-${jobId}.pdf`,
-          content: Buffer.from(await response.arrayBuffer()).toString("base64"),
-          contentType: "application/pdf",
-        };
-      }
-    } catch {
-      // fall through to HTML render
-    }
-  }
-
-  if (!report.htmlContent) return null;
-
   try {
-    const { chromium } = await import("playwright");
-    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-    let launchError: unknown = null;
-    try {
-      browser = await chromium.launch();
-    } catch (err) {
-      launchError = err;
-      browser = await chromium.launch({ channel: "msedge" }).catch(async () => {
-        return chromium.launch({ channel: "chrome" });
-      });
-    }
-    if (!browser) {
-      throw launchError ?? new Error("Could not launch browser for report attachment.");
-    }
-    const page = await browser.newPage();
-    await page.setContent(report.htmlContent, { waitUntil: "networkidle" });
-    const pdf = await page.pdf({ format: "A4", printBackground: true });
-    await browser.close();
+    const pdf = await getJobReportPdfBuffer(report, jobId);
+    if (!pdf) return null;
     return {
       filename: `job-report-${jobId}.pdf`,
-      content: Buffer.from(pdf).toString("base64"),
+      content: pdf,
       contentType: "application/pdf",
     };
   } catch {
@@ -134,11 +102,21 @@ export async function POST(
     });
 
     const attachment = await buildReportAttachment(report, params.jobId);
+    if (!attachment) {
+      return NextResponse.json(
+        {
+          error:
+            "PDF report could not be generated or loaded. Ensure Playwright is installed and report storage is configured correctly.",
+        },
+        { status: 503 }
+      );
+    }
+
     const sentResult = await sendEmailDetailed({
       to: recipients,
       subject: emailTemplate.subject,
       html: emailTemplate.html,
-      attachments: attachment ? [attachment] : undefined,
+      attachments: [attachment],
     });
     const sent = sentResult.ok;
 
@@ -164,7 +142,7 @@ export async function POST(
       data: { sentToClient: true, sentAt: new Date() },
     });
 
-    return NextResponse.json({ ok: true, attachedPdf: Boolean(attachment) });
+    return NextResponse.json({ ok: true, attachedPdf: true });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

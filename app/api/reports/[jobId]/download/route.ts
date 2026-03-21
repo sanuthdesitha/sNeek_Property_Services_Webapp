@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { generateJobReport, REPORT_TEMPLATE_VERSION } from "@/lib/reports/generator";
+import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 
 export async function GET(
   req: NextRequest,
@@ -87,60 +88,31 @@ export async function GET(
       }
     }
 
-    if (format !== "html" && report.pdfUrl) {
+    if (format !== "html") {
       try {
-        const remoteRes = await fetch(report.pdfUrl);
-        if (remoteRes.ok) {
-          const buffer = await remoteRes.arrayBuffer();
-          return new NextResponse(new Uint8Array(buffer), {
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="job-report-${params.jobId}.pdf"`,
-            },
-          });
+        const pdf = await getJobReportPdfBuffer(report, params.jobId);
+        if (!pdf) {
+          throw new Error("Could not build PDF for this report.");
         }
-      } catch {
-        // fall through to regenerate/render path
+        return new NextResponse(new Uint8Array(pdf), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="job-report-${params.jobId}.pdf"`,
+          },
+        });
+      } catch (error: any) {
+        return NextResponse.json(
+          {
+            error:
+              error?.message ||
+              "PDF generation failed. Ensure Playwright browsers are installed on the server.",
+          },
+          { status: 503 }
+        );
       }
     }
+
     if (report.htmlContent) {
-      if (format !== "html") {
-        try {
-          const { chromium } = await import("playwright");
-          let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-          let launchError: unknown = null;
-          try {
-            browser = await chromium.launch();
-          } catch (err) {
-            launchError = err;
-            browser = await chromium.launch({ channel: "msedge" }).catch(async () => {
-              return chromium.launch({ channel: "chrome" });
-            });
-          }
-          if (!browser) {
-            throw launchError ?? new Error("Could not launch browser for report download.");
-          }
-          const page = await browser.newPage();
-          await page.setContent(report.htmlContent, { waitUntil: "networkidle" });
-          const pdf = await page.pdf({ format: "A4", printBackground: true });
-          await browser.close();
-          return new NextResponse(new Uint8Array(pdf), {
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="job-report-${params.jobId}.pdf"`,
-            },
-          });
-        } catch (error: any) {
-          return NextResponse.json(
-            {
-              error:
-                error?.message ||
-                "PDF generation failed. Ensure Playwright browsers are installed on the server.",
-            },
-            { status: 503 }
-          );
-        }
-      }
       return new NextResponse(report.htmlContent, {
         headers: { "Content-Type": "text/html" },
       });
