@@ -1,5 +1,8 @@
 import { Resend } from "resend";
 import { logger } from "@/lib/logger";
+import { getAppSettings } from "@/lib/settings";
+import { resolveAppUrl } from "@/lib/app-url";
+import { wrapEmailHtml } from "@/lib/email-templates";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -15,6 +18,22 @@ function getResendClient() {
   }
 
   return resendClient;
+}
+
+function absolutizeInlineLinks(html: string) {
+  return html.replace(/(href|src)="(\/[^\"]*)"/gi, (_, attr: string, value: string) => {
+    return `${attr}="${resolveAppUrl(value)}"`;
+  });
+}
+
+async function prepareHtml(payloadHtml: string) {
+  const trimmed = payloadHtml.trim();
+  const settings = await getAppSettings();
+  const brandedHtml = /^<!doctype html>/i.test(trimmed)
+    ? trimmed
+    : wrapEmailHtml(settings, trimmed, null);
+
+  return absolutizeInlineLinks(brandedHtml);
 }
 
 export interface EmailPayload {
@@ -39,11 +58,13 @@ export async function sendEmailDetailed(
       return { ok: false, error: "RESEND_API_KEY is not configured" };
     }
 
+    const html = await prepareHtml(payload.html);
+
     await resend.emails.send({
       from: payload.from ?? FROM,
       to: Array.isArray(payload.to) ? payload.to : [payload.to],
       subject: payload.subject,
-      html: payload.html,
+      html,
       replyTo: payload.replyTo,
       attachments: payload.attachments,
     });

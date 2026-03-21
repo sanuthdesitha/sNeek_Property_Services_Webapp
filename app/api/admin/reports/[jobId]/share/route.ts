@@ -9,10 +9,59 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]).optional(),
 });
+
+const TZ = "Australia/Sydney";
+
+async function buildReportAttachment(report: { pdfUrl: string | null; htmlContent: string | null }, jobId: string) {
+  if (report.pdfUrl) {
+    try {
+      const response = await fetch(report.pdfUrl);
+      if (response.ok) {
+        return {
+          filename: `job-report-${jobId}.pdf`,
+          content: Buffer.from(await response.arrayBuffer()),
+        };
+      }
+    } catch {
+      // fall through to HTML render
+    }
+  }
+
+  if (!report.htmlContent) return null;
+
+  try {
+    const { chromium } = await import("playwright");
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+    let launchError: unknown = null;
+    try {
+      browser = await chromium.launch();
+    } catch (err) {
+      launchError = err;
+      browser = await chromium.launch({ channel: "msedge" }).catch(async () => {
+        return chromium.launch({ channel: "chrome" });
+      });
+    }
+    if (!browser) {
+      throw launchError ?? new Error("Could not launch browser for report attachment.");
+    }
+    const page = await browser.newPage();
+    await page.setContent(report.htmlContent, { waitUntil: "networkidle" });
+    const pdf = await page.pdf({ format: "A4", printBackground: true });
+    await browser.close();
+    return {
+      filename: `job-report-${jobId}.pdf`,
+      content: Buffer.from(pdf),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -71,16 +120,23 @@ export async function POST(
     }
 
     const settings = await getAppSettings();
-    const reportLink = report.pdfUrl || resolveAppUrl(`/api/reports/${params.jobId}/download`, req);
+    const clientPortalUrl = resolveAppUrl("/client/reports", req);
     const emailTemplate = renderEmailTemplate(settings, "cleaningReportShared", {
       clientName: job.property.client?.name ?? "Client",
       propertyName: job.property.name,
-      reportLink,
+      jobType: job.jobType.replace(/_/g, " "),
+      cleanDate: format(toZonedTime(job.scheduledDate, TZ), "EEEE, dd MMMM yyyy"),
+      reportLink: clientPortalUrl,
+      actionUrl: clientPortalUrl,
+      actionLabel: "Open client portal",
     });
+
+    const attachment = await buildReportAttachment(report, params.jobId);
     const sentResult = await sendEmailDetailed({
       to: recipients,
       subject: emailTemplate.subject,
       html: emailTemplate.html,
+      attachments: attachment ? [attachment] : undefined,
     });
     const sent = sentResult.ok;
 
@@ -91,7 +147,9 @@ export async function POST(
         body: `Report ${params.jobId} sent to ${recipients.join(", ")}`,
         status: sent ? NotificationStatus.SENT : NotificationStatus.FAILED,
         sentAt: sent ? new Date() : undefined,
-        errorMsg: sent ? undefined : sentResult.error ?? "Email provider failed to deliver report.",
+        errorMsg: sent
+          ? undefined
+          : sentResult.error ?? "Email provider failed to deliver report.",
       },
     });
 
@@ -104,7 +162,7 @@ export async function POST(
       data: { sentToClient: true, sentAt: new Date() },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, attachedPdf: Boolean(attachment) });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
