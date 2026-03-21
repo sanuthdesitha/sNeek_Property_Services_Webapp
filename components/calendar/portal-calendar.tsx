@@ -7,6 +7,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg, EventContentArg } from "@fullcalendar/core";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -312,7 +313,15 @@ export function PortalCalendar({
       <Dialog open={Boolean(selectedEvent)} onOpenChange={(open) => !open && setSelectedEvent(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{selectedEvent?.title ?? "Calendar item"}</DialogTitle>
+            <DialogTitle>
+              {selectedEvent?.href ? (
+                <Link href={selectedEvent.href} className="hover:underline">
+                  {selectedEvent.title}
+                </Link>
+              ) : (
+                selectedEvent?.title ?? "Calendar item"
+              )}
+            </DialogTitle>
             <DialogDescription>{selectedEvent?.badgeLabel ?? ""}</DialogDescription>
           </DialogHeader>
           {selectedEvent ? (
@@ -339,7 +348,7 @@ export function PortalCalendar({
                       if (href) router.push(href);
                     }}
                   >
-                    Open details
+                    Open job
                   </Button>
                 </div>
               ) : null}

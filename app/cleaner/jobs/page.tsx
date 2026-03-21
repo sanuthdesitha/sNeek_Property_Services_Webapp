@@ -231,7 +231,9 @@ export default async function CleanerJobsPage({
                 return (
                   <div key={job.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{job.property.name}</p>
+                      <Link href={`/cleaner/jobs/${job.id}`} className="truncate font-medium hover:underline">
+                        {job.property.name}
+                      </Link>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")}
                       </p>

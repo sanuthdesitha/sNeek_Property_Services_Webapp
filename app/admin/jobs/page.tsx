@@ -506,7 +506,9 @@ export default function JobsPage() {
                     className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50"
                   >
                     <div>
-                      <p className="font-medium text-sm">{job.property.name}</p>
+                      <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
+                        {job.property.name}
+                      </Link>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
                         {format(new Date(job.scheduledDate), "dd MMM yyyy")}
@@ -564,7 +566,9 @@ export default function JobsPage() {
                 {groupedByStatus[status]?.map((job) => (
                   <Card key={job.id} className="transition-colors hover:border-primary/50">
                     <CardContent className="p-3">
-                      <p className="font-medium text-sm">{job.property.name}</p>
+                      <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
+                        {job.property.name}
+                      </Link>
                       <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
                       <p className="mt-1 text-xs font-medium">{format(new Date(job.scheduledDate), "dd MMM")}</p>
