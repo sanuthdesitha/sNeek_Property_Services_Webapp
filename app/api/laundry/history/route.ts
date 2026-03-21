@@ -21,6 +21,7 @@ export async function GET() {
             name: true,
             suburb: true,
             linenBufferSets: true,
+            accessInfo: true,
           },
         },
         job: { select: { scheduledDate: true, status: true } },

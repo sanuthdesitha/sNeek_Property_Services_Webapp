@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
             name: true,
             suburb: true,
             linenBufferSets: true,
+            accessInfo: true,
           },
         },
         job: { select: { scheduledDate: true, status: true } },
