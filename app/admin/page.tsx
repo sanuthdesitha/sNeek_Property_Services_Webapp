@@ -40,14 +40,16 @@ async function getDashboardStats() {
     todayJobs,
     unassignedJobs,
     flaggedLaundry,
-    lowStockCount,
+    lowStockRows,
     activeSlaJobs,
     recentJobs,
   ] = await Promise.all([
     db.job.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
     db.job.count({ where: { status: JobStatus.UNASSIGNED } }),
     db.laundryTask.count({ where: { status: "FLAGGED" } }),
-    db.propertyStock.count({ where: { onHand: { lte: db.propertyStock.fields.reorderThreshold } } }),
+    db.propertyStock.findMany({
+      select: { onHand: true, reorderThreshold: true },
+    }),
     db.job.findMany({
       where: {
         status: { in: [JobStatus.UNASSIGNED, JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.SUBMITTED, JobStatus.QA_REVIEW] },
@@ -60,12 +62,21 @@ async function getDashboardStats() {
     db.job.findMany({
       take: 10,
       orderBy: { scheduledDate: "desc" },
-      include: {
+      select: {
+        id: true,
+        jobType: true,
+        status: true,
+        scheduledDate: true,
         property: { select: { name: true, suburb: true } },
-        assignments: { include: { user: { select: { name: true } } } },
+        assignments: {
+          select: { user: { select: { name: true } } },
+          take: 1,
+        },
       },
     }),
   ]);
+
+  const lowStockCount = lowStockRows.filter((row) => row.onHand <= row.reorderThreshold).length;
 
   const nowUtc = new Date();
   let slaDueSoon = 0;

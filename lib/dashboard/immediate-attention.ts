@@ -1,4 +1,4 @@
-import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
+import { JobStatus, PayAdjustmentStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -37,10 +37,29 @@ function nonZero(items: ImmediateAttentionItem[]) {
   return items.filter((item) => item.count > 0);
 }
 
+function isMissingSchemaError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  );
+}
+
+async function safeCount<T>(query: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await query;
+  } catch (error) {
+    if (isMissingSchemaError(error)) return fallback;
+    throw error;
+  }
+}
+
 export async function getAdminImmediateAttention(): Promise<ImmediateAttentionItem[]> {
   const [pendingPayRequests, flaggedLaundry, unassignedJobs, highCases, newCases, pendingContinuations, pendingClientApprovals, openCases] =
     await Promise.all([
-      db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
+      safeCount(
+        db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
+        0
+      ),
       db.laundryTask.count({ where: { status: "FLAGGED" } }),
       db.job.count({ where: { status: JobStatus.UNASSIGNED } }),
       db.issueTicket.count({
@@ -178,13 +197,16 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
           },
         },
       }),
-      db.cleanerPayAdjustment.count({
-        where: {
-          cleanerId,
-          status: PayAdjustmentStatus.REJECTED,
-          reviewedAt: { gte: startOfYesterdaySydney() },
-        },
-      }),
+      safeCount(
+        db.cleanerPayAdjustment.count({
+          where: {
+            cleanerId,
+            status: PayAdjustmentStatus.REJECTED,
+            reviewedAt: { gte: startOfYesterdaySydney() },
+          },
+        }),
+        0
+      ),
     ]);
 
   return nonZero([

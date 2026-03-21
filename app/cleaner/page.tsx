@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
-import { PayAdjustmentStatus, Role } from "@prisma/client";
+import { PayAdjustmentStatus, Prisma, Role } from "@prisma/client";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,22 @@ const STATUS_COLORS: Record<string, any> = {
   COMPLETED: "success",
   INVOICED: "outline",
 };
+
+function isMissingSchemaError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  );
+}
+
+async function safeValue<T>(query: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await query;
+  } catch (error) {
+    if (isMissingSchemaError(error)) return fallback;
+    throw error;
+  }
+}
 
 function formatCurrency(value: number) {
   return `$${value.toFixed(2)}`;
@@ -99,7 +115,11 @@ export default async function CleanerDashboard() {
       assignments: { some: { userId: session.user.id } },
       status: { in: ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"] },
     },
-    include: {
+    select: {
+      id: true,
+      jobType: true,
+      status: true,
+      scheduledDate: true,
       property: { select: { name: true, suburb: true } },
       report: { select: { id: true } },
     },
@@ -116,23 +136,29 @@ export default async function CleanerDashboard() {
       },
       select: { durationM: true },
     }),
-    db.cleanerPayAdjustment.count({
-      where: {
-        cleanerId: session.user.id,
-        status: PayAdjustmentStatus.PENDING,
-      },
-    }),
-    db.cleanerPayAdjustment.findMany({
-      where: {
-        cleanerId: session.user.id,
-        status: PayAdjustmentStatus.APPROVED,
-        reviewedAt: { gte: monthStart },
-      },
-      select: {
-        approvedAmount: true,
-        requestedAmount: true,
-      },
-    }),
+    safeValue(
+      db.cleanerPayAdjustment.count({
+        where: {
+          cleanerId: session.user.id,
+          status: PayAdjustmentStatus.PENDING,
+        },
+      }),
+      0
+    ),
+    safeValue(
+      db.cleanerPayAdjustment.findMany({
+        where: {
+          cleanerId: session.user.id,
+          status: PayAdjustmentStatus.APPROVED,
+          reviewedAt: { gte: monthStart },
+        },
+        select: {
+          approvedAmount: true,
+          requestedAmount: true,
+        },
+      }),
+      []
+    ),
   ]);
   const urgentItems = await getCleanerImmediateAttention(session.user.id);
 
