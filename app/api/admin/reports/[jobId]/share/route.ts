@@ -25,7 +25,8 @@ async function buildReportAttachment(report: { pdfUrl: string | null; htmlConten
       if (response.ok) {
         return {
           filename: `job-report-${jobId}.pdf`,
-          content: Buffer.from(await response.arrayBuffer()),
+          content: Buffer.from(await response.arrayBuffer()).toString("base64"),
+          contentType: "application/pdf",
         };
       }
     } catch {
@@ -56,7 +57,8 @@ async function buildReportAttachment(report: { pdfUrl: string | null; htmlConten
     await browser.close();
     return {
       filename: `job-report-${jobId}.pdf`,
-      content: Buffer.from(pdf),
+      content: Buffer.from(pdf).toString("base64"),
+      contentType: "application/pdf",
     };
   } catch {
     return null;
