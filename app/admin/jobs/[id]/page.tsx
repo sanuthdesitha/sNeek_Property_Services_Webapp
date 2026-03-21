@@ -20,6 +20,7 @@ import { JobAttachmentsInput } from "@/components/admin/job-attachments-input";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { parseJobInternalNotes, summarizeJobRules, type JobTimingPreset } from "@/lib/jobs/meta";
+import { downloadFromApi } from "@/lib/client/download";
 
 const STATUS_COLORS: Record<string, any> = {
   UNASSIGNED: "warning",
@@ -375,23 +376,15 @@ export default function JobDetailPage() {
       return;
     }
 
-    const res = await fetch(`/api/reports/${params.id}/download`);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      toast({ title: "Download failed", description: body.error ?? "Could not download report.", variant: "destructive" });
-      return;
+    try {
+      await downloadFromApi(`/api/reports/${params.id}/download`, `job-report-${params.id}.pdf`);
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.message ?? "Could not download report.",
+        variant: "destructive",
+      });
     }
-    const blob = await res.blob();
-    const contentType = res.headers.get("content-type") ?? "";
-    const ext = contentType.includes("pdf") ? "pdf" : "html";
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `job-report-${params.id}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
   }
 
   async function saveJobChanges() {
