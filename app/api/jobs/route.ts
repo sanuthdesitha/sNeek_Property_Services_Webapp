@@ -40,7 +40,12 @@ export async function GET(req: NextRequest) {
         },
         _count: { select: { formSubmissions: true } },
       },
-      orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+      orderBy: [
+        { scheduledDate: "asc" },
+        { priorityBucket: "asc" },
+        { dueTime: "asc" },
+        { startTime: "asc" },
+      ],
     });
 
     return NextResponse.json(jobs);

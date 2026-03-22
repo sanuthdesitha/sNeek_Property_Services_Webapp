@@ -5,6 +5,7 @@ type CleanerModule =
   | "jobs"
   | "calendar"
   | "shopping"
+  | "stockRuns"
   | "invoices"
   | "payRequests"
   | "lostFound";
@@ -13,10 +14,12 @@ type ClientModule =
   | "calendar"
   | "inventory"
   | "shopping"
+  | "stockRuns"
   | "reports"
   | "quoteRequests"
   | "approvals"
-  | "disputes";
+  | "disputes"
+  | "cases";
 
 type LaundryModule =
   | "calendar"
@@ -56,6 +59,7 @@ export function isCleanerModuleEnabled(settings: AppSettings, module: CleanerMod
     (module === "jobs" && visibility.showJobs) ||
     (module === "calendar" && visibility.showCalendar) ||
     (module === "shopping" && visibility.showShopping) ||
+    (module === "stockRuns" && visibility.showStockRuns) ||
     (module === "invoices" && visibility.showInvoices) ||
     (module === "payRequests" && visibility.showPayRequests) ||
     (module === "lostFound" && visibility.showLostFound)
@@ -68,10 +72,12 @@ export function isClientModuleEnabled(settings: AppSettings, module: ClientModul
     (module === "calendar" && visibility.showCalendar) ||
     (module === "inventory" && visibility.showInventory) ||
     (module === "shopping" && visibility.showInventory && visibility.showShopping) ||
+    (module === "stockRuns" && visibility.showInventory && visibility.showStockRuns && visibility.allowStockRuns) ||
     (module === "reports" && visibility.showReports) ||
     (module === "quoteRequests" && visibility.showQuoteRequests) ||
     (module === "approvals" && visibility.showApprovals) ||
-    (module === "disputes" && visibility.showApprovals)
+    (module === "disputes" && visibility.showCases) ||
+    (module === "cases" && visibility.showCases)
   );
 }
 

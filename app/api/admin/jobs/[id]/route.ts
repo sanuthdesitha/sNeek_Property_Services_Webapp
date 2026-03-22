@@ -5,6 +5,7 @@ import { updateJobSchema } from "@/lib/validations/job";
 import { Role, JobStatus } from "@prisma/client";
 import { z } from "zod";
 import { applyJobTimingRules, parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 
@@ -137,8 +138,13 @@ export async function PATCH(
         earlyCheckin: nextEarlyCheckin,
         lateCheckout: nextLateCheckout,
       });
+      const priority = classifyPriorityFromTimingRule(nextEarlyCheckin);
       data.startTime = timing.startTime ?? null;
       data.dueTime = timing.dueTime ?? null;
+      data.priorityBucket = priority.priorityBucket;
+      data.priorityReason = priority.priorityReason;
+      data.sameDayCheckin = priority.sameDayCheckin;
+      data.sameDayCheckinTime = priority.sameDayCheckinTime;
     }
     delete data.isDraft;
     delete data.tags;

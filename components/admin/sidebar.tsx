@@ -22,15 +22,14 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   CheckCircle2,
   SendToBack,
   ShoppingCart,
   Truck,
   BarChart3,
-  Layers3,
-  Brain,
   RefreshCw,
+  ClipboardList,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -44,20 +43,19 @@ const navItems = [
   { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
   { label: "Calendar", href: "/admin/calendar", icon: Calendar },
   { label: "Forms", href: "/admin/forms", icon: FileText },
-  { label: "Cases", href: "/admin/issues", icon: AlertTriangle },
+  { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
   { label: "Inventory", href: "/admin/inventory", icon: Package },
+  { label: "Stock Counts", href: "/admin/stock-runs", icon: ClipboardList },
   { label: "Laundry", href: "/admin/laundry", icon: Shirt },
-  { label: "Ops", href: "/admin/ops", icon: Sparkles },
   { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
   { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
   { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
   { label: "Delivery", href: "/admin/delivery-profiles", icon: SendToBack },
   { label: "Shopping Runs", href: "/admin/shopping-runs", icon: ShoppingCart },
   { label: "Suppliers", href: "/admin/suppliers", icon: Truck },
+  { label: "Invoices", href: "/admin/invoices", icon: Wallet },
   { label: "Finance", href: "/admin/finance", icon: BarChart3 },
-  { label: "Scale", href: "/admin/scale", icon: Layers3 },
-  { label: "iCal Sync", href: "/admin/integrations", icon: RefreshCw },
-  { label: "Intelligence", href: "/admin/intelligence", icon: Brain },
+  { label: "Integrations", href: "/admin/integrations", icon: RefreshCw },
   { label: "Reports", href: "/admin/reports", icon: FileBarChart },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },
   { label: "Settings", href: "/admin/settings", icon: Settings },
@@ -67,6 +65,8 @@ const navItems = [
 interface AdminSidebarProps {
   companyName?: string;
   logoUrl?: string;
+  userName?: string | null;
+  userImage?: string | null;
 }
 
 function initialsFromName(name: string): string {
@@ -81,6 +81,8 @@ function initialsFromName(name: string): string {
 export function AdminSidebar({
   companyName = "sNeek Property Services",
   logoUrl,
+  userName,
+  userImage,
 }: AdminSidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -141,6 +143,21 @@ export function AdminSidebar({
 
       {/* Footer */}
       <div className="space-y-1 border-t border-white/70 p-2">
+        {!collapsed ? (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
+            {userImage ? (
+              <img src={userImage} alt={userName || "User"} className="h-8 w-8 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                <span className="text-xs font-semibold text-primary">{userName?.[0]?.toUpperCase() ?? "A"}</span>
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{userName || "Admin"}</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Signed in</p>
+            </div>
+          </div>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"

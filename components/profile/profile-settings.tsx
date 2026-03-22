@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 
 interface ProfilePayload {
@@ -14,24 +15,37 @@ interface ProfilePayload {
     email: string;
     phone: string | null;
     role: string;
+    image?: string | null;
   };
   editPolicy: {
     canEditName: boolean;
     canEditPhone: boolean;
     canEditEmail: boolean;
   };
+  notificationPreferences: Record<
+    string,
+    {
+      web: boolean;
+      email: boolean;
+      sms: boolean;
+    }
+  >;
 }
 
 export function ProfileSettings() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [data, setData] = useState<ProfilePayload | null>(null);
   const [profileForm, setProfileForm] = useState({
     name: "",
     email: "",
     phone: "",
+    image: "",
   });
+  const [notificationPreferences, setNotificationPreferences] = useState<ProfilePayload["notificationPreferences"]>({});
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -52,7 +66,9 @@ export function ProfileSettings() {
       name: body.user.name ?? "",
       email: body.user.email ?? "",
       phone: body.user.phone ?? "",
+      image: body.user.image ?? "",
     });
+    setNotificationPreferences(body.notificationPreferences ?? {});
     setLoading(false);
   }
 
@@ -70,6 +86,7 @@ export function ProfileSettings() {
         name: profileForm.name,
         email: profileForm.email,
         phone: profileForm.phone,
+        image: profileForm.image || null,
       }),
     });
     const body = await res.json();
@@ -110,11 +127,57 @@ export function ProfileSettings() {
     toast({ title: "Password updated" });
   }
 
+  async function uploadAvatar(file: File) {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    form.append("folder", "profiles");
+    setUploadingAvatar(true);
+    const res = await fetch("/api/uploads/direct", {
+      method: "POST",
+      body: form,
+    });
+    const body = await res.json().catch(() => ({}));
+    setUploadingAvatar(false);
+    if (!res.ok || !body?.url) {
+      toast({
+        title: "Avatar upload failed",
+        description: body.error ?? "Could not upload avatar.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setProfileForm((prev) => ({ ...prev, image: String(body.url) }));
+    toast({ title: "Avatar uploaded" });
+  }
+
+  async function saveNotificationPrefs() {
+    setSavingNotifications(true);
+    const res = await fetch("/api/notifications/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(notificationPreferences),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingNotifications(false);
+    if (!res.ok) {
+      toast({
+        title: "Notification settings failed",
+        description: body.error ?? "Could not save preferences.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setNotificationPreferences(body);
+    toast({ title: "Notification preferences updated" });
+  }
+
   if (loading || !data) {
     return <div className="py-10 text-sm text-muted-foreground">Loading profile...</div>;
   }
 
   const policy = data.editPolicy;
+  const notificationCategories = Object.entries(notificationPreferences);
 
   return (
     <div className="space-y-6">
@@ -128,6 +191,46 @@ export function ProfileSettings() {
           <CardTitle className="text-base">Account details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border p-4">
+            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border bg-muted text-lg font-semibold">
+              {profileForm.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={profileForm.image} alt="Profile avatar" className="h-full w-full object-cover" />
+              ) : (
+                (profileForm.name || data.user.email).slice(0, 2).toUpperCase()
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="avatar-upload">Profile image</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/*"
+                  className="max-w-xs"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void uploadAvatar(file);
+                    }
+                    e.currentTarget.value = "";
+                  }}
+                  disabled={uploadingAvatar}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setProfileForm((prev) => ({ ...prev, image: "" }))}
+                  disabled={uploadingAvatar || !profileForm.image}
+                >
+                  Remove
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {uploadingAvatar ? "Uploading..." : "Shown in dashboards, headers, and portal surfaces."}
+              </p>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Name</Label>
@@ -158,6 +261,50 @@ export function ProfileSettings() {
           <div className="flex justify-end">
             <Button onClick={saveProfile} disabled={savingProfile}>
               {savingProfile ? "Saving..." : "Save profile"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Notification preferences</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {notificationCategories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading notification categories...</p>
+          ) : (
+            notificationCategories.map(([category, preference]) => (
+              <div key={category} className="grid items-center gap-3 rounded-lg border p-3 md:grid-cols-4">
+                <div>
+                  <p className="text-sm font-medium capitalize">{category}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Choose how {category} updates should reach you.
+                  </p>
+                </div>
+                {(["web", "email", "sms"] as const).map((channel) => (
+                  <div key={`${category}-${channel}`} className="flex items-center justify-between gap-2 rounded border p-2">
+                    <Label className="text-xs uppercase">{channel}</Label>
+                    <Switch
+                      checked={Boolean(preference?.[channel])}
+                      onCheckedChange={(value) =>
+                        setNotificationPreferences((prev) => ({
+                          ...prev,
+                          [category]: {
+                            ...prev[category],
+                            [channel]: value,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+          <div className="flex justify-end">
+            <Button onClick={saveNotificationPrefs} disabled={savingNotifications}>
+              {savingNotifications ? "Saving..." : "Save notification preferences"}
             </Button>
           </div>
         </CardContent>

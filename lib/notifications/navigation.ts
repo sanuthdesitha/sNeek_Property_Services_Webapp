@@ -33,6 +33,9 @@ export function resolveAdminNotificationHref(notification: NotificationLike) {
   if (includesAny(text, ["report"])) {
     return "/admin/reports";
   }
+  if (includesAny(text, ["case", "dispute", "damage", "lost & found", "lost and found"])) {
+    return "/admin/cases";
+  }
   if (includesAny(text, ["client", "property"])) {
     return "/admin/clients";
   }
@@ -42,4 +45,3 @@ export function resolveAdminNotificationHref(notification: NotificationLike) {
 
   return "/admin/notifications";
 }
-

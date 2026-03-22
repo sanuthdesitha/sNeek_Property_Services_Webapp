@@ -4,11 +4,13 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getProfilePolicyForUser } from "@/lib/settings";
+import { getUserNotificationPreferences } from "@/lib/notifications/preferences";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   phone: z.string().trim().optional(),
   email: z.string().trim().email().optional(),
+  image: z.string().trim().max(4000).nullable().optional(),
 });
 
 export async function GET() {
@@ -22,14 +24,18 @@ export async function GET() {
         email: true,
         phone: true,
         role: true,
+        image: true,
       },
     });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const editPolicy = await getProfilePolicyForUser(user.id, user.role);
-    return NextResponse.json({ user, editPolicy });
+    const [editPolicy, notificationPreferences] = await Promise.all([
+      getProfilePolicyForUser(user.id, user.role),
+      getUserNotificationPreferences(user.id),
+    ]);
+    return NextResponse.json({ user, editPolicy, notificationPreferences });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -42,14 +48,14 @@ export async function PATCH(req: NextRequest) {
     const body = updateSchema.parse(await req.json());
     const current = await db.user.findUnique({
       where: { id: session.user.id },
-      select: { id: true, role: true, email: true, name: true, phone: true },
+      select: { id: true, role: true, email: true, name: true, phone: true, image: true },
     });
     if (!current) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const policy = await getProfilePolicyForUser(current.id, current.role as Role);
-    const data: { name?: string; phone?: string | null; email?: string } = {};
+    const data: { name?: string; phone?: string | null; email?: string; image?: string | null } = {};
 
     if (body.name !== undefined) {
       if (!policy.canEditName) {
@@ -79,6 +85,10 @@ export async function PATCH(req: NextRequest) {
       data.email = normalizedEmail;
     }
 
+    if (body.image !== undefined) {
+      data.image = body.image || null;
+    }
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: "No changes submitted." }, { status: 400 });
     }
@@ -86,7 +96,7 @@ export async function PATCH(req: NextRequest) {
     const updated = await db.user.update({
       where: { id: current.id },
       data,
-      select: { id: true, name: true, email: true, phone: true, role: true },
+      select: { id: true, name: true, email: true, phone: true, role: true, image: true },
     });
 
     return NextResponse.json(updated);

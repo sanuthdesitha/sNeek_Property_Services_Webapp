@@ -8,11 +8,12 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
-import { ensureStoredJobReport } from "@/lib/reports/access";
+import { getStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { generateJobReport } from "@/lib/reports/generator";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]).optional(),
@@ -62,7 +63,14 @@ export async function POST(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    const report = await ensureStoredJobReport(params.jobId);
+    const report = await getStoredJobReport(params.jobId);
+    if (!report) {
+      generateJobReport(params.jobId).catch(() => {});
+      return NextResponse.json(
+        { error: "Report is being generated. Try again shortly." },
+        { status: 202 }
+      );
+    }
 
     const explicitRecipients = body.to
       ? Array.isArray(body.to)
@@ -97,14 +105,16 @@ export async function POST(
       actionLabel: "Open client portal",
     });
 
-    const attachment = await buildReportAttachment(report, params.jobId, getJobReference(job));
+    const attachment = report.pdfUrl
+      ? await buildReportAttachment(report, params.jobId, getJobReference(job))
+      : null;
     if (!attachment) {
+      generateJobReport(params.jobId).catch(() => {});
       return NextResponse.json(
         {
-          error:
-            "PDF report could not be generated or loaded. Ensure Playwright is installed and report storage is configured correctly.",
+          error: "Report PDF is being generated. Try again shortly.",
         },
-        { status: 503 }
+        { status: 202 }
       );
     }
 

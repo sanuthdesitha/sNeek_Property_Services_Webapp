@@ -13,6 +13,8 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { createCase } from "@/lib/cases/service";
+import { notifyCaseCreated } from "@/lib/cases/notifications";
 import {
   JobStatus,
   LaundryStatus,
@@ -113,6 +115,7 @@ async function notifyLaundryPartners(params: {
   jobId: string;
   jobNumber: string;
   cleanDate: Date;
+  pickupDate: Date;
   bagLocation: string;
   laundryPhotoUrl: string;
   portalUrl: string;
@@ -126,10 +129,15 @@ async function notifyLaundryPartners(params: {
     toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
     "EEEE, dd MMMM yyyy"
   );
+  const pickupDateLabel = format(
+    toZonedTime(params.pickupDate, settings.timezone || "Australia/Sydney"),
+    "EEEE, dd MMMM yyyy"
+  );
   const emailTemplate = renderEmailTemplate(settings, "laundryReady", {
     propertyName: params.propertyName,
     jobNumber: params.jobNumber,
     cleanDate: cleanDateLabel,
+    scheduledPickupDate: pickupDateLabel,
     bagLocation: params.bagLocation,
     laundryPhotoUrl: params.laundryPhotoUrl,
     portalUrl: params.portalUrl,
@@ -187,6 +195,73 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, j
   }
 }
 
+async function notifyLaundrySkipRequested(params: {
+  jobId: string;
+  propertyName: string;
+  jobNumber: string;
+  cleanDate: Date;
+  laundryOutcome: "NOT_READY" | "NO_PICKUP_REQUIRED";
+  reasonCode: string;
+  reasonNote: string;
+}) {
+  const settings = await getAppSettings();
+  const laundryUsers = await db.user.findMany({
+    where: { role: Role.LAUNDRY, isActive: true },
+    select: { id: true, email: true },
+  });
+  const cleanDateLabel = format(
+    toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
+    "EEEE, dd MMMM yyyy"
+  );
+  const template = renderEmailTemplate(settings, "laundrySkipRequested", {
+    propertyName: params.propertyName,
+    jobNumber: params.jobNumber,
+    cleanDate: cleanDateLabel,
+    laundryOutcome: params.laundryOutcome.replace(/_/g, " "),
+    reasonCode: params.reasonCode.replace(/_/g, " "),
+    reasonNote: params.reasonNote,
+    actionUrl: resolveAppUrl("/laundry"),
+    actionLabel: "Open laundry portal",
+  });
+
+  for (const user of laundryUsers) {
+    if (user.email) {
+      await sendEmail({
+        to: user.email,
+        subject: template.subject,
+        html: template.html,
+      });
+    }
+
+    await db.notification.create({
+      data: {
+        userId: user.id,
+        jobId: params.jobId,
+        channel: NotificationChannel.PUSH,
+        subject: `Laundry update - ${params.jobNumber}`,
+        body: `${params.jobNumber}: ${params.laundryOutcome.replace(/_/g, " ")} for ${params.propertyName}. ${params.reasonCode.replace(/_/g, " ")}${params.reasonNote ? ` - ${params.reasonNote}` : ""}`,
+        status: NotificationStatus.SENT,
+        sentAt: new Date(),
+      },
+    });
+  }
+}
+
+function normalizeLaundrySubmission(body: {
+  laundryReady?: boolean;
+  laundryOutcome?: "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
+}) {
+  const outcome =
+    body.laundryOutcome ??
+    (body.laundryReady === true
+      ? "READY_FOR_PICKUP"
+      : body.laundryReady === false
+        ? "NOT_READY"
+        : undefined);
+  const legacyReady = outcome === "READY_FOR_PICKUP";
+  return { outcome, legacyReady };
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -227,6 +302,9 @@ export async function POST(
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
     const bagLocation = body.bagLocation?.trim();
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
+    const { outcome: laundryOutcome, legacyReady } = normalizeLaundrySubmission(body);
+    const laundrySkipReasonCode = body.laundrySkipReasonCode?.trim();
+    const laundrySkipReasonNote = body.laundrySkipReasonNote?.trim();
 
     const lockedStatuses: JobStatus[] = [
       JobStatus.SUBMITTED,
@@ -254,7 +332,7 @@ export async function POST(
       template.schema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
-      body.laundryReady
+      legacyReady
     ).filter(
       (fieldId) => !uploads[fieldId] || uploads[fieldId].length === 0
     );
@@ -265,7 +343,7 @@ export async function POST(
       );
     }
 
-    if (body.laundryReady) {
+    if (laundryOutcome === "READY_FOR_PICKUP") {
       if (!bagLocation) {
         return NextResponse.json(
           { error: "Bag location is required when laundry is marked ready." },
@@ -278,6 +356,15 @@ export async function POST(
           { status: 400 }
         );
       }
+    }
+    if (
+      (laundryOutcome === "NOT_READY" || laundryOutcome === "NO_PICKUP_REQUIRED") &&
+      !laundrySkipReasonCode
+    ) {
+      return NextResponse.json(
+        { error: "Select a reason when laundry is not ready or no pickup is required." },
+        { status: 400 }
+      );
     }
 
     // Carry-forward tasks are advisory in this workflow and must not block submission.
@@ -292,7 +379,10 @@ export async function POST(
           __templateSchema: template.schema,
           __templateVersion: template.id,
         } as any,
-        laundryReady: body.laundryReady,
+        laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
+        laundryOutcome,
+        laundrySkipReasonCode,
+        laundrySkipReasonNote,
         bagLocation,
       },
     });
@@ -347,7 +437,7 @@ export async function POST(
       }
     }
 
-    if (body.laundryReady !== undefined) {
+    if (laundryOutcome !== undefined) {
       let laundryTask = await db.laundryTask.findUnique({
         where: { jobId: params.id },
       });
@@ -369,7 +459,7 @@ export async function POST(
       }
 
       if (laundryTask) {
-        if (body.laundryReady) {
+        if (laundryOutcome === "READY_FOR_PICKUP") {
           const laundryPhotoUrl = publicUrl(laundryPhotoKey!);
 
           await db.laundryTask.update({
@@ -377,6 +467,12 @@ export async function POST(
             data: {
               status: LaundryStatus.CONFIRMED,
               notifyLaundry: true,
+              noPickupRequired: false,
+              skipReasonCode: null,
+              skipReasonNote: null,
+              adminOverrideNote: null,
+              adminOverrideById: null,
+              adminOverrideAt: null,
               confirmedAt: new Date(),
             },
           });
@@ -396,16 +492,21 @@ export async function POST(
             jobId: job.id,
             jobNumber: getJobReference(job),
             cleanDate: job.scheduledDate,
+            pickupDate: laundryTask.pickupDate,
             bagLocation: bagLocation!,
             laundryPhotoUrl,
             portalUrl: resolveAppUrl("/laundry", req),
           });
         } else {
+          const noPickupRequired = laundryOutcome === "NO_PICKUP_REQUIRED";
           await db.laundryTask.update({
             where: { id: laundryTask.id },
             data: {
               notifyLaundry: false,
-              status: LaundryStatus.PENDING,
+              status: LaundryStatus.FLAGGED,
+              noPickupRequired,
+              skipReasonCode: laundrySkipReasonCode || null,
+              skipReasonNote: laundrySkipReasonNote || null,
             },
           });
 
@@ -415,12 +516,91 @@ export async function POST(
               confirmedById: session.user.id,
               laundryReady: false,
               bagLocation,
+              notes: [
+                laundryOutcome.replace(/_/g, " "),
+                laundrySkipReasonCode ? `Reason: ${laundrySkipReasonCode.replace(/_/g, " ")}` : "",
+                laundrySkipReasonNote || "",
+              ]
+                .filter(Boolean)
+                .join(" | "),
             },
           });
 
-          await alertAdminsLaundryNotReady(job.id, job.property.name, getJobReference(job));
+          await Promise.all([
+            alertAdminsLaundryNotReady(job.id, job.property.name, getJobReference(job)),
+            notifyLaundrySkipRequested({
+              jobId: job.id,
+              propertyName: job.property.name,
+              jobNumber: getJobReference(job),
+              cleanDate: job.scheduledDate,
+              laundryOutcome,
+              reasonCode: laundrySkipReasonCode || "OTHER",
+              reasonNote: laundrySkipReasonNote || "",
+            }),
+          ]);
         }
       }
+    }
+
+    if (body.draftDamagePayload?.title?.trim()) {
+      const createdCase = await createCase({
+        title: `Damage: ${body.draftDamagePayload.title.trim()}`,
+        description: body.draftDamagePayload.description?.trim() || "",
+        severity: body.draftDamagePayload.severity ?? "HIGH",
+        status: "OPEN",
+        caseType: "DAMAGE",
+        source: "CLEANER_SUBMIT",
+        jobId: job.id,
+        clientId: job.property.clientId,
+        propertyId: job.propertyId,
+        clientVisible: true,
+        clientCanReply: true,
+        metadata: {
+          estimatedCost: body.draftDamagePayload.estimatedCost ?? null,
+          tags: ["damage", "submission"],
+        },
+        comment: {
+          authorUserId: session.user.id,
+          body: body.draftDamagePayload.description?.trim() || body.draftDamagePayload.title.trim(),
+          isInternal: false,
+        },
+        attachments: (body.draftDamagePayload.mediaKeys ?? []).map((key) => ({
+          uploadedByUserId: session.user.id,
+          s3Key: key,
+        })),
+      });
+      if (createdCase) {
+        await notifyCaseCreated({
+          caseItem: createdCase,
+          actorLabel: session.user.name || session.user.email || "Cleaner",
+        });
+      }
+    }
+
+    if (
+      body.draftPayRequestPayload?.requestedAmount != null &&
+      Number(body.draftPayRequestPayload.requestedAmount) > 0
+    ) {
+      await db.cleanerPayAdjustment.create({
+        data: {
+          jobId: job.id,
+          cleanerId: session.user.id,
+          type: body.draftPayRequestPayload.type === "HOURLY" ? "HOURLY" : "FIXED",
+          requestedHours:
+            body.draftPayRequestPayload.requestedHours != null
+              ? Number(body.draftPayRequestPayload.requestedHours)
+              : null,
+          requestedRate:
+            body.draftPayRequestPayload.requestedRate != null
+              ? Number(body.draftPayRequestPayload.requestedRate)
+              : null,
+          requestedAmount: Number(body.draftPayRequestPayload.requestedAmount),
+          cleanerNote:
+            body.draftPayRequestPayload.cleanerNote?.trim() ||
+            body.draftPayRequestPayload.title?.trim() ||
+            null,
+        },
+      });
     }
 
     await db.job.update({

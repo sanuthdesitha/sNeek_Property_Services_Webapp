@@ -92,5 +92,27 @@ export const submitJobSchema = z.object({
   templateId: z.string().min(1),
   data: z.record(z.unknown()),
   laundryReady: z.boolean().optional(),
+  laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
+  laundrySkipReasonCode: z.string().trim().max(120).optional(),
+  laundrySkipReasonNote: z.string().trim().max(2000).optional(),
   bagLocation: z.string().optional(),
+  draftDamagePayload: z
+    .object({
+      title: z.string().trim().max(160).optional(),
+      description: z.string().trim().max(6000).optional(),
+      estimatedCost: z.number().min(0).optional().nullable(),
+      severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+      mediaKeys: z.array(z.string().trim().min(1)).max(20).optional(),
+    })
+    .optional(),
+  draftPayRequestPayload: z
+    .object({
+      type: z.enum(["HOURLY", "FIXED"]).optional(),
+      requestedHours: z.number().min(0).optional().nullable(),
+      requestedRate: z.number().min(0).optional().nullable(),
+      requestedAmount: z.number().min(0).optional().nullable(),
+      cleanerNote: z.string().trim().max(4000).optional(),
+      title: z.string().trim().max(160).optional(),
+    })
+    .optional(),
 });

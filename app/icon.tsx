@@ -1,4 +1,3 @@
-import { ImageResponse } from "next/og";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 
@@ -7,7 +6,7 @@ export const size = {
   height: 64,
 };
 
-export const contentType = "image/png";
+export const contentType = "image/svg+xml";
 export const dynamic = "force-dynamic";
 
 function initialsFromName(value: string) {
@@ -17,6 +16,14 @@ function initialsFromName(value: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "SP";
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function getLogoDataUrl(logoUrl: string) {
@@ -39,51 +46,59 @@ export default async function Icon() {
   const settings = await getAppSettings().catch(() => ({
     companyName: "sNeek Property Services",
     logoUrl: "",
-  } as any));
+  }));
 
   const companyName = settings.companyName || "sNeek Property Services";
   const logoUrl = settings.logoUrl?.trim() || "";
-  const initials = initialsFromName(companyName);
+  const initials = escapeXml(initialsFromName(companyName));
   const logoDataUrl = await getLogoDataUrl(logoUrl);
 
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "linear-gradient(135deg, #0f766e 0%, #155e75 100%)",
-          borderRadius: 16,
-          overflow: "hidden",
-        }}
-      >
-        {logoDataUrl ? (
-          <img
-            src={logoDataUrl}
-            alt={companyName}
-            width={64}
-            height={64}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div
-            style={{
-              color: "white",
-              fontSize: 28,
-              fontWeight: 800,
-              letterSpacing: 1,
-            }}
-          >
-            {initials}
-          </div>
-        )}
-      </div>
-    ),
-    {
-      ...size,
-    }
-  );
+  const svg = logoDataUrl
+    ? `
+      <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+        <defs>
+          <clipPath id="icon-radius">
+            <rect width="64" height="64" rx="16" ry="16" />
+          </clipPath>
+        </defs>
+        <rect width="64" height="64" rx="16" ry="16" fill="#0f766e" />
+        <image
+          href="${logoDataUrl}"
+          width="64"
+          height="64"
+          preserveAspectRatio="xMidYMid slice"
+          clip-path="url(#icon-radius)"
+        />
+      </svg>
+    `
+    : `
+      <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="icon-gradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0f766e" />
+            <stop offset="100%" stop-color="#155e75" />
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="16" ry="16" fill="url(#icon-gradient)" />
+        <text
+          x="32"
+          y="38"
+          text-anchor="middle"
+          font-family="Arial, Helvetica, sans-serif"
+          font-size="24"
+          font-weight="700"
+          letter-spacing="1"
+          fill="#ffffff"
+        >
+          ${initials}
+        </text>
+      </svg>
+    `;
+
+  return new Response(svg.trim(), {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=0, must-revalidate",
+    },
+  });
 }

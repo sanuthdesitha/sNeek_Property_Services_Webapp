@@ -121,6 +121,55 @@ enum SyncStatus {
   ERROR
 }
 
+enum LaundryOutcome {
+  READY_FOR_PICKUP
+  NOT_READY
+  NO_PICKUP_REQUIRED
+}
+
+enum ShoppingRunStatus {
+  DRAFT
+  ACTIVE
+  SUBMITTED
+  APPROVED
+  BILLED
+  REIMBURSED
+  CLOSED
+}
+
+enum ShoppingPaymentMethod {
+  COMPANY_CARD
+  CLIENT_CARD
+  CLEANER_CARD
+  ADMIN_CARD
+  CASH
+  BANK_TRANSFER
+  OTHER
+}
+
+enum ShoppingPaidByScope {
+  COMPANY
+  CLIENT
+  CLEANER
+  ADMIN
+  OTHER
+}
+
+enum StockRunStatus {
+  DRAFT
+  ACTIVE
+  SUBMITTED
+  APPLIED
+}
+
+enum ClientInvoiceStatus {
+  DRAFT
+  APPROVED
+  SENT
+  PAID
+  VOID
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -180,10 +229,19 @@ model User {
   formSubmissions FormSubmission[]
   auditLogs     AuditLog[]        @relation("AuditUser")
   notifications Notification[]
+  notificationPreference UserNotificationPreference?
   payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
   payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
   icalSyncRunsTriggered IcalSyncRun[] @relation("IcalSyncTriggeredBy")
   icalSyncRunsReverted  IcalSyncRun[] @relation("IcalSyncRevertedBy")
+  assignedCases  IssueTicket[] @relation("IssueTicketAssignedTo")
+  caseComments   CaseComment[]
+  caseAttachments CaseAttachment[]
+  stockRuns      StockRun[]     @relation("StockRunRequestedBy")
+  shoppingRuns   ShoppingRun[]  @relation("ShoppingRunOwner")
+  shoppingReceipts ShoppingReceipt[] @relation("ShoppingReceiptUploadedBy")
+  shoppingSettlementsPaid ShoppingSettlement[] @relation("ShoppingSettlementPaidBy")
+  reportVisibilityUpdates Report[] @relation("ReportVisibilityUpdatedBy")
   // Client link (optional)
   clientId      String?
   client        Client?   @relation(fields: [clientId], references: [id])
@@ -208,6 +266,9 @@ model Client {
   users       User[]
   quotes      Quote[]
   leads       QuoteLead[]
+  cases       IssueTicket[]
+  shoppingRuns ShoppingRun[]
+  invoices    ClientInvoice[]
 }
 
 model Property {
@@ -238,6 +299,10 @@ model Property {
   propertyStock       PropertyStock[]
   laundryTasks        LaundryTask[]
   icalSyncRuns        IcalSyncRun[]
+  cases               IssueTicket[]
+  stockRuns           StockRun[]
+  shoppingRunLines    ShoppingRunLine[]
+  clientRates         PropertyClientRate[]
 }
 
 model Integration {
@@ -291,6 +356,18 @@ model Reservation {
   endDate     DateTime // check-out (UTC)
   summary     String?
   guestName   String?
+  reservationCode String?
+  guestPhone  String?
+  guestEmail  String?
+  guestProfileUrl String? @db.Text
+  adults      Int?
+  children    Int?
+  infants     Int?
+  locationText String? @db.Text
+  geoLat      Float?
+  geoLng      Float?
+  checkinAtLocal DateTime?
+  checkoutAtLocal DateTime?
   source      String?  @default("ical")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -320,6 +397,10 @@ model Job {
   actualHours     Float?
   notes           String?   @db.Text
   internalNotes   String?   @db.Text
+  priorityBucket  Int       @default(4)
+  priorityReason  String?
+  sameDayCheckin  Boolean   @default(false)
+  sameDayCheckinTime String?
   // reminder overrides (null = use system defaults)
   reminder24hSent Boolean   @default(false)
   reminder2hSent  Boolean   @default(false)
@@ -337,6 +418,7 @@ model Job {
   issueTickets    IssueTicket[]
   payAdjustments  CleanerPayAdjustment[]
   auditLogs       AuditLog[]      @relation("AuditJob")
+  invoiceLines    ClientInvoiceLine[]
 }
 
 model CleanerPayAdjustment {
@@ -417,6 +499,12 @@ model FormSubmission {
   submittedById  String
   data           Json     // cleaner's answers keyed by field id
   laundryReady   Boolean?
+  laundryOutcome LaundryOutcome?
+  laundrySkipReasonCode String?
+  laundrySkipReasonNote String? @db.Text
+  laundryAdminOverrideNote String? @db.Text
+  laundryAdminOverrideById String?
+  laundryAdminOverrideAt DateTime?
   bagLocation    String?
   autoQaScore    Float?   // computed on submission
   createdAt      DateTime @default(now())
@@ -459,15 +547,31 @@ model QAReview {
 
 model IssueTicket {
   id          String   @id @default(cuid())
-  jobId       String
+  jobId       String?
+  clientId    String?
+  propertyId  String?
+  reportId    String?
   title       String
   description String?  @db.Text
+  caseType    String   @default("OPS")
+  source      String?
   severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
   status      String   @default("OPEN")   // OPEN | IN_PROGRESS | RESOLVED
+  assignedToUserId String?
+  clientVisible Boolean @default(false)
+  clientCanReply Boolean @default(true)
+  resolutionNote String? @db.Text
+  metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  job         Job @relation(fields: [jobId], references: [id])
+  job         Job?    @relation(fields: [jobId], references: [id])
+  client      Client? @relation(fields: [clientId], references: [id])
+  property    Property? @relation(fields: [propertyId], references: [id])
+  report      Report? @relation(fields: [reportId], references: [id])
+  assignedTo  User? @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
+  comments    CaseComment[]
+  attachments CaseAttachment[]
 }
 
 // ─────────────────────────────────────────────
@@ -487,6 +591,7 @@ model InventoryItem {
   updatedAt       DateTime @updatedAt
 
   propertyStocks  PropertyStock[]
+  shoppingRunLines ShoppingRunLine[]
 }
 
 model PropertyStock {
@@ -502,6 +607,7 @@ model PropertyStock {
   property          Property      @relation(fields: [propertyId], references: [id])
   item              InventoryItem @relation(fields: [itemId], references: [id])
   transactions      StockTx[]
+  stockRunLines     StockRunLine[]
 
   @@unique([propertyId, itemId])
 }
@@ -536,6 +642,12 @@ model LaundryTask {
   pickedUpAt      DateTime?
   droppedAt       DateTime?
   notifyLaundry   Boolean       @default(false)
+  noPickupRequired Boolean      @default(false)
+  skipReasonCode  String?
+  skipReasonNote  String?       @db.Text
+  adminOverrideNote String?     @db.Text
+  adminOverrideById String?
+  adminOverrideAt DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -567,12 +679,47 @@ model Report {
   htmlContent String?  @db.Text
   pdfUrl      String?  @db.Text
   s3Key       String?
+  generatedAt DateTime?
   sentToClient Boolean @default(false)
   sentAt      DateTime?
+  clientVisible Boolean @default(true)
+  cleanerVisible Boolean @default(true)
+  laundryVisible Boolean @default(false)
+  visibilityNote String? @db.Text
+  visibilityUpdatedAt DateTime?
+  visibilityUpdatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   job         Job @relation(fields: [jobId], references: [id])
+  issueTickets IssueTicket[]
+  visibilityUpdatedBy User? @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+}
+
+model CaseComment {
+  id          String   @id @default(cuid())
+  caseId       String
+  authorUserId String
+  body         String   @db.Text
+  isInternal   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  issueTicket  IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author       User        @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+}
+
+model CaseAttachment {
+  id              String   @id @default(cuid())
+  caseId          String
+  uploadedByUserId String
+  s3Key           String
+  url             String   @db.Text
+  mimeType        String?
+  label           String?
+  createdAt       DateTime @default(now())
+
+  issueTicket     IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy      User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────
@@ -635,6 +782,187 @@ model Quote {
 
   lead          QuoteLead? @relation(fields: [leadId], references: [id])
   client        Client?    @relation(fields: [clientId], references: [id])
+}
+
+model ShoppingRun {
+  id          String            @id @default(cuid())
+  ownerUserId String
+  clientId    String?
+  status      ShoppingRunStatus @default(DRAFT)
+  title       String
+  notes       String?           @db.Text
+  startedAt   DateTime?
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  closedAt    DateTime?
+  legacySource Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  owner       User              @relation("ShoppingRunOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  client      Client?           @relation(fields: [clientId], references: [id])
+  lines       ShoppingRunLine[]
+  receipts    ShoppingReceipt[]
+  settlements ShoppingSettlement[]
+  invoiceLines ClientInvoiceLine[]
+}
+
+model ShoppingRunLine {
+  id            String   @id @default(cuid())
+  shoppingRunId String
+  propertyId    String
+  itemId        String?
+  itemName      String
+  category      String
+  supplier      String?
+  unit          String   @default("unit")
+  plannedQty    Float    @default(0)
+  purchasedQty  Float    @default(0)
+  unitCost      Float?
+  lineCost      Float?
+  status        String   @default("PENDING")
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  shoppingRun   ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  property      Property    @relation(fields: [propertyId], references: [id])
+  item          InventoryItem? @relation(fields: [itemId], references: [id])
+}
+
+model ShoppingReceipt {
+  id              String   @id @default(cuid())
+  shoppingRunId   String
+  uploadedByUserId String
+  s3Key           String
+  url             String   @db.Text
+  mimeType        String?
+  fileName        String
+  amount          Float?
+  createdAt       DateTime @default(now())
+
+  shoppingRun     ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  uploadedBy      User        @relation("ShoppingReceiptUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+model ShoppingSettlement {
+  id                String               @id @default(cuid())
+  shoppingRunId     String
+  paymentMethod     ShoppingPaymentMethod
+  paidByScope       ShoppingPaidByScope
+  paidByUserId      String?
+  note              String?              @db.Text
+  clientBillable    Boolean              @default(false)
+  adminApprovedForClient Boolean         @default(false)
+  adminApprovedForCleanerReimbursement Boolean @default(false)
+  includeInCleanerInvoice Boolean        @default(false)
+  includedInClientInvoiceId String?
+  includedInCleanerInvoiceReference String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  shoppingRun       ShoppingRun          @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  paidByUser        User?                @relation("ShoppingSettlementPaidBy", fields: [paidByUserId], references: [id])
+  clientInvoice     ClientInvoice?       @relation(fields: [includedInClientInvoiceId], references: [id])
+}
+
+model StockRun {
+  id              String         @id @default(cuid())
+  propertyId      String
+  requestedByUserId String
+  status          StockRunStatus @default(DRAFT)
+  title           String
+  notes           String?        @db.Text
+  requestedByAdmin Boolean       @default(false)
+  startedAt       DateTime?
+  submittedAt     DateTime?
+  appliedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  property        Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  requestedBy     User           @relation("StockRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  lines           StockRunLine[]
+}
+
+model StockRunLine {
+  id            String   @id @default(cuid())
+  stockRunId    String
+  propertyStockId String
+  expectedOnHand Float
+  countedOnHand Float?
+  parLevel      Float?
+  reorderThreshold Float?
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  stockRun      StockRun      @relation(fields: [stockRunId], references: [id], onDelete: Cascade)
+  propertyStock PropertyStock @relation(fields: [propertyStockId], references: [id], onDelete: Cascade)
+}
+
+model PropertyClientRate {
+  id               String   @id @default(cuid())
+  propertyId       String
+  jobType          JobType
+  baseCharge       Float
+  billingUnit      String   @default("PER_JOB")
+  defaultDescription String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, jobType])
+}
+
+model ClientInvoice {
+  id            String              @id @default(cuid())
+  clientId      String
+  invoiceNumber String              @unique
+  status        ClientInvoiceStatus @default(DRAFT)
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  subtotal      Float               @default(0)
+  gstAmount     Float               @default(0)
+  totalAmount   Float               @default(0)
+  xeroExportedAt DateTime?
+  sentAt        DateTime?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  client        Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines         ClientInvoiceLine[]
+  shoppingSettlements ShoppingSettlement[]
+}
+
+model ClientInvoiceLine {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  jobId         String?
+  shoppingRunId String?
+  description   String
+  quantity      Float    @default(1)
+  unitPrice     Float    @default(0)
+  lineTotal     Float    @default(0)
+  category      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  invoice       ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  job           Job?          @relation(fields: [jobId], references: [id])
+  shoppingRun   ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
+}
+
+model UserNotificationPreference {
+  userId      String   @id
+  categories  Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────

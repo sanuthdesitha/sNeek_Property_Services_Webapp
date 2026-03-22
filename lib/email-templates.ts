@@ -4,14 +4,28 @@ export type AppEmailTemplateKey =
   | "signupOtp"
   | "resetPassword"
   | "welcomeAccount"
+  | "accountInvite"
+  | "newProfileCreated"
   | "jobAssigned"
   | "jobRemoved"
   | "laundryReady"
+  | "laundrySkipRequested"
+  | "laundrySkipApproved"
   | "cleaningReportShared"
+  | "reportVisibilityChanged"
   | "laundryReport"
   | "cleanerInvoice"
+  | "clientInvoiceIssued"
   | "lostFoundAlert"
-  | "extraPayRequest";
+  | "extraPayRequest"
+  | "caseCreated"
+  | "caseUpdated"
+  | "shoppingRunSubmitted"
+  | "shoppingReimbursementToClient"
+  | "stockRunRequested"
+  | "stockRunSubmitted"
+  | "quoteApprovalRequest"
+  | "quoteSentToClient";
 
 export interface EmailTemplateConfig {
   subject: string;
@@ -24,14 +38,28 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "signupOtp",
   "resetPassword",
   "welcomeAccount",
+  "accountInvite",
+  "newProfileCreated",
   "jobAssigned",
   "jobRemoved",
   "laundryReady",
+  "laundrySkipRequested",
+  "laundrySkipApproved",
   "cleaningReportShared",
+  "reportVisibilityChanged",
   "laundryReport",
   "cleanerInvoice",
+  "clientInvoiceIssued",
   "lostFoundAlert",
   "extraPayRequest",
+  "caseCreated",
+  "caseUpdated",
+  "shoppingRunSubmitted",
+  "shoppingReimbursementToClient",
+  "stockRunRequested",
+  "stockRunSubmitted",
+  "quoteApprovalRequest",
+  "quoteSentToClient",
 ];
 
 export const EMAIL_TEMPLATE_DEFINITIONS: Record<
@@ -50,6 +78,14 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
     label: "Welcome Account",
     variables: ["companyName", "logoUrl", "userName", "role", "email", "tempPassword", "welcomeNote", "actionUrl", "actionLabel"],
   },
+  accountInvite: {
+    label: "Account Invite",
+    variables: ["companyName", "logoUrl", "userName", "role", "email", "tempPassword", "welcomeNote", "actionUrl", "actionLabel"],
+  },
+  newProfileCreated: {
+    label: "New Profile Created",
+    variables: ["companyName", "logoUrl", "userName", "role", "email", "createdVia", "createdAt", "actionUrl", "actionLabel"],
+  },
   jobAssigned: {
     label: "Job Assigned",
     variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName", "actionUrl", "actionLabel"],
@@ -66,9 +102,39 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
       "propertyName",
       "jobNumber",
       "cleanDate",
+      "scheduledPickupDate",
       "bagLocation",
       "laundryPhotoUrl",
       "portalUrl",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  laundrySkipRequested: {
+    label: "Laundry Skip Requested",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "jobNumber",
+      "cleanDate",
+      "laundryOutcome",
+      "reasonCode",
+      "reasonNote",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  laundrySkipApproved: {
+    label: "Laundry Skip Approved",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "jobNumber",
+      "cleanDate",
+      "decision",
+      "reasonNote",
       "actionUrl",
       "actionLabel",
     ],
@@ -88,6 +154,20 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
       "actionLabel",
     ],
   },
+  reportVisibilityChanged: {
+    label: "Report Visibility Changed",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "jobNumber",
+      "visibilityAudience",
+      "visibilityState",
+      "visibilityNote",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
   laundryReport: {
     label: "Laundry Report",
     variables: ["companyName", "logoUrl", "recipientName", "reportLabel", "propertyName", "actionUrl", "actionLabel"],
@@ -96,6 +176,19 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
     label: "Cleaner Invoice",
     variables: ["companyName", "logoUrl", "cleanerName", "accountsEmail", "jobCount", "actionUrl", "actionLabel"],
   },
+  clientInvoiceIssued: {
+    label: "Client Invoice Issued",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "clientName",
+      "invoiceNumber",
+      "periodLabel",
+      "totalAmount",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
   lostFoundAlert: {
     label: "Lost & Found Alert",
     variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "itemName", "location", "notes", "caseLink", "actionUrl", "actionLabel"],
@@ -103,6 +196,109 @@ export const EMAIL_TEMPLATE_DEFINITIONS: Record<
   extraPayRequest: {
     label: "Extra Pay Request",
     variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "jobType", "jobNumber", "requestType", "requestedAmount", "cleanerNote", "actionUrl", "actionLabel"],
+  },
+  caseCreated: {
+    label: "Case Created",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "caseTitle",
+      "caseType",
+      "propertyName",
+      "jobNumber",
+      "status",
+      "priority",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  caseUpdated: {
+    label: "Case Updated",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "caseTitle",
+      "caseType",
+      "status",
+      "updateNote",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  shoppingRunSubmitted: {
+    label: "Shopping Run Submitted",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "runTitle",
+      "submittedBy",
+      "paidBy",
+      "actualAmount",
+      "propertyNames",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  shoppingReimbursementToClient: {
+    label: "Shopping Reimbursement To Client",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "clientName",
+      "runTitle",
+      "actualAmount",
+      "propertyNames",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  stockRunRequested: {
+    label: "Stock Run Requested",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "requestedBy",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  stockRunSubmitted: {
+    label: "Stock Run Submitted",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "propertyName",
+      "submittedBy",
+      "lineCount",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  quoteApprovalRequest: {
+    label: "Quote Approval Request",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "clientName",
+      "serviceType",
+      "quoteTotal",
+      "actionUrl",
+      "actionLabel",
+    ],
+  },
+  quoteSentToClient: {
+    label: "Quote Sent To Client",
+    variables: [
+      "companyName",
+      "logoUrl",
+      "clientName",
+      "serviceType",
+      "quoteTotal",
+      "validUntil",
+      "actionUrl",
+      "actionLabel",
+    ],
   },
 };
 
@@ -192,6 +388,33 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p>Complete your profile details after signing in so notifications, invoices, and approvals keep working correctly.</p>
       `,
     },
+    accountInvite: {
+      subject: "You have been invited to {companyName}",
+      html: `
+        <h2 style="margin:0 0 12px;">Your portal account is ready</h2>
+        <p>Hello {userName},</p>
+        <p>An account has been created for you on <strong>{companyName}</strong>.</p>
+        <p><strong>Portal role:</strong> {role}</p>
+        <p><strong>Login email:</strong> {email}</p>
+        <p><strong>Temporary password:</strong> {tempPassword}</p>
+        <p>{welcomeNote}</p>
+        <p>Sign in and complete your setup from the button below.</p>
+      `,
+    },
+    newProfileCreated: {
+      subject: "{companyName}: New profile created - {userName}",
+      html: `
+        <h2 style="margin:0 0 12px;">New profile created</h2>
+        <p>A new user profile was created through a non-admin flow.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Name:</strong> {userName}</p>
+          <p style="margin:0 0 6px;"><strong>Email:</strong> {email}</p>
+          <p style="margin:0 0 6px;"><strong>Role:</strong> {role}</p>
+          <p style="margin:0 0 6px;"><strong>Created via:</strong> {createdVia}</p>
+          <p style="margin:0;"><strong>Created at:</strong> {createdAt}</p>
+        </div>
+      `,
+    },
     jobAssigned: {
       subject: "{companyName}: Job assignment updated ({jobNumber})",
       html: `
@@ -223,9 +446,39 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
           <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
           <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
           <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
+          <p style="margin:0 0 6px;"><strong>Scheduled pickup date:</strong> {scheduledPickupDate}</p>
           <p style="margin:0;"><strong>Bag location:</strong> {bagLocation}</p>
         </div>
         <p><a href="{laundryPhotoUrl}" target="_blank" rel="noopener noreferrer">View laundry photo</a></p>
+      `,
+    },
+    laundrySkipRequested: {
+      subject: "{companyName}: Laundry skip requested - {propertyName} ({jobNumber})",
+      html: `
+        <h2 style="margin:0 0 12px;">Laundry pickup change requested</h2>
+        <p>A cleaner submitted a laundry update that requires the pickup to be skipped or reviewed.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
+          <p style="margin:0 0 6px;"><strong>Outcome:</strong> {laundryOutcome}</p>
+          <p style="margin:0 0 6px;"><strong>Reason:</strong> {reasonCode}</p>
+          <p style="margin:0;"><strong>Cleaner note:</strong> {reasonNote}</p>
+        </div>
+      `,
+    },
+    laundrySkipApproved: {
+      subject: "{companyName}: Laundry instruction updated - {propertyName} ({jobNumber})",
+      html: `
+        <h2 style="margin:0 0 12px;">Laundry instruction updated</h2>
+        <p>The laundry booking instruction was reviewed and updated by admin.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
+          <p style="margin:0 0 6px;"><strong>Decision:</strong> {decision}</p>
+          <p style="margin:0;"><strong>Note:</strong> {reasonNote}</p>
+        </div>
       `,
     },
     cleaningReportShared: {
@@ -240,6 +493,20 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
           <p style="margin:0;"><strong>Property:</strong> {propertyName}</p>
         </div>
         <p>The PDF report is attached to this email. You can also open the client portal from the button below to review your latest service history.</p>
+      `,
+    },
+    reportVisibilityChanged: {
+      subject: "{companyName}: Report visibility updated for {propertyName}",
+      html: `
+        <h2 style="margin:0 0 12px;">Report visibility updated</h2>
+        <p>The visibility of a report has changed.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Audience:</strong> {visibilityAudience}</p>
+          <p style="margin:0 0 6px;"><strong>New state:</strong> {visibilityState}</p>
+          <p style="margin:0;"><strong>Note:</strong> {visibilityNote}</p>
+        </div>
       `,
     },
     laundryReport: {
@@ -258,6 +525,19 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p>Hello,</p>
         <p>Please find the attached cleaner invoice for <strong>{cleanerName}</strong>.</p>
         <p><strong>Total jobs included:</strong> {jobCount}</p>
+      `,
+    },
+    clientInvoiceIssued: {
+      subject: "{companyName} invoice {invoiceNumber}",
+      html: `
+        <h2 style="margin:0 0 12px;">Invoice ready</h2>
+        <p>Hello {clientName},</p>
+        <p>Your invoice is ready.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Invoice number:</strong> {invoiceNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Billing period:</strong> {periodLabel}</p>
+          <p style="margin:0;"><strong>Total:</strong> {totalAmount}</p>
+        </div>
       `,
     },
     lostFoundAlert: {
@@ -282,6 +562,98 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p><strong>Request type:</strong> {requestType}</p>
         <p><strong>Requested amount:</strong> {requestedAmount}</p>
         <p><strong>Cleaner note:</strong> {cleanerNote}</p>
+      `,
+    },
+    caseCreated: {
+      subject: "{companyName}: New {caseType} case - {caseTitle}",
+      html: `
+        <h2 style="margin:0 0 12px;">New case created</h2>
+        <p>A new case has been opened in the system.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Type:</strong> {caseType}</p>
+          <p style="margin:0 0 6px;"><strong>Title:</strong> {caseTitle}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Status:</strong> {status}</p>
+          <p style="margin:0;"><strong>Priority:</strong> {priority}</p>
+        </div>
+      `,
+    },
+    caseUpdated: {
+      subject: "{companyName}: Case updated - {caseTitle}",
+      html: `
+        <h2 style="margin:0 0 12px;">Case updated</h2>
+        <p>An existing case has been updated.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Type:</strong> {caseType}</p>
+          <p style="margin:0 0 6px;"><strong>Title:</strong> {caseTitle}</p>
+          <p style="margin:0 0 6px;"><strong>Status:</strong> {status}</p>
+          <p style="margin:0;"><strong>Update:</strong> {updateNote}</p>
+        </div>
+      `,
+    },
+    shoppingRunSubmitted: {
+      subject: "{companyName}: Shopping run submitted - {runTitle}",
+      html: `
+        <h2 style="margin:0 0 12px;">Shopping run submitted</h2>
+        <p>A shopping run is ready for review.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Run:</strong> {runTitle}</p>
+          <p style="margin:0 0 6px;"><strong>Submitted by:</strong> {submittedBy}</p>
+          <p style="margin:0 0 6px;"><strong>Paid by:</strong> {paidBy}</p>
+          <p style="margin:0 0 6px;"><strong>Actual amount:</strong> {actualAmount}</p>
+          <p style="margin:0;"><strong>Properties:</strong> {propertyNames}</p>
+        </div>
+      `,
+    },
+    shoppingReimbursementToClient: {
+      subject: "{companyName}: Shopping reimbursement - {runTitle}",
+      html: `
+        <h2 style="margin:0 0 12px;">Shopping reimbursement</h2>
+        <p>Hello {clientName},</p>
+        <p>Please review the approved shopping reimbursement for your properties.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Run:</strong> {runTitle}</p>
+          <p style="margin:0 0 6px;"><strong>Properties:</strong> {propertyNames}</p>
+          <p style="margin:0;"><strong>Amount:</strong> {actualAmount}</p>
+        </div>
+      `,
+    },
+    stockRunRequested: {
+      subject: "{companyName}: Stock count requested - {propertyName}",
+      html: `
+        <h2 style="margin:0 0 12px;">Stock count requested</h2>
+        <p>A stock count run was requested for <strong>{propertyName}</strong>.</p>
+        <p><strong>Requested by:</strong> {requestedBy}</p>
+      `,
+    },
+    stockRunSubmitted: {
+      subject: "{companyName}: Stock count submitted - {propertyName}",
+      html: `
+        <h2 style="margin:0 0 12px;">Stock count submitted</h2>
+        <p>A stock count run was submitted for <strong>{propertyName}</strong>.</p>
+        <p><strong>Submitted by:</strong> {submittedBy}</p>
+        <p><strong>Lines counted:</strong> {lineCount}</p>
+      `,
+    },
+    quoteApprovalRequest: {
+      subject: "{companyName}: Quote approval required - {serviceType}",
+      html: `
+        <h2 style="margin:0 0 12px;">Quote approval required</h2>
+        <p>A quote is ready for review.</p>
+        <p><strong>Client:</strong> {clientName}</p>
+        <p><strong>Service:</strong> {serviceType}</p>
+        <p><strong>Total:</strong> {quoteTotal}</p>
+      `,
+    },
+    quoteSentToClient: {
+      subject: "{companyName}: Your quote is ready",
+      html: `
+        <h2 style="margin:0 0 12px;">Your quote is ready</h2>
+        <p>Hello {clientName},</p>
+        <p>Your quote for <strong>{serviceType}</strong> is ready to review.</p>
+        <p><strong>Total:</strong> {quoteTotal}</p>
+        <p><strong>Valid until:</strong> {validUntil}</p>
       `,
     },
   };

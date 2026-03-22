@@ -24,6 +24,7 @@ export default async function CleanerShoppingPage({
         mode="cleaner"
         apiPath="/api/cleaner/inventory/shopping-plan"
         runsApiBase="/api/cleaner/inventory/shopping-runs"
+        workspaceBasePath="/cleaner/shopping"
         initialPropertyId={searchParams?.propertyId}
         title="Shopping Run Planner"
         description="Review low-stock items across properties, combine items, and prioritize emergency top-ups when space is limited."

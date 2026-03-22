@@ -8,6 +8,7 @@ import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
+import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 
 export async function GET(
   _req: NextRequest,
@@ -15,6 +16,9 @@ export async function GET(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER]);
+    if (session.user.role === Role.CLEANER) {
+      await autoClockOutStaleTimeLogsForUser(session.user.id);
+    }
     const job = await db.job.findUnique({
       where: { id: params.id },
       include: {

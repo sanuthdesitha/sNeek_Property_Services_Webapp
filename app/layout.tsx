@@ -23,8 +23,8 @@ export const metadata: Metadata = {
   description: "Property cleaning operations management",
   manifest: "/manifest.json",
   icons: {
-    icon: [{ url: "/icon", type: "image/png", sizes: "64x64" }],
-    apple: [{ url: "/icon", type: "image/png", sizes: "64x64" }],
+    icon: [{ url: "/icon", type: "image/svg+xml", sizes: "64x64" }],
+    apple: [{ url: "/icon", type: "image/svg+xml", sizes: "64x64" }],
     shortcut: ["/icon"],
   },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "sNeek Property Services" },

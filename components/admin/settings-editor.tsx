@@ -1309,6 +1309,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               ["showReportDownloads", "Allow report PDF downloads"],
               ["showInventory", "Show inventory"],
               ["showShopping", "Show shopping"],
+              ["showStockRuns", "Show stock count runs"],
               ["showOngoingJobs", "Show ongoing jobs"],
               ["showLaundryUpdates", "Show laundry updates"],
               ["showLaundryCosts", "Show laundry costs"],
@@ -1317,6 +1318,9 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               ["showQuoteRequests", "Show quote requests"],
               ["showApprovals", "Show approval requests"],
               ["showCleanerNames", "Show cleaner names to client"],
+              ["allowInventoryThresholdEdits", "Allow client inventory threshold edits"],
+              ["allowStockRuns", "Allow client stock count runs"],
+              ["allowCaseReplies", "Allow client case replies"],
             ].map(([key, label]) => (
               <div key={key} className="flex items-center justify-between gap-2 rounded border p-2">
                 <Label className="text-xs">{label}</Label>
@@ -1348,6 +1352,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               ["showJobs", "Show jobs"],
               ["showCalendar", "Show calendar"],
               ["showShopping", "Show shopping"],
+              ["showStockRuns", "Show stock count runs"],
               ["showInvoices", "Show invoices"],
               ["showPayRequests", "Show pay requests"],
               ["showLostFound", "Show lost and found"],
@@ -1381,6 +1386,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               ["showHistoryTab", "Show history tab"],
               ["showCostTracking", "Show laundry cost tracking"],
               ["showPickupPhoto", "Allow pickup photo"],
+              ["showSkipReasons", "Show skip reasons and cleaner notes"],
               ["requireDropoffPhoto", "Require drop-off photo"],
               ["requireEarlyDropoffReason", "Require reason for early drop-off"],
             ].map(([key, label]) => (
@@ -1515,7 +1521,103 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
         </div>
 
         <div className="space-y-2">
-          <p className="text-sm font-medium">Phase 1 Ops Automation</p>
+          <p className="text-sm font-medium">Notification Defaults</p>
+          <div className="grid gap-3 rounded-md border p-3">
+            {Object.entries(settings.notificationDefaults.categories).map(([category, channels]) => (
+              <div key={category} className="grid items-center gap-3 rounded border p-3 md:grid-cols-4">
+                <div>
+                  <p className="text-sm font-medium capitalize">{category}</p>
+                  <p className="text-xs text-muted-foreground">Default delivery channels for new users and untouched preferences.</p>
+                </div>
+                {(["web", "email", "sms"] as const).map((channel) => (
+                  <div key={`${category}-${channel}`} className="flex items-center justify-between gap-2 rounded border p-2">
+                    <Label className="text-xs uppercase">{channel}</Label>
+                    <Switch
+                      checked={Boolean((channels as any)?.[channel])}
+                      onCheckedChange={(value) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          notificationDefaults: {
+                            ...prev.notificationDefaults,
+                            categories: {
+                              ...prev.notificationDefaults.categories,
+                              [category]: {
+                                ...prev.notificationDefaults.categories[category as keyof typeof prev.notificationDefaults.categories],
+                                [channel]: value,
+                              },
+                            },
+                          },
+                        }))
+                      }
+                      disabled={readOnly}
+                    />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Operational Safeguards</p>
+          <div className="grid gap-4 rounded-md border p-3 md:grid-cols-2">
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Auto clock-out enabled</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically stop running time logs after the configured grace period.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.autoClockOut.enabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      autoClockOut: { ...prev.autoClockOut, enabled: value },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Grace minutes after due time</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={240}
+                  value={settings.autoClockOut.graceMinutes}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      autoClockOut: {
+                        ...prev.autoClockOut,
+                        graceMinutes: Number(e.target.value || prev.autoClockOut.graceMinutes),
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded border p-2">
+                <Label className="text-xs">Fallback auto clock-out at midnight</Label>
+                <Switch
+                  checked={settings.autoClockOut.fallbackAtMidnight}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      autoClockOut: { ...prev.autoClockOut, fallbackAtMidnight: value },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Operations</p>
           <div className="grid gap-4 rounded-md border p-3 md:grid-cols-2">
             <div className="space-y-2 rounded border p-3">
               <div className="flex items-center justify-between">
@@ -1695,14 +1797,17 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           </p>
         </div>
 
-        {!readOnly && (
-          <div className="flex justify-end">
+      </CardContent>
+      {!readOnly && (
+        <div className="sticky bottom-4 z-20 flex justify-end px-6 pb-6">
+          <div className="flex items-center gap-3 rounded-2xl border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+            <p className="text-xs text-muted-foreground">Changes apply across all portals and automation rules.</p>
             <Button onClick={save} disabled={saving}>
               {saving ? "Saving..." : "Save settings"}
             </Button>
           </div>
-        )}
-      </CardContent>
+        </div>
+      )}
     </Card>
   );
 }

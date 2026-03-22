@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
+import { notifyShoppingRunSubmitted } from "@/lib/inventory/notifications";
 import {
   listShoppingRunsForOwner,
   saveShoppingRunForOwner,
@@ -148,6 +149,12 @@ export async function POST(req: NextRequest) {
       completedAt: body.completedAt ?? undefined,
       reimbursementNote: body.reimbursementNote ?? undefined,
     });
+    if (body.status === "COMPLETED") {
+      await notifyShoppingRunSubmitted({
+        run: saved,
+        actorLabel: session.user.name || session.user.email || "Cleaner",
+      });
+    }
     return NextResponse.json(saved, { status: body.id ? 200 : 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

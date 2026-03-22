@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
 import { isClientModuleEnabled } from "@/lib/portal-access";
+import { notifyShoppingRunSubmitted } from "@/lib/inventory/notifications";
 import {
   deleteShoppingRunForOwner,
   getShoppingRunForOwner,
@@ -163,6 +164,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       completedAt: body.completedAt ?? undefined,
       reimbursementNote: body.reimbursementNote ?? undefined,
     });
+    if ((body.status ?? existing.status) === "COMPLETED" && existing.status !== "COMPLETED") {
+      await notifyShoppingRunSubmitted({
+        run: saved,
+        actorLabel: session.user.name || session.user.email || "Client",
+      });
+    }
     return NextResponse.json(saved);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

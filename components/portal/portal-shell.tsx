@@ -21,6 +21,8 @@ interface PortalShellProps {
   navItems: PortalNavItem[];
   settingsHref: string;
   maxWidthClass?: string;
+  currentUserName?: string | null;
+  currentUserImage?: string | null;
 }
 
 function initialsFromName(name: string): string {
@@ -41,6 +43,8 @@ export function PortalShell({
   navItems,
   settingsHref,
   maxWidthClass = "max-w-6xl",
+  currentUserName,
+  currentUserImage,
 }: PortalShellProps) {
   const pathname = usePathname();
   const initials = initialsFromName(companyName) || "SP";
@@ -83,6 +87,18 @@ export function PortalShell({
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+              <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
+                {currentUserImage ? (
+                  <img src={currentUserImage} alt={currentUserName || "User"} className="h-9 w-9 rounded-full object-cover ring-1 ring-border/60" />
+                ) : (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                    <span className="text-xs font-semibold text-primary">
+                      {(currentUserName || portalLabel)?.trim()?.[0]?.toUpperCase() || "U"}
+                    </span>
+                  </div>
+                )}
+                {currentUserName ? <span className="max-w-[140px] truncate text-sm font-medium">{currentUserName}</span> : null}
+              </div>
               <Button
                 variant="outline"
                 size="sm"

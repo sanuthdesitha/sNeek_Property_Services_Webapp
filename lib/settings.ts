@@ -17,6 +17,7 @@ export interface ClientPortalVisibility {
   showReports: boolean;
   showInventory: boolean;
   showShopping: boolean;
+  showStockRuns: boolean;
   showOngoingJobs: boolean;
   showCases: boolean;
   showExtraPayRequests: boolean;
@@ -26,12 +27,16 @@ export interface ClientPortalVisibility {
   showQuoteRequests: boolean;
   showApprovals: boolean;
   showReportDownloads: boolean;
+  allowInventoryThresholdEdits: boolean;
+  allowStockRuns: boolean;
+  allowCaseReplies: boolean;
 }
 
 export interface CleanerPortalVisibility {
   showJobs: boolean;
   showCalendar: boolean;
   showShopping: boolean;
+  showStockRuns: boolean;
   showInvoices: boolean;
   showPayRequests: boolean;
   showLostFound: boolean;
@@ -43,8 +48,38 @@ export interface LaundryPortalVisibility {
   showHistoryTab: boolean;
   showCostTracking: boolean;
   showPickupPhoto: boolean;
+  showSkipReasons: boolean;
   requireDropoffPhoto: boolean;
   requireEarlyDropoffReason: boolean;
+}
+
+export type NotificationCategory =
+  | "account"
+  | "jobs"
+  | "laundry"
+  | "cases"
+  | "reports"
+  | "quotes"
+  | "shopping"
+  | "billing"
+  | "approvals";
+
+export interface NotificationChannelPreference {
+  web: boolean;
+  email: boolean;
+  sms: boolean;
+}
+
+export type NotificationPreferenceMap = Record<NotificationCategory, NotificationChannelPreference>;
+
+export interface NotificationDefaultsSettings {
+  categories: NotificationPreferenceMap;
+}
+
+export interface AutoClockOutSettings {
+  enabled: boolean;
+  graceMinutes: number;
+  fallbackAtMidnight: boolean;
 }
 
 export interface LaundryOperationsSettings {
@@ -114,6 +149,8 @@ export interface AppSettings {
   clientPortalVisibility: ClientPortalVisibility;
   cleanerPortalVisibility: CleanerPortalVisibility;
   laundryPortalVisibility: LaundryPortalVisibility;
+  notificationDefaults: NotificationDefaultsSettings;
+  autoClockOut: AutoClockOutSettings;
   laundryOperations: LaundryOperationsSettings;
   sla: SlaSettings;
   recurringJobs: RecurringJobSettings;
@@ -123,6 +160,30 @@ export interface AppSettings {
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
 }
+
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  "account",
+  "jobs",
+  "laundry",
+  "cases",
+  "reports",
+  "quotes",
+  "shopping",
+  "billing",
+  "approvals",
+];
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferenceMap = {
+  account: { web: true, email: true, sms: false },
+  jobs: { web: true, email: true, sms: false },
+  laundry: { web: true, email: true, sms: false },
+  cases: { web: true, email: true, sms: false },
+  reports: { web: true, email: true, sms: false },
+  quotes: { web: true, email: true, sms: false },
+  shopping: { web: true, email: true, sms: false },
+  billing: { web: true, email: true, sms: false },
+  approvals: { web: true, email: true, sms: false },
+};
 
 export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
@@ -168,6 +229,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showReports: true,
     showInventory: true,
     showShopping: true,
+    showStockRuns: true,
     showOngoingJobs: true,
     showCases: false,
     showExtraPayRequests: false,
@@ -177,11 +239,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showQuoteRequests: true,
     showApprovals: true,
     showReportDownloads: true,
+    allowInventoryThresholdEdits: false,
+    allowStockRuns: true,
+    allowCaseReplies: true,
   },
   cleanerPortalVisibility: {
     showJobs: true,
     showCalendar: true,
     showShopping: true,
+    showStockRuns: true,
     showInvoices: true,
     showPayRequests: true,
     showLostFound: true,
@@ -192,8 +258,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showHistoryTab: true,
     showCostTracking: true,
     showPickupPhoto: true,
+    showSkipReasons: true,
     requireDropoffPhoto: true,
     requireEarlyDropoffReason: true,
+  },
+  notificationDefaults: {
+    categories: DEFAULT_NOTIFICATION_PREFERENCES,
+  },
+  autoClockOut: {
+    enabled: true,
+    graceMinutes: 30,
+    fallbackAtMidnight: true,
   },
   laundryOperations: {
     pickupCutoffTime: "10:00",
@@ -301,6 +376,7 @@ function sanitizeClientPortalVisibility(
     showReports: typeof row.showReports === "boolean" ? row.showReports : fallback.showReports,
     showInventory: typeof row.showInventory === "boolean" ? row.showInventory : fallback.showInventory,
     showShopping: typeof row.showShopping === "boolean" ? row.showShopping : fallback.showShopping,
+    showStockRuns: typeof row.showStockRuns === "boolean" ? row.showStockRuns : fallback.showStockRuns,
     showOngoingJobs: typeof row.showOngoingJobs === "boolean" ? row.showOngoingJobs : fallback.showOngoingJobs,
     showCases: typeof row.showCases === "boolean" ? row.showCases : fallback.showCases,
     showExtraPayRequests:
@@ -319,6 +395,16 @@ function sanitizeClientPortalVisibility(
       typeof row.showApprovals === "boolean" ? row.showApprovals : fallback.showApprovals,
     showReportDownloads:
       typeof row.showReportDownloads === "boolean" ? row.showReportDownloads : fallback.showReportDownloads,
+    allowInventoryThresholdEdits:
+      typeof row.allowInventoryThresholdEdits === "boolean"
+        ? row.allowInventoryThresholdEdits
+        : fallback.allowInventoryThresholdEdits,
+    allowStockRuns:
+      typeof row.allowStockRuns === "boolean" ? row.allowStockRuns : fallback.allowStockRuns,
+    allowCaseReplies:
+      typeof row.allowCaseReplies === "boolean"
+        ? row.allowCaseReplies
+        : fallback.allowCaseReplies,
   };
 }
 
@@ -332,6 +418,7 @@ function sanitizeCleanerPortalVisibility(
     showJobs: typeof row.showJobs === "boolean" ? row.showJobs : fallback.showJobs,
     showCalendar: typeof row.showCalendar === "boolean" ? row.showCalendar : fallback.showCalendar,
     showShopping: typeof row.showShopping === "boolean" ? row.showShopping : fallback.showShopping,
+    showStockRuns: typeof row.showStockRuns === "boolean" ? row.showStockRuns : fallback.showStockRuns,
     showInvoices: typeof row.showInvoices === "boolean" ? row.showInvoices : fallback.showInvoices,
     showPayRequests: typeof row.showPayRequests === "boolean" ? row.showPayRequests : fallback.showPayRequests,
     showLostFound: typeof row.showLostFound === "boolean" ? row.showLostFound : fallback.showLostFound,
@@ -350,12 +437,60 @@ function sanitizeLaundryPortalVisibility(
     showHistoryTab: typeof row.showHistoryTab === "boolean" ? row.showHistoryTab : fallback.showHistoryTab,
     showCostTracking: typeof row.showCostTracking === "boolean" ? row.showCostTracking : fallback.showCostTracking,
     showPickupPhoto: typeof row.showPickupPhoto === "boolean" ? row.showPickupPhoto : fallback.showPickupPhoto,
+    showSkipReasons: typeof row.showSkipReasons === "boolean" ? row.showSkipReasons : fallback.showSkipReasons,
     requireDropoffPhoto:
       typeof row.requireDropoffPhoto === "boolean" ? row.requireDropoffPhoto : fallback.requireDropoffPhoto,
     requireEarlyDropoffReason:
       typeof row.requireEarlyDropoffReason === "boolean"
         ? row.requireEarlyDropoffReason
         : fallback.requireEarlyDropoffReason,
+  };
+}
+
+function sanitizeNotificationPreferences(
+  input: unknown,
+  fallback: NotificationPreferenceMap
+): NotificationPreferenceMap {
+  if (!input || typeof input !== "object") return fallback;
+  const row = input as Record<string, unknown>;
+  const next = { ...fallback };
+  for (const category of NOTIFICATION_CATEGORIES) {
+    const categoryRow = row[category];
+    if (!categoryRow || typeof categoryRow !== "object" || Array.isArray(categoryRow)) continue;
+    const prefRow = categoryRow as Record<string, unknown>;
+    next[category] = {
+      web: typeof prefRow.web === "boolean" ? prefRow.web : fallback[category].web,
+      email: typeof prefRow.email === "boolean" ? prefRow.email : fallback[category].email,
+      sms: typeof prefRow.sms === "boolean" ? prefRow.sms : fallback[category].sms,
+    };
+  }
+  return next;
+}
+
+function sanitizeNotificationDefaults(
+  input: unknown,
+  fallback: NotificationDefaultsSettings
+): NotificationDefaultsSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  return {
+    categories: sanitizeNotificationPreferences(row.categories, fallback.categories),
+  };
+}
+
+function sanitizeAutoClockOut(
+  input: unknown,
+  fallback: AutoClockOutSettings
+): AutoClockOutSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  return {
+    enabled: typeof row.enabled === "boolean" ? row.enabled : fallback.enabled,
+    graceMinutes: clamp(Number(row.graceMinutes ?? fallback.graceMinutes), 0, 240),
+    fallbackAtMidnight:
+      typeof row.fallbackAtMidnight === "boolean"
+        ? row.fallbackAtMidnight
+        : fallback.fallbackAtMidnight,
   };
 }
 
@@ -614,6 +749,14 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).laundryPortalVisibility,
       DEFAULT_SETTINGS.laundryPortalVisibility
     ),
+    notificationDefaults: sanitizeNotificationDefaults(
+      (parsed as any).notificationDefaults,
+      DEFAULT_SETTINGS.notificationDefaults
+    ),
+    autoClockOut: sanitizeAutoClockOut(
+      (parsed as any).autoClockOut,
+      DEFAULT_SETTINGS.autoClockOut
+    ),
     laundryOperations: sanitizeLaundryOperations(
       (parsed as any).laundryOperations,
       DEFAULT_SETTINGS.laundryOperations
@@ -661,6 +804,8 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
+    autoClockOut: input.autoClockOut ?? current.autoClockOut,
     propertyFormTemplateOverrides:
       input.propertyFormTemplateOverrides ?? current.propertyFormTemplateOverrides,
     emailTemplates: input.emailTemplates ?? current.emailTemplates,

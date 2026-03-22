@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { createDispute } from "@/lib/phase4/disputes";
-import { composeCaseDescription } from "@/lib/issues/case-utils";
+import { createCase } from "@/lib/cases/service";
+import { notifyCaseCreated } from "@/lib/cases/notifications";
 
 const schema = z.object({
   title: z.string().trim().min(1).max(160),
@@ -43,52 +43,42 @@ export async function POST(
     });
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
-    const caseDescription = composeCaseDescription({
-      text: fullDescription,
-      metadata: { tags: ["damage"] },
-    });
-
-    const issue = await db.issueTicket.create({
-      data: {
-        jobId: job.id,
-        title: `Damage: ${body.title}`,
-        description: caseDescription,
-        severity: body.severity ?? "HIGH",
-        status: "OPEN",
-      },
-    });
-
-    const dispute = await createDispute({
+    const issue = await createCase({
+      title: `Damage: ${body.title}`,
+      description: fullDescription,
+      severity: body.severity ?? "HIGH",
+      status: "OPEN",
+      caseType: "DAMAGE",
+      source: "CLEANER_SUBMISSION",
       clientId: job.property.clientId,
       propertyId: job.propertyId,
       jobId: job.id,
-      title: `Damage recovery - ${body.title}`,
-      description: fullDescription,
-      amountDisputed: body.estimatedCost ?? null,
-      currency: body.currency ?? "AUD",
-      priority: (body.severity as any) ?? "HIGH",
-      raisedByUserId: session.user.id,
+      clientVisible: true,
+      clientCanReply: true,
+      metadata: {
+        tags: ["damage"],
+        estimatedCost: body.estimatedCost ?? null,
+        currency: body.currency ?? "AUD",
+      },
+      comment: {
+        authorUserId: session.user.id,
+        body: fullDescription,
+        isInternal: false,
+      },
+      attachments: evidenceKeys.map((key) => ({
+        uploadedByUserId: session.user.id,
+        s3Key: key,
+      })),
     });
 
-    const admins = await db.user.findMany({
-      where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
-      select: { id: true },
-    });
-    if (admins.length > 0) {
-      await db.notification.createMany({
-        data: admins.map((admin) => ({
-          userId: admin.id,
-          jobId: job.id,
-          channel: NotificationChannel.PUSH,
-          subject: "Damage case opened",
-          body: `${job.property.name}: ${body.title}${evidenceKeys.length > 0 ? ` (${evidenceKeys.length} photo(s))` : ""}`,
-          status: NotificationStatus.SENT,
-          sentAt: new Date(),
-        })),
+    if (issue) {
+      await notifyCaseCreated({
+        caseItem: issue,
+        actorLabel: session.user.name || session.user.email || "Cleaner",
       });
     }
 
-    return NextResponse.json({ issue, dispute }, { status: 201 });
+    return NextResponse.json({ issue }, { status: 201 });
   } catch (err: any) {
     const status =
       err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

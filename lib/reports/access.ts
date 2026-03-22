@@ -31,6 +31,10 @@ export async function findJobReport(jobId: string) {
   });
 }
 
+export async function getStoredJobReport(jobId: string) {
+  return findJobReport(jobId);
+}
+
 export function hasCurrentReportTemplate(report: { htmlContent: string | null } | null | undefined) {
   return Boolean(report?.htmlContent?.includes(`report-template:${REPORT_TEMPLATE_VERSION}`));
 }

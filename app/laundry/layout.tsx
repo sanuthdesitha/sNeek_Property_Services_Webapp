@@ -1,7 +1,10 @@
 import { getAppSettings } from "@/lib/settings";
 import { PortalShell } from "@/components/portal/portal-shell";
+import { requireRole } from "@/lib/auth/session";
+import { Role } from "@prisma/client";
 
 export default async function LaundryLayout({ children }: { children: React.ReactNode }) {
+  const session = await requireRole([Role.LAUNDRY]);
   const settings = await getAppSettings();
   const companyName = settings.companyName || "sNeek Property Services";
   const visibility = settings.laundryPortalVisibility;
@@ -14,6 +17,8 @@ export default async function LaundryLayout({ children }: { children: React.Reac
       portalTitle="Pickups, returns, and laundry costs"
       settingsHref="/laundry/settings"
       maxWidthClass="max-w-6xl"
+      currentUserName={session.user.name}
+      currentUserImage={session.user.image}
       navItems={[
         { href: "/laundry", label: "Dashboard", exact: true },
         ...(visibility.showCalendar ? [{ href: "/laundry/calendar", label: "Calendar" }] : []),

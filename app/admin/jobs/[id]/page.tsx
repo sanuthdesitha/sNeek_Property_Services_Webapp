@@ -116,6 +116,7 @@ export default function JobDetailPage() {
   const [qaScore, setQaScore] = useState("90");
   const [qaNotes, setQaNotes] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [updatingReportVisibility, setUpdatingReportVisibility] = useState(false);
   const [savingJob, setSavingJob] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [autoAssigning, setAutoAssigning] = useState(false);
@@ -380,6 +381,29 @@ export default function JobDetailPage() {
         variant: "destructive",
       });
     }
+  }
+
+  async function toggleClientReportVisibility() {
+    setUpdatingReportVisibility(true);
+    const res = await fetch(`/api/admin/reports/${params.id}/visibility`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientVisible: !(job?.report?.clientVisible !== false) }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setUpdatingReportVisibility(false);
+    if (!res.ok) {
+      toast({
+        title: "Visibility update failed",
+        description: body.error ?? "Could not update client report visibility.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: body.clientVisible ? "Report visible to client" : "Report hidden from client",
+    });
+    load();
   }
 
   async function saveJobChanges() {
@@ -649,6 +673,13 @@ export default function JobDetailPage() {
         <Button size="sm" variant="outline" onClick={downloadReport}>
           <FileText className="mr-2 h-4 w-4" /> Download Report
         </Button>
+          <Button size="sm" variant="outline" onClick={toggleClientReportVisibility} disabled={!job.report || updatingReportVisibility}>
+            {updatingReportVisibility
+              ? "Updating..."
+              : job.report?.clientVisible !== false
+                ? "Hide From Client"
+                : "Show To Client"}
+          </Button>
           <Button size="sm" variant="outline" onClick={shareReport} disabled={sharing}>
             <Send className="mr-2 h-4 w-4" /> {sharing ? "Sharing..." : "Share To Client"}
           </Button>

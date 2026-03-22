@@ -54,6 +54,7 @@ export default async function ClientReportsPage({
     ? await db.report.findMany({
         where: {
           createdAt: { gte: fromDate },
+          clientVisible: true,
           job: {
             property: { clientId: user.clientId },
             status: { in: ["COMPLETED", "INVOICED"] },

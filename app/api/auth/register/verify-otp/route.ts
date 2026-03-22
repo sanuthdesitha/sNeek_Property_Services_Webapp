@@ -13,6 +13,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAuthUserState, upsertAuthUserState } from "@/lib/auth/account-state";
 import { resolveAppUrl } from "@/lib/app-url";
+import { notifyAdminsOfNewProfile } from "@/lib/notifications/profile-created";
 
 const verifyOtpSchema = z.object({
   email: z.string().trim().email(),
@@ -87,6 +88,18 @@ export async function POST(req: NextRequest) {
       if (welcomeResult.ok) {
         await upsertAuthUserState(user.id, { welcomeEmailSent: true });
       }
+    }
+
+    if (!state?.profileCreationNotified) {
+      await notifyAdminsOfNewProfile({
+        userId: user.id,
+        userName: user.name ?? user.email,
+        email: user.email,
+        role: user.role,
+        createdVia: "self registration",
+        createdAt: new Date(),
+      });
+      await upsertAuthUserState(user.id, { profileCreationNotified: true });
     }
 
     return NextResponse.json({ ok: true });

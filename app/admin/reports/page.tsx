@@ -14,6 +14,7 @@ export default function ReportsPage() {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
+  const [updatingVisibility, setUpdatingVisibility] = useState<string | null>(null);
   const [deletingReport, setDeletingReport] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<any | null>(null);
 
@@ -52,6 +53,40 @@ export default function ReportsPage() {
     }
     toast({ title: "Report regenerated" });
     loadReports();
+  }
+
+  async function updateVisibility(
+    jobId: string,
+    patch: { clientVisible?: boolean; cleanerVisible?: boolean; laundryVisible?: boolean }
+  ) {
+    setUpdatingVisibility(jobId);
+    const res = await fetch(`/api/admin/reports/${jobId}/visibility`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const body = await res.json().catch(() => ({}));
+    setUpdatingVisibility(null);
+    if (!res.ok) {
+      toast({
+        title: "Visibility update failed",
+        description: body.error ?? "Could not update report visibility.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setReports((prev) =>
+      prev.map((report) =>
+        report.jobId === jobId
+          ? {
+              ...report,
+              ...patch,
+              visibilityUpdatedAt: body.visibilityUpdatedAt,
+              visibilityUpdatedBy: body.visibilityUpdatedBy,
+            }
+          : report
+      )
+    );
   }
 
   async function deleteReport() {
@@ -100,12 +135,28 @@ export default function ReportsPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {report.sentToClient && (
                       <Badge variant="success" className="text-xs">
                         Sent to client
                       </Badge>
                     )}
+                    <Button
+                      size="sm"
+                      variant={report.clientVisible ? "default" : "outline"}
+                      disabled={updatingVisibility === report.jobId}
+                      onClick={() => updateVisibility(report.jobId, { clientVisible: !report.clientVisible })}
+                    >
+                      {report.clientVisible ? "Visible to client" : "Hidden from client"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={report.cleanerVisible ? "outline" : "secondary"}
+                      disabled={updatingVisibility === report.jobId}
+                      onClick={() => updateVisibility(report.jobId, { cleanerVisible: !report.cleanerVisible })}
+                    >
+                      {report.cleanerVisible ? "Cleaner visible" : "Cleaner hidden"}
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => downloadReport(report.jobId)}>
                       <Download className="mr-1 h-4 w-4" />
                       PDF

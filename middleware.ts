@@ -90,7 +90,9 @@ export default withAuth(
           pathname === "/login" ||
           pathname === "/register" ||
           pathname === "/unauthorized" ||
-          pathname === "/"
+          pathname === "/" ||
+          pathname === "/icon" ||
+          pathname === "/manifest.json"
         ) {
           return true;
         }
@@ -165,6 +167,6 @@ async function validateActiveSession(req: NextRequestWithAuth) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|images|fonts).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon|manifest.json|images|fonts).*)",
   ],
 };

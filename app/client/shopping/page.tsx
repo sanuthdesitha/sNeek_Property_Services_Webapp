@@ -24,6 +24,7 @@ export default async function ClientShoppingPage({
         mode="client"
         apiPath="/api/client/inventory/shopping-plan"
         runsApiBase="/api/client/inventory/shopping-runs"
+        workspaceBasePath="/client/shopping"
         initialPropertyId={searchParams?.propertyId}
         title="Start Shopping"
         description="Plan a restock run for your property inventory. Adjust quantities if you only want an emergency top-up."

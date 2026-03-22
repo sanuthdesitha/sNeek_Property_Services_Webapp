@@ -10,6 +10,7 @@ export interface AuthUserState {
   requiresOnboarding: boolean;
   tutorialSeen: boolean;
   welcomeEmailSent: boolean;
+  profileCreationNotified: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,6 +39,7 @@ function sanitizeState(value: unknown): AuthUserState | null {
     requiresOnboarding: row.requiresOnboarding === true,
     tutorialSeen: row.tutorialSeen === true,
     welcomeEmailSent: row.welcomeEmailSent === true,
+    profileCreationNotified: row.profileCreationNotified === true,
     createdAt,
     updatedAt,
   };
@@ -91,6 +93,10 @@ export async function upsertAuthUserState(
     tutorialSeen: patch.tutorialSeen !== undefined ? patch.tutorialSeen : current?.tutorialSeen ?? false,
     welcomeEmailSent:
       patch.welcomeEmailSent !== undefined ? patch.welcomeEmailSent : current?.welcomeEmailSent ?? false,
+    profileCreationNotified:
+      patch.profileCreationNotified !== undefined
+        ? patch.profileCreationNotified
+        : current?.profileCreationNotified ?? false,
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
   };
@@ -134,4 +140,3 @@ export function getMissingRequiredProfileFields(
 
   return missing;
 }
-

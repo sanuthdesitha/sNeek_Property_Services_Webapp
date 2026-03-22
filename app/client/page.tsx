@@ -68,9 +68,16 @@ export default async function ClientDashboard() {
           scheduledDate: true,
           startTime: true,
           dueTime: true,
+          priorityBucket: true,
+          priorityReason: true,
           property: { select: { name: true, suburb: true } },
         },
-        orderBy: [{ scheduledDate: "asc" }],
+        orderBy: [
+          { scheduledDate: "asc" },
+          { priorityBucket: "asc" },
+          { dueTime: "asc" },
+          { startTime: "asc" },
+        ],
         take: 20,
       })
     : [];
@@ -182,6 +189,9 @@ export default async function ClientDashboard() {
                     {nextJob.startTime || "Time not set"}
                     {nextJob.dueTime ? ` - ${nextJob.dueTime}` : ""}
                   </p>
+                  {nextJob.priorityReason ? (
+                    <p className="text-xs font-medium text-amber-700">{nextJob.priorityReason}</p>
+                  ) : null}
                   <span className="inline-flex rounded-full border px-2 py-1 text-xs font-medium">
                     {nextJob.status.replace(/_/g, " ")}
                   </span>
@@ -300,6 +310,9 @@ export default async function ClientDashboard() {
                         {job.startTime ? ` | ${job.startTime}` : ""}
                         {job.dueTime ? ` - ${job.dueTime}` : ""}
                       </p>
+                      {job.priorityReason ? (
+                        <p className="mt-1 text-xs font-medium text-amber-700">{job.priorityReason}</p>
+                      ) : null}
                       <span className="mt-2 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium">
                         {job.status.replace(/_/g, " ")}
                       </span>

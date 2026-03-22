@@ -2,6 +2,7 @@ import ICAL from "ical.js";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { classifySameDayCheckinPriority } from "@/lib/jobs/priority";
 import { SyncStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -15,6 +16,18 @@ type ReservationState = {
   startDate: string;
   endDate: string;
   summary: string | null;
+  reservationCode: string | null;
+  guestPhone: string | null;
+  guestEmail: string | null;
+  guestProfileUrl: string | null;
+  adults: number | null;
+  children: number | null;
+  infants: number | null;
+  locationText: string | null;
+  geoLat: number | null;
+  geoLng: number | null;
+  checkinAtLocal: string | null;
+  checkoutAtLocal: string | null;
   source: string | null;
 };
 
@@ -25,6 +38,29 @@ type JobState = {
   startTime: string | null;
   dueTime: string | null;
   status: string;
+  priorityBucket: number;
+  priorityReason: string | null;
+  sameDayCheckin: boolean;
+  sameDayCheckinTime: string | null;
+};
+
+type ParsedFeedEvent = {
+  uid: string;
+  startDate: Date;
+  endDate: Date;
+  summary: string | null;
+  reservationCode: string | null;
+  guestPhone: string | null;
+  guestEmail: string | null;
+  guestProfileUrl: string | null;
+  adults: number | null;
+  children: number | null;
+  infants: number | null;
+  locationText: string | null;
+  geoLat: number | null;
+  geoLng: number | null;
+  checkinAtLocal: Date | null;
+  checkoutAtLocal: Date | null;
 };
 
 type IcalSyncSnapshot = {
@@ -72,12 +108,109 @@ function icalDateToUtcDateOnly(value: ICAL.Time): Date {
   return new Date(Date.UTC(value.year, value.month - 1, value.day));
 }
 
+function icalTimeToDate(value: ICAL.Time | null | undefined): Date | null {
+  if (!value) return null;
+  try {
+    return value.toJSDate();
+  } catch {
+    return null;
+  }
+}
+
+function extractLabelValueBlock(description: string | null | undefined) {
+  if (!description) return new Map<string, string>();
+  return description
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reduce((map, line) => {
+      const idx = line.indexOf(":");
+      if (idx <= 0) return map;
+      const key = line.slice(0, idx).trim().toLowerCase();
+      const value = line.slice(idx + 1).trim();
+      if (key) map.set(key, value);
+      return map;
+    }, new Map<string, string>());
+}
+
+function nullableText(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "(no email alias available)") return null;
+  if (trimmed.toLowerCase() === "(no url available)") return null;
+  return trimmed;
+}
+
+function nullableInt(value: string | null | undefined) {
+  if (!value) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.trunc(num) : null;
+}
+
+function parseGeo(value: string | null | undefined) {
+  const raw = value?.trim();
+  if (!raw || !raw.includes(";")) return { geoLat: null, geoLng: null };
+  const [latRaw, lngRaw] = raw.split(";");
+  const geoLat = Number(latRaw);
+  const geoLng = Number(lngRaw);
+  return {
+    geoLat: Number.isFinite(geoLat) ? geoLat : null,
+    geoLng: Number.isFinite(geoLng) ? geoLng : null,
+  };
+}
+
+function toLocalTimeString(value: Date | null | undefined) {
+  if (!value) return null;
+  return value.toLocaleTimeString("en-AU", {
+    timeZone: "Australia/Sydney",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function parseFeedEvent(ev: ICAL.Event): ParsedFeedEvent | null {
+  if (!ev.uid) return null;
+  const descriptionMap = extractLabelValueBlock(ev.description);
+  const geo = parseGeo((ev.component.getFirstPropertyValue("geo") as string | null | undefined) ?? null);
+  return {
+    uid: ev.uid,
+    startDate: icalDateToUtcDateOnly(ev.startDate),
+    endDate: icalDateToUtcDateOnly(ev.endDate),
+    summary: ev.summary ?? null,
+    reservationCode: nullableText(descriptionMap.get("reservation code") ?? null),
+    guestPhone: nullableText(descriptionMap.get("phone") ?? null),
+    guestEmail: nullableText(descriptionMap.get("email") ?? null),
+    guestProfileUrl: nullableText(descriptionMap.get("profile") ?? null),
+    adults: nullableInt(descriptionMap.get("adults") ?? null),
+    children: nullableInt(descriptionMap.get("children") ?? null),
+    infants: nullableInt(descriptionMap.get("infants") ?? null),
+    locationText: nullableText((ev.location as string | null | undefined) ?? null),
+    geoLat: geo.geoLat,
+    geoLng: geo.geoLng,
+    checkinAtLocal: icalTimeToDate(ev.startDate),
+    checkoutAtLocal: icalTimeToDate(ev.endDate),
+  };
+}
+
 function reservationState(row: {
   id: string;
   uid: string;
   startDate: Date;
   endDate: Date;
   summary: string | null;
+  reservationCode?: string | null;
+  guestPhone?: string | null;
+  guestEmail?: string | null;
+  guestProfileUrl?: string | null;
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+  locationText?: string | null;
+  geoLat?: number | null;
+  geoLng?: number | null;
+  checkinAtLocal?: Date | null;
+  checkoutAtLocal?: Date | null;
   source: string | null;
 }): ReservationState {
   return {
@@ -86,6 +219,18 @@ function reservationState(row: {
     startDate: row.startDate.toISOString(),
     endDate: row.endDate.toISOString(),
     summary: row.summary ?? null,
+    reservationCode: row.reservationCode ?? null,
+    guestPhone: row.guestPhone ?? null,
+    guestEmail: row.guestEmail ?? null,
+    guestProfileUrl: row.guestProfileUrl ?? null,
+    adults: row.adults ?? null,
+    children: row.children ?? null,
+    infants: row.infants ?? null,
+    locationText: row.locationText ?? null,
+    geoLat: row.geoLat ?? null,
+    geoLng: row.geoLng ?? null,
+    checkinAtLocal: row.checkinAtLocal?.toISOString() ?? null,
+    checkoutAtLocal: row.checkoutAtLocal?.toISOString() ?? null,
     source: row.source ?? null,
   };
 }
@@ -97,6 +242,10 @@ function jobState(row: {
   startTime: string | null;
   dueTime: string | null;
   status: string;
+  priorityBucket?: number;
+  priorityReason?: string | null;
+  sameDayCheckin?: boolean;
+  sameDayCheckinTime?: string | null;
 }): JobState | null {
   if (!row.reservationId) return null;
   return {
@@ -106,6 +255,10 @@ function jobState(row: {
     startTime: row.startTime ?? null,
     dueTime: row.dueTime ?? null,
     status: row.status,
+    priorityBucket: row.priorityBucket ?? 4,
+    priorityReason: row.priorityReason ?? null,
+    sameDayCheckin: row.sameDayCheckin === true,
+    sameDayCheckinTime: row.sameDayCheckinTime ?? null,
   };
 }
 
@@ -114,6 +267,18 @@ function sameReservationState(current: ReservationState, compare: ReservationSta
     current.startDate === compare.startDate &&
     current.endDate === compare.endDate &&
     (current.summary ?? null) === (compare.summary ?? null) &&
+    (current.reservationCode ?? null) === (compare.reservationCode ?? null) &&
+    (current.guestPhone ?? null) === (compare.guestPhone ?? null) &&
+    (current.guestEmail ?? null) === (compare.guestEmail ?? null) &&
+    (current.guestProfileUrl ?? null) === (compare.guestProfileUrl ?? null) &&
+    (current.adults ?? null) === (compare.adults ?? null) &&
+    (current.children ?? null) === (compare.children ?? null) &&
+    (current.infants ?? null) === (compare.infants ?? null) &&
+    (current.locationText ?? null) === (compare.locationText ?? null) &&
+    (current.geoLat ?? null) === (compare.geoLat ?? null) &&
+    (current.geoLng ?? null) === (compare.geoLng ?? null) &&
+    (current.checkinAtLocal ?? null) === (compare.checkinAtLocal ?? null) &&
+    (current.checkoutAtLocal ?? null) === (compare.checkoutAtLocal ?? null) &&
     (current.source ?? null) === (compare.source ?? null)
   );
 }
@@ -123,7 +288,11 @@ function sameJobState(current: JobState, compare: JobState) {
     current.scheduledDate === compare.scheduledDate &&
     (current.startTime ?? null) === (compare.startTime ?? null) &&
     (current.dueTime ?? null) === (compare.dueTime ?? null) &&
-    current.status === compare.status
+    current.status === compare.status &&
+    current.priorityBucket === compare.priorityBucket &&
+    (current.priorityReason ?? null) === (compare.priorityReason ?? null) &&
+    current.sameDayCheckin === compare.sameDayCheckin &&
+    (current.sameDayCheckinTime ?? null) === (compare.sameDayCheckinTime ?? null)
   );
 }
 
@@ -154,7 +323,7 @@ function parseSyncOptions(notes: string | null | undefined): IcalSyncOptions {
 async function createOrUpdateReservations(params: {
   propertyId: string;
   provider: string | null;
-  events: Array<{ uid: string; startDate: Date; endDate: Date; summary: string | null }>;
+  events: ParsedFeedEvent[];
   summary: IcalSyncSummary;
   snapshot: IcalSyncSnapshot;
 }) {
@@ -172,6 +341,7 @@ async function createOrUpdateReservations(params: {
     startDate: Date;
     endDate: Date;
     summary: string | null;
+    checkoutAtLocal: Date | null;
     source: string | null;
   }> = [];
 
@@ -186,6 +356,18 @@ async function createOrUpdateReservations(params: {
           startDate: event.startDate,
           endDate: event.endDate,
           summary: event.summary,
+          reservationCode: event.reservationCode,
+          guestPhone: event.guestPhone,
+          guestEmail: event.guestEmail,
+          guestProfileUrl: event.guestProfileUrl,
+          adults: event.adults,
+          children: event.children,
+          infants: event.infants,
+          locationText: event.locationText,
+          geoLat: event.geoLat,
+          geoLng: event.geoLng,
+          checkinAtLocal: event.checkinAtLocal,
+          checkoutAtLocal: event.checkoutAtLocal,
           source: params.provider,
         },
       });
@@ -208,6 +390,18 @@ async function createOrUpdateReservations(params: {
       startDate: event.startDate.toISOString(),
       endDate: event.endDate.toISOString(),
       summary: event.summary ?? null,
+      reservationCode: event.reservationCode ?? null,
+      guestPhone: event.guestPhone ?? null,
+      guestEmail: event.guestEmail ?? null,
+      guestProfileUrl: event.guestProfileUrl ?? null,
+      adults: event.adults ?? null,
+      children: event.children ?? null,
+      infants: event.infants ?? null,
+      locationText: event.locationText ?? null,
+      geoLat: event.geoLat ?? null,
+      geoLng: event.geoLng ?? null,
+      checkinAtLocal: event.checkinAtLocal?.toISOString() ?? null,
+      checkoutAtLocal: event.checkoutAtLocal?.toISOString() ?? null,
       source: existing.source ?? params.provider ?? null,
     };
 
@@ -223,6 +417,18 @@ async function createOrUpdateReservations(params: {
         startDate: event.startDate,
         endDate: event.endDate,
         summary: event.summary,
+        reservationCode: event.reservationCode,
+        guestPhone: event.guestPhone,
+        guestEmail: event.guestEmail,
+        guestProfileUrl: event.guestProfileUrl,
+        adults: event.adults,
+        children: event.children,
+        infants: event.infants,
+        locationText: event.locationText,
+        geoLat: event.geoLat,
+        geoLng: event.geoLng,
+        checkinAtLocal: event.checkinAtLocal,
+        checkoutAtLocal: event.checkoutAtLocal,
         source: existing.source ?? params.provider ?? undefined,
       },
     });
@@ -243,7 +449,8 @@ async function createOrUpdateReservations(params: {
 async function syncTurnoverJobsForReservations(params: {
   propertyId: string;
   property: { defaultCheckoutTime: string; defaultCheckinTime: string };
-  reservations: Array<{ id: string; endDate: Date }>;
+  reservations: Array<{ id: string; endDate: Date; checkoutAtLocal: Date | null }>;
+  sameDayCheckinsByDate: Map<string, string | null>;
   summary: IcalSyncSummary;
   snapshot: IcalSyncSnapshot;
   syncOptions: IcalSyncOptions;
@@ -259,6 +466,14 @@ async function syncTurnoverJobsForReservations(params: {
 
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
+    const turnoverDateKey = turnoverDate.toISOString().slice(0, 10);
+    const sameDayCheckinTime =
+      params.sameDayCheckinsByDate.get(turnoverDateKey) ?? params.property.defaultCheckinTime;
+    const priority = classifySameDayCheckinPriority({
+      sameDayCheckin: params.sameDayCheckinsByDate.has(turnoverDateKey),
+      sameDayCheckinTime,
+    });
+    const startTime = toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
 
     if (!existingJob && params.syncOptions.verifyExistingJobConflicts) {
@@ -295,8 +510,12 @@ async function syncTurnoverJobsForReservations(params: {
           jobType: "AIRBNB_TURNOVER",
           status: "UNASSIGNED",
           scheduledDate: turnoverDate,
-          startTime: params.property.defaultCheckoutTime,
-          dueTime: params.property.defaultCheckinTime,
+          startTime,
+          dueTime: sameDayCheckinTime,
+          priorityBucket: priority.priorityBucket,
+          priorityReason: priority.priorityReason,
+          sameDayCheckin: priority.sameDayCheckin,
+          sameDayCheckinTime: priority.sameDayCheckinTime,
         },
       });
       const after = jobState(created);
@@ -320,9 +539,13 @@ async function syncTurnoverJobsForReservations(params: {
       id: existingJob.id,
       reservationId: reservation.id,
       scheduledDate: turnoverDate.toISOString(),
-      startTime: params.property.defaultCheckoutTime,
-      dueTime: params.property.defaultCheckinTime,
+      startTime,
+      dueTime: sameDayCheckinTime,
       status: existingJob.status,
+      priorityBucket: priority.priorityBucket,
+      priorityReason: priority.priorityReason,
+      sameDayCheckin: priority.sameDayCheckin,
+      sameDayCheckinTime: priority.sameDayCheckinTime,
     };
     if (!before || sameJobState(before, afterCandidate)) continue;
 
@@ -330,8 +553,12 @@ async function syncTurnoverJobsForReservations(params: {
       where: { id: existingJob.id },
       data: {
         scheduledDate: turnoverDate,
-        startTime: params.property.defaultCheckoutTime,
-        dueTime: params.property.defaultCheckinTime,
+        startTime,
+        dueTime: sameDayCheckinTime,
+        priorityBucket: priority.priorityBucket,
+        priorityReason: priority.priorityReason,
+        sameDayCheckin: priority.sameDayCheckin,
+        sameDayCheckinTime: priority.sameDayCheckinTime,
       },
     });
     const after = jobState(updated);
@@ -438,29 +665,23 @@ export async function syncPropertyIcal(
     const vevents = comp.getAllSubcomponents("vevent");
     summary.feedEvents = vevents.length;
 
-    const uniqueEvents: Array<{ uid: string; startDate: Date; endDate: Date; summary: string | null }> = [];
+    const uniqueEvents: ParsedFeedEvent[] = [];
     const seenUids = new Set<string>();
 
-      for (const vevent of vevents) {
-        const ev = new ICAL.Event(vevent);
-        if (!ev.uid) continue;
-        const startDate = icalDateToUtcDateOnly(ev.startDate);
-        const endDate = icalDateToUtcDateOnly(ev.endDate);
-        if (syncOptions.ignorePastDates && endDate < todayUtcDateOnly) {
-          summary.ignoredPastEvents += 1;
-          continue;
-        }
-        if (syncOptions.verifyFeedDuplicates && seenUids.has(ev.uid)) {
-          summary.duplicateFeedEvents += 1;
+    for (const vevent of vevents) {
+      const ev = new ICAL.Event(vevent);
+      const parsed = parseFeedEvent(ev);
+      if (!parsed) continue;
+      if (syncOptions.ignorePastDates && parsed.endDate < todayUtcDateOnly) {
+        summary.ignoredPastEvents += 1;
         continue;
       }
-      seenUids.add(ev.uid);
-      uniqueEvents.push({
-        uid: ev.uid,
-        startDate,
-        endDate,
-        summary: ev.summary ?? null,
-      });
+      if (syncOptions.verifyFeedDuplicates && seenUids.has(parsed.uid)) {
+        summary.duplicateFeedEvents += 1;
+        continue;
+      }
+      seenUids.add(parsed.uid);
+      uniqueEvents.push(parsed);
     }
 
     if (summary.duplicateFeedEvents > 0) {
@@ -473,6 +694,16 @@ export async function syncPropertyIcal(
           `${summary.ignoredPastEvents} past event${summary.ignoredPastEvents === 1 ? "" : "s"} ignored because only current and future stays are synced.`
         );
       }
+
+    const sameDayCheckinsByDate = new Map<string, string | null>();
+    for (const event of uniqueEvents) {
+      const key = event.startDate.toISOString().slice(0, 10);
+      const time = toLocalTimeString(event.checkinAtLocal);
+      const existing = sameDayCheckinsByDate.get(key);
+      if (!existing || (time && time < existing)) {
+        sameDayCheckinsByDate.set(key, time);
+      }
+    }
 
     const touchedReservations = await createOrUpdateReservations({
       propertyId: integration.propertyId,
@@ -488,7 +719,12 @@ export async function syncPropertyIcal(
         defaultCheckoutTime: integration.property.defaultCheckoutTime,
         defaultCheckinTime: integration.property.defaultCheckinTime,
       },
-      reservations: touchedReservations.map((row) => ({ id: row.id, endDate: row.endDate })),
+      reservations: touchedReservations.map((row) => ({
+        id: row.id,
+        endDate: row.endDate,
+        checkoutAtLocal: row.checkoutAtLocal ?? null,
+      })),
+      sameDayCheckinsByDate,
       summary,
       snapshot,
       syncOptions,
@@ -594,6 +830,10 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
           startTime: jobSnap.before.startTime,
           dueTime: jobSnap.before.dueTime,
           status: jobSnap.before.status as any,
+          priorityBucket: jobSnap.before.priorityBucket,
+          priorityReason: jobSnap.before.priorityReason,
+          sameDayCheckin: jobSnap.before.sameDayCheckin,
+          sameDayCheckinTime: jobSnap.before.sameDayCheckinTime,
         },
       });
       undoResult.restoredJobs += 1;
@@ -628,6 +868,22 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
           startDate: new Date(reservationSnap.before.startDate),
           endDate: new Date(reservationSnap.before.endDate),
           summary: reservationSnap.before.summary,
+          reservationCode: reservationSnap.before.reservationCode,
+          guestPhone: reservationSnap.before.guestPhone,
+          guestEmail: reservationSnap.before.guestEmail,
+          guestProfileUrl: reservationSnap.before.guestProfileUrl,
+          adults: reservationSnap.before.adults,
+          children: reservationSnap.before.children,
+          infants: reservationSnap.before.infants,
+          locationText: reservationSnap.before.locationText,
+          geoLat: reservationSnap.before.geoLat,
+          geoLng: reservationSnap.before.geoLng,
+          checkinAtLocal: reservationSnap.before.checkinAtLocal
+            ? new Date(reservationSnap.before.checkinAtLocal)
+            : null,
+          checkoutAtLocal: reservationSnap.before.checkoutAtLocal
+            ? new Date(reservationSnap.before.checkoutAtLocal)
+            : null,
           source: reservationSnap.before.source ?? undefined,
         },
       });

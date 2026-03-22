@@ -14,9 +14,13 @@ function parseFilenameFromDisposition(contentDisposition: string | null, fallbac
   return basicMatch?.[1] || fallback;
 }
 
-export async function downloadFromApi(url: string, fallbackFilename: string) {
+export async function downloadFromApi(url: string, fallbackFilename: string, init?: RequestInit) {
   const res = await fetch(url, {
-    headers: { "x-progress-toast": "force" },
+    ...init,
+    headers: {
+      "x-progress-toast": "force",
+      ...(init?.headers ?? {}),
+    },
   });
 
   if (!res.ok) {
@@ -40,4 +44,3 @@ export async function downloadFromApi(url: string, fallbackFilename: string) {
   anchor.remove();
   URL.revokeObjectURL(objectUrl);
 }
-

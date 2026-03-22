@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Download,
   Play,
@@ -89,6 +90,7 @@ type Props = {
   mode: "client" | "cleaner";
   apiPath: string;
   runsApiBase: string;
+  workspaceBasePath?: string;
   initialPropertyId?: string;
   title?: string;
   description?: string;
@@ -128,7 +130,15 @@ const priorityForRow = (row: ShoppingRow) => {
   return { label: "Medium" as const, score: 1 };
 };
 
-export function ShoppingPlanner({ mode, apiPath, runsApiBase, initialPropertyId, title, description }: Props) {
+export function ShoppingPlanner({
+  mode,
+  apiPath,
+  runsApiBase,
+  workspaceBasePath,
+  initialPropertyId,
+  title,
+  description,
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [payload, setPayload] = useState<Payload>({ rows: [], properties: [], propertySummaries: [] });
   const [drafts, setDrafts] = useState<Record<string, DraftRow>>({});
@@ -566,6 +576,11 @@ export function ShoppingPlanner({ mode, apiPath, runsApiBase, initialPropertyId,
             </Button>
             <Button variant="outline" onClick={downloadPdf} disabled={!selectedRunId || downloadingPdf}><Download className="mr-2 h-4 w-4" />{downloadingPdf ? "Preparing..." : "PDF"}</Button>
             <Button variant="destructive" onClick={deleteRun} disabled={!selectedRunId || deletingRun}><Trash2 className="mr-2 h-4 w-4" />{deletingRun ? "Deleting..." : "Delete"}</Button>
+            {workspaceBasePath && selectedRunId ? (
+              <Button asChild variant="outline">
+                <Link href={`${workspaceBasePath}/${selectedRunId}`}>Open workspace</Link>
+              </Button>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
             <span>Started: {startedAt ? new Date(startedAt).toLocaleString() : "Not started"}</span>

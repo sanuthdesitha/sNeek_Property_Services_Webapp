@@ -1,7 +1,7 @@
 import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { redirect } from "next/navigation";
+import { RequestQuotePage } from "@/components/quote/request-quote-page";
 
-export default async function ClientQuoteRedirectPage() {
+export default async function ClientQuotePage() {
   await ensureClientModuleAccess("quoteRequests");
-  redirect("/quote");
+  return <RequestQuotePage mode="client" />;
 }

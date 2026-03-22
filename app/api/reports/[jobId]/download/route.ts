@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
-import { ensureStoredJobReport } from "@/lib/reports/access";
+import { getStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
+import { getAppSettings } from "@/lib/settings";
+import { generateJobReport } from "@/lib/reports/generator";
 
 export async function GET(
   req: NextRequest,
@@ -13,7 +15,14 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const format = searchParams.get("format");
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT, Role.CLEANER]);
-    const report = await ensureStoredJobReport(params.jobId);
+    const [report, settings] = await Promise.all([getStoredJobReport(params.jobId), getAppSettings()]);
+    if (!report) {
+      generateJobReport(params.jobId).catch(() => {});
+      return NextResponse.json(
+        { error: "Report is being generated. Try again shortly." },
+        { status: 202 }
+      );
+    }
 
     // Client role: enforce property ownership
     if (session.user.role === Role.CLIENT) {
@@ -21,7 +30,12 @@ export async function GET(
         where: { id: session.user.id },
         select: { clientId: true },
       });
-      if (report.job.property.clientId !== user?.clientId) {
+      if (
+        report.job.property.clientId !== user?.clientId ||
+        settings.clientPortalVisibility.showReports !== true ||
+        report.clientVisible !== true ||
+        (format !== "html" && settings.clientPortalVisibility.showReportDownloads !== true)
+      ) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
@@ -36,16 +50,31 @@ export async function GET(
         },
         select: { jobId: true },
       });
-      if (!assignment) {
+      if (!assignment || report.cleanerVisible !== true) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
 
+    if (session.user.role === Role.LAUNDRY && report.laundryVisible !== true) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     if (format !== "html") {
+      if (!report.pdfUrl) {
+        generateJobReport(params.jobId).catch(() => {});
+        return NextResponse.json(
+          { error: "PDF is being generated. Try again shortly." },
+          { status: 202 }
+        );
+      }
       try {
         const pdf = await getJobReportPdfBuffer(report, params.jobId);
         if (!pdf) {
-          throw new Error("Could not build PDF for this report.");
+          generateJobReport(params.jobId).catch(() => {});
+          return NextResponse.json(
+            { error: "PDF is being generated. Try again shortly." },
+            { status: 202 }
+          );
         }
         return new NextResponse(new Uint8Array(pdf), {
           headers: {

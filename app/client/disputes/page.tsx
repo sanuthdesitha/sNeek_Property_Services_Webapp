@@ -1,8 +1,5 @@
-import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { ClientDisputesPage } from "@/components/client/disputes-page";
+import { redirect } from "next/navigation";
 
 export default async function Page() {
-  await ensureClientModuleAccess("disputes");
-  return <ClientDisputesPage />;
+  redirect("/client/cases");
 }
-

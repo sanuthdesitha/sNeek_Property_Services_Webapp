@@ -20,6 +20,7 @@ import {
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
+import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 
 const TZ = "Australia/Sydney";
 
@@ -63,6 +64,7 @@ function isSameLocalDay(date: Date, now: Date) {
 
 export default async function CleanerDashboard() {
   const session = await requireRole([Role.CLEANER]);
+  await autoClockOutStaleTimeLogsForUser(session.user.id);
   const settings = await getAppSettings();
   const visibility = settings.cleanerPortalVisibility;
   const cleanerName =
@@ -86,10 +88,17 @@ export default async function CleanerDashboard() {
       scheduledDate: true,
       startTime: true,
       dueTime: true,
+      priorityBucket: true,
+      priorityReason: true,
       internalNotes: true,
       property: { select: { name: true, address: true, suburb: true } },
     },
-    orderBy: { scheduledDate: "asc" },
+    orderBy: [
+      { scheduledDate: "asc" },
+      { priorityBucket: "asc" },
+      { dueTime: "asc" },
+      { startTime: "asc" },
+    ],
   });
 
   const ongoingJob = await db.job.findFirst({
@@ -104,6 +113,7 @@ export default async function CleanerDashboard() {
       scheduledDate: true,
       startTime: true,
       dueTime: true,
+      priorityReason: true,
       internalNotes: true,
       property: { select: { name: true, address: true, suburb: true } },
     },
@@ -172,14 +182,23 @@ export default async function CleanerDashboard() {
   const upcomingJobs = jobs.filter((job) => !isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
   const nextJob = todayJobs[0] ?? upcomingJobs[0] ?? null;
   const nextJobTimingHighlights = nextJob
-    ? getJobTimingHighlights(parseJobInternalNotes(nextJob.internalNotes))
+    ? [
+        ...getJobTimingHighlights(parseJobInternalNotes(nextJob.internalNotes)),
+        ...(nextJob.priorityReason ? [nextJob.priorityReason] : []),
+      ]
     : [];
   const ongoingJobTimingHighlights = ongoingJob
-    ? getJobTimingHighlights(parseJobInternalNotes(ongoingJob.internalNotes))
+    ? [
+        ...getJobTimingHighlights(parseJobInternalNotes(ongoingJob.internalNotes)),
+        ...(ongoingJob.priorityReason ? [ongoingJob.priorityReason] : []),
+      ]
     : [];
 
   function JobCard({ job }: { job: (typeof jobs)[0] }) {
-    const timingHighlights = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes));
+    const timingHighlights = [
+      ...getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)),
+      ...(job.priorityReason ? [job.priorityReason] : []),
+    ];
     return (
       <Link href={`/cleaner/jobs/${job.id}`} className="block">
         <Card className="transition-all hover:border-primary/35 hover:shadow-sm">

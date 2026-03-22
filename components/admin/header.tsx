@@ -156,9 +156,13 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
             </Button>
 
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                <span className="text-xs font-semibold text-primary">{session?.user?.name?.[0]?.toUpperCase() ?? "A"}</span>
-              </div>
+              {session?.user?.image ? (
+                <img src={session.user.image} alt={session.user.name ?? "Admin"} className="h-8 w-8 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                  <span className="text-xs font-semibold text-primary">{session?.user?.name?.[0]?.toUpperCase() ?? "A"}</span>
+                </div>
+              )}
               {session?.user?.name && <span className="hidden max-w-[140px] truncate text-sm font-medium lg:block">{session.user.name}</span>}
             </div>
           </div>

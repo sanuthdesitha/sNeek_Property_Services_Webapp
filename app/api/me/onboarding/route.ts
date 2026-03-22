@@ -9,6 +9,7 @@ import {
   getMissingRequiredProfileFields,
   upsertAuthUserState,
 } from "@/lib/auth/account-state";
+import { notifyAdminsOfNewProfile } from "@/lib/notifications/profile-created";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -105,10 +106,29 @@ export async function PATCH(req: NextRequest) {
       ? !(tutorialSeen && missingFields.length === 0)
       : false;
 
+    const wasOnboardingRequired = currentState?.requiresOnboarding === true;
     const nextState = await upsertAuthUserState(user.id, {
       tutorialSeen,
       requiresOnboarding,
     });
+
+    if (wasOnboardingRequired && !nextState.requiresOnboarding && !currentState?.profileCreationNotified) {
+      const fullUser = await db.user.findUnique({
+        where: { id: user.id },
+        select: { id: true, name: true, email: true, role: true, createdAt: true },
+      });
+      if (fullUser) {
+        await notifyAdminsOfNewProfile({
+          userId: fullUser.id,
+          userName: fullUser.name ?? fullUser.email,
+          email: fullUser.email,
+          role: fullUser.role,
+          createdVia: "invited account onboarding",
+          createdAt: fullUser.createdAt,
+        });
+        await upsertAuthUserState(user.id, { profileCreationNotified: true });
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -125,4 +145,3 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status });
   }
 }
-

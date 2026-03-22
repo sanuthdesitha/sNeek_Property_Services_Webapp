@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { getAppSettings } from "@/lib/settings";
 import { PortalShell } from "@/components/portal/portal-shell";
+import { requireRole } from "@/lib/auth/session";
+import { Role } from "@prisma/client";
 
 export const metadata: Metadata = {
   title: { default: "My Jobs", template: "%s | sNeek Property Services Cleaner" },
 };
 
 export default async function CleanerLayout({ children }: { children: React.ReactNode }) {
+  const session = await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
   const settings = await getAppSettings();
   const companyName = settings.companyName || "sNeek Property Services";
   const visibility = settings.cleanerPortalVisibility;
@@ -19,11 +22,14 @@ export default async function CleanerLayout({ children }: { children: React.Reac
       portalTitle="Jobs, pay, and field work"
       settingsHref="/cleaner/settings"
       maxWidthClass="max-w-5xl"
+      currentUserName={session.user.name}
+      currentUserImage={session.user.image}
       navItems={[
         { href: "/cleaner", label: "Dashboard", exact: true },
         ...(visibility.showJobs ? [{ href: "/cleaner/jobs", label: "Jobs" }] : []),
         ...(visibility.showCalendar ? [{ href: "/cleaner/calendar", label: "Calendar" }] : []),
         ...(visibility.showShopping ? [{ href: "/cleaner/shopping", label: "Shopping" }] : []),
+        ...(visibility.showStockRuns ? [{ href: "/cleaner/stock-runs", label: "Stock Counts" }] : []),
         { href: "/cleaner/availability", label: "Availability" },
         ...(visibility.showInvoices ? [{ href: "/cleaner/invoices", label: "Invoices" }] : []),
         ...(visibility.showPayRequests ? [{ href: "/cleaner/pay-requests", label: "Pay Requests" }] : []),

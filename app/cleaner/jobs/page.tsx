@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import { compareJobsByPriority } from "@/lib/jobs/priority";
 
 const TZ = "Australia/Sydney";
 
@@ -91,6 +92,8 @@ export default async function CleanerJobsPage({
       scheduledDate: true,
       startTime: true,
       dueTime: true,
+      priorityBucket: true,
+      priorityReason: true,
       internalNotes: true,
       property: { select: { name: true, suburb: true, address: true } },
       report: { select: { id: true } },
@@ -100,7 +103,12 @@ export default async function CleanerJobsPage({
         take: 1,
       },
     },
-    orderBy: [{ scheduledDate: "asc" }],
+    orderBy: [
+      { scheduledDate: "asc" },
+      { priorityBucket: "asc" },
+      { dueTime: "asc" },
+      { startTime: "asc" },
+    ],
     take: 300,
   });
 
@@ -124,7 +132,7 @@ export default async function CleanerJobsPage({
     }
 
     if (leftIsUpcoming) {
-      return leftTime - rightTime;
+      return compareJobsByPriority(left, right);
     }
 
     return rightTime - leftTime;
@@ -227,7 +235,10 @@ export default async function CleanerJobsPage({
           ) : (
             <div className="divide-y">
               {sortedJobs.map((job) => {
-                const timingHighlights = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes));
+                const timingHighlights = [
+                  ...getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)),
+                  ...(job.priorityReason ? [job.priorityReason] : []),
+                ];
                 return (
                   <div key={job.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">

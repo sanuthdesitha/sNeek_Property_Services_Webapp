@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -26,6 +25,15 @@ import {
 type Step = "overview" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
 type RenderableFormStep = Exclude<Step, "overview">;
+type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
+const LAUNDRY_SKIP_REASONS = [
+  { value: "NO_LINEN_USED", label: "No linen used" },
+  { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
+  { value: "BUFFER_SET_USED", label: "Buffer set used" },
+  { value: "GUEST_STILL_USING_ITEMS", label: "Guest still using items" },
+  { value: "ADMIN_INSTRUCTION", label: "Admin instruction" },
+  { value: "OTHER", label: "Other" },
+];
 const CLIENT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const CLIENT_MAX_VIDEO_BYTES = 150 * 1024 * 1024;
 const IMAGE_MAX_DIMENSION = 1600;
@@ -103,7 +111,16 @@ function inferLocationFromText(value: unknown): InventoryLocation | null {
   return null;
 }
 
+function isBalconyLikeField(field: any) {
+  const text = `${String(field?.id ?? "")} ${String(field?.label ?? "")}`.toLowerCase();
+  return text.includes("balcony");
+}
+
 function isFieldVisible(field: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
+  if (property?.hasBalcony !== true && isBalconyLikeField(field)) {
+    return false;
+  }
+
   const conditional = field?.conditional;
   if (!conditional || typeof conditional !== "object") return true;
 
@@ -135,7 +152,9 @@ export default function CleanerJobPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [uploads, setUploads] = useState<Record<string, string[]>>({});
   const [uploadStates, setUploadStates] = useState<Record<string, UploadItemState[]>>({});
-  const [laundryReady, setLaundryReady] = useState(false);
+  const [laundryOutcome, setLaundryOutcome] = useState<LaundryOutcome>("NOT_READY");
+  const [laundrySkipReasonCode, setLaundrySkipReasonCode] = useState("LINEN_STILL_WASHING");
+  const [laundrySkipReasonNote, setLaundrySkipReasonNote] = useState("");
   const [bagLocationSelection, setBagLocationSelection] = useState<string>("__custom");
   const [bagLocationCustom, setBagLocationCustom] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -155,13 +174,11 @@ export default function CleanerJobPage() {
   const [approvalHours, setApprovalHours] = useState("1");
   const [approvalRate, setApprovalRate] = useState("");
   const [approvalAmount, setApprovalAmount] = useState("0");
-  const [requestingApproval, setRequestingApproval] = useState(false);
   const [extraPaymentRequired, setExtraPaymentRequired] = useState(false);
   const [damageFound, setDamageFound] = useState(false);
   const [damageTitle, setDamageTitle] = useState("");
   const [damageDescription, setDamageDescription] = useState("");
   const [damageEstimatedCost, setDamageEstimatedCost] = useState("0");
-  const [submittingDamage, setSubmittingDamage] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [reschedulePreferredDate, setReschedulePreferredDate] = useState("");
   const [rescheduleRemainingHours, setRescheduleRemainingHours] = useState("");
@@ -183,6 +200,10 @@ export default function CleanerJobPage() {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+  }
+
+  function syncLaundryReadyFromOutcome(nextOutcome: LaundryOutcome) {
+    setLaundryOutcome(nextOutcome);
   }
 
   function startTimerFromState(completedSeconds: number, activeStartedAt?: string | null) {
@@ -544,7 +565,18 @@ export default function CleanerJobPage() {
     if (draft) {
       setFormData(draft.formData ?? {});
       setUploads(draft.uploads ?? {});
-      setLaundryReady(Boolean(draft.laundryReady));
+      syncLaundryReadyFromOutcome(
+        (draft.laundryOutcome as LaundryOutcome | undefined) ??
+          (draft.laundryReady ? "READY_FOR_PICKUP" : "NOT_READY")
+      );
+      setLaundrySkipReasonCode(
+        typeof draft.laundrySkipReasonCode === "string" && draft.laundrySkipReasonCode
+          ? draft.laundrySkipReasonCode
+          : "LINEN_STILL_WASHING"
+      );
+      setLaundrySkipReasonNote(
+        typeof draft.laundrySkipReasonNote === "string" ? draft.laundrySkipReasonNote : ""
+      );
       setBagLocationSelection(
         typeof draft.bagLocationSelection === "string"
           ? draft.bagLocationSelection
@@ -560,6 +592,15 @@ export default function CleanerJobPage() {
       setShowRescheduleForm(Boolean(draft.showRescheduleForm));
       setExtraPaymentRequired(Boolean(draft.extraPaymentRequired));
       setDamageFound(Boolean(draft.damageFound));
+      setApprovalTitle(typeof draft.approvalTitle === "string" ? draft.approvalTitle : "");
+      setApprovalDescription(typeof draft.approvalDescription === "string" ? draft.approvalDescription : "");
+      setApprovalType(draft.approvalType === "HOURLY" ? "HOURLY" : "FIXED");
+      setApprovalHours(typeof draft.approvalHours === "string" ? draft.approvalHours : "1");
+      setApprovalRate(typeof draft.approvalRate === "string" ? draft.approvalRate : "");
+      setApprovalAmount(typeof draft.approvalAmount === "string" ? draft.approvalAmount : "0");
+      setDamageTitle(typeof draft.damageTitle === "string" ? draft.damageTitle : "");
+      setDamageDescription(typeof draft.damageDescription === "string" ? draft.damageDescription : "");
+      setDamageEstimatedCost(typeof draft.damageEstimatedCost === "string" ? draft.damageEstimatedCost : "0");
       const draftNotes = Array.isArray(draft.missedTaskNotes)
         ? draft.missedTaskNotes
         : typeof draft.missedTaskNote === "string"
@@ -597,7 +638,20 @@ export default function CleanerJobPage() {
 
       setFormData(carryFormData);
       setUploads(carryUploads);
-      setLaundryReady(carryoverSnapshot?.laundryReady === true);
+      syncLaundryReadyFromOutcome(
+        (carryoverSnapshot?.laundryOutcome as LaundryOutcome | undefined) ??
+          (carryoverSnapshot?.laundryReady === true ? "READY_FOR_PICKUP" : "NOT_READY")
+      );
+      setLaundrySkipReasonCode(
+        typeof carryoverSnapshot?.laundrySkipReasonCode === "string" && carryoverSnapshot.laundrySkipReasonCode
+          ? carryoverSnapshot.laundrySkipReasonCode
+          : "LINEN_STILL_WASHING"
+      );
+      setLaundrySkipReasonNote(
+        typeof carryoverSnapshot?.laundrySkipReasonNote === "string"
+          ? carryoverSnapshot.laundrySkipReasonNote
+          : ""
+      );
       setBagLocationSelection(
         matchedBagOption
           ? matchedBagOption
@@ -625,8 +679,25 @@ export default function CleanerJobPage() {
       );
       setHasMissedTask(carryoverSnapshot?.hasMissedTask === true);
       setShowRescheduleForm(false);
-      setExtraPaymentRequired(false);
-      setDamageFound(false);
+      setExtraPaymentRequired(carryoverSnapshot?.extraPaymentRequired === true);
+      setDamageFound(carryoverSnapshot?.damageFound === true);
+      setApprovalTitle(typeof carryoverSnapshot?.approvalTitle === "string" ? carryoverSnapshot.approvalTitle : "");
+      setApprovalDescription(
+        typeof carryoverSnapshot?.approvalDescription === "string" ? carryoverSnapshot.approvalDescription : ""
+      );
+      setApprovalType(carryoverSnapshot?.approvalType === "HOURLY" ? "HOURLY" : "FIXED");
+      setApprovalHours(typeof carryoverSnapshot?.approvalHours === "string" ? carryoverSnapshot.approvalHours : "1");
+      setApprovalRate(typeof carryoverSnapshot?.approvalRate === "string" ? carryoverSnapshot.approvalRate : "");
+      setApprovalAmount(
+        typeof carryoverSnapshot?.approvalAmount === "string" ? carryoverSnapshot.approvalAmount : "0"
+      );
+      setDamageTitle(typeof carryoverSnapshot?.damageTitle === "string" ? carryoverSnapshot.damageTitle : "");
+      setDamageDescription(
+        typeof carryoverSnapshot?.damageDescription === "string" ? carryoverSnapshot.damageDescription : ""
+      );
+      setDamageEstimatedCost(
+        typeof carryoverSnapshot?.damageEstimatedCost === "string" ? carryoverSnapshot.damageEstimatedCost : "0"
+      );
       setMissedTaskNotes(carryNotes.length > 0 ? carryNotes : [""]);
       if (carryoverSnapshot && !carryoverNoticeShownRef.current) {
         carryoverNoticeShownRef.current = true;
@@ -668,7 +739,10 @@ export default function CleanerJobPage() {
       JSON.stringify({
         formData,
         uploads,
+        laundryOutcome,
         laundryReady,
+        laundrySkipReasonCode,
+        laundrySkipReasonNote,
         bagLocationSelection,
         bagLocationCustom,
         step,
@@ -679,6 +753,15 @@ export default function CleanerJobPage() {
         hasMissedTask,
         extraPaymentRequired,
         damageFound,
+        approvalTitle,
+        approvalDescription,
+        approvalType,
+        approvalHours,
+        approvalRate,
+        approvalAmount,
+        damageTitle,
+        damageDescription,
+        damageEstimatedCost,
         showRescheduleForm,
         missedTaskNotes,
       })
@@ -688,12 +771,23 @@ export default function CleanerJobPage() {
     bagLocationSelection,
     confirmChecklist,
     confirmOnSite,
+    damageDescription,
+    damageEstimatedCost,
     formData,
     hasMissedTask,
     jobId,
     damageFound,
+    damageTitle,
     extraPaymentRequired,
-    laundryReady,
+    approvalAmount,
+    approvalDescription,
+    approvalHours,
+    approvalRate,
+    approvalTitle,
+    approvalType,
+    laundryOutcome,
+    laundrySkipReasonCode,
+    laundrySkipReasonNote,
     missedTaskNotes,
     payload,
     resolvedCarryForwardIds,
@@ -929,6 +1023,13 @@ export default function CleanerJobPage() {
   const progress = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
   const uploadedCount = Object.values(uploads).reduce((sum, keys) => sum + keys.length, 0);
   const bagLocation = bagLocationSelection === "__custom" ? bagLocationCustom : bagLocationSelection;
+  const laundryReady = laundryOutcome === "READY_FOR_PICKUP";
+  const laundryOutcomeLabel =
+    laundryOutcome === "READY_FOR_PICKUP"
+      ? "Ready for pickup"
+      : laundryOutcome === "NO_PICKUP_REQUIRED"
+        ? "No pickup required"
+        : "Not ready";
 
   function toggleResolvedTask(taskId: string, checked: boolean) {
     setResolvedCarryForwardIds((prev) => {
@@ -1715,6 +1816,52 @@ export default function CleanerJobPage() {
       toast({ title: "No form template available", variant: "destructive" });
       return;
     }
+    if (
+      (laundryOutcome === "NOT_READY" || laundryOutcome === "NO_PICKUP_REQUIRED") &&
+      !laundrySkipReasonCode
+    ) {
+      toast({
+        title: "Laundry reason required",
+        description: "Select why laundry is not ready or no pickup is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (damageFound) {
+      const damageMediaKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
+      if (!damageTitle.trim()) {
+        toast({ title: "Damage title is required", variant: "destructive" });
+        return;
+      }
+      if (damageMediaKeys.length === 0) {
+        toast({
+          title: "Damage evidence required",
+          description: "Upload at least one damage photo before submitting.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    if (extraPaymentRequired) {
+      if (!approvalTitle.trim()) {
+        toast({ title: "Pay request title is required", variant: "destructive" });
+        return;
+      }
+      if (approvalType === "HOURLY") {
+        const hours = Number(approvalHours || 0);
+        const rate = Number(approvalRate || 0);
+        if (!Number.isFinite(hours) || hours <= 0 || !Number.isFinite(rate) || rate <= 0) {
+          toast({ title: "Enter valid hours and rate", variant: "destructive" });
+          return;
+        }
+      } else {
+        const amount = Number(approvalAmount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          toast({ title: "Enter a valid pay request amount", variant: "destructive" });
+          return;
+        }
+      }
+    }
     setSubmitting(true);
     const carryForwardTaskPhotoKeys = Object.fromEntries(
       carryForwardTasks.map((task) => {
@@ -1725,8 +1872,33 @@ export default function CleanerJobPage() {
     );
     const payloadToSubmit = {
       templateId: template.id,
+      laundryOutcome,
       laundryReady,
+      laundrySkipReasonCode,
+      laundrySkipReasonNote,
       bagLocation,
+      draftDamagePayload: damageFound
+        ? {
+            title: damageTitle.trim(),
+            description: damageDescription.trim(),
+            estimatedCost: Number(damageEstimatedCost || 0),
+            severity: "HIGH",
+            mediaKeys: uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [],
+          }
+        : undefined,
+      draftPayRequestPayload: extraPaymentRequired
+        ? {
+            title: approvalTitle.trim(),
+            cleanerNote: approvalDescription.trim(),
+            type: approvalType,
+            requestedHours: approvalType === "HOURLY" ? Number(approvalHours || 0) : undefined,
+            requestedRate: approvalType === "HOURLY" ? Number(approvalRate || 0) : undefined,
+            requestedAmount:
+              approvalType === "HOURLY"
+                ? Number(approvalHours || 0) * Number(approvalRate || 0)
+                : Number(approvalAmount || 0),
+          }
+        : undefined,
       data: {
         ...formData,
         uploads,
@@ -1751,60 +1923,25 @@ export default function CleanerJobPage() {
       toast({ title: "Request title is required", variant: "destructive" });
       return;
     }
-    setRequestingApproval(true);
-    const cleanerNoteParts = [approvalTitle.trim(), approvalDescription.trim()].filter(Boolean);
-    const payload: Record<string, unknown> = {
-      jobId: params.id,
-      type: approvalType,
-      cleanerNote: cleanerNoteParts.join("\n\n"),
-    };
     if (approvalType === "HOURLY") {
       const hours = Number(approvalHours || 0);
       const rate = Number(approvalRate || 0);
       if (!Number.isFinite(hours) || hours <= 0) {
-        setRequestingApproval(false);
         toast({ title: "Hours must be greater than 0", variant: "destructive" });
         return;
       }
       if (!Number.isFinite(rate) || rate <= 0) {
-        setRequestingApproval(false);
         toast({ title: "Rate must be greater than 0", variant: "destructive" });
         return;
       }
-      payload.requestedHours = hours;
-      payload.requestedRate = rate;
     } else {
       const amount = Number(approvalAmount || 0);
       if (!Number.isFinite(amount) || amount <= 0) {
-        setRequestingApproval(false);
         toast({ title: "Amount must be greater than 0", variant: "destructive" });
         return;
       }
-      payload.requestedAmount = amount;
     }
-    const res = await fetch(`/api/cleaner/pay-adjustments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json().catch(() => ({}));
-    setRequestingApproval(false);
-    if (!res.ok) {
-      toast({
-        title: "Pay request failed",
-        description: body.error ?? "Could not send pay request.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setApprovalTitle("");
-    setApprovalDescription("");
-    setApprovalType("FIXED");
-    setApprovalHours("1");
-    setApprovalRate("");
-    setApprovalAmount("0");
-    setExtraPaymentRequired(false);
-    showPopupNotification("Pay request sent", "Admin review has been requested.");
+    showPopupNotification("Pay request saved", "It will be submitted together with the job form.");
   }
 
   async function handleReportDamage() {
@@ -1836,42 +1973,7 @@ export default function CleanerJobPage() {
       });
       return;
     }
-    setSubmittingDamage(true);
-    const res = await fetch(`/api/cleaner/jobs/${params.id}/damage-report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: damageTitle.trim(),
-        description: damageDescription.trim(),
-        estimatedCost: Number(damageEstimatedCost || 0),
-        mediaKeys,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setSubmittingDamage(false);
-    if (!res.ok) {
-      toast({
-        title: "Damage report failed",
-        description: body.error ?? "Could not submit damage report.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setDamageTitle("");
-    setDamageDescription("");
-    setDamageEstimatedCost("0");
-    setDamageFound(false);
-    setUploads((prev) => {
-      const next = { ...prev };
-      delete next[DAMAGE_UPLOAD_FIELD_ID];
-      return next;
-    });
-    setUploadStates((prev) => {
-      const next = { ...prev };
-      delete next[DAMAGE_UPLOAD_FIELD_ID];
-      return next;
-    });
-    showPopupNotification("Damage case opened", "Admin has been notified.");
+    showPopupNotification("Damage report saved", "It will be submitted with the full job form.");
   }
 
   async function handleRequestReschedule() {
@@ -1898,11 +2000,25 @@ export default function CleanerJobPage() {
         progressSnapshot: {
           formData,
           uploads,
+          laundryOutcome,
           laundryReady,
+          laundrySkipReasonCode,
+          laundrySkipReasonNote,
           bagLocation,
           resolvedCarryForwardIds,
           hasMissedTask,
           missedTaskNotes,
+          extraPaymentRequired,
+          approvalTitle,
+          approvalDescription,
+          approvalType,
+          approvalHours,
+          approvalRate,
+          approvalAmount,
+          damageFound,
+          damageTitle,
+          damageDescription,
+          damageEstimatedCost,
         },
       }),
     });
@@ -2448,9 +2564,18 @@ export default function CleanerJobPage() {
           <h3 className="font-semibold">Laundry Confirmation</h3>
           <Card>
             <CardContent className="space-y-4 p-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-base">Is laundry ready for pickup?</Label>
-                <Switch checked={laundryReady} onCheckedChange={setLaundryReady} />
+              <div className="space-y-2">
+                <Label className="text-base">Laundry outcome</Label>
+                <Select value={laundryOutcome} onValueChange={(value) => syncLaundryReadyFromOutcome(value as LaundryOutcome)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select laundry outcome" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="READY_FOR_PICKUP">Ready for pickup</SelectItem>
+                    <SelectItem value="NOT_READY">Not ready</SelectItem>
+                    <SelectItem value="NO_PICKUP_REQUIRED">No pickup required</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {laundryReady ? (
                 <div className="space-y-3 border-t pt-2">
@@ -2533,9 +2658,41 @@ export default function CleanerJobPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  Admin will be notified and laundry partner will not be contacted.
+                <div className="space-y-3 border-t pt-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm">Reason</Label>
+                      <Select value={laundrySkipReasonCode} onValueChange={setLaundrySkipReasonCode}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select reason" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LAUNDRY_SKIP_REASONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Notes for laundry/admin</Label>
+                      <Textarea
+                        rows={3}
+                        placeholder="Add instructions or context for the laundry team"
+                        value={laundrySkipReasonNote}
+                        onChange={(e) => setLaundrySkipReasonNote(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {laundryOutcome === "NO_PICKUP_REQUIRED"
+                        ? "Laundry will be marked as no pickup required and highlighted for the laundry team."
+                        : "Admin and laundry will be notified that pickup should be skipped until resolved."}
+                    </span>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -2643,8 +2800,8 @@ export default function CleanerJobPage() {
                 <span>{uploadedCount} uploaded</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Laundry ready</span>
-                <span>{laundryReady ? "Yes" : "No"}</span>
+                <span className="text-muted-foreground">Laundry</span>
+                <span>{laundryOutcomeLabel}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Time logged</span>
@@ -2732,10 +2889,13 @@ export default function CleanerJobPage() {
                         onChange={(e) => setApprovalAmount(e.target.value)}
                       />
                     )}
-                    <Button variant="outline" onClick={handleRequestClientApproval} disabled={requestingApproval}>
-                      {requestingApproval ? "Sending..." : "Submit Pay Request"}
+                    <Button variant="outline" onClick={handleRequestClientApproval}>
+                      Save draft
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    This request stays attached to the form and is submitted with the full job submission.
+                  </p>
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">Select the option above to create an extra pay request.</p>
@@ -2809,10 +2969,13 @@ export default function CleanerJobPage() {
                       value={damageEstimatedCost}
                       onChange={(e) => setDamageEstimatedCost(e.target.value)}
                     />
-                    <Button variant="outline" onClick={handleReportDamage} disabled={submittingDamage}>
-                      {submittingDamage ? "Submitting..." : "Report Damage"}
+                    <Button variant="outline" onClick={handleReportDamage}>
+                      Save draft
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    The damage case is created only when the full form is submitted.
+                  </p>
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">Tick "Damage found" to open a damage case.</p>

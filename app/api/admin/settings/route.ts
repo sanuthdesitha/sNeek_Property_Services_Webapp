@@ -17,6 +17,7 @@ const clientPortalVisibilitySchema = z.object({
   showReports: z.boolean().optional(),
   showInventory: z.boolean().optional(),
   showShopping: z.boolean().optional(),
+  showStockRuns: z.boolean().optional(),
   showOngoingJobs: z.boolean().optional(),
   showCases: z.boolean().optional(),
   showExtraPayRequests: z.boolean().optional(),
@@ -26,12 +27,16 @@ const clientPortalVisibilitySchema = z.object({
   showQuoteRequests: z.boolean().optional(),
   showApprovals: z.boolean().optional(),
   showReportDownloads: z.boolean().optional(),
+  allowInventoryThresholdEdits: z.boolean().optional(),
+  allowStockRuns: z.boolean().optional(),
+  allowCaseReplies: z.boolean().optional(),
 });
 
 const cleanerPortalVisibilitySchema = z.object({
   showJobs: z.boolean().optional(),
   showCalendar: z.boolean().optional(),
   showShopping: z.boolean().optional(),
+  showStockRuns: z.boolean().optional(),
   showInvoices: z.boolean().optional(),
   showPayRequests: z.boolean().optional(),
   showLostFound: z.boolean().optional(),
@@ -43,8 +48,37 @@ const laundryPortalVisibilitySchema = z.object({
   showHistoryTab: z.boolean().optional(),
   showCostTracking: z.boolean().optional(),
   showPickupPhoto: z.boolean().optional(),
+  showSkipReasons: z.boolean().optional(),
   requireDropoffPhoto: z.boolean().optional(),
   requireEarlyDropoffReason: z.boolean().optional(),
+});
+
+const notificationChannelsSchema = z.object({
+  web: z.boolean().optional(),
+  email: z.boolean().optional(),
+  sms: z.boolean().optional(),
+});
+
+const notificationDefaultsSchema = z.object({
+  categories: z
+    .object({
+      account: notificationChannelsSchema.optional(),
+      jobs: notificationChannelsSchema.optional(),
+      laundry: notificationChannelsSchema.optional(),
+      cases: notificationChannelsSchema.optional(),
+      reports: notificationChannelsSchema.optional(),
+      quotes: notificationChannelsSchema.optional(),
+      shopping: notificationChannelsSchema.optional(),
+      billing: notificationChannelsSchema.optional(),
+      approvals: notificationChannelsSchema.optional(),
+    })
+    .optional(),
+});
+
+const autoClockOutSchema = z.object({
+  enabled: z.boolean().optional(),
+  graceMinutes: z.number().int().min(0).max(240).optional(),
+  fallbackAtMidnight: z.boolean().optional(),
 });
 
 const laundryOperationsSchema = z.object({
@@ -120,6 +154,8 @@ const updateSchema = z.object({
   clientPortalVisibility: clientPortalVisibilitySchema.optional(),
   cleanerPortalVisibility: cleanerPortalVisibilitySchema.optional(),
   laundryPortalVisibility: laundryPortalVisibilitySchema.optional(),
+  notificationDefaults: notificationDefaultsSchema.optional(),
+  autoClockOut: autoClockOutSchema.optional(),
   laundryOperations: laundryOperationsSchema.optional(),
   sla: slaSchema.optional(),
   recurringJobs: recurringJobsSchema.optional(),

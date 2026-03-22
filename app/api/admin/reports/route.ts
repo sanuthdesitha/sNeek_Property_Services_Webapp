@@ -17,6 +17,9 @@ export async function GET() {
             property: { select: { name: true, suburb: true, client: { select: { name: true } } } },
           },
         },
+        visibilityUpdatedBy: {
+          select: { id: true, name: true, email: true },
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -27,4 +30,3 @@ export async function GET() {
     return NextResponse.json({ error: err.message }, { status });
   }
 }
-

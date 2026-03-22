@@ -1,4 +1,10 @@
 import { randomUUID } from "crypto";
+import {
+  Role,
+  ShoppingPaidByScope as PrismaShoppingPaidByScope,
+  ShoppingPaymentMethod as PrismaShoppingPaymentMethod,
+  ShoppingRunStatus as PrismaShoppingRunStatus,
+} from "@prisma/client";
 import { db } from "@/lib/db";
 
 const SHOPPING_RUNS_KEY = "inventory_shopping_runs_v1";
@@ -143,6 +149,21 @@ export type ShoppingRunAdminView = ShoppingRunRecord & {
 
 type StoredData = {
   runs: ShoppingRunRecord[];
+};
+
+type ShoppingRunCompatData = {
+  ownerScope?: ShoppingRunOwnerScope | "ADMIN";
+  planningScope?: string;
+  clientChargeStatus?: ShoppingRunClientChargeStatus;
+  cleanerReimbursementStatus?: ShoppingRunCleanerReimbursementStatus;
+  clientChargeSentAt?: string | null;
+  clientChargePaidAt?: string | null;
+  cleanerReimbursementInvoicedAt?: string | null;
+  cleanerReimbursementPaidAt?: string | null;
+  reimbursementNote?: string;
+  paidByName?: string | null;
+  importedFromLegacy?: boolean;
+  source?: string;
 };
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -415,7 +436,7 @@ function sanitizeRun(value: unknown): ShoppingRunRecord | null {
   };
 }
 
-async function readStore(): Promise<StoredData> {
+async function readLegacyStore(): Promise<StoredData> {
   const row = await db.appSetting.findUnique({ where: { key: SHOPPING_RUNS_KEY } });
   const value = row?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return { runs: [] };
@@ -425,12 +446,206 @@ async function readStore(): Promise<StoredData> {
   return { runs };
 }
 
-async function writeStore(data: StoredData) {
-  await db.appSetting.upsert({
-    where: { key: SHOPPING_RUNS_KEY },
-    create: { key: SHOPPING_RUNS_KEY, value: { runs: data.runs } as any },
-    update: { value: { runs: data.runs } as any },
-  });
+let legacyMigrationPromise: Promise<void> | null = null;
+
+function parseCompatData(value: unknown): ShoppingRunCompatData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const row = value as Record<string, unknown>;
+  return {
+    ownerScope:
+      row.ownerScope === "CLIENT" || row.ownerScope === "ADMIN" ? (row.ownerScope as "CLIENT" | "ADMIN") : "CLEANER",
+    planningScope: trimText(row.planningScope, 120) || undefined,
+    clientChargeStatus: sanitizeClientChargeStatus(row.clientChargeStatus),
+    cleanerReimbursementStatus: sanitizeCleanerReimbursementStatus(row.cleanerReimbursementStatus),
+    clientChargeSentAt: trimText(row.clientChargeSentAt, 40) || null,
+    clientChargePaidAt: trimText(row.clientChargePaidAt, 40) || null,
+    cleanerReimbursementInvoicedAt: trimText(row.cleanerReimbursementInvoicedAt, 40) || null,
+    cleanerReimbursementPaidAt: trimText(row.cleanerReimbursementPaidAt, 40) || null,
+    reimbursementNote: trimText(row.reimbursementNote, 1000) || undefined,
+    paidByName: trimText(row.paidByName, 160) || null,
+    importedFromLegacy: row.importedFromLegacy === true,
+    source: trimText(row.source, 60) || undefined,
+  };
+}
+
+function serializeCompatData(input: ShoppingRunCompatData) {
+  return {
+    ownerScope: input.ownerScope ?? "CLEANER",
+    planningScope: input.planningScope ?? "all",
+    clientChargeStatus: input.clientChargeStatus ?? "NOT_REQUIRED",
+    cleanerReimbursementStatus: input.cleanerReimbursementStatus ?? "NOT_APPLICABLE",
+    clientChargeSentAt: input.clientChargeSentAt ?? null,
+    clientChargePaidAt: input.clientChargePaidAt ?? null,
+    cleanerReimbursementInvoicedAt: input.cleanerReimbursementInvoicedAt ?? null,
+    cleanerReimbursementPaidAt: input.cleanerReimbursementPaidAt ?? null,
+    reimbursementNote: input.reimbursementNote ?? null,
+    paidByName: input.paidByName ?? null,
+    importedFromLegacy: input.importedFromLegacy === true,
+    source: input.source ?? "db",
+  } as any;
+}
+
+function toDbPaymentMethod(method: ShoppingPaymentMethod | undefined): PrismaShoppingPaymentMethod {
+  switch (method) {
+    case "CLIENT_CARD":
+      return PrismaShoppingPaymentMethod.CLIENT_CARD;
+    case "CLEANER_PERSONAL_CARD":
+      return PrismaShoppingPaymentMethod.CLEANER_CARD;
+    case "ADMIN_PERSONAL_CARD":
+      return PrismaShoppingPaymentMethod.ADMIN_CARD;
+    case "CASH":
+      return PrismaShoppingPaymentMethod.CASH;
+    case "BANK_TRANSFER":
+      return PrismaShoppingPaymentMethod.BANK_TRANSFER;
+    case "OTHER":
+      return PrismaShoppingPaymentMethod.OTHER;
+    default:
+      return PrismaShoppingPaymentMethod.COMPANY_CARD;
+  }
+}
+
+function fromDbPaymentMethod(method: PrismaShoppingPaymentMethod | null | undefined): ShoppingPaymentMethod {
+  switch (method) {
+    case PrismaShoppingPaymentMethod.CLIENT_CARD:
+      return "CLIENT_CARD";
+    case PrismaShoppingPaymentMethod.CLEANER_CARD:
+      return "CLEANER_PERSONAL_CARD";
+    case PrismaShoppingPaymentMethod.ADMIN_CARD:
+      return "ADMIN_PERSONAL_CARD";
+    case PrismaShoppingPaymentMethod.CASH:
+      return "CASH";
+    case PrismaShoppingPaymentMethod.BANK_TRANSFER:
+      return "BANK_TRANSFER";
+    case PrismaShoppingPaymentMethod.OTHER:
+      return "OTHER";
+    default:
+      return "COMPANY_CARD";
+  }
+}
+
+function toDbPaidByScope(scope: ShoppingPaidByScope | undefined): PrismaShoppingPaidByScope {
+  switch (scope) {
+    case "CLIENT":
+      return PrismaShoppingPaidByScope.CLIENT;
+    case "CLEANER":
+      return PrismaShoppingPaidByScope.CLEANER;
+    case "ADMIN":
+      return PrismaShoppingPaidByScope.ADMIN;
+    case "OTHER":
+      return PrismaShoppingPaidByScope.OTHER;
+    default:
+      return PrismaShoppingPaidByScope.COMPANY;
+  }
+}
+
+function fromDbPaidByScope(scope: PrismaShoppingPaidByScope | null | undefined): ShoppingPaidByScope {
+  switch (scope) {
+    case PrismaShoppingPaidByScope.CLIENT:
+      return "CLIENT";
+    case PrismaShoppingPaidByScope.CLEANER:
+      return "CLEANER";
+    case PrismaShoppingPaidByScope.ADMIN:
+      return "ADMIN";
+    case PrismaShoppingPaidByScope.OTHER:
+      return "OTHER";
+    default:
+      return "COMPANY";
+  }
+}
+
+function toDbRunStatus(
+  status: ShoppingRunStatus,
+  current?: PrismaShoppingRunStatus | null
+): PrismaShoppingRunStatus {
+  if (status === "DRAFT") return PrismaShoppingRunStatus.DRAFT;
+  if (status === "IN_PROGRESS") return PrismaShoppingRunStatus.ACTIVE;
+  if (
+    current === PrismaShoppingRunStatus.APPROVED ||
+    current === PrismaShoppingRunStatus.BILLED ||
+    current === PrismaShoppingRunStatus.REIMBURSED ||
+    current === PrismaShoppingRunStatus.CLOSED
+  ) {
+    return current;
+  }
+  return PrismaShoppingRunStatus.SUBMITTED;
+}
+
+function fromDbRunStatus(status: PrismaShoppingRunStatus): ShoppingRunStatus {
+  if (status === PrismaShoppingRunStatus.DRAFT) return "DRAFT";
+  if (status === PrismaShoppingRunStatus.ACTIVE) return "IN_PROGRESS";
+  return "COMPLETED";
+}
+
+function parseDateOrNull(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function buildFallbackPayment(ownerScope: ShoppingRunOwnerScope | "ADMIN"): ShoppingRunPayment {
+  return {
+    method: ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD",
+    paidByScope: ownerScope === "CLIENT" ? "CLIENT" : "COMPANY",
+    paidByUserId: null,
+    paidByName: null,
+    note: undefined,
+    receipts: [],
+  };
+}
+
+function deriveClientChargeStatus(
+  compat: ShoppingRunCompatData,
+  payment: ShoppingRunPayment,
+  actualTotalCost: number,
+  hasClient: boolean,
+  hasClientInvoice: boolean
+): ShoppingRunClientChargeStatus {
+  if (compat.clientChargeStatus) return compat.clientChargeStatus;
+  if (hasClientInvoice) return "SENT";
+  if (actualTotalCost <= 0 || !requiresClientReimbursement(payment, hasClient)) return "NOT_REQUIRED";
+  return "READY";
+}
+
+function deriveCleanerReimbursementStatus(
+  compat: ShoppingRunCompatData,
+  payment: ShoppingRunPayment,
+  actualTotalCost: number,
+  includedInCleanerInvoiceReference?: string | null
+): ShoppingRunCleanerReimbursementStatus {
+  if (compat.cleanerReimbursementStatus) return compat.cleanerReimbursementStatus;
+  if (includedInCleanerInvoiceReference) return "INVOICED";
+  if (actualTotalCost <= 0 || !requiresCleanerReimbursement(payment)) return "NOT_APPLICABLE";
+  return "READY";
+}
+
+function reconcileDbStatusFromCompat(
+  current: PrismaShoppingRunStatus,
+  compat: ShoppingRunCompatData
+): PrismaShoppingRunStatus {
+  if (
+    compat.clientChargeStatus === "PAID" &&
+    (compat.cleanerReimbursementStatus === "REIMBURSED" ||
+      compat.cleanerReimbursementStatus === "NOT_APPLICABLE" ||
+      !compat.cleanerReimbursementStatus)
+  ) {
+    return PrismaShoppingRunStatus.CLOSED;
+  }
+  if (compat.cleanerReimbursementStatus === "REIMBURSED") {
+    return PrismaShoppingRunStatus.REIMBURSED;
+  }
+  if (compat.clientChargeStatus === "SENT" || compat.clientChargeStatus === "PAID") {
+    return PrismaShoppingRunStatus.BILLED;
+  }
+  if (
+    compat.clientChargeStatus === "READY" ||
+    compat.cleanerReimbursementStatus === "READY" ||
+    compat.cleanerReimbursementStatus === "INVOICED"
+  ) {
+    return current === PrismaShoppingRunStatus.DRAFT || current === PrismaShoppingRunStatus.ACTIVE
+      ? PrismaShoppingRunStatus.APPROVED
+      : current;
+  }
+  return current;
 }
 
 export function computeShoppingRunTotals(
@@ -525,17 +740,337 @@ export function computeShoppingRunTotals(
   };
 }
 
+async function ensureLegacyShoppingRunsMigrated() {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = (async () => {
+      const legacy = await readLegacyStore();
+      if (legacy.runs.length === 0) return;
+
+      const existing = await db.shoppingRun.findMany({
+        where: { id: { in: legacy.runs.map((run) => run.id) } },
+        select: { id: true },
+      });
+      const existingIds = new Set(existing.map((row) => row.id));
+      const pending = legacy.runs.filter((run) => !existingIds.has(run.id));
+      if (pending.length === 0) return;
+
+      const propertyIds = Array.from(new Set(pending.flatMap((run) => run.rows.map((row) => row.propertyId))));
+      const itemIds = Array.from(new Set(pending.flatMap((run) => run.rows.map((row) => row.itemId))));
+      const clientIds = Array.from(
+        new Set(pending.map((run) => run.clientId).filter((value): value is string => Boolean(value)))
+      );
+      const ownerIds = Array.from(new Set(pending.map((run) => run.ownerUserId)));
+
+      const [users, clients, properties, items] = await Promise.all([
+        db.user.findMany({
+          where: {
+            OR: [
+              { id: { in: ownerIds } },
+              { role: { in: [Role.ADMIN, Role.OPS_MANAGER] } },
+              { clientId: { in: clientIds } },
+            ],
+          },
+          select: { id: true, clientId: true, role: true },
+        }),
+        db.client.findMany({ where: { id: { in: clientIds } }, select: { id: true } }),
+        db.property.findMany({ where: { id: { in: propertyIds } }, select: { id: true } }),
+        db.inventoryItem.findMany({ where: { id: { in: itemIds } }, select: { id: true } }),
+      ]);
+
+      const userMap = new Map(users.map((user) => [user.id, user]));
+      const clientSet = new Set(clients.map((client) => client.id));
+      const propertySet = new Set(properties.map((property) => property.id));
+      const itemSet = new Set(items.map((item) => item.id));
+      const clientUserMap = new Map<string, string>();
+      for (const user of users) {
+        if (user.clientId && !clientUserMap.has(user.clientId)) {
+          clientUserMap.set(user.clientId, user.id);
+        }
+      }
+      const fallbackOwnerId =
+        users.find((user) => user.role === Role.ADMIN)?.id ??
+        users.find((user) => user.role === Role.OPS_MANAGER)?.id ??
+        users[0]?.id;
+      if (!fallbackOwnerId) return;
+
+      for (const legacyRun of pending) {
+        const compat: ShoppingRunCompatData = {
+          ownerScope: legacyRun.ownerScope,
+          planningScope: legacyRun.planningScope,
+          clientChargeStatus: legacyRun.clientChargeStatus,
+          cleanerReimbursementStatus: legacyRun.cleanerReimbursementStatus,
+          clientChargeSentAt: legacyRun.clientChargeSentAt,
+          clientChargePaidAt: legacyRun.clientChargePaidAt,
+          cleanerReimbursementInvoicedAt: legacyRun.cleanerReimbursementInvoicedAt,
+          cleanerReimbursementPaidAt: legacyRun.cleanerReimbursementPaidAt,
+          reimbursementNote: legacyRun.reimbursementNote,
+          paidByName: legacyRun.payment.paidByName ?? null,
+          importedFromLegacy: true,
+          source: "legacy-json",
+        };
+        const resolvedClientId =
+          legacyRun.clientId && clientSet.has(legacyRun.clientId) ? legacyRun.clientId : null;
+        const ownerId =
+          userMap.get(legacyRun.ownerUserId)?.id ??
+          (resolvedClientId ? clientUserMap.get(resolvedClientId) : undefined) ??
+          fallbackOwnerId;
+        const validRows = legacyRun.rows
+          .filter((row) => propertySet.has(row.propertyId))
+          .map((row) => ({
+            propertyId: row.propertyId,
+            itemId: itemSet.has(row.itemId) ? row.itemId : null,
+            itemName: row.itemName,
+            category: row.category,
+            supplier: row.supplier ?? null,
+            unit: row.unit,
+            plannedQty: Math.max(0, row.plannedQty),
+            purchasedQty: Math.max(0, row.actualPurchasedQty),
+            unitCost: row.actualUnitCost ?? null,
+            lineCost:
+              row.actualLineCost ??
+              (row.actualUnitCost != null ? row.actualPurchasedQty * row.actualUnitCost : null),
+            status: row.purchased ? "PURCHASED" : row.include ? "PLANNED" : "SKIPPED",
+            note: row.note ?? null,
+          }));
+
+        await db.shoppingRun.create({
+          data: {
+            id: legacyRun.id,
+            ownerUserId: ownerId,
+            clientId: resolvedClientId,
+            status: reconcileDbStatusFromCompat(toDbRunStatus(legacyRun.status), compat),
+            title: legacyRun.name,
+            notes: legacyRun.reimbursementNote ?? null,
+            startedAt: parseDateOrNull(legacyRun.startedAt),
+            submittedAt:
+              parseDateOrNull(legacyRun.completedAt) ??
+              (legacyRun.status === "COMPLETED" ? parseDateOrNull(legacyRun.updatedAt) : null),
+            approvedAt:
+              legacyRun.clientChargeStatus === "READY" ||
+              legacyRun.cleanerReimbursementStatus === "READY" ||
+              legacyRun.cleanerReimbursementStatus === "INVOICED"
+                ? parseDateOrNull(legacyRun.updatedAt)
+                : null,
+            closedAt:
+              legacyRun.clientChargeStatus === "PAID" ||
+              legacyRun.cleanerReimbursementStatus === "REIMBURSED"
+                ? parseDateOrNull(
+                    legacyRun.clientChargePaidAt ??
+                      legacyRun.cleanerReimbursementPaidAt ??
+                      legacyRun.updatedAt
+                  )
+                : null,
+            createdAt: parseDateOrNull(legacyRun.createdAt) ?? new Date(),
+            updatedAt: parseDateOrNull(legacyRun.updatedAt) ?? new Date(),
+            legacySource: serializeCompatData(compat),
+            lines: { create: validRows },
+            receipts: {
+              create: legacyRun.payment.receipts.map((receipt) => ({
+                uploadedByUserId: ownerId,
+                s3Key: receipt.key,
+                url: receipt.url,
+                mimeType: receipt.mimeType ?? null,
+                fileName: receipt.name,
+                amount: null,
+                createdAt: parseDateOrNull(legacyRun.updatedAt) ?? new Date(),
+              })),
+            },
+            settlements: {
+              create: [
+                {
+                  paymentMethod: toDbPaymentMethod(legacyRun.payment.method),
+                  paidByScope: toDbPaidByScope(legacyRun.payment.paidByScope),
+                  paidByUserId:
+                    legacyRun.payment.paidByUserId && userMap.has(legacyRun.payment.paidByUserId)
+                      ? legacyRun.payment.paidByUserId
+                      : null,
+                  note: legacyRun.payment.note ?? null,
+                  clientBillable: legacyRun.clientChargeStatus !== "NOT_REQUIRED",
+                  adminApprovedForClient:
+                    legacyRun.clientChargeStatus === "READY" ||
+                    legacyRun.clientChargeStatus === "SENT" ||
+                    legacyRun.clientChargeStatus === "PAID",
+                  adminApprovedForCleanerReimbursement:
+                    legacyRun.cleanerReimbursementStatus === "READY" ||
+                    legacyRun.cleanerReimbursementStatus === "INVOICED" ||
+                    legacyRun.cleanerReimbursementStatus === "REIMBURSED",
+                  includeInCleanerInvoice:
+                    legacyRun.cleanerReimbursementStatus === "READY" ||
+                    legacyRun.cleanerReimbursementStatus === "INVOICED" ||
+                    legacyRun.cleanerReimbursementStatus === "REIMBURSED",
+                  includedInCleanerInvoiceReference:
+                    legacyRun.cleanerReimbursementStatus === "INVOICED" ||
+                    legacyRun.cleanerReimbursementStatus === "REIMBURSED"
+                      ? `legacy:${legacyRun.id}`
+                      : null,
+                  createdAt: parseDateOrNull(legacyRun.createdAt) ?? new Date(),
+                  updatedAt: parseDateOrNull(legacyRun.updatedAt) ?? new Date(),
+                },
+              ],
+            },
+          },
+        });
+      }
+    })();
+  }
+  await legacyMigrationPromise;
+}
+
+function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
+  const compat = parseCompatData(run.legacySource);
+  const ownerScope =
+    compat.ownerScope === "CLIENT" || compat.ownerScope === "ADMIN"
+      ? compat.ownerScope
+      : run.owner?.role === Role.CLIENT
+        ? "CLIENT"
+        : "CLEANER";
+  const settlement = Array.isArray(run.settlements) ? run.settlements[0] ?? null : null;
+  const payment = settlement
+    ? ({
+        method: fromDbPaymentMethod(settlement.paymentMethod),
+        paidByScope: fromDbPaidByScope(settlement.paidByScope),
+        paidByUserId: settlement.paidByUserId ?? null,
+        paidByName:
+          compat.paidByName ??
+          settlement.paidByUser?.name?.trim() ??
+          settlement.paidByUser?.email?.trim() ??
+          null,
+        note: settlement.note ?? undefined,
+        receipts: Array.isArray(run.receipts)
+          ? run.receipts.map((receipt: any) => ({
+              key: receipt.s3Key,
+              url: receipt.url,
+              name: receipt.fileName,
+              mimeType: receipt.mimeType ?? undefined,
+            }))
+          : [],
+      } satisfies ShoppingRunPayment)
+    : buildFallbackPayment(ownerScope);
+  const rows: ShoppingRunRow[] = Array.isArray(run.lines)
+    ? run.lines.map((line: any) => ({
+        propertyId: line.propertyId,
+        propertyName: line.property?.name ?? "Property",
+        suburb: line.property?.suburb ?? "",
+        itemId: line.itemId ?? line.item?.id ?? line.id,
+        itemName: line.itemName ?? line.item?.name ?? "Item",
+        category: line.category ?? line.item?.category ?? "General",
+        supplier: line.supplier ?? line.item?.supplier ?? null,
+        unit: line.unit ?? line.item?.unit ?? "unit",
+        onHand: 0,
+        parLevel: 0,
+        reorderThreshold: 0,
+        needed: Math.max(0, Number(line.plannedQty ?? 0)),
+        plannedQty: Math.max(0, Number(line.plannedQty ?? 0)),
+        include: Number(line.plannedQty ?? 0) > 0 || line.status !== "SKIPPED",
+        purchased: Number(line.purchasedQty ?? 0) > 0 || line.status === "PURCHASED",
+        actualPurchasedQty: Math.max(0, Number(line.purchasedQty ?? 0)),
+        actualUnitCost: line.unitCost ?? null,
+        actualLineCost: line.lineCost ?? null,
+        checkedAt: line.updatedAt?.toISOString?.() ?? undefined,
+        note: line.note ?? undefined,
+        estimatedUnitCost: line.unitCost ?? null,
+        estimatedLineCost: line.lineCost ?? null,
+      }))
+    : [];
+  const hasClient = Boolean(
+    run.clientId ||
+      rows.some((row) =>
+        Boolean(run.lines?.find((line: any) => line.propertyId === row.propertyId)?.property?.client?.id)
+      )
+  );
+  const totals = computeShoppingRunTotals(rows, payment, hasClient);
+  return {
+    id: run.id,
+    name: run.title,
+    status: fromDbRunStatus(run.status),
+    ownerScope: ownerScope === "CLIENT" ? "CLIENT" : "CLEANER",
+    ownerUserId: run.ownerUserId,
+    clientId: run.clientId ?? null,
+    planningScope: compat.planningScope ?? "all",
+    rows,
+    payment,
+    totals,
+    startedAt: run.startedAt?.toISOString?.() ?? null,
+    completedAt:
+      run.submittedAt?.toISOString?.() ??
+      run.approvedAt?.toISOString?.() ??
+      run.closedAt?.toISOString?.() ??
+      null,
+    clientChargeStatus: deriveClientChargeStatus(
+      compat,
+      payment,
+      totals.actualTotalCost,
+      hasClient,
+      Boolean(settlement?.includedInClientInvoiceId)
+    ),
+    cleanerReimbursementStatus: deriveCleanerReimbursementStatus(
+      compat,
+      payment,
+      totals.actualTotalCost,
+      settlement?.includedInCleanerInvoiceReference
+    ),
+    clientChargeSentAt: compat.clientChargeSentAt ?? null,
+    clientChargePaidAt: compat.clientChargePaidAt ?? null,
+    cleanerReimbursementInvoicedAt: compat.cleanerReimbursementInvoicedAt ?? null,
+    cleanerReimbursementPaidAt: compat.cleanerReimbursementPaidAt ?? null,
+    reimbursementNote: compat.reimbursementNote,
+    createdAt: run.createdAt.toISOString(),
+    updatedAt: run.updatedAt.toISOString(),
+  };
+}
+
+async function loadShoppingRunsFromDb(where?: Record<string, unknown>) {
+  await ensureLegacyShoppingRunsMigrated();
+  return db.shoppingRun.findMany({
+    where: where as any,
+    include: {
+      owner: { select: { id: true, name: true, email: true, role: true } },
+      client: { select: { id: true, name: true, email: true } },
+      lines: {
+        include: {
+          property: {
+            select: {
+              id: true,
+              name: true,
+              suburb: true,
+              client: { select: { id: true, name: true, email: true } },
+            },
+          },
+          item: { select: { id: true, name: true, category: true, supplier: true, unit: true } },
+        },
+        orderBy: [{ createdAt: "asc" }],
+      },
+      receipts: { orderBy: [{ createdAt: "asc" }] },
+      settlements: {
+        include: {
+          paidByUser: { select: { id: true, name: true, email: true } },
+          clientInvoice: { select: { id: true, status: true, invoiceNumber: true } },
+        },
+        orderBy: [{ createdAt: "desc" }],
+        take: 1,
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+  });
+}
+
 export async function listShoppingRunsForOwner(input: {
   ownerScope: ShoppingRunOwnerScope;
   ownerUserId: string;
   clientId?: string | null;
 }) {
-  const store = await readStore();
-  return store.runs
+  if (input.ownerScope === "CLIENT" && !input.clientId) return [];
+  const dbRuns = await loadShoppingRunsFromDb(
+    input.ownerScope === "CLIENT"
+      ? { OR: [{ clientId: input.clientId }, { ownerUserId: input.ownerUserId }] }
+      : { ownerUserId: input.ownerUserId }
+  );
+  return dbRuns
+    .map((run) => buildShoppingRunRecordFromDb(run))
     .filter((run) => {
       if (run.ownerScope !== input.ownerScope) return false;
       if (run.ownerScope === "CLIENT") {
-        return run.clientId && input.clientId && run.clientId === input.clientId;
+        return Boolean(run.clientId && input.clientId && run.clientId === input.clientId);
       }
       return run.ownerUserId === input.ownerUserId;
     })
@@ -543,8 +1078,8 @@ export async function listShoppingRunsForOwner(input: {
 }
 
 export async function listShoppingRunsForAdmin() {
-  const store = await readStore();
-  return store.runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const dbRuns = await loadShoppingRunsFromDb();
+  return dbRuns.map((run) => buildShoppingRunRecordFromDb(run));
 }
 
 export async function getShoppingRunForOwner(input: {
@@ -558,42 +1093,17 @@ export async function getShoppingRunForOwner(input: {
 }
 
 export async function getShoppingRunByIdForAdmin(id: string) {
-  const runs = await listShoppingRunsForAdmin();
-  return runs.find((run) => run.id === id) ?? null;
+  const dbRuns = await loadShoppingRunsFromDb({ id });
+  return dbRuns[0] ? buildShoppingRunRecordFromDb(dbRuns[0]) : null;
 }
 
 export async function listShoppingRunsForAdminDetailed(): Promise<ShoppingRunAdminView[]> {
-  const runs = await listShoppingRunsForAdmin();
-  if (runs.length === 0) return [];
-
-  const [owners, properties] = await Promise.all([
-    db.user.findMany({
-      where: { id: { in: Array.from(new Set(runs.map((run) => run.ownerUserId))) } },
-      select: { id: true, name: true, email: true },
-    }),
-    db.property.findMany({
-      where: {
-        id: {
-          in: Array.from(new Set(runs.flatMap((run) => run.rows.map((row) => row.propertyId)))),
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        client: { select: { id: true, name: true, email: true } },
-      },
-    }),
-  ]);
-
-  const ownerMap = new Map(
-    owners.map((owner) => [owner.id, { name: owner.name?.trim() || owner.email, email: owner.email }])
-  );
-  const propertyMap = new Map(properties.map((property) => [property.id, property]));
-
-  return runs.map((run) => {
+  const dbRuns = await loadShoppingRunsFromDb();
+  return dbRuns.map((dbRun) => {
+    const run = buildShoppingRunRecordFromDb(dbRun);
     const allocations = new Map<string, ShoppingRunClientAllocation>();
     for (const row of run.rows) {
-      const property = propertyMap.get(row.propertyId);
+      const property = dbRun.lines.find((line: any) => line.propertyId === row.propertyId)?.property;
       const clientId = property?.client?.id ?? run.clientId ?? null;
       const clientName = property?.client?.name ?? "Unassigned client";
       const key = clientId ?? `unassigned:${row.propertyId}`;
@@ -630,11 +1140,10 @@ export async function listShoppingRunsForAdminDetailed(): Promise<ShoppingRunAdm
       }
     }
 
-    const owner = ownerMap.get(run.ownerUserId);
     return {
       ...run,
-      ownerName: owner?.name ?? "Unknown user",
-      ownerEmail: owner?.email ?? "",
+      ownerName: dbRun.owner?.name?.trim() || dbRun.owner?.email || "Unknown user",
+      ownerEmail: dbRun.owner?.email ?? "",
       paidByDisplay:
         run.payment.paidByName?.trim() ||
         run.payment.paidByUserId?.trim() ||
@@ -683,153 +1192,183 @@ export async function saveShoppingRunForOwner(input: {
   completedAt?: string | null;
   reimbursementNote?: string;
 }) {
-  const store = await readStore();
-  const now = new Date().toISOString();
+  await ensureLegacyShoppingRunsMigrated();
+  const now = new Date();
+  const existingRows = input.id ? await loadShoppingRunsFromDb({ id: input.id }) : [];
+  const existing = existingRows[0] ?? null;
+  const existingRecord = existing ? buildShoppingRunRecordFromDb(existing) : null;
 
-  const existingIndex = input.id ? store.runs.findIndex((run) => run.id === input.id) : -1;
-  if (existingIndex >= 0) {
-    const existing = store.runs[existingIndex];
-    if (existing.ownerScope !== input.ownerScope) throw new Error("FORBIDDEN");
+  if (existingRecord) {
+    if (existingRecord.ownerScope !== input.ownerScope) throw new Error("FORBIDDEN");
     if (input.ownerScope === "CLIENT") {
-      if (!existing.clientId || existing.clientId !== (input.clientId ?? null)) throw new Error("FORBIDDEN");
-    } else if (existing.ownerUserId !== input.ownerUserId) {
+      if (!existingRecord.clientId || existingRecord.clientId !== (input.clientId ?? null)) {
+        throw new Error("FORBIDDEN");
+      }
+    } else if (existingRecord.ownerUserId !== input.ownerUserId) {
       throw new Error("FORBIDDEN");
     }
-    store.runs[existingIndex] = {
-      ...existing,
-      name: input.name,
-      status: input.status,
-      planningScope: input.planningScope || "all",
-      rows: input.rows,
-      payment: sanitizePayment(
-        {
-          ...existing.payment,
-          ...(input.payment ?? {}),
-          receipts: input.payment?.receipts ?? existing.payment.receipts,
-        },
-        input.ownerScope
-      ),
-      totals: computeShoppingRunTotals(
-        input.rows,
-        sanitizePayment(
-          {
-            ...existing.payment,
-            ...(input.payment ?? {}),
-            receipts: input.payment?.receipts ?? existing.payment.receipts,
-          },
-          input.ownerScope
-        ),
-        Boolean(existing.clientId ?? input.clientId)
-      ),
-      startedAt:
-        input.startedAt !== undefined
-          ? input.startedAt
-          : existing.startedAt || (input.status !== "DRAFT" ? now : null),
-      completedAt:
-        input.completedAt !== undefined
-          ? input.completedAt
-          : input.status === "COMPLETED"
-            ? existing.completedAt || now
-            : null,
-      clientChargeStatus:
-        existing.clientChargeStatus === "PAID" || existing.clientChargeStatus === "SENT"
-          ? existing.clientChargeStatus
-          : (computeShoppingRunTotals(
-              input.rows,
-              sanitizePayment(
-                {
-                  ...existing.payment,
-                  ...(input.payment ?? {}),
-                  receipts: input.payment?.receipts ?? existing.payment.receipts,
-                },
-                input.ownerScope
-              ),
-              Boolean(existing.clientId ?? input.clientId)
-            ).actualTotalCost > 0 &&
-            requiresClientReimbursement(
-              sanitizePayment(
-                {
-                  ...existing.payment,
-                  ...(input.payment ?? {}),
-                  receipts: input.payment?.receipts ?? existing.payment.receipts,
-                },
-                input.ownerScope
-              ),
-              Boolean(existing.clientId ?? input.clientId)
-            ))
-            ? "READY"
-            : "NOT_REQUIRED",
-      cleanerReimbursementStatus:
-        existing.cleanerReimbursementStatus === "INVOICED" ||
-        existing.cleanerReimbursementStatus === "REIMBURSED"
-          ? existing.cleanerReimbursementStatus
-          : (computeShoppingRunTotals(
-              input.rows,
-              sanitizePayment(
-                {
-                  ...existing.payment,
-                  ...(input.payment ?? {}),
-                  receipts: input.payment?.receipts ?? existing.payment.receipts,
-                },
-                input.ownerScope
-              ),
-              Boolean(existing.clientId ?? input.clientId)
-            ).actualTotalCost > 0 &&
-            requiresCleanerReimbursement(
-              sanitizePayment(
-                {
-                  ...existing.payment,
-                  ...(input.payment ?? {}),
-                  receipts: input.payment?.receipts ?? existing.payment.receipts,
-                },
-                input.ownerScope
-              )
-            ))
-            ? "READY"
-            : "NOT_APPLICABLE",
-      reimbursementNote: input.reimbursementNote ?? existing.reimbursementNote,
-      updatedAt: now,
-    };
-    await writeStore(store);
-    return store.runs[existingIndex];
   }
 
-  const payment = sanitizePayment(input.payment, input.ownerScope);
-  const totals = computeShoppingRunTotals(input.rows, payment, Boolean(input.clientId));
-  const created: ShoppingRunRecord = {
-    id: randomUUID(),
-    name: input.name,
-    status: input.status,
-    ownerScope: input.ownerScope,
-    ownerUserId: input.ownerUserId,
-    clientId: input.clientId ?? null,
-    planningScope: input.planningScope || "all",
-    rows: input.rows,
-    payment,
-    totals,
-    startedAt: input.startedAt ?? (input.status !== "DRAFT" ? now : null),
-    completedAt: input.completedAt ?? (input.status === "COMPLETED" ? now : null),
-    clientChargeStatus:
-      totals.actualTotalCost > 0 && requiresClientReimbursement(payment, Boolean(input.clientId))
-        ? "READY"
-        : "NOT_REQUIRED",
-    cleanerReimbursementStatus:
-      totals.actualTotalCost > 0 && requiresCleanerReimbursement(payment)
-        ? "READY"
-        : "NOT_APPLICABLE",
-    clientChargeSentAt: null,
-    clientChargePaidAt: null,
-    cleanerReimbursementInvoicedAt: null,
-    cleanerReimbursementPaidAt: null,
-    reimbursementNote: input.reimbursementNote,
-    createdAt: now,
-    updatedAt: now,
+  const ownerScope = existingRecord?.ownerScope ?? input.ownerScope;
+  const payment = sanitizePayment(
+    {
+      ...(existingRecord?.payment ?? buildFallbackPayment(ownerScope)),
+      ...(input.payment ?? {}),
+      receipts: input.payment?.receipts ?? existingRecord?.payment.receipts ?? [],
+    },
+    ownerScope
+  );
+  const hasClient = Boolean(existing?.clientId ?? input.clientId);
+  const totals = computeShoppingRunTotals(input.rows, payment, hasClient);
+  const existingCompat = existing ? parseCompatData(existing.legacySource) : {};
+  const compat: ShoppingRunCompatData = {
+    ...existingCompat,
+    ownerScope,
+    planningScope: input.planningScope || existingCompat.planningScope || "all",
+    reimbursementNote:
+      input.reimbursementNote !== undefined
+        ? trimText(input.reimbursementNote, 1000) || undefined
+        : existingCompat.reimbursementNote,
+    paidByName: payment.paidByName ?? existingCompat.paidByName ?? null,
+    source: existingCompat.importedFromLegacy ? existingCompat.source ?? "legacy-json" : "db",
   };
-  store.runs.unshift(created);
-  // Keep bounded to avoid unbounded AppSetting growth.
-  if (store.runs.length > 500) store.runs = store.runs.slice(0, 500);
-  await writeStore(store);
-  return created;
+
+  compat.clientChargeStatus =
+    existingCompat.clientChargeStatus === "PAID" || existingCompat.clientChargeStatus === "SENT"
+      ? existingCompat.clientChargeStatus
+      : totals.actualTotalCost > 0 && requiresClientReimbursement(payment, hasClient)
+        ? "READY"
+        : "NOT_REQUIRED";
+  compat.cleanerReimbursementStatus =
+    existingCompat.cleanerReimbursementStatus === "INVOICED" ||
+    existingCompat.cleanerReimbursementStatus === "REIMBURSED"
+      ? existingCompat.cleanerReimbursementStatus
+      : totals.actualTotalCost > 0 && requiresCleanerReimbursement(payment)
+        ? "READY"
+        : "NOT_APPLICABLE";
+
+  const nextStatus = reconcileDbStatusFromCompat(
+    toDbRunStatus(input.status, existing?.status ?? null),
+    compat
+  );
+  const runId = existing?.id ?? randomUUID();
+  const startedAt =
+    input.startedAt !== undefined
+      ? parseDateOrNull(input.startedAt)
+      : existing?.startedAt ?? (input.status !== "DRAFT" ? now : null);
+  const submittedAt =
+    input.completedAt !== undefined
+      ? parseDateOrNull(input.completedAt)
+      : input.status === "COMPLETED"
+        ? existing?.submittedAt ?? now
+        : null;
+  const itemIds = Array.from(new Set(input.rows.map((row) => row.itemId)));
+  const validItemIds = new Set(
+    (
+      await db.inventoryItem.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true },
+      })
+    ).map((item) => item.id)
+  );
+
+  await db.$transaction(async (tx) => {
+    const lineCreates = input.rows.map((row) => ({
+      propertyId: row.propertyId,
+      itemId: validItemIds.has(row.itemId) ? row.itemId : null,
+      itemName: row.itemName,
+      category: row.category,
+      supplier: row.supplier ?? null,
+      unit: row.unit,
+      plannedQty: Math.max(0, row.plannedQty),
+      purchasedQty: Math.max(0, row.actualPurchasedQty),
+      unitCost: row.actualUnitCost ?? null,
+      lineCost:
+        row.actualLineCost ??
+        (row.actualUnitCost != null ? Math.max(0, row.actualPurchasedQty) * row.actualUnitCost : null),
+      status: row.purchased ? "PURCHASED" : row.include ? "PLANNED" : "SKIPPED",
+      note: row.note ?? null,
+    }));
+    const receiptCreates = payment.receipts.map((receipt) => ({
+      uploadedByUserId: input.ownerUserId,
+      s3Key: receipt.key,
+      url: receipt.url,
+      mimeType: receipt.mimeType ?? null,
+      fileName: receipt.name,
+      amount: null,
+    }));
+    const settlementCreate = {
+      paymentMethod: toDbPaymentMethod(payment.method),
+      paidByScope: toDbPaidByScope(payment.paidByScope),
+      paidByUserId: payment.paidByUserId ?? null,
+      note: payment.note ?? null,
+      clientBillable: compat.clientChargeStatus !== "NOT_REQUIRED",
+      adminApprovedForClient:
+        compat.clientChargeStatus === "READY" ||
+        compat.clientChargeStatus === "SENT" ||
+        compat.clientChargeStatus === "PAID",
+      adminApprovedForCleanerReimbursement:
+        compat.cleanerReimbursementStatus === "READY" ||
+        compat.cleanerReimbursementStatus === "INVOICED" ||
+        compat.cleanerReimbursementStatus === "REIMBURSED",
+      includeInCleanerInvoice:
+        compat.cleanerReimbursementStatus === "READY" ||
+        compat.cleanerReimbursementStatus === "INVOICED" ||
+        compat.cleanerReimbursementStatus === "REIMBURSED",
+      includedInClientInvoiceId: existing?.settlements?.[0]?.includedInClientInvoiceId ?? null,
+      includedInCleanerInvoiceReference:
+        compat.cleanerReimbursementStatus === "INVOICED" ||
+        compat.cleanerReimbursementStatus === "REIMBURSED"
+          ? existing?.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${runId}`
+          : null,
+    };
+
+    if (existing) {
+      await tx.shoppingRun.update({
+        where: { id: existing.id },
+        data: {
+          title: input.name,
+          status: nextStatus,
+          clientId: input.clientId ?? existing.clientId ?? null,
+          notes: compat.reimbursementNote ?? null,
+          startedAt,
+          submittedAt,
+          approvedAt:
+            compat.clientChargeStatus === "READY" ||
+            compat.cleanerReimbursementStatus === "READY" ||
+            compat.cleanerReimbursementStatus === "INVOICED"
+              ? existing.approvedAt ?? now
+              : existing.approvedAt,
+          legacySource: serializeCompatData(compat),
+          lines: { deleteMany: {}, create: lineCreates },
+          receipts: { deleteMany: {}, create: receiptCreates },
+          settlements: { deleteMany: {}, create: [settlementCreate] },
+        },
+      });
+      return;
+    }
+
+    await tx.shoppingRun.create({
+      data: {
+        id: runId,
+        ownerUserId: input.ownerUserId,
+        clientId: input.clientId ?? null,
+        status: nextStatus,
+        title: input.name,
+        notes: compat.reimbursementNote ?? null,
+        startedAt,
+        submittedAt,
+        legacySource: serializeCompatData(compat),
+        lines: { create: lineCreates },
+        receipts: { create: receiptCreates },
+        settlements: { create: [settlementCreate] },
+      },
+    });
+  });
+
+  const saved = await getShoppingRunByIdForAdmin(runId);
+  if (!saved) throw new Error("Save failed.");
+  return saved;
 }
 
 export async function deleteShoppingRunForOwner(input: {
@@ -838,18 +1377,17 @@ export async function deleteShoppingRunForOwner(input: {
   ownerUserId: string;
   clientId?: string | null;
 }) {
-  const store = await readStore();
-  const before = store.runs.length;
-  store.runs = store.runs.filter((run) => {
-    if (run.id !== input.id) return true;
-    if (run.ownerScope !== input.ownerScope) return true;
-    if (input.ownerScope === "CLIENT") {
-      return !(run.clientId && input.clientId && run.clientId === input.clientId);
-    }
-    return run.ownerUserId !== input.ownerUserId;
-  });
-  if (store.runs.length === before) return false;
-  await writeStore(store);
+  const dbRuns = await loadShoppingRunsFromDb({ id: input.id });
+  const existing = dbRuns[0];
+  if (!existing) return false;
+  const run = buildShoppingRunRecordFromDb(existing);
+  if (run.ownerScope !== input.ownerScope) return false;
+  if (input.ownerScope === "CLIENT") {
+    if (!(run.clientId && input.clientId && run.clientId === input.clientId)) return false;
+  } else if (run.ownerUserId !== input.ownerUserId) {
+    return false;
+  }
+  await db.shoppingRun.delete({ where: { id: input.id } });
   return true;
 }
 
@@ -865,52 +1403,111 @@ export async function updateShoppingRunByAdmin(input: {
   cleanerReimbursementPaidAt?: string | null;
   reimbursementNote?: string | null;
 }) {
-  const store = await readStore();
-  const index = store.runs.findIndex((run) => run.id === input.id);
-  if (index < 0) throw new Error("NOT_FOUND");
-  const existing = store.runs[index];
+  const dbRuns = await loadShoppingRunsFromDb({ id: input.id });
+  const existing = dbRuns[0];
+  if (!existing) throw new Error("NOT_FOUND");
+  const current = buildShoppingRunRecordFromDb(existing);
+  const currentCompat = parseCompatData(existing.legacySource);
   const payment = sanitizePayment(
     {
-      ...existing.payment,
+      ...current.payment,
       ...(input.payment ?? {}),
-      receipts: input.payment?.receipts ?? existing.payment.receipts,
+      receipts: input.payment?.receipts ?? current.payment.receipts,
     },
-    existing.ownerScope
+    current.ownerScope
   );
-  const totals = computeShoppingRunTotals(existing.rows, payment, Boolean(existing.clientId));
-  store.runs[index] = {
-    ...existing,
-    status: input.status ?? existing.status,
-    payment,
-    totals,
-    clientChargeStatus:
-      input.clientChargeStatus ?? existing.clientChargeStatus,
+  const compat: ShoppingRunCompatData = {
+    ...currentCompat,
+    ownerScope: current.ownerScope,
+    planningScope: current.planningScope,
+    paidByName: payment.paidByName ?? currentCompat.paidByName ?? null,
+    clientChargeStatus: input.clientChargeStatus ?? current.clientChargeStatus,
     cleanerReimbursementStatus:
-      input.cleanerReimbursementStatus ?? existing.cleanerReimbursementStatus,
+      input.cleanerReimbursementStatus ?? current.cleanerReimbursementStatus,
     clientChargeSentAt:
-      input.clientChargeSentAt !== undefined
-        ? input.clientChargeSentAt
-        : existing.clientChargeSentAt,
+      input.clientChargeSentAt !== undefined ? input.clientChargeSentAt : current.clientChargeSentAt,
     clientChargePaidAt:
-      input.clientChargePaidAt !== undefined
-        ? input.clientChargePaidAt
-        : existing.clientChargePaidAt,
+      input.clientChargePaidAt !== undefined ? input.clientChargePaidAt : current.clientChargePaidAt,
     cleanerReimbursementInvoicedAt:
       input.cleanerReimbursementInvoicedAt !== undefined
         ? input.cleanerReimbursementInvoicedAt
-        : existing.cleanerReimbursementInvoicedAt,
+        : current.cleanerReimbursementInvoicedAt,
     cleanerReimbursementPaidAt:
       input.cleanerReimbursementPaidAt !== undefined
         ? input.cleanerReimbursementPaidAt
-        : existing.cleanerReimbursementPaidAt,
+        : current.cleanerReimbursementPaidAt,
     reimbursementNote:
-      input.reimbursementNote === null
-        ? undefined
-        : input.reimbursementNote ?? existing.reimbursementNote,
-    updatedAt: new Date().toISOString(),
+      input.reimbursementNote === null ? undefined : input.reimbursementNote ?? current.reimbursementNote,
+    source: currentCompat.source ?? "db",
   };
-  await writeStore(store);
-  return store.runs[index];
+
+  await db.shoppingRun.update({
+    where: { id: input.id },
+    data: {
+      status: reconcileDbStatusFromCompat(
+        input.status ? toDbRunStatus(input.status, existing.status) : existing.status,
+        compat
+      ),
+      notes: compat.reimbursementNote ?? null,
+      approvedAt:
+        compat.clientChargeStatus === "READY" ||
+        compat.cleanerReimbursementStatus === "READY" ||
+        compat.cleanerReimbursementStatus === "INVOICED"
+          ? existing.approvedAt ?? new Date()
+          : existing.approvedAt,
+      closedAt:
+        compat.clientChargeStatus === "PAID" ||
+        compat.cleanerReimbursementStatus === "REIMBURSED"
+          ? existing.closedAt ?? new Date()
+          : existing.closedAt,
+      legacySource: serializeCompatData(compat),
+      receipts: {
+        deleteMany: {},
+        create: payment.receipts.map((receipt) => ({
+          uploadedByUserId: existing.ownerUserId,
+          s3Key: receipt.key,
+          url: receipt.url,
+          mimeType: receipt.mimeType ?? null,
+          fileName: receipt.name,
+          amount: null,
+        })),
+      },
+      settlements: {
+        deleteMany: {},
+        create: [
+          {
+            paymentMethod: toDbPaymentMethod(payment.method),
+            paidByScope: toDbPaidByScope(payment.paidByScope),
+            paidByUserId: payment.paidByUserId ?? null,
+            note: payment.note ?? null,
+            clientBillable: compat.clientChargeStatus !== "NOT_REQUIRED",
+            adminApprovedForClient:
+              compat.clientChargeStatus === "READY" ||
+              compat.clientChargeStatus === "SENT" ||
+              compat.clientChargeStatus === "PAID",
+            adminApprovedForCleanerReimbursement:
+              compat.cleanerReimbursementStatus === "READY" ||
+              compat.cleanerReimbursementStatus === "INVOICED" ||
+              compat.cleanerReimbursementStatus === "REIMBURSED",
+            includeInCleanerInvoice:
+              compat.cleanerReimbursementStatus === "READY" ||
+              compat.cleanerReimbursementStatus === "INVOICED" ||
+              compat.cleanerReimbursementStatus === "REIMBURSED",
+            includedInClientInvoiceId: existing.settlements?.[0]?.includedInClientInvoiceId ?? null,
+            includedInCleanerInvoiceReference:
+              compat.cleanerReimbursementStatus === "INVOICED" ||
+              compat.cleanerReimbursementStatus === "REIMBURSED"
+                ? existing.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${input.id}`
+                : null,
+          },
+        ],
+      },
+    },
+  });
+
+  const saved = await getShoppingRunByIdForAdmin(input.id);
+  if (!saved) throw new Error("NOT_FOUND");
+  return saved;
 }
 
 export async function markCleanerShoppingRunsInvoiced(input: {
@@ -918,23 +1515,51 @@ export async function markCleanerShoppingRunsInvoiced(input: {
   runIds: string[];
 }) {
   if (input.runIds.length === 0) return;
-  const store = await readStore();
-  let changed = false;
+  const dbRuns = await loadShoppingRunsFromDb({ id: { in: input.runIds } });
   const now = new Date().toISOString();
-  store.runs = store.runs.map((run) => {
-    if (!input.runIds.includes(run.id)) return run;
-    if (run.payment.paidByScope !== "CLEANER") return run;
-    if (run.payment.paidByUserId && run.payment.paidByUserId !== input.cleanerId) return run;
-    changed = true;
-    return {
-      ...run,
+  for (const run of dbRuns) {
+    const current = buildShoppingRunRecordFromDb(run);
+    if (current.payment.paidByScope !== "CLEANER") continue;
+    if (current.payment.paidByUserId && current.payment.paidByUserId !== input.cleanerId) continue;
+    const compat: ShoppingRunCompatData = {
+      ...parseCompatData(run.legacySource),
+      ownerScope: current.ownerScope,
+      planningScope: current.planningScope,
+      clientChargeStatus: current.clientChargeStatus,
       cleanerReimbursementStatus: "INVOICED",
       cleanerReimbursementInvoicedAt: now,
-      updatedAt: now,
+      reimbursementNote: current.reimbursementNote,
+      paidByName: current.payment.paidByName ?? null,
+      source: parseCompatData(run.legacySource).source ?? "db",
     };
-  });
-  if (changed) {
-    await writeStore(store);
+    await db.shoppingRun.update({
+      where: { id: run.id },
+      data: {
+        status: reconcileDbStatusFromCompat(run.status, compat),
+        legacySource: serializeCompatData(compat),
+        settlements: {
+          deleteMany: {},
+          create: [
+            {
+              paymentMethod: toDbPaymentMethod(current.payment.method),
+              paidByScope: toDbPaidByScope(current.payment.paidByScope),
+              paidByUserId: current.payment.paidByUserId ?? null,
+              note: current.payment.note ?? null,
+              clientBillable: current.clientChargeStatus !== "NOT_REQUIRED",
+              adminApprovedForClient:
+                current.clientChargeStatus === "READY" ||
+                current.clientChargeStatus === "SENT" ||
+                current.clientChargeStatus === "PAID",
+              adminApprovedForCleanerReimbursement: true,
+              includeInCleanerInvoice: true,
+              includedInClientInvoiceId: run.settlements?.[0]?.includedInClientInvoiceId ?? null,
+              includedInCleanerInvoiceReference:
+                run.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${run.id}`,
+            },
+          ],
+        },
+      },
+    });
   }
 }
 

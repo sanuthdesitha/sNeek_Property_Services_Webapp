@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { createJobSchema } from "@/lib/validations/job";
 import { Role } from "@prisma/client";
 import { applyJobTimingRules, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
 
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       earlyCheckin: normalizedEarlyCheckin,
       lateCheckout: normalizedLateCheckout,
     });
+    const priority = classifyPriorityFromTimingRule(normalizedEarlyCheckin);
     const jobNumber = await reserveJobNumber(db);
     const resolvedPropertyId =
       propertyId ??
@@ -71,6 +73,10 @@ export async function POST(req: NextRequest) {
         jobNumber,
         startTime: timing.startTime,
         dueTime: timing.dueTime,
+        priorityBucket: priority.priorityBucket,
+        priorityReason: priority.priorityReason,
+        sameDayCheckin: priority.sameDayCheckin,
+        sameDayCheckinTime: priority.sameDayCheckinTime,
         scheduledDate: new Date(body.scheduledDate),
         internalNotes: serializeJobInternalNotes({
           internalNoteText: internalNotes ?? "",

@@ -37,6 +37,11 @@ function valuesEqual(left: unknown, right: unknown) {
   return String(left ?? "") === String(right ?? "");
 }
 
+function isBalconyLikeField(field: any) {
+  const text = `${String(field?.id ?? "")} ${String(field?.label ?? "")}`.toLowerCase();
+  return text.includes("balcony");
+}
+
 function isConditionMet(
   conditional: Conditional | undefined,
   answers: Record<string, unknown>,
@@ -53,6 +58,18 @@ function isConditionMet(
   }
 
   return true;
+}
+
+function isFieldVisibleInReport(
+  field: any,
+  conditional: Conditional | undefined,
+  answers: Record<string, unknown>,
+  property: Record<string, unknown>
+) {
+  if (property.hasBalcony !== true && isBalconyLikeField(field)) {
+    return false;
+  }
+  return isConditionMet(conditional, answers, property);
 }
 
 function uploadCountForField(
@@ -131,10 +148,10 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
   const usedMediaIds = new Set<string>();
 
   const html = sections
-    .filter((section: any) => isConditionMet(section?.conditional, answers, job.property ?? {}))
+    .filter((section: any) => isFieldVisibleInReport(section, section?.conditional, answers, job.property ?? {}))
     .map((section: any) => {
       const fields = (Array.isArray(section?.fields) ? section.fields : []).filter((field: any) =>
-        isConditionMet(field?.conditional, answers, job.property ?? {})
+        isFieldVisibleInReport(field, field?.conditional, answers, job.property ?? {})
       );
       if (fields.length === 0) return "";
 

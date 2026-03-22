@@ -27,6 +27,7 @@ function isNotificationFeedItem(value: unknown): value is NotificationFeedItem {
 export function LiveNotifications() {
   const { status } = useSession();
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const requestedPermissionRef = useRef(false);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -46,6 +47,23 @@ export function LiveNotifications() {
         title: item.subject?.trim() || "New notification",
         description: item.body || "You have a new update.",
       });
+
+      if (
+        "Notification" in window &&
+        Notification.permission === "granted" &&
+        document.visibilityState !== "visible"
+      ) {
+        const notification = new Notification(item.subject?.trim() || "New notification", {
+          body: item.body || "You have a new update.",
+        });
+        notification.onclick = () => {
+          window.focus();
+          if (item.href) {
+            window.location.assign(item.href);
+          }
+          notification.close();
+        };
+      }
     };
 
     const handleIncoming = (raw: unknown) => {
@@ -57,6 +75,14 @@ export function LiveNotifications() {
 
     async function primeSeenIds() {
       try {
+        if (
+          "Notification" in window &&
+          Notification.permission === "default" &&
+          !requestedPermissionRef.current
+        ) {
+          requestedPermissionRef.current = true;
+          Notification.requestPermission().catch(() => undefined);
+        }
         const res = await fetch("/api/notifications/log", { cache: "no-store" });
         const body = await res.json().catch(() => []);
         const rows = Array.isArray(body) ? body : [];
