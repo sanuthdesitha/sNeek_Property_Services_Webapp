@@ -35,6 +35,8 @@ export interface JobReservationContext {
   adults?: number;
   children?: number;
   infants?: number;
+  preparationGuestCount?: number;
+  preparationSource?: "INCOMING_BOOKING" | "PROPERTY_MAX";
   checkinAtLocal?: string;
   checkoutAtLocal?: string;
   locationText?: string;
@@ -165,6 +167,15 @@ function normalizeReservationContext(input: unknown): JobReservationContext | un
   assignInt("adults");
   assignInt("children");
   assignInt("infants");
+
+  const preparationGuestCount = Number(source.preparationGuestCount);
+  if (Number.isInteger(preparationGuestCount) && preparationGuestCount >= 0) {
+    next.preparationGuestCount = preparationGuestCount;
+  }
+
+  if (source.preparationSource === "INCOMING_BOOKING" || source.preparationSource === "PROPERTY_MAX") {
+    next.preparationSource = source.preparationSource;
+  }
 
   const geoLat = Number(source.geoLat);
   if (Number.isFinite(geoLat)) next.geoLat = Number(geoLat.toFixed(6));

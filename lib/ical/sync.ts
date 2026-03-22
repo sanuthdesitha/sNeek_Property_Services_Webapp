@@ -156,6 +156,13 @@ function getPropertyDefaultEstimatedHours(accessInfo: unknown): number | null {
   return normalizeEstimatedHours((accessInfo as Record<string, unknown>).defaultCleanDurationHours);
 }
 
+function getPropertyMaxGuestCount(accessInfo: unknown): number | null {
+  if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
+  const raw = Number((accessInfo as Record<string, unknown>).maxGuestCount);
+  if (!Number.isInteger(raw) || raw < 1) return null;
+  return raw;
+}
+
 function buildReservationContext(input: {
   summary?: string | null;
   reservationCode?: string | null;
@@ -200,6 +207,14 @@ function buildReservationContext(input: {
   assignCount("adults", input.adults);
   assignCount("children", input.children);
   assignCount("infants", input.infants);
+  const totalGuests =
+    Number(next.adults ?? 0) +
+    Number(next.children ?? 0) +
+    Number(next.infants ?? 0);
+  if (totalGuests > 0) {
+    next.preparationGuestCount = totalGuests;
+    next.preparationSource = "INCOMING_BOOKING";
+  }
 
   if (typeof input.geoLat === "number" && Number.isFinite(input.geoLat)) next.geoLat = Number(input.geoLat.toFixed(6));
   if (typeof input.geoLng === "number" && Number.isFinite(input.geoLng)) next.geoLng = Number(input.geoLng.toFixed(6));
@@ -230,6 +245,14 @@ function mergeReservationContextIntoInternalNotes(
       reservationContext,
     }) ?? undefined
   );
+}
+
+function buildPropertyMaxGuestPreparationContext(maxGuestCount: number | null): JobReservationContext | undefined {
+  if (!maxGuestCount || maxGuestCount < 1) return undefined;
+  return {
+    preparationGuestCount: maxGuestCount,
+    preparationSource: "PROPERTY_MAX",
+  };
 }
 
 function nullableText(value: unknown) {
@@ -566,7 +589,12 @@ async function createOrUpdateReservations(params: {
 
 async function syncTurnoverJobsForReservations(params: {
   propertyId: string;
-  property: { defaultCheckoutTime: string; defaultCheckinTime: string; defaultEstimatedHours: number | null };
+  property: {
+    defaultCheckoutTime: string;
+    defaultCheckinTime: string;
+    defaultEstimatedHours: number | null;
+    maxGuestCount: number | null;
+  };
   reservations: Array<{
     id: string;
     endDate: Date;
@@ -584,7 +612,7 @@ async function syncTurnoverJobsForReservations(params: {
     geoLng: number | null;
     checkinAtLocal: Date | null;
   }>;
-  sameDayCheckinsByDate: Map<string, string | null>;
+  sameDayCheckinsByDate: Map<string, { checkinTime: string | null; reservationContext: JobReservationContext | undefined }>;
   summary: IcalSyncSummary;
   snapshot: IcalSyncSnapshot;
   syncOptions: IcalSyncOptions;
@@ -601,29 +629,16 @@ async function syncTurnoverJobsForReservations(params: {
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
     const turnoverDateKey = turnoverDate.toISOString().slice(0, 10);
-    const sameDayCheckinTime =
-      params.sameDayCheckinsByDate.get(turnoverDateKey) ?? params.property.defaultCheckinTime;
+    const incomingCheckin = params.sameDayCheckinsByDate.get(turnoverDateKey);
+    const sameDayCheckinTime = incomingCheckin?.checkinTime ?? params.property.defaultCheckinTime;
     const priority = classifySameDayCheckinPriority({
-      sameDayCheckin: params.sameDayCheckinsByDate.has(turnoverDateKey),
+      sameDayCheckin: Boolean(incomingCheckin),
       sameDayCheckinTime,
     });
     const startTime = toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
-    const reservationContext = buildReservationContext({
-      summary: reservation.summary,
-      reservationCode: reservation.reservationCode,
-      guestPhone: reservation.guestPhone,
-      guestEmail: reservation.guestEmail,
-      guestProfileUrl: reservation.guestProfileUrl,
-      adults: reservation.adults,
-      children: reservation.children,
-      infants: reservation.infants,
-      locationText: reservation.locationText,
-      geoLat: reservation.geoLat,
-      geoLng: reservation.geoLng,
-      checkinAtLocal: reservation.checkinAtLocal,
-      checkoutAtLocal: reservation.checkoutAtLocal,
-    });
+    const reservationContext =
+      incomingCheckin?.reservationContext ?? buildPropertyMaxGuestPreparationContext(params.property.maxGuestCount);
 
     if (!existingJob && params.syncOptions.verifyExistingJobConflicts) {
       const conflict = await db.job.findFirst({
@@ -871,13 +886,33 @@ export async function syncPropertyIcal(
         );
       }
 
-    const sameDayCheckinsByDate = new Map<string, string | null>();
+    const sameDayCheckinsByDate = new Map<
+      string,
+      { checkinTime: string | null; reservationContext: JobReservationContext | undefined }
+    >();
     for (const event of uniqueEvents) {
       const key = event.startDate.toISOString().slice(0, 10);
       const time = toLocalTimeString(event.checkinAtLocal);
       const existing = sameDayCheckinsByDate.get(key);
-      if (!existing || (time && time < existing)) {
-        sameDayCheckinsByDate.set(key, time);
+      if (!existing || (time && (!existing.checkinTime || time < existing.checkinTime))) {
+        sameDayCheckinsByDate.set(key, {
+          checkinTime: time,
+          reservationContext: buildReservationContext({
+            summary: event.summary,
+            reservationCode: event.reservationCode,
+            guestPhone: event.guestPhone,
+            guestEmail: event.guestEmail,
+            guestProfileUrl: event.guestProfileUrl,
+            adults: event.adults,
+            children: event.children,
+            infants: event.infants,
+            locationText: event.locationText,
+            geoLat: event.geoLat,
+            geoLng: event.geoLng,
+            checkinAtLocal: event.checkinAtLocal,
+            checkoutAtLocal: event.checkoutAtLocal,
+          }),
+        });
       }
     }
 
@@ -895,6 +930,7 @@ export async function syncPropertyIcal(
         defaultCheckoutTime: integration.property.defaultCheckoutTime,
         defaultCheckinTime: integration.property.defaultCheckinTime,
         defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
+        maxGuestCount: getPropertyMaxGuestCount(integration.property.accessInfo),
       },
       reservations: touchedReservations.map((row) => ({
         id: row.id,

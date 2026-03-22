@@ -36,6 +36,8 @@ const reservationContextSchema = z.object({
   adults: z.number().int().min(0).max(100).optional(),
   children: z.number().int().min(0).max(100).optional(),
   infants: z.number().int().min(0).max(100).optional(),
+  preparationGuestCount: z.number().int().min(0).max(100).optional(),
+  preparationSource: z.enum(["INCOMING_BOOKING", "PROPERTY_MAX"]).optional(),
   checkinAtLocal: z.string().datetime().optional(),
   checkoutAtLocal: z.string().datetime().optional(),
   locationText: z.string().max(4000).optional(),

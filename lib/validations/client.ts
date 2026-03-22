@@ -14,6 +14,7 @@ const accessInfoSchema = z.object({
   other: z.string().optional(),
   instructions: z.string().optional(),
   defaultCleanDurationHours: z.number().positive().max(24).optional(),
+  maxGuestCount: z.number().int().min(1).max(100).optional(),
   attachments: z.array(accessAttachmentSchema).optional(),
 });
 

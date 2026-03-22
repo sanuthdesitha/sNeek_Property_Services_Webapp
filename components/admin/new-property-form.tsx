@@ -76,6 +76,7 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
     notes: "",
     linenBufferSets: "0",
     defaultCleanDurationHours: "3",
+    maxGuestCount: "4",
     inventoryEnabled: false,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
@@ -149,6 +150,10 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
               typeof access.defaultCleanDurationHours === "number"
                 ? String(access.defaultCleanDurationHours)
                 : "3",
+            maxGuestCount:
+              typeof access.maxGuestCount === "number"
+                ? String(access.maxGuestCount)
+                : "4",
             inventoryEnabled: Boolean(copySource.inventoryEnabled),
             defaultCheckinTime: copySource.defaultCheckinTime ?? "14:00",
             defaultCheckoutTime: copySource.defaultCheckoutTime ?? "10:00",
@@ -195,6 +200,7 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
     const normalizedAttachments = (accessInfo.attachments ?? []).filter((item) => item.url);
     const accessPayload =
       (Number(form.defaultCleanDurationHours) > 0) ||
+      (Number(form.maxGuestCount) > 0) ||
       accessInfo.lockbox ||
       accessInfo.codes ||
       accessInfo.parking ||
@@ -204,6 +210,9 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
         ? {
             ...(Number(form.defaultCleanDurationHours) > 0
               ? { defaultCleanDurationHours: Number(form.defaultCleanDurationHours) }
+              : {}),
+            ...(Number(form.maxGuestCount) > 0
+              ? { maxGuestCount: Number(form.maxGuestCount) }
               : {}),
             lockbox: accessInfo.lockbox || undefined,
             codes: accessInfo.codes || undefined,
@@ -376,6 +385,17 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
                 step="0.25"
                 value={form.defaultCleanDurationHours}
                 onChange={(e) => setForm((prev) => ({ ...prev, defaultCleanDurationHours: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="maxGuestCount">Maximum Guest Count</Label>
+              <Input
+                id="maxGuestCount"
+                type="number"
+                min="1"
+                max="100"
+                value={form.maxGuestCount}
+                onChange={(e) => setForm((prev) => ({ ...prev, maxGuestCount: e.target.value }))}
               />
             </div>
           </div>

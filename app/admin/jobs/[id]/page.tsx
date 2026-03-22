@@ -642,10 +642,8 @@ export default function JobDetailPage() {
   const reservationContext = jobMeta.reservationContext ?? {};
   const hasServiceContext = Object.keys(serviceContext).length > 0;
   const hasReservationContext = Object.keys(reservationContext).length > 0;
-  const totalGuests =
-    Number(reservationContext.adults ?? 0) +
-    Number(reservationContext.children ?? 0) +
-    Number(reservationContext.infants ?? 0);
+  const preparationGuestCount = Number(reservationContext.preparationGuestCount ?? 0);
+  const preparationSource = reservationContext.preparationSource ?? "INCOMING_BOOKING";
   const isAirbnbTurnover = job.jobType === "AIRBNB_TURNOVER";
   const cleanerLookup = new Map(
     cleaners.map((cleaner: any) => [cleaner.id, cleaner.name ?? cleaner.email ?? cleaner.id])
@@ -728,19 +726,30 @@ export default function JobDetailPage() {
 
       {hasReservationContext ? (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Guest / Reservation Details</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-sm">
+              {preparationSource === "PROPERTY_MAX" ? "Preparation Details" : "Incoming Booking Details"}
+            </CardTitle>
+          </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
             {reservationContext.guestName ? <div><p className="text-xs text-muted-foreground">Guest name</p><p className="text-sm">{reservationContext.guestName}</p></div> : null}
             {reservationContext.reservationCode ? <div><p className="text-xs text-muted-foreground">Reservation code</p><p className="text-sm">{reservationContext.reservationCode}</p></div> : null}
-            {totalGuests > 0 ? (
+            {preparationGuestCount > 0 ? (
               <div>
-                <p className="text-xs text-muted-foreground">Guest count</p>
+                <p className="text-xs text-muted-foreground">Preparation guest count</p>
                 <p className="text-sm">
-                  {totalGuests} total
-                  {reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
-                  {reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
-                  {reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
+                  {preparationGuestCount} guest{preparationGuestCount === 1 ? "" : "s"}
+                  {preparationSource === "PROPERTY_MAX" ? " · property max fallback" : ""}
+                  {preparationSource !== "PROPERTY_MAX" && reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
+                  {preparationSource !== "PROPERTY_MAX" && reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
+                  {preparationSource !== "PROPERTY_MAX" && reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
                 </p>
+              </div>
+            ) : null}
+            {preparationSource === "PROPERTY_MAX" ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Booking status</p>
+                <p className="text-sm">No same-day incoming booking linked. Prepare for maximum occupancy.</p>
               </div>
             ) : null}
             {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p className="text-sm">{reservationContext.guestPhone}</p></div> : null}

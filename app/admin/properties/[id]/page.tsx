@@ -101,6 +101,7 @@ export default function PropertyDetailPage() {
     notes: "",
     linenBufferSets: "0",
     defaultCleanDurationHours: "3",
+    maxGuestCount: "4",
     inventoryEnabled: false,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
@@ -152,6 +153,10 @@ export default function PropertyDetailPage() {
         typeof access.defaultCleanDurationHours === "number"
           ? String(access.defaultCleanDurationHours)
           : "3",
+      maxGuestCount:
+        typeof access.maxGuestCount === "number"
+          ? String(access.maxGuestCount)
+          : "4",
       inventoryEnabled: Boolean(data.inventoryEnabled),
       defaultCheckinTime: data.defaultCheckinTime ?? "14:00",
       defaultCheckoutTime: data.defaultCheckoutTime ?? "10:00",
@@ -263,6 +268,7 @@ export default function PropertyDetailPage() {
       notes: form.notes || undefined,
       accessInfo:
         Number(form.defaultCleanDurationHours) > 0 ||
+        Number(form.maxGuestCount) > 0 ||
         accessInfo.lockbox ||
         accessInfo.codes ||
         accessInfo.parking ||
@@ -272,6 +278,9 @@ export default function PropertyDetailPage() {
           ? {
               ...(Number(form.defaultCleanDurationHours) > 0
                 ? { defaultCleanDurationHours: Number(form.defaultCleanDurationHours) }
+                : {}),
+              ...(Number(form.maxGuestCount) > 0
+                ? { maxGuestCount: Number(form.maxGuestCount) }
                 : {}),
               lockbox: accessInfo.lockbox || undefined,
               codes: accessInfo.codes || undefined,
@@ -607,6 +616,12 @@ export default function PropertyDetailPage() {
                   ? `${propertyAccess.defaultCleanDurationHours}h`
                   : "3h",
               ],
+              [
+                "Maximum Guest Count",
+                typeof propertyAccess.maxGuestCount === "number"
+                  ? propertyAccess.maxGuestCount
+                  : 4,
+              ],
               ["Default Check-in", property.defaultCheckinTime],
               ["Default Check-out", property.defaultCheckoutTime],
             ].map(([label, val]) => (
@@ -772,6 +787,16 @@ export default function PropertyDetailPage() {
                     step="0.25"
                     value={form.defaultCleanDurationHours}
                     onChange={(e) => setForm((prev) => ({ ...prev, defaultCleanDurationHours: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Maximum guest count</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={form.maxGuestCount}
+                    onChange={(e) => setForm((prev) => ({ ...prev, maxGuestCount: e.target.value }))}
                   />
                 </div>
               </div>
