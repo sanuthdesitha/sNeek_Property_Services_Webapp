@@ -44,16 +44,6 @@ async function accessibleProperties(scope: Scope) {
     where: {
       isActive: true,
       inventoryEnabled: true,
-      jobs: {
-        some: {
-          assignments: {
-            some: {
-              userId: scope.userId,
-              removedAt: null,
-            },
-          },
-        },
-      },
     },
     select: { id: true, name: true, suburb: true, clientId: true },
     orderBy: [{ name: "asc" }],
@@ -91,7 +81,12 @@ async function assertRunAccess(scope: Scope, runId: string) {
 
   if (scope.role === "ADMIN" || scope.role === "OPS_MANAGER") return run;
   if (scope.role === "CLIENT" && run.property.clientId === scope.clientId) return run;
-  if (scope.role === "CLEANER" && run.requestedByUserId === scope.userId) return run;
+  if (
+    scope.role === "CLEANER" &&
+    (run.requestedByUserId === scope.userId || run.requestedByAdmin === true)
+  ) {
+    return run;
+  }
 
   throw new Error("FORBIDDEN");
 }
@@ -133,6 +128,11 @@ export async function listStockRuns(scope: Scope) {
   const runs = await db.stockRun.findMany({
     where: {
       propertyId: { in: propertyIds.length > 0 ? propertyIds : ["__missing__"] },
+      ...(scope.role === "CLEANER"
+        ? {
+            OR: [{ requestedByUserId: scope.userId }, { requestedByAdmin: true }],
+          }
+        : {}),
     },
     include: {
       property: { select: { id: true, name: true, suburb: true, clientId: true } },
