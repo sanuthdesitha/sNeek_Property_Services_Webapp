@@ -271,7 +271,7 @@ export default function CleanerJobPage() {
     return file.type?.toLowerCase().startsWith("image/") || /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(file.name ?? "");
   }
 
-  function formatPhotoTimestamp(timezone: string) {
+function formatPhotoTimestamp(timezone: string) {
     try {
       return new Intl.DateTimeFormat("en-AU", {
         timeZone: timezone || "Australia/Sydney",
@@ -283,8 +283,21 @@ export default function CleanerJobPage() {
       }).format(new Date());
     } catch {
       return new Date().toLocaleString("en-AU");
-    }
   }
+}
+
+function formatDateTimeLabel(value: string | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-AU", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
 
   async function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
@@ -866,8 +879,15 @@ export default function CleanerJobPage() {
     ? payload.jobTimingHighlights.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
   const serviceContext = payload?.jobMeta?.serviceContext ?? {};
+  const reservationContext = payload?.jobMeta?.reservationContext ?? {};
   const hasServiceContext =
     Boolean(serviceContext && typeof serviceContext === "object" && Object.keys(serviceContext).length > 0);
+  const hasReservationContext =
+    Boolean(reservationContext && typeof reservationContext === "object" && Object.keys(reservationContext).length > 0);
+  const totalGuests =
+    Number(reservationContext?.adults ?? 0) +
+    Number(reservationContext?.children ?? 0) +
+    Number(reservationContext?.infants ?? 0);
   const carryForwardTasks: Array<any> = Array.isArray(payload?.carryForwardTasks) ? payload.carryForwardTasks : [];
   const canUseSelectAll = Boolean(payload?.canUseSelectAll);
   const sectionsWithAutoInventory = useMemo(() => {
@@ -2257,6 +2277,39 @@ export default function CleanerJobPage() {
             ) : null}
             {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p>{serviceContext.serviceAreaSqm} sqm</p></div> : null}
             {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p>{serviceContext.floorCount}</p></div> : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {hasReservationContext ? (
+        <Card className="border-border/70">
+          <CardContent className="grid gap-3 p-3 text-sm md:grid-cols-2">
+            {reservationContext.guestName ? <div><p className="text-xs text-muted-foreground">Guest name</p><p>{reservationContext.guestName}</p></div> : null}
+            {reservationContext.reservationCode ? <div><p className="text-xs text-muted-foreground">Reservation code</p><p>{reservationContext.reservationCode}</p></div> : null}
+            {totalGuests > 0 ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Guest count</p>
+                <p>
+                  {totalGuests} total
+                  {reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
+                  {reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
+                  {reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
+                </p>
+              </div>
+            ) : null}
+            {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p>{reservationContext.guestPhone}</p></div> : null}
+            {reservationContext.guestEmail ? <div><p className="text-xs text-muted-foreground">Guest email</p><p>{reservationContext.guestEmail}</p></div> : null}
+            {reservationContext.checkinAtLocal ? <div><p className="text-xs text-muted-foreground">Check-in</p><p>{formatDateTimeLabel(reservationContext.checkinAtLocal)}</p></div> : null}
+            {reservationContext.checkoutAtLocal ? <div><p className="text-xs text-muted-foreground">Checkout</p><p>{formatDateTimeLabel(reservationContext.checkoutAtLocal)}</p></div> : null}
+            {reservationContext.locationText ? <div><p className="text-xs text-muted-foreground">Location / booking details</p><p>{reservationContext.locationText}</p></div> : null}
+            {reservationContext.guestProfileUrl ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Guest profile</p>
+                <a className="text-primary underline underline-offset-4" href={reservationContext.guestProfileUrl} target="_blank" rel="noreferrer">
+                  Open profile
+                </a>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

@@ -81,6 +81,13 @@ function checkboxMark(checked: boolean) {
   return checked ? "\u2611" : "\u2610";
 }
 
+function formatDateTimeLabel(value: string | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return format(parsed, "dd MMM yyyy HH:mm");
+}
+
 function renderFieldValue(field: any, submission: any) {
   const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
   const uploads = answers?.uploads && typeof answers.uploads === "object" ? answers.uploads : {};
@@ -632,7 +639,13 @@ export default function JobDetailPage() {
   if (!job || job.error) return <div className="p-8 text-destructive">Job not found.</div>;
   const jobMeta = job.jobMeta ?? parseJobInternalNotes(job.internalNotes);
   const serviceContext = jobMeta.serviceContext ?? {};
+  const reservationContext = jobMeta.reservationContext ?? {};
   const hasServiceContext = Object.keys(serviceContext).length > 0;
+  const hasReservationContext = Object.keys(reservationContext).length > 0;
+  const totalGuests =
+    Number(reservationContext.adults ?? 0) +
+    Number(reservationContext.children ?? 0) +
+    Number(reservationContext.infants ?? 0);
   const isAirbnbTurnover = job.jobType === "AIRBNB_TURNOVER";
   const cleanerLookup = new Map(
     cleaners.map((cleaner: any) => [cleaner.id, cleaner.name ?? cleaner.email ?? cleaner.id])
@@ -709,6 +722,40 @@ export default function JobDetailPage() {
             ) : null}
             {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p className="text-sm">{serviceContext.serviceAreaSqm} sqm</p></div> : null}
             {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p className="text-sm">{serviceContext.floorCount}</p></div> : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {hasReservationContext ? (
+        <Card>
+          <CardHeader><CardTitle className="text-sm">Guest / Reservation Details</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            {reservationContext.guestName ? <div><p className="text-xs text-muted-foreground">Guest name</p><p className="text-sm">{reservationContext.guestName}</p></div> : null}
+            {reservationContext.reservationCode ? <div><p className="text-xs text-muted-foreground">Reservation code</p><p className="text-sm">{reservationContext.reservationCode}</p></div> : null}
+            {totalGuests > 0 ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Guest count</p>
+                <p className="text-sm">
+                  {totalGuests} total
+                  {reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
+                  {reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
+                  {reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
+                </p>
+              </div>
+            ) : null}
+            {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p className="text-sm">{reservationContext.guestPhone}</p></div> : null}
+            {reservationContext.guestEmail ? <div><p className="text-xs text-muted-foreground">Guest email</p><p className="text-sm">{reservationContext.guestEmail}</p></div> : null}
+            {reservationContext.checkinAtLocal ? <div><p className="text-xs text-muted-foreground">Check-in</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkinAtLocal)}</p></div> : null}
+            {reservationContext.checkoutAtLocal ? <div><p className="text-xs text-muted-foreground">Checkout</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkoutAtLocal)}</p></div> : null}
+            {reservationContext.locationText ? <div><p className="text-xs text-muted-foreground">Location / booking details</p><p className="text-sm">{reservationContext.locationText}</p></div> : null}
+            {reservationContext.guestProfileUrl ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Guest profile</p>
+                <a className="text-sm text-primary underline underline-offset-4" href={reservationContext.guestProfileUrl} target="_blank" rel="noreferrer">
+                  Open profile
+                </a>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

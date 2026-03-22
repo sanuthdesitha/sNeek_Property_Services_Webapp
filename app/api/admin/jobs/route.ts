@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       lateCheckout,
       serviceSite,
       serviceContext,
+      reservationContext,
       ...rest
     } = body;
     const normalizedEarlyCheckin = normalizeRule(earlyCheckin) ?? { enabled: false, preset: "none" as const };
@@ -82,13 +83,14 @@ export async function POST(req: NextRequest) {
           internalNoteText: internalNotes ?? "",
           isDraft,
           tags,
-          attachments,
-          transportAllowances,
-          earlyCheckin: normalizedEarlyCheckin,
-          lateCheckout: normalizedLateCheckout,
-          serviceContext,
-        }),
-      },
+        attachments,
+        transportAllowances,
+        earlyCheckin: normalizedEarlyCheckin,
+        lateCheckout: normalizedLateCheckout,
+        serviceContext,
+        reservationContext,
+      }),
+    },
       include: { property: true },
     });
     return NextResponse.json(job, { status: 201 });

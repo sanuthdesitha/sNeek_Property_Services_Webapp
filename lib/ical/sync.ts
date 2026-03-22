@@ -2,6 +2,7 @@ import ICAL from "ical.js";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { parseJobInternalNotes, serializeJobInternalNotes, type JobReservationContext } from "@/lib/jobs/meta";
 import { classifySameDayCheckinPriority } from "@/lib/jobs/priority";
 import { SyncStatus } from "@prisma/client";
 import { addDays } from "date-fns";
@@ -37,6 +38,8 @@ type JobState = {
   scheduledDate: string;
   startTime: string | null;
   dueTime: string | null;
+  estimatedHours: number | null;
+  internalNotes: string | null;
   status: string;
   priorityBucket: number;
   priorityReason: string | null;
@@ -93,6 +96,8 @@ type IcalSyncSummary = {
   warnings: string[];
 };
 
+const TERMINAL_SYNC_JOB_STATUSES = new Set(["COMPLETED", "INVOICED"]);
+
 export interface SyncPropertyIcalOptions {
   triggeredById?: string | null;
   mode?: SyncMode;
@@ -117,11 +122,11 @@ function icalTimeToDate(value: ICAL.Time | null | undefined): Date | null {
   }
 }
 
-function extractLabelValueBlock(description: string | null | undefined) {
-  if (!description) return new Map<string, string>();
+function extractLabelValueBlock(description: unknown) {
+  if (typeof description !== "string" || !description.trim()) return new Map<string, string>();
   return description
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => (typeof line === "string" ? line.trim() : ""))
     .filter(Boolean)
     .reduce((map, line) => {
       const idx = line.indexOf(":");
@@ -133,22 +138,118 @@ function extractLabelValueBlock(description: string | null | undefined) {
     }, new Map<string, string>());
 }
 
-function nullableText(value: string | null | undefined) {
-  const trimmed = value?.trim();
+function normalizeEstimatedHours(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Number(value.toFixed(2));
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Number(parsed.toFixed(2));
+    }
+  }
+  return null;
+}
+
+function getPropertyDefaultEstimatedHours(accessInfo: unknown): number | null {
+  if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
+  return normalizeEstimatedHours((accessInfo as Record<string, unknown>).defaultCleanDurationHours);
+}
+
+function buildReservationContext(input: {
+  summary?: string | null;
+  reservationCode?: string | null;
+  guestPhone?: string | null;
+  guestEmail?: string | null;
+  guestProfileUrl?: string | null;
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+  locationText?: string | null;
+  geoLat?: number | null;
+  geoLng?: number | null;
+  checkinAtLocal?: Date | string | null;
+  checkoutAtLocal?: Date | string | null;
+}): JobReservationContext | undefined {
+  const next: JobReservationContext = {};
+  const assignString = (
+    key:
+      | "guestName"
+      | "reservationCode"
+      | "guestPhone"
+      | "guestEmail"
+      | "guestProfileUrl"
+      | "locationText",
+    value: unknown
+  ) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (trimmed) next[key] = trimmed;
+  };
+
+  assignString("guestName", input.summary);
+  assignString("reservationCode", input.reservationCode);
+  assignString("guestPhone", input.guestPhone);
+  assignString("guestEmail", input.guestEmail);
+  assignString("guestProfileUrl", input.guestProfileUrl);
+  assignString("locationText", input.locationText);
+
+  const assignCount = (key: "adults" | "children" | "infants", value: number | null | undefined) => {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) next[key] = value;
+  };
+  assignCount("adults", input.adults);
+  assignCount("children", input.children);
+  assignCount("infants", input.infants);
+
+  if (typeof input.geoLat === "number" && Number.isFinite(input.geoLat)) next.geoLat = Number(input.geoLat.toFixed(6));
+  if (typeof input.geoLng === "number" && Number.isFinite(input.geoLng)) next.geoLng = Number(input.geoLng.toFixed(6));
+
+  const toIso = (value: Date | string | null | undefined) => {
+    if (!value) return undefined;
+    if (value instanceof Date) return value.toISOString();
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  };
+  const checkinAtLocal = toIso(input.checkinAtLocal);
+  const checkoutAtLocal = toIso(input.checkoutAtLocal);
+  if (checkinAtLocal) next.checkinAtLocal = checkinAtLocal;
+  if (checkoutAtLocal) next.checkoutAtLocal = checkoutAtLocal;
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function mergeReservationContextIntoInternalNotes(
+  currentInternalNotes: string | null | undefined,
+  reservationContext: JobReservationContext | undefined
+) {
+  if (!reservationContext) return currentInternalNotes ?? undefined;
+  const meta = parseJobInternalNotes(currentInternalNotes);
+  return (
+    serializeJobInternalNotes({
+      ...meta,
+      reservationContext,
+    }) ?? undefined
+  );
+}
+
+function nullableText(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.toLowerCase() === "(no email alias available)") return null;
   if (trimmed.toLowerCase() === "(no url available)") return null;
   return trimmed;
 }
 
-function nullableInt(value: string | null | undefined) {
-  if (!value) return null;
+function nullableInt(value: unknown) {
+  if (value == null || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? Math.trunc(num) : null;
 }
 
-function parseGeo(value: string | null | undefined) {
-  const raw = value?.trim();
+function parseGeo(value: unknown) {
+  if (typeof value !== "string") return { geoLat: null, geoLng: null };
+  const raw = value.trim();
   if (!raw || !raw.includes(";")) return { geoLat: null, geoLng: null };
   const [latRaw, lngRaw] = raw.split(";");
   const geoLat = Number(latRaw);
@@ -241,6 +342,8 @@ function jobState(row: {
   scheduledDate: Date;
   startTime: string | null;
   dueTime: string | null;
+  estimatedHours?: number | null;
+  internalNotes?: string | null;
   status: string;
   priorityBucket?: number;
   priorityReason?: string | null;
@@ -254,6 +357,8 @@ function jobState(row: {
     scheduledDate: row.scheduledDate.toISOString(),
     startTime: row.startTime ?? null,
     dueTime: row.dueTime ?? null,
+    estimatedHours: normalizeEstimatedHours(row.estimatedHours),
+    internalNotes: row.internalNotes ?? null,
     status: row.status,
     priorityBucket: row.priorityBucket ?? 4,
     priorityReason: row.priorityReason ?? null,
@@ -288,6 +393,8 @@ function sameJobState(current: JobState, compare: JobState) {
     current.scheduledDate === compare.scheduledDate &&
     (current.startTime ?? null) === (compare.startTime ?? null) &&
     (current.dueTime ?? null) === (compare.dueTime ?? null) &&
+    (current.estimatedHours ?? null) === (compare.estimatedHours ?? null) &&
+    (current.internalNotes ?? null) === (compare.internalNotes ?? null) &&
     current.status === compare.status &&
     current.priorityBucket === compare.priorityBucket &&
     (current.priorityReason ?? null) === (compare.priorityReason ?? null) &&
@@ -341,6 +448,17 @@ async function createOrUpdateReservations(params: {
     startDate: Date;
     endDate: Date;
     summary: string | null;
+    reservationCode: string | null;
+    guestPhone: string | null;
+    guestEmail: string | null;
+    guestProfileUrl: string | null;
+    adults: number | null;
+    children: number | null;
+    infants: number | null;
+    locationText: string | null;
+    geoLat: number | null;
+    geoLng: number | null;
+    checkinAtLocal: Date | null;
     checkoutAtLocal: Date | null;
     source: string | null;
   }> = [];
@@ -448,8 +566,24 @@ async function createOrUpdateReservations(params: {
 
 async function syncTurnoverJobsForReservations(params: {
   propertyId: string;
-  property: { defaultCheckoutTime: string; defaultCheckinTime: string };
-  reservations: Array<{ id: string; endDate: Date; checkoutAtLocal: Date | null }>;
+  property: { defaultCheckoutTime: string; defaultCheckinTime: string; defaultEstimatedHours: number | null };
+  reservations: Array<{
+    id: string;
+    endDate: Date;
+    checkoutAtLocal: Date | null;
+    summary: string | null;
+    reservationCode: string | null;
+    guestPhone: string | null;
+    guestEmail: string | null;
+    guestProfileUrl: string | null;
+    adults: number | null;
+    children: number | null;
+    infants: number | null;
+    locationText: string | null;
+    geoLat: number | null;
+    geoLng: number | null;
+    checkinAtLocal: Date | null;
+  }>;
   sameDayCheckinsByDate: Map<string, string | null>;
   summary: IcalSyncSummary;
   snapshot: IcalSyncSnapshot;
@@ -475,6 +609,21 @@ async function syncTurnoverJobsForReservations(params: {
     });
     const startTime = toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
+    const reservationContext = buildReservationContext({
+      summary: reservation.summary,
+      reservationCode: reservation.reservationCode,
+      guestPhone: reservation.guestPhone,
+      guestEmail: reservation.guestEmail,
+      guestProfileUrl: reservation.guestProfileUrl,
+      adults: reservation.adults,
+      children: reservation.children,
+      infants: reservation.infants,
+      locationText: reservation.locationText,
+      geoLat: reservation.geoLat,
+      geoLng: reservation.geoLng,
+      checkinAtLocal: reservation.checkinAtLocal,
+      checkoutAtLocal: reservation.checkoutAtLocal,
+    });
 
     if (!existingJob && params.syncOptions.verifyExistingJobConflicts) {
       const conflict = await db.job.findFirst({
@@ -512,6 +661,8 @@ async function syncTurnoverJobsForReservations(params: {
           scheduledDate: turnoverDate,
           startTime,
           dueTime: sameDayCheckinTime,
+          estimatedHours: params.property.defaultEstimatedHours ?? undefined,
+          internalNotes: mergeReservationContextIntoInternalNotes(undefined, reservationContext),
           priorityBucket: priority.priorityBucket,
           priorityReason: priority.priorityReason,
           sameDayCheckin: priority.sameDayCheckin,
@@ -532,33 +683,58 @@ async function syncTurnoverJobsForReservations(params: {
       continue;
     }
 
-    if (!params.syncOptions.updateExistingLinkedJobs) continue;
+    if (TERMINAL_SYNC_JOB_STATUSES.has(existingJob.status)) continue;
+
+    const currentEstimatedHours = normalizeEstimatedHours(existingJob.estimatedHours);
+    const shouldBackfillEstimatedHours =
+      currentEstimatedHours == null && params.property.defaultEstimatedHours != null;
+    const mergedInternalNotes = mergeReservationContextIntoInternalNotes(existingJob.internalNotes, reservationContext);
+    const shouldUpdateReservationContext = (mergedInternalNotes ?? null) !== (existingJob.internalNotes ?? null);
+    if (!params.syncOptions.updateExistingLinkedJobs && !shouldBackfillEstimatedHours && !shouldUpdateReservationContext) continue;
 
     const before = jobState(existingJob);
     const afterCandidate: JobState | null = {
       id: existingJob.id,
       reservationId: reservation.id,
-      scheduledDate: turnoverDate.toISOString(),
-      startTime,
-      dueTime: sameDayCheckinTime,
+      scheduledDate: params.syncOptions.updateExistingLinkedJobs
+        ? turnoverDate.toISOString()
+        : existingJob.scheduledDate.toISOString(),
+      startTime: params.syncOptions.updateExistingLinkedJobs ? startTime : existingJob.startTime ?? null,
+      dueTime: params.syncOptions.updateExistingLinkedJobs ? sameDayCheckinTime : existingJob.dueTime ?? null,
+      estimatedHours: shouldBackfillEstimatedHours ? params.property.defaultEstimatedHours : currentEstimatedHours,
+      internalNotes: shouldUpdateReservationContext ? mergedInternalNotes ?? null : existingJob.internalNotes ?? null,
       status: existingJob.status,
-      priorityBucket: priority.priorityBucket,
-      priorityReason: priority.priorityReason,
-      sameDayCheckin: priority.sameDayCheckin,
-      sameDayCheckinTime: priority.sameDayCheckinTime,
+      priorityBucket: params.syncOptions.updateExistingLinkedJobs
+        ? priority.priorityBucket
+        : existingJob.priorityBucket ?? 4,
+      priorityReason: params.syncOptions.updateExistingLinkedJobs
+        ? priority.priorityReason
+        : existingJob.priorityReason ?? null,
+      sameDayCheckin: params.syncOptions.updateExistingLinkedJobs
+        ? priority.sameDayCheckin
+        : existingJob.sameDayCheckin === true,
+      sameDayCheckinTime: params.syncOptions.updateExistingLinkedJobs
+        ? priority.sameDayCheckinTime
+        : existingJob.sameDayCheckinTime ?? null,
     };
     if (!before || sameJobState(before, afterCandidate)) continue;
 
     const updated = await db.job.update({
       where: { id: existingJob.id },
       data: {
-        scheduledDate: turnoverDate,
-        startTime,
-        dueTime: sameDayCheckinTime,
-        priorityBucket: priority.priorityBucket,
-        priorityReason: priority.priorityReason,
-        sameDayCheckin: priority.sameDayCheckin,
-        sameDayCheckinTime: priority.sameDayCheckinTime,
+        ...(params.syncOptions.updateExistingLinkedJobs
+          ? {
+              scheduledDate: turnoverDate,
+              startTime,
+              dueTime: sameDayCheckinTime,
+              priorityBucket: priority.priorityBucket,
+              priorityReason: priority.priorityReason,
+              sameDayCheckin: priority.sameDayCheckin,
+              sameDayCheckinTime: priority.sameDayCheckinTime,
+            }
+          : {}),
+        ...(shouldBackfillEstimatedHours ? { estimatedHours: params.property.defaultEstimatedHours } : {}),
+        ...(shouldUpdateReservationContext ? { internalNotes: mergedInternalNotes } : {}),
       },
     });
     const after = jobState(updated);
@@ -718,11 +894,24 @@ export async function syncPropertyIcal(
       property: {
         defaultCheckoutTime: integration.property.defaultCheckoutTime,
         defaultCheckinTime: integration.property.defaultCheckinTime,
+        defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
       },
       reservations: touchedReservations.map((row) => ({
         id: row.id,
         endDate: row.endDate,
         checkoutAtLocal: row.checkoutAtLocal ?? null,
+        summary: row.summary ?? null,
+        reservationCode: row.reservationCode ?? null,
+        guestPhone: row.guestPhone ?? null,
+        guestEmail: row.guestEmail ?? null,
+        guestProfileUrl: row.guestProfileUrl ?? null,
+        adults: row.adults ?? null,
+        children: row.children ?? null,
+        infants: row.infants ?? null,
+        locationText: row.locationText ?? null,
+        geoLat: row.geoLat ?? null,
+        geoLng: row.geoLng ?? null,
+        checkinAtLocal: row.checkinAtLocal ?? null,
       })),
       sameDayCheckinsByDate,
       summary,
@@ -829,6 +1018,8 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
           scheduledDate: new Date(jobSnap.before.scheduledDate),
           startTime: jobSnap.before.startTime,
           dueTime: jobSnap.before.dueTime,
+          estimatedHours: jobSnap.before.estimatedHours,
+          internalNotes: jobSnap.before.internalNotes,
           status: jobSnap.before.status as any,
           priorityBucket: jobSnap.before.priorityBucket,
           priorityReason: jobSnap.before.priorityReason,

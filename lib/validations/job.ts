@@ -27,6 +27,22 @@ const serviceContextSchema = z.object({
   floorCount: z.number().int().min(1).max(200).optional(),
 });
 
+const reservationContextSchema = z.object({
+  guestName: z.string().max(200).optional(),
+  reservationCode: z.string().max(120).optional(),
+  guestPhone: z.string().max(80).optional(),
+  guestEmail: z.string().email().max(200).optional(),
+  guestProfileUrl: z.string().url().max(2000).optional(),
+  adults: z.number().int().min(0).max(100).optional(),
+  children: z.number().int().min(0).max(100).optional(),
+  infants: z.number().int().min(0).max(100).optional(),
+  checkinAtLocal: z.string().datetime().optional(),
+  checkoutAtLocal: z.string().datetime().optional(),
+  locationText: z.string().max(4000).optional(),
+  geoLat: z.number().min(-90).max(90).optional(),
+  geoLng: z.number().min(-180).max(180).optional(),
+});
+
 const serviceSiteSchema = z.object({
   name: z.string().min(1),
   address: z.string().min(1),
@@ -58,6 +74,7 @@ const baseCreateJobSchema = z.object({
   reservationId: z.string().min(1).optional(),
   serviceSite: serviceSiteSchema.optional(),
   serviceContext: serviceContextSchema.optional(),
+  reservationContext: reservationContextSchema.optional(),
 });
 
 export const createJobSchema = baseCreateJobSchema.superRefine((data, ctx) => {

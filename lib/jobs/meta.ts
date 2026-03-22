@@ -26,6 +26,22 @@ export interface JobServiceContext {
   floorCount?: number;
 }
 
+export interface JobReservationContext {
+  guestName?: string;
+  reservationCode?: string;
+  guestPhone?: string;
+  guestEmail?: string;
+  guestProfileUrl?: string;
+  adults?: number;
+  children?: number;
+  infants?: number;
+  checkinAtLocal?: string;
+  checkoutAtLocal?: string;
+  locationText?: string;
+  geoLat?: number;
+  geoLng?: number;
+}
+
 export interface JobMeta {
   version: 1;
   internalNoteText: string;
@@ -36,6 +52,7 @@ export interface JobMeta {
   lateCheckout: JobTimingRule;
   transportAllowances: Record<string, number>;
   serviceContext?: JobServiceContext;
+  reservationContext?: JobReservationContext;
 }
 
 const DEFAULT_RULE: JobTimingRule = {
@@ -54,6 +71,7 @@ export function defaultJobMeta(): JobMeta {
     lateCheckout: { ...DEFAULT_RULE },
     transportAllowances: {},
     serviceContext: undefined,
+    reservationContext: undefined,
   };
 }
 
@@ -118,6 +136,44 @@ function normalizeServiceContext(input: unknown): JobServiceContext | undefined 
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
+function normalizeReservationContext(input: unknown): JobReservationContext | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const source = input as Record<string, unknown>;
+  const next: JobReservationContext = {};
+
+  const assignString = (key: keyof JobReservationContext) => {
+    const raw = source[key];
+    if (typeof raw !== "string") return;
+    const value = raw.trim();
+    if (value) (next as Record<string, string | number | undefined>)[key] = value;
+  };
+
+  assignString("guestName");
+  assignString("reservationCode");
+  assignString("guestPhone");
+  assignString("guestEmail");
+  assignString("guestProfileUrl");
+  assignString("checkinAtLocal");
+  assignString("checkoutAtLocal");
+  assignString("locationText");
+
+  const assignInt = (key: "adults" | "children" | "infants") => {
+    const raw = Number(source[key]);
+    if (Number.isInteger(raw) && raw >= 0) next[key] = raw;
+  };
+
+  assignInt("adults");
+  assignInt("children");
+  assignInt("infants");
+
+  const geoLat = Number(source.geoLat);
+  if (Number.isFinite(geoLat)) next.geoLat = Number(geoLat.toFixed(6));
+  const geoLng = Number(source.geoLng);
+  if (Number.isFinite(geoLng)) next.geoLng = Number(geoLng.toFixed(6));
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
   const fallback = defaultJobMeta();
   if (!raw?.trim()) return fallback;
@@ -171,6 +227,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
             )
           : {},
       serviceContext: normalizeServiceContext(parsed.serviceContext),
+      reservationContext: normalizeReservationContext(parsed.reservationContext),
     };
   } catch {
     return { ...fallback, internalNoteText: raw };
@@ -202,6 +259,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
           )
         : {},
     serviceContext: normalizeServiceContext(input.serviceContext),
+    reservationContext: normalizeReservationContext(input.reservationContext),
   };
 
   const hasStructuredData =
@@ -211,7 +269,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
     Object.keys(meta.transportAllowances).length > 0 ||
-    Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0);
+    Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
+    Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0);
 
   if (!hasStructuredData) {
     return meta.internalNoteText.trim() || undefined;
@@ -227,6 +286,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     lateCheckout: meta.lateCheckout,
     transportAllowances: meta.transportAllowances,
     serviceContext: meta.serviceContext,
+    reservationContext: meta.reservationContext,
   });
 }
 

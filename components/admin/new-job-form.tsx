@@ -36,6 +36,9 @@ type FormState = {
   propertyId: string; clientId: string; siteMode: SiteMode; jobType: (typeof JOB_TYPES)[number]; scheduledDate: string;
   startTime: string; dueTime: string; endTime: string; estimatedHours: string;
   notes: string; internalNotes: string; tagsText: string; attachments: JobReferenceAttachment[];
+  guestName: string; reservationCode: string; guestPhone: string; guestEmail: string; guestProfileUrl: string;
+  guestAdults: string; guestChildren: string; guestInfants: string; guestCheckinAtLocal: string; guestCheckoutAtLocal: string;
+  guestLocationText: string;
   siteName: string; siteAddress: string; siteSuburb: string; siteState: string; sitePostcode: string;
   siteContactName: string; siteContactPhone: string; serviceAreaSqm: string; floorCount: string;
   siteBedrooms: string; siteBathrooms: string; siteHasBalcony: boolean;
@@ -63,6 +66,8 @@ const emptyRule = (preset: JobTimingPreset = "none"): TimingRule => ({
 const initialForm = (propertyId = ""): FormState => ({
   propertyId, clientId: "", siteMode: "existing_property", jobType: "AIRBNB_TURNOVER", scheduledDate: "", startTime: "10:00", dueTime: "15:00",
   endTime: "", estimatedHours: "", notes: "", internalNotes: "", tagsText: "", attachments: [],
+  guestName: "", reservationCode: "", guestPhone: "", guestEmail: "", guestProfileUrl: "",
+  guestAdults: "", guestChildren: "", guestInfants: "", guestCheckinAtLocal: "", guestCheckoutAtLocal: "", guestLocationText: "",
   siteName: "", siteAddress: "", siteSuburb: "", siteState: "NSW", sitePostcode: "",
   siteContactName: "", siteContactPhone: "", serviceAreaSqm: "", floorCount: "",
   siteBedrooms: "", siteBathrooms: "", siteHasBalcony: false,
@@ -370,6 +375,32 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           isDraft: asDraft, tags: parseTags(form.tagsText), attachments: form.attachments,
           earlyCheckin: isAirbnbTurnover ? apiRule(form.earlyCheckin) : undefined,
           lateCheckout: isAirbnbTurnover ? apiRule(form.lateCheckout) : undefined,
+          reservationContext:
+            form.guestName ||
+            form.reservationCode ||
+            form.guestPhone ||
+            form.guestEmail ||
+            form.guestProfileUrl ||
+            form.guestAdults ||
+            form.guestChildren ||
+            form.guestInfants ||
+            form.guestCheckinAtLocal ||
+            form.guestCheckoutAtLocal ||
+            form.guestLocationText
+              ? {
+                  guestName: form.guestName.trim() || undefined,
+                  reservationCode: form.reservationCode.trim() || undefined,
+                  guestPhone: form.guestPhone.trim() || undefined,
+                  guestEmail: form.guestEmail.trim() || undefined,
+                  guestProfileUrl: form.guestProfileUrl.trim() || undefined,
+                  adults: form.guestAdults ? Number(form.guestAdults) : undefined,
+                  children: form.guestChildren ? Number(form.guestChildren) : undefined,
+                  infants: form.guestInfants ? Number(form.guestInfants) : undefined,
+                  checkinAtLocal: form.guestCheckinAtLocal ? new Date(form.guestCheckinAtLocal).toISOString() : undefined,
+                  checkoutAtLocal: form.guestCheckoutAtLocal ? new Date(form.guestCheckoutAtLocal).toISOString() : undefined,
+                  locationText: form.guestLocationText.trim() || undefined,
+                }
+              : undefined,
           serviceSite: !usesExistingProperty
             ? {
                 name: form.siteName.trim(),
@@ -583,6 +614,33 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5"><Label>Scheduled Date</Label><Input type="date" value={form.scheduledDate} onChange={(e) => setForm((prev) => ({ ...prev, scheduledDate: e.target.value }))} /></div>
                 <div className="space-y-1.5"><Label>Fixed / Allocated Pay Hours</Label><Input type="number" step="0.25" min="0" value={form.estimatedHours} onChange={(e) => setForm((prev) => ({ ...prev, estimatedHours: e.target.value }))} /><p className="text-xs text-muted-foreground">{usesExistingProperty && form.propertyId ? "Prefilled from the property's default clean duration when selected. " : ""}When set, cleaner pay uses these hours (split across assignees).</p></div>
+              </div>
+              <div className="space-y-4 rounded-lg border border-border/70 p-4">
+                <div>
+                  <Label>Guest / Booking Details</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional for manual jobs. iCal sync-created turnover jobs will populate these automatically from the reservation feed.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Guest name</Label><Input value={form.guestName} onChange={(e) => setForm((prev) => ({ ...prev, guestName: e.target.value }))} placeholder="Guest name or booking summary" /></div>
+                  <div className="space-y-1.5"><Label>Reservation code</Label><Input value={form.reservationCode} onChange={(e) => setForm((prev) => ({ ...prev, reservationCode: e.target.value }))} placeholder="ABC12345" /></div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={form.guestAdults} onChange={(e) => setForm((prev) => ({ ...prev, guestAdults: e.target.value }))} placeholder="2" /></div>
+                  <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={form.guestChildren} onChange={(e) => setForm((prev) => ({ ...prev, guestChildren: e.target.value }))} placeholder="0" /></div>
+                  <div className="space-y-1.5"><Label>Infants</Label><Input type="number" min="0" value={form.guestInfants} onChange={(e) => setForm((prev) => ({ ...prev, guestInfants: e.target.value }))} placeholder="0" /></div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Guest phone</Label><Input value={form.guestPhone} onChange={(e) => setForm((prev) => ({ ...prev, guestPhone: e.target.value }))} placeholder="+61..." /></div>
+                  <div className="space-y-1.5"><Label>Guest email</Label><Input type="email" value={form.guestEmail} onChange={(e) => setForm((prev) => ({ ...prev, guestEmail: e.target.value }))} placeholder="guest@example.com" /></div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Check-in</Label><Input type="datetime-local" value={form.guestCheckinAtLocal} onChange={(e) => setForm((prev) => ({ ...prev, guestCheckinAtLocal: e.target.value }))} /></div>
+                  <div className="space-y-1.5"><Label>Checkout</Label><Input type="datetime-local" value={form.guestCheckoutAtLocal} onChange={(e) => setForm((prev) => ({ ...prev, guestCheckoutAtLocal: e.target.value }))} /></div>
+                </div>
+                <div className="space-y-1.5"><Label>Guest profile URL</Label><Input value={form.guestProfileUrl} onChange={(e) => setForm((prev) => ({ ...prev, guestProfileUrl: e.target.value }))} placeholder="https://..." /></div>
+                <div className="space-y-1.5"><Label>Booking location / extra details</Label><Textarea value={form.guestLocationText} onChange={(e) => setForm((prev) => ({ ...prev, guestLocationText: e.target.value }))} placeholder="Imported location, booking notes, or relevant guest details." /></div>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-1.5"><Label>Start Time</Label><Input type="time" value={form.startTime} onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))} /></div>

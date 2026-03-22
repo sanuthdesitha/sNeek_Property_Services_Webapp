@@ -115,7 +115,8 @@ export async function PATCH(
       body.transportAllowances !== undefined ||
       body.earlyCheckin !== undefined ||
       body.lateCheckout !== undefined ||
-      body.serviceContext !== undefined;
+      body.serviceContext !== undefined ||
+      body.reservationContext !== undefined;
     if (hasMetaFields) {
       data.internalNotes = serializeJobInternalNotes({
         ...currentMeta,
@@ -127,6 +128,7 @@ export async function PATCH(
         earlyCheckin: nextEarlyCheckin,
         lateCheckout: nextLateCheckout,
         serviceContext: body.serviceContext ?? currentMeta.serviceContext,
+        reservationContext: body.reservationContext ?? currentMeta.reservationContext,
       });
     }
     const shouldApplyTiming =
@@ -155,6 +157,7 @@ export async function PATCH(
     delete data.clientId;
     delete data.serviceSite;
     delete data.serviceContext;
+    delete data.reservationContext;
 
     let job;
     if (body.status === JobStatus.UNASSIGNED) {

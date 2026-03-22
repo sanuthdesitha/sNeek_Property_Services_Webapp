@@ -19,11 +19,11 @@ interface StoredIntegrationNotes {
   syncOptions?: Partial<IcalSyncOptions>;
 }
 
-export function parseIntegrationNotes(notes: string | null | undefined): {
+export function parseIntegrationNotes(notes: unknown): {
   noteText: string;
   syncOptions: IcalSyncOptions;
 } {
-  if (!notes || !notes.trim()) {
+  if (typeof notes !== "string" || !notes.trim()) {
     return { noteText: "", syncOptions: { ...DEFAULT_ICAL_SYNC_OPTIONS } };
   }
 
