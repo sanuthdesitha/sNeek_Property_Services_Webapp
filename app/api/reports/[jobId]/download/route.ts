@@ -7,6 +7,15 @@ import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
 import { generateJobReport } from "@/lib/reports/generator";
 
+async function loadOrGenerateReport(jobId: string) {
+  let report = await getStoredJobReport(jobId);
+  if (report) return report;
+
+  await generateJobReport(jobId);
+  report = await getStoredJobReport(jobId);
+  return report;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { jobId: string } }
@@ -15,13 +24,16 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const format = searchParams.get("format");
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT, Role.CLEANER]);
-    const [report, settings] = await Promise.all([getStoredJobReport(params.jobId), getAppSettings()]);
+    const [initialReport, settings] = await Promise.all([getStoredJobReport(params.jobId), getAppSettings()]);
+    let report = initialReport;
     if (!report) {
-      generateJobReport(params.jobId).catch(() => {});
-      return NextResponse.json(
-        { error: "Report is being generated. Try again shortly." },
-        { status: 202 }
-      );
+      report = await loadOrGenerateReport(params.jobId);
+      if (!report) {
+        return NextResponse.json(
+          { error: "Report is not available yet. Try again shortly." },
+          { status: 503 }
+        );
+      }
     }
 
     // Client role: enforce property ownership
@@ -60,20 +72,17 @@ export async function GET(
     }
 
     if (format !== "html") {
-      if (!report.pdfUrl) {
-        generateJobReport(params.jobId).catch(() => {});
-        return NextResponse.json(
-          { error: "PDF is being generated. Try again shortly." },
-          { status: 202 }
-        );
-      }
       try {
-        const pdf = await getJobReportPdfBuffer(report, params.jobId);
+        let pdf = await getJobReportPdfBuffer(report, params.jobId);
         if (!pdf) {
-          generateJobReport(params.jobId).catch(() => {});
+          report = await loadOrGenerateReport(params.jobId);
+          pdf = report ? await getJobReportPdfBuffer(report, params.jobId) : null;
+        }
+
+        if (!pdf) {
           return NextResponse.json(
-            { error: "PDF is being generated. Try again shortly." },
-            { status: 202 }
+            { error: "PDF report could not be generated for this job." },
+            { status: 503 }
           );
         }
         return new NextResponse(new Uint8Array(pdf), {
