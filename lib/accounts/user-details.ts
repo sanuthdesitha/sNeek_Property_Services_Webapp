@@ -16,6 +16,8 @@ export interface UserExtendedProfile {
   address: string | null;
   contactNumber: string | null;
   bankDetails: BankDetails | null;
+  adminPinHash: string | null;
+  adminPinUpdatedAt: string | null;
   updatedAt: string;
 }
 
@@ -70,6 +72,8 @@ function sanitizeProfile(value: unknown): UserExtendedProfile | null {
     address: sanitizeText(row.address, 500) || null,
     contactNumber: sanitizePhone(row.contactNumber),
     bankDetails: sanitizeBankDetails(row.bankDetails),
+    adminPinHash: sanitizeText(row.adminPinHash, 255) || null,
+    adminPinUpdatedAt: sanitizeText(row.adminPinUpdatedAt, 40) || null,
     updatedAt: sanitizeText(row.updatedAt, 40) || new Date().toISOString(),
   };
 }
@@ -134,6 +138,14 @@ export async function upsertUserExtendedProfile(
       patch.bankDetails !== undefined
         ? sanitizeBankDetails(patch.bankDetails)
         : current?.bankDetails ?? null,
+    adminPinHash:
+      patch.adminPinHash !== undefined
+        ? sanitizeText(patch.adminPinHash, 255) || null
+        : current?.adminPinHash ?? null,
+    adminPinUpdatedAt:
+      patch.adminPinHash !== undefined
+        ? (patch.adminPinHash ? new Date().toISOString() : null)
+        : current?.adminPinUpdatedAt ?? null,
     updatedAt: new Date().toISOString(),
   };
   if (index >= 0) {
@@ -147,4 +159,3 @@ export async function upsertUserExtendedProfile(
   await writeStore(store);
   return next;
 }
-

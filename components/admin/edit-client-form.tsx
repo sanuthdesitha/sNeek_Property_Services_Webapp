@@ -26,7 +26,9 @@ export function EditClientForm({ client }: EditClientFormProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({
     name: client.name,
     email: client.email ?? "",
@@ -34,6 +36,7 @@ export function EditClientForm({ client }: EditClientFormProps) {
     address: client.address ?? "",
     notes: client.notes ?? "",
   });
+  const [welcomeNote, setWelcomeNote] = useState("");
 
   async function saveClient() {
     if (!form.name.trim()) {
@@ -67,10 +70,14 @@ export function EditClientForm({ client }: EditClientFormProps) {
     }
   }
 
-  async function deactivateClient() {
+  async function deactivateClient(credentials?: { pin?: string; password?: string }) {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/clients/${client.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/clients/${client.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const payload = await res.json();
       if (!res.ok) {
         throw new Error(payload.error ?? "Failed to deactivate client.");
@@ -88,6 +95,41 @@ export function EditClientForm({ client }: EditClientFormProps) {
       });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function sendInvite(credentials?: { pin?: string; password?: string }) {
+    if (!form.email.trim()) {
+      toast({ title: "Client email is required", variant: "destructive" });
+      return;
+    }
+    setInviting(true);
+    try {
+      const res = await fetch(`/api/admin/clients/${client.id}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          welcomeNote,
+          security: credentials,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error ?? "Failed to send client invite.");
+      }
+      setInviteOpen(false);
+      toast({
+        title: payload.warning ? "Invite sent with warning" : "Client invite sent",
+        description: payload.warning ?? "The client's existing password was replaced and a temporary password invite was sent.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Invite failed",
+        description: err.message ?? "Failed to send client invite.",
+        variant: "destructive",
+      });
+    } finally {
+      setInviting(false);
     }
   }
 
@@ -144,6 +186,29 @@ export function EditClientForm({ client }: EditClientFormProps) {
             <Textarea id="notes" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
           </div>
 
+          <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium">Portal invitation</p>
+              <p className="text-xs text-muted-foreground">
+                Send a fresh invitation with a temporary password. Any current password will be replaced.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="welcomeNote">Welcome note</Label>
+              <Textarea
+                id="welcomeNote"
+                value={welcomeNote}
+                onChange={(e) => setWelcomeNote(e.target.value)}
+                placeholder="Optional note to include in the invitation email"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setInviteOpen(true)} disabled={inviting || !form.email.trim()}>
+                {inviting ? "Sending..." : "Send invite / reset password"}
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <Button variant="destructive" onClick={() => setDeleteOpen(true)} disabled={deleting}>
               {deleting ? "Deactivating..." : "Deactivate client"}
@@ -162,8 +227,21 @@ export function EditClientForm({ client }: EditClientFormProps) {
         description="This will hide the client from active lists. Existing records remain in history."
         confirmPhrase="DEACTIVATE"
         confirmLabel="Deactivate"
+        requireSecurityVerification
         loading={deleting}
         onConfirm={deactivateClient}
+      />
+
+      <TwoStepConfirmDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        title="Send client portal invitation"
+        description="This resets the linked client account password and emails a temporary password with your welcome note."
+        confirmPhrase="INVITE"
+        confirmLabel="Send invite"
+        requireSecurityVerification
+        loading={inviting}
+        onConfirm={sendInvite}
       />
     </div>
   );

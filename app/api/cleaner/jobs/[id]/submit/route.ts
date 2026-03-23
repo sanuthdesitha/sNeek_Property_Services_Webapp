@@ -5,16 +5,17 @@ import { submitJobSchema } from "@/lib/validations/job";
 import { deductStockFromSubmission } from "@/lib/inventory/stock";
 import { generateJobReport } from "@/lib/reports/generator";
 import { publicUrl } from "@/lib/s3";
-import { sendEmail } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
 import { ensureLaundryTaskForJob } from "@/lib/laundry/planner";
 import { resolveAppUrl } from "@/lib/app-url";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { createCase } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
+import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
+import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import {
   JobStatus,
   LaundryStatus,
@@ -111,6 +112,7 @@ function requiredUploadFieldIds(
 }
 
 async function notifyLaundryPartners(params: {
+  propertyId: string;
   propertyName: string;
   jobId: string;
   jobNumber: string;
@@ -121,10 +123,7 @@ async function notifyLaundryPartners(params: {
   portalUrl: string;
 }) {
   const settings = await getAppSettings();
-  const laundryUsers = await db.user.findMany({
-    where: { role: Role.LAUNDRY, isActive: true },
-    select: { id: true, name: true, email: true, phone: true },
-  });
+  const laundryUsers = await getAssignedLaundryUsersForProperty(params.propertyId);
   const cleanDateLabel = format(
     toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
     "EEEE, dd MMMM yyyy"
@@ -144,35 +143,29 @@ async function notifyLaundryPartners(params: {
     actionUrl: params.portalUrl,
     actionLabel: "Open laundry portal",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "laundryReady", {
+    jobNumber: params.jobNumber,
+    propertyName: params.propertyName,
+    cleanDate: cleanDateLabel,
+    scheduledPickupDate: pickupDateLabel,
+    bagLocation: params.bagLocation,
+  });
 
-  for (const user of laundryUsers) {
-    if (user.email) {
-      await sendEmail({
-        to: user.email,
-        subject: emailTemplate.subject,
-        html: emailTemplate.html,
-      });
-    }
-
-    if (user.phone) {
-      await sendSms(
-        user.phone,
-        `${params.jobNumber}: Laundry ready for ${params.propertyName} on ${cleanDateLabel}. Location: ${params.bagLocation}.`
-      );
-    }
-
-    await db.notification.create({
-      data: {
-        userId: user.id,
-        jobId: params.jobId,
-        channel: NotificationChannel.EMAIL,
-        subject: `Laundry ready - ${params.jobNumber}`,
-        body: `${params.jobNumber} ready for pickup at ${params.propertyName} on ${cleanDateLabel}. Location: ${params.bagLocation}`,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
-      },
-    });
-  }
+  await deliverNotificationToRecipients({
+    recipients: laundryUsers,
+    category: "laundry",
+    jobId: params.jobId,
+    web: {
+      subject: notificationTemplate.webSubject,
+      body: notificationTemplate.webBody,
+    },
+    email: {
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      logBody: notificationTemplate.webBody,
+    },
+    sms: notificationTemplate.smsBody,
+  });
 }
 
 async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, jobNumber: string) {
@@ -196,6 +189,7 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, j
 }
 
 async function notifyLaundrySkipRequested(params: {
+  propertyId: string;
   jobId: string;
   propertyName: string;
   jobNumber: string;
@@ -205,10 +199,7 @@ async function notifyLaundrySkipRequested(params: {
   reasonNote: string;
 }) {
   const settings = await getAppSettings();
-  const laundryUsers = await db.user.findMany({
-    where: { role: Role.LAUNDRY, isActive: true },
-    select: { id: true, email: true },
-  });
+  const laundryUsers = await getAssignedLaundryUsersForProperty(params.propertyId);
   const cleanDateLabel = format(
     toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
     "EEEE, dd MMMM yyyy"
@@ -223,28 +214,30 @@ async function notifyLaundrySkipRequested(params: {
     actionUrl: resolveAppUrl("/laundry"),
     actionLabel: "Open laundry portal",
   });
-
-  for (const user of laundryUsers) {
-    if (user.email) {
-      await sendEmail({
-        to: user.email,
-        subject: template.subject,
-        html: template.html,
-      });
-    }
-
-    await db.notification.create({
-      data: {
-        userId: user.id,
-        jobId: params.jobId,
-        channel: NotificationChannel.PUSH,
-        subject: `Laundry update - ${params.jobNumber}`,
-        body: `${params.jobNumber}: ${params.laundryOutcome.replace(/_/g, " ")} for ${params.propertyName}. ${params.reasonCode.replace(/_/g, " ")}${params.reasonNote ? ` - ${params.reasonNote}` : ""}`,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
-      },
-    });
-  }
+  const notificationTemplate = renderNotificationTemplate(settings, "laundrySkipRequested", {
+    jobNumber: params.jobNumber,
+    propertyName: params.propertyName,
+    cleanDate: cleanDateLabel,
+    laundryOutcome: params.laundryOutcome.replace(/_/g, " "),
+    reasonCode: params.reasonCode.replace(/_/g, " "),
+    reasonNote: params.reasonNote ? ` - ${params.reasonNote}` : "",
+  });
+  const message = notificationTemplate.webBody;
+  await deliverNotificationToRecipients({
+    recipients: laundryUsers,
+    category: "laundry",
+    jobId: params.jobId,
+    web: {
+      subject: notificationTemplate.webSubject,
+      body: message,
+    },
+    email: {
+      subject: template.subject,
+      html: template.html,
+      logBody: message,
+    },
+    sms: notificationTemplate.smsBody,
+  });
 }
 
 function normalizeLaundrySubmission(body: {
@@ -488,6 +481,7 @@ export async function POST(
           });
 
           await notifyLaundryPartners({
+            propertyId: job.propertyId,
             propertyName: job.property.name,
             jobId: job.id,
             jobNumber: getJobReference(job),
@@ -529,6 +523,7 @@ export async function POST(
           await Promise.all([
             alertAdminsLaundryNotReady(job.id, job.property.name, getJobReference(job)),
             notifyLaundrySkipRequested({
+              propertyId: job.propertyId,
               jobId: job.id,
               propertyName: job.property.name,
               jobNumber: getJobReference(job),

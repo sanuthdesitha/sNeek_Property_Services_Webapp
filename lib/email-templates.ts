@@ -24,6 +24,8 @@ export type AppEmailTemplateKey =
   | "shoppingReimbursementToClient"
   | "stockRunRequested"
   | "stockRunSubmitted"
+  | "tomorrowJobsSummary"
+  | "criticalInventoryTomorrow"
   | "quoteApprovalRequest"
   | "quoteSentToClient";
 
@@ -33,6 +35,33 @@ export interface EmailTemplateConfig {
 }
 
 export type AppEmailTemplates = Record<AppEmailTemplateKey, EmailTemplateConfig>;
+
+export const COMMON_EMAIL_TEMPLATE_VARIABLES = [
+  "companyName",
+  "projectName",
+  "logoUrl",
+  "accountsEmail",
+  "supportEmail",
+  "timezone",
+  "appUrl",
+  "portalUrl",
+  "loginUrl",
+  "adminUrl",
+  "cleanerUrl",
+  "clientUrl",
+  "laundryUrl",
+  "jobsUrl",
+  "reportsUrl",
+  "settingsUrl",
+  "currentDate",
+  "currentTime",
+  "currentDateTime",
+  "currentDateIso",
+  "currentDateTimeIso",
+  "currentYear",
+  "actionUrl",
+  "actionLabel",
+] as const;
 
 export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "signupOtp",
@@ -58,249 +87,234 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "shoppingReimbursementToClient",
   "stockRunRequested",
   "stockRunSubmitted",
+  "tomorrowJobsSummary",
+  "criticalInventoryTomorrow",
   "quoteApprovalRequest",
   "quoteSentToClient",
 ];
 
-export const EMAIL_TEMPLATE_DEFINITIONS: Record<
+function mergeTemplateVariableLists(...lists: ReadonlyArray<ReadonlyArray<string>>) {
+  return Array.from(new Set(lists.flatMap((list) => list)));
+}
+
+const EMAIL_TEMPLATE_DEFINITIONS_BASE: Record<
   AppEmailTemplateKey,
   { label: string; variables: string[] }
 > = {
   signupOtp: {
     label: "Signup OTP",
-    variables: ["companyName", "logoUrl", "code", "expiryMinutes", "email", "actionUrl", "actionLabel"],
+    variables: ["code", "expiryMinutes", "email"],
   },
   resetPassword: {
     label: "Reset Password",
-    variables: ["companyName", "logoUrl", "userName", "tempPassword", "email", "actionUrl", "actionLabel"],
+    variables: ["userName", "tempPassword", "email"],
   },
   welcomeAccount: {
     label: "Welcome Account",
-    variables: ["companyName", "logoUrl", "userName", "role", "email", "tempPassword", "welcomeNote", "actionUrl", "actionLabel"],
+    variables: ["userName", "role", "email", "tempPassword", "welcomeNote"],
   },
   accountInvite: {
     label: "Account Invite",
-    variables: ["companyName", "logoUrl", "userName", "role", "email", "tempPassword", "welcomeNote", "actionUrl", "actionLabel"],
+    variables: ["userName", "role", "email", "tempPassword", "welcomeNote"],
   },
   newProfileCreated: {
     label: "New Profile Created",
-    variables: ["companyName", "logoUrl", "userName", "role", "email", "createdVia", "createdAt", "actionUrl", "actionLabel"],
+    variables: ["userName", "role", "email", "createdVia", "createdAt"],
   },
   jobAssigned: {
     label: "Job Assigned",
-    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName", "actionUrl", "actionLabel"],
+    variables: ["jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName"],
   },
   jobRemoved: {
     label: "Job Removed",
-    variables: ["companyName", "logoUrl", "jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName", "actionUrl", "actionLabel"],
+    variables: ["jobType", "propertyName", "when", "timingFlags", "jobNumber", "jobUrl", "userName"],
   },
   laundryReady: {
     label: "Laundry Ready",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "jobNumber",
       "cleanDate",
       "scheduledPickupDate",
       "bagLocation",
       "laundryPhotoUrl",
-      "portalUrl",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   laundrySkipRequested: {
     label: "Laundry Skip Requested",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "jobNumber",
       "cleanDate",
       "laundryOutcome",
       "reasonCode",
       "reasonNote",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   laundrySkipApproved: {
     label: "Laundry Skip Approved",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "jobNumber",
       "cleanDate",
       "decision",
       "reasonNote",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   cleaningReportShared: {
     label: "Cleaning Report Shared",
     variables: [
-      "companyName",
-      "logoUrl",
       "clientName",
       "jobNumber",
       "propertyName",
       "jobType",
       "cleanDate",
       "reportLink",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   reportVisibilityChanged: {
     label: "Report Visibility Changed",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "jobNumber",
       "visibilityAudience",
       "visibilityState",
       "visibilityNote",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   laundryReport: {
     label: "Laundry Report",
-    variables: ["companyName", "logoUrl", "recipientName", "reportLabel", "propertyName", "actionUrl", "actionLabel"],
+    variables: ["recipientName", "reportLabel", "propertyName"],
   },
   cleanerInvoice: {
     label: "Cleaner Invoice",
-    variables: ["companyName", "logoUrl", "cleanerName", "accountsEmail", "jobCount", "actionUrl", "actionLabel"],
+    variables: ["cleanerName", "jobCount"],
   },
   clientInvoiceIssued: {
     label: "Client Invoice Issued",
     variables: [
-      "companyName",
-      "logoUrl",
       "clientName",
       "invoiceNumber",
       "periodLabel",
       "totalAmount",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   lostFoundAlert: {
     label: "Lost & Found Alert",
-    variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "itemName", "location", "notes", "caseLink", "actionUrl", "actionLabel"],
+    variables: ["cleanerName", "propertyName", "itemName", "location", "notes", "caseLink"],
   },
   extraPayRequest: {
     label: "Extra Pay Request",
-    variables: ["companyName", "logoUrl", "cleanerName", "propertyName", "jobType", "jobNumber", "requestType", "requestedAmount", "cleanerNote", "actionUrl", "actionLabel"],
+    variables: ["cleanerName", "propertyName", "jobType", "jobNumber", "requestType", "requestedAmount", "cleanerNote"],
   },
   caseCreated: {
     label: "Case Created",
     variables: [
-      "companyName",
-      "logoUrl",
       "caseTitle",
       "caseType",
       "propertyName",
       "jobNumber",
       "status",
       "priority",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   caseUpdated: {
     label: "Case Updated",
     variables: [
-      "companyName",
-      "logoUrl",
       "caseTitle",
       "caseType",
       "status",
       "updateNote",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   shoppingRunSubmitted: {
     label: "Shopping Run Submitted",
     variables: [
-      "companyName",
-      "logoUrl",
       "runTitle",
       "submittedBy",
       "paidBy",
       "actualAmount",
       "propertyNames",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   shoppingReimbursementToClient: {
     label: "Shopping Reimbursement To Client",
     variables: [
-      "companyName",
-      "logoUrl",
       "clientName",
       "runTitle",
       "actualAmount",
       "propertyNames",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   stockRunRequested: {
     label: "Stock Run Requested",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "requestedBy",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   stockRunSubmitted: {
     label: "Stock Run Submitted",
     variables: [
-      "companyName",
-      "logoUrl",
       "propertyName",
       "submittedBy",
       "lineCount",
-      "actionUrl",
-      "actionLabel",
+    ],
+  },
+  tomorrowJobsSummary: {
+    label: "Tomorrow Jobs Summary",
+    variables: [
+      "recipientName",
+      "roleLabel",
+      "dateLabel",
+      "jobCount",
+      "summaryHtml",
+      "summaryText",
+    ],
+  },
+  criticalInventoryTomorrow: {
+    label: "Critical Inventory Tomorrow",
+    variables: [
+      "recipientName",
+      "roleLabel",
+      "dateLabel",
+      "propertyCount",
+      "itemCount",
+      "inventoryHtml",
+      "inventoryText",
     ],
   },
   quoteApprovalRequest: {
     label: "Quote Approval Request",
     variables: [
-      "companyName",
-      "logoUrl",
       "clientName",
       "serviceType",
       "quoteTotal",
-      "actionUrl",
-      "actionLabel",
     ],
   },
   quoteSentToClient: {
     label: "Quote Sent To Client",
     variables: [
-      "companyName",
-      "logoUrl",
       "clientName",
       "serviceType",
       "quoteTotal",
       "validUntil",
-      "actionUrl",
-      "actionLabel",
     ],
   },
 };
+
+export const EMAIL_TEMPLATE_DEFINITIONS: Record<
+  AppEmailTemplateKey,
+  { label: string; variables: string[] }
+> = Object.fromEntries(
+  Object.entries(EMAIL_TEMPLATE_DEFINITIONS_BASE).map(([key, definition]) => [
+    key,
+    {
+      ...definition,
+      variables: mergeTemplateVariableLists(COMMON_EMAIL_TEMPLATE_VARIABLES, definition.variables),
+    },
+  ])
+) as Record<AppEmailTemplateKey, { label: string; variables: string[] }>;
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -636,6 +650,27 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p><strong>Lines counted:</strong> {lineCount}</p>
       `,
     },
+    tomorrowJobsSummary: {
+      subject: "{companyName}: Tomorrow's jobs for {roleLabel} - {dateLabel}",
+      html: `
+        <h2 style="margin:0 0 12px;">Tomorrow's job summary</h2>
+        <p>Hello {recipientName},</p>
+        <p>Here is your ordered summary for <strong>{dateLabel}</strong>.</p>
+        <p><strong>Total jobs:</strong> {jobCount}</p>
+        {summaryHtml}
+      `,
+    },
+    criticalInventoryTomorrow: {
+      subject: "{companyName}: Critical inventory alert for {dateLabel}",
+      html: `
+        <h2 style="margin:0 0 12px;">Critical inventory alert</h2>
+        <p>Hello {recipientName},</p>
+        <p>These properties scheduled for <strong>{dateLabel}</strong> have critical stock shortages.</p>
+        <p><strong>Properties affected:</strong> {propertyCount}</p>
+        <p><strong>Items affected:</strong> {itemCount}</p>
+        {inventoryHtml}
+      `,
+    },
     quoteApprovalRequest: {
       subject: "{companyName}: Quote approval required - {serviceType}",
       html: `
@@ -656,6 +691,63 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p><strong>Valid until:</strong> {validUntil}</p>
       `,
     },
+  };
+}
+
+function buildCommonEmailVariables(settings: {
+  companyName: string;
+  projectName?: string;
+  logoUrl: string;
+  accountsEmail?: string;
+  timezone?: string;
+}) {
+  const timezone = (settings.timezone || "Australia/Sydney").trim() || "Australia/Sydney";
+  const now = new Date();
+  const dateFormatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const timeFormatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const dateTimeFormatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const appUrl = resolveAppUrl("/");
+  return {
+    companyName: settings.companyName,
+    projectName: settings.projectName ?? "",
+    logoUrl: settings.logoUrl,
+    accountsEmail: settings.accountsEmail ?? "",
+    supportEmail: settings.accountsEmail ?? "",
+    timezone,
+    appUrl,
+    portalUrl: appUrl,
+    loginUrl: resolveAppUrl("/login"),
+    adminUrl: resolveAppUrl("/admin"),
+    cleanerUrl: resolveAppUrl("/cleaner"),
+    clientUrl: resolveAppUrl("/client"),
+    laundryUrl: resolveAppUrl("/laundry"),
+    jobsUrl: resolveAppUrl("/admin/jobs"),
+    reportsUrl: resolveAppUrl("/admin/reports"),
+    settingsUrl: resolveAppUrl("/admin/settings"),
+    currentDate: dateFormatter.format(now),
+    currentTime: timeFormatter.format(now),
+    currentDateTime: dateTimeFormatter.format(now),
+    currentDateIso: now.toISOString().slice(0, 10),
+    currentDateTimeIso: now.toISOString(),
+    currentYear: String(now.getUTCFullYear()),
+    actionUrl: "",
+    actionLabel: "Open details",
   };
 }
 
@@ -685,7 +777,13 @@ export function sanitizeEmailTemplates(input: unknown, fallback: AppEmailTemplat
 
 export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }, innerHtml: string, actionLink?: { url: string; label: string } | null) {
   const logoHtml = settings.logoUrl
-    ? `<img src="${escapeAttribute(settings.logoUrl)}" alt="${escapeHtml(settings.companyName)}" style="max-height:56px;max-width:220px;display:block;height:auto;width:auto;" />`
+    ? `
+      <div style="display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:16px;background:#ffffff;border:1px solid #dbe3ee;box-shadow:0 8px 18px rgba(15,23,42,0.12);">
+        <div style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:6px 10px;">
+          <img src="${escapeAttribute(settings.logoUrl)}" alt="${escapeHtml(settings.companyName)}" style="background:#ffffff;max-height:56px;max-width:220px;display:block;height:auto;width:auto;" />
+        </div>
+      </div>
+    `
     : "";
 
   const actionButtonHtml = actionLink
@@ -752,14 +850,20 @@ export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }
 }
 
 export function renderEmailTemplate(
-  settings: { companyName: string; logoUrl: string; emailTemplates: AppEmailTemplates },
+  settings: {
+    companyName: string;
+    projectName?: string;
+    logoUrl: string;
+    accountsEmail?: string;
+    timezone?: string;
+    emailTemplates: AppEmailTemplates;
+  },
   key: AppEmailTemplateKey,
   variables: Record<string, unknown>
 ) {
   const template = settings.emailTemplates[key] ?? getDefaultEmailTemplates()[key];
   const mergedVariables = normalizeTemplateVariables({
-    companyName: settings.companyName,
-    logoUrl: settings.logoUrl,
+    ...buildCommonEmailVariables(settings),
     ...Object.fromEntries(Object.entries(variables).map(([name, value]) => [name, String(value ?? "")])),
   });
 

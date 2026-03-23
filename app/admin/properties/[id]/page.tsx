@@ -63,6 +63,7 @@ export default function PropertyDetailPage() {
   const [stockRows, setStockRows] = useState<any[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [defaultInventoryItems, setDefaultInventoryItems] = useState<any[]>([]);
+  const [laundryUsers, setLaundryUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [addingPreset, setAddingPreset] = useState(false);
   const [addingCustom, setAddingCustom] = useState(false);
@@ -90,6 +91,7 @@ export default function PropertyDetailPage() {
     parking: "",
     other: "",
     instructions: "",
+    laundryTeamUserIds: [],
     attachments: [],
   });
   const [syncOptions, setSyncOptions] = useState<IcalSyncOptions>({ ...DEFAULT_ICAL_SYNC_OPTIONS });
@@ -130,6 +132,9 @@ export default function PropertyDetailPage() {
       parking: typeof access.parking === "string" ? access.parking : "",
       other: typeof access.other === "string" ? access.other : "",
       instructions: typeof access.instructions === "string" ? access.instructions : "",
+      laundryTeamUserIds: Array.isArray(access.laundryTeamUserIds)
+        ? access.laundryTeamUserIds.filter((value): value is string => typeof value === "string")
+        : [],
       attachments: Array.isArray(access.attachments)
         ? access.attachments
             .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
@@ -240,10 +245,27 @@ export default function PropertyDetailPage() {
     }
   }
 
+  async function loadLaundryUsers() {
+    const res = await fetch("/api/admin/users?role=LAUNDRY");
+    const body = await res.json().catch(() => []);
+    setLaundryUsers(
+      Array.isArray(body)
+        ? body
+            .filter((row) => row?.id)
+            .map((row) => ({
+              id: String(row.id),
+              name: String(row.name ?? row.email ?? row.id),
+              email: String(row.email ?? ""),
+            }))
+        : []
+    );
+  }
+
   useEffect(() => {
     loadProperty();
     loadInventoryCatalog();
     loadFormOverrides();
+    loadLaundryUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
@@ -275,6 +297,7 @@ export default function PropertyDetailPage() {
         accessInfo.parking ||
         accessInfo.other ||
         accessInfo.instructions ||
+        (accessInfo.laundryTeamUserIds?.length ?? 0) > 0 ||
         normalizedAttachments.length > 0
           ? {
               ...(Number(form.defaultCleanDurationHours) > 0
@@ -288,6 +311,10 @@ export default function PropertyDetailPage() {
               parking: accessInfo.parking || undefined,
               other: accessInfo.other || undefined,
               instructions: accessInfo.instructions || undefined,
+              laundryTeamUserIds:
+                Array.isArray(accessInfo.laundryTeamUserIds) && accessInfo.laundryTeamUserIds.length > 0
+                  ? accessInfo.laundryTeamUserIds
+                  : undefined,
               attachments: normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
             }
           : null,
@@ -530,9 +557,13 @@ export default function PropertyDetailPage() {
     }
   }
 
-  async function deleteProperty() {
+  async function deleteProperty(credentials?: { pin?: string; password?: string }) {
     setDeletingProperty(true);
-    const res = await fetch(`/api/admin/properties/${params.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/properties/${params.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ security: credentials }),
+    });
     const body = await res.json().catch(() => ({}));
     setDeletingProperty(false);
     if (!res.ok) {
@@ -834,6 +865,11 @@ export default function PropertyDetailPage() {
               <PropertyAccessFields
                 value={accessInfo}
                 onChange={setAccessInfo}
+                laundryTeamOptions={laundryUsers.map((user) => ({
+                  id: user.id,
+                  label: user.name,
+                  hint: user.email,
+                }))}
                 addressParts={{
                   address: form.address,
                   suburb: form.suburb,
@@ -1336,7 +1372,9 @@ export default function PropertyDetailPage() {
         onOpenChange={setDeleteOpen}
         title="Delete property"
         description="This will deactivate the property and remove it from active operations lists."
+        confirmPhrase="DELETE"
         confirmLabel="Delete property"
+        requireSecurityVerification
         loading={deletingProperty}
         onConfirm={deleteProperty}
       />

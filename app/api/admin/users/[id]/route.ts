@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getUserExtendedProfile, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).optional(),
@@ -163,9 +164,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
     if (params.id === session.user.id) {
       return NextResponse.json({ error: "You cannot delete your own account." }, { status: 400 });
     }
@@ -223,7 +226,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : 400;
     return NextResponse.json({ error: err.message ?? "Delete failed." }, { status });
   }
 }

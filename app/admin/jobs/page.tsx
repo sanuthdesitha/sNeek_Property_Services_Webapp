@@ -237,11 +237,15 @@ export default function JobsPage() {
     toast({ title: "Batch QA failed", description: "No selected jobs were updated.", variant: "destructive" });
   }
 
-  async function deleteJob() {
+  async function deleteJob(credentials?: { pin?: string; password?: string }) {
     if (!jobToDelete?.id) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/jobs/${jobToDelete.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/jobs/${jobToDelete.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error ?? "Could not delete job.");
@@ -497,7 +501,17 @@ export default function JobsPage() {
                           />
                         </div>
                         <div>
-                          <p className="text-sm font-medium">{job.property.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium">{job.property.name}</p>
+                            {job.jobNumber ? (
+                              <Badge
+                                variant="warning"
+                                className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                              >
+                                {job.jobNumber}
+                              </Badge>
+                            ) : null}
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
                             {format(new Date(job.scheduledDate), "dd MMM yyyy")}
@@ -590,9 +604,19 @@ export default function JobsPage() {
                     }`}
                   >
                     <div>
-                      <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
-                        {job.property.name}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
+                          {job.property.name}
+                        </Link>
+                        {job.jobNumber ? (
+                          <Badge
+                            variant="warning"
+                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                          >
+                            {job.jobNumber}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
                         {format(new Date(job.scheduledDate), "dd MMM yyyy")}
@@ -661,9 +685,19 @@ export default function JobsPage() {
                     }`}
                   >
                     <CardContent className="p-3">
-                      <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
-                        {job.property.name}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
+                          {job.property.name}
+                        </Link>
+                        {job.jobNumber ? (
+                          <Badge
+                            variant="warning"
+                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                          >
+                            {job.jobNumber}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
                       <p className="mt-1 text-xs font-medium">{format(new Date(job.scheduledDate), "dd MMM")}</p>
@@ -777,7 +811,9 @@ export default function JobsPage() {
             ? `This will permanently delete the job for ${jobToDelete.property?.name ?? "this property"} on ${format(new Date(jobToDelete.scheduledDate), "dd MMM yyyy")}.`
             : "This will permanently delete the selected job."
         }
+        confirmPhrase="DELETE"
         confirmLabel="Delete job"
+        requireSecurityVerification
         loading={deleting}
         onConfirm={deleteJob}
       />

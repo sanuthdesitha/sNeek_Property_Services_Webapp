@@ -9,10 +9,13 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { resolveAppUrl } from "@/lib/app-url";
 import { generateTempPassword } from "@/lib/auth/temp-password";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN]);
+    const rawBody = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, rawBody?.security);
     const user = await db.user.findUnique({
       where: { id: params.id },
       select: { id: true, name: true, email: true, isActive: true },
@@ -67,7 +70,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       tempPassword: emailResult.ok ? undefined : tempPassword,
     });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : 400;
     return NextResponse.json({ error: err.message ?? "Password reset failed." }, { status });
   }
 }

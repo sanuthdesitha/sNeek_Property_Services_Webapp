@@ -2,6 +2,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
@@ -45,6 +46,11 @@ async function notifyAdmins(input: {
   ]);
 
   const template = renderEmailTemplate(settings, input.templateKey, input.templateVariables);
+  const notificationTemplate = renderNotificationTemplate(
+    settings,
+    input.templateKey,
+    input.templateVariables
+  );
 
   for (const admin of admins) {
     const [allowWeb, allowEmail] = await Promise.all([
@@ -58,8 +64,8 @@ async function notifyAdmins(input: {
           userId: admin.id,
           jobId: input.caseItem.jobId ?? undefined,
           channel: NotificationChannel.PUSH,
-          subject: input.subject,
-          body: input.body,
+          subject: notificationTemplate.webSubject,
+          body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -102,6 +108,12 @@ async function notifyClientIfVisible(input: {
     actionUrl: resolveAppUrl("/client/cases"),
     actionLabel: "Open case",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "caseUpdated", {
+    caseTitle: input.caseItem.title,
+    caseType: input.caseItem.caseType.replace(/_/g, " "),
+    status: input.caseItem.status.replace(/_/g, " "),
+    updateNote: input.updateNote,
+  });
 
   for (const user of linkedUsers) {
     const [allowWeb, allowEmail] = await Promise.all([
@@ -115,8 +127,8 @@ async function notifyClientIfVisible(input: {
           userId: user.id,
           jobId: input.caseItem.jobId ?? undefined,
           channel: NotificationChannel.PUSH,
-          subject: input.subject,
-          body: input.body,
+          subject: notificationTemplate.webSubject,
+          body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

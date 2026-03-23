@@ -84,11 +84,14 @@ export async function PATCH(req: NextRequest) {
       await db.user.update({ where: { id: user.id }, data: userUpdate });
     }
 
+    const resolvedContactNumber =
+      body.contactNumber !== undefined ? body.contactNumber : body.phone !== undefined ? body.phone : undefined;
+
     const extendedProfile = await upsertUserExtendedProfile(user.id, {
       businessName: body.businessName,
       abn: body.abn,
       address: body.address,
-      contactNumber: body.contactNumber,
+      contactNumber: resolvedContactNumber,
       bankDetails: body.bankDetails
         ? {
             accountName: body.bankDetails.accountName ?? "",

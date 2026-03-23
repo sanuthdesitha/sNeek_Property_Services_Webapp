@@ -4,6 +4,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 
 export async function notifyAdminsOfNewProfile(input: {
@@ -35,6 +36,13 @@ export async function notifyAdminsOfNewProfile(input: {
     actionUrl: resolveAppUrl(`/admin/users?q=${encodeURIComponent(input.email)}`),
     actionLabel: "Open account",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "newProfileCreated", {
+    userName: input.userName,
+    email: input.email,
+    role: input.role.replace(/_/g, " "),
+    createdVia: input.createdVia,
+    createdAt,
+  });
 
   for (const admin of admins) {
     const [allowWeb, allowEmail] = await Promise.all([
@@ -57,8 +65,8 @@ export async function notifyAdminsOfNewProfile(input: {
         data: {
           userId: admin.id,
           channel: NotificationChannel.PUSH,
-          subject: "New profile created",
-          body: `${input.userName} (${input.email}) completed ${input.createdVia}.`,
+          subject: notificationTemplate.webSubject,
+          body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

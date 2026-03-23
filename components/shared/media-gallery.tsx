@@ -54,11 +54,16 @@ export function MediaGallery({
             <button
               key={item.id}
               type="button"
-              className="overflow-hidden rounded-md border bg-muted/20"
+              className="overflow-hidden rounded-md border bg-muted/20 text-left"
               onClick={() => openImage(item)}
               title={item.label ?? "View image"}
             >
               <img src={item.url} alt={item.label ?? "Submission image"} className="h-20 w-full object-cover" />
+              {item.label ? (
+                <div className="truncate border-t bg-white px-2 py-1 text-[11px] text-muted-foreground">
+                  {item.label}
+                </div>
+              ) : null}
             </button>
           ))}
         </div>

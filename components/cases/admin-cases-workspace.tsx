@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
 
 type CaseStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
@@ -113,6 +114,7 @@ export function AdminCasesWorkspace() {
   const [postingComment, setPostingComment] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [items, setItems] = useState<CaseItem[]>([]);
   const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -303,17 +305,21 @@ export function AdminCasesWorkspace() {
     }
   }
 
-  async function deleteCase() {
+  async function deleteCase(credentials?: { pin?: string; password?: string }) {
     if (!selected) return;
-    if (!window.confirm("Delete this case? This cannot be undone.")) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/cases/${selected.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/cases/${selected.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not delete case.");
       toast({ title: "Case deleted" });
       setSelected(null);
       setSelectedId("");
+      setDeleteOpen(false);
       await loadList();
     } catch (error: any) {
       toast({ title: "Delete failed", description: error?.message ?? "Could not delete case.", variant: "destructive" });
@@ -396,7 +402,7 @@ export function AdminCasesWorkspace() {
                 <div className="grid gap-3 md:grid-cols-2"><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can see this case</span><Switch checked={selected.clientVisible} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientVisible: checked } : prev)} /></label><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can reply</span><Switch checked={selected.clientCanReply} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientCanReply: checked } : prev)} /></label></div>
                 <div className="space-y-1.5"><Label>Description</Label><Textarea rows={5} value={selected.description || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, description: event.target.value } : prev)} /></div>
                 <div className="space-y-1.5"><Label>Resolution / admin note</Label><Textarea rows={3} value={selected.resolutionNote || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, resolutionNote: event.target.value } : prev)} /></div>
-                <div className="flex flex-wrap gap-2"><Button onClick={saveCase} disabled={saving}>{saving ? "Saving..." : "Save case"}</Button><Button variant="destructive" onClick={deleteCase} disabled={deleting}>{deleting ? "Deleting..." : "Delete case"}</Button></div>
+                <div className="flex flex-wrap gap-2"><Button onClick={saveCase} disabled={saving}>{saving ? "Saving..." : "Save case"}</Button><Button variant="destructive" onClick={() => setDeleteOpen(true)} disabled={deleting}>{deleting ? "Deleting..." : "Delete case"}</Button></div>
                 <div className="space-y-3 rounded-2xl border p-4">
                   <div><h3 className="font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Public updates and internal admin notes live in one thread.</p></div>
                   <div className="space-y-3">{selected.comments.length === 0 ? <p className="text-sm text-muted-foreground">No comments yet.</p> : selected.comments.map((comment) => <div key={comment.id} className="rounded-xl border p-3"><div className="mb-2 flex flex-wrap items-center gap-2"><Badge variant={comment.isInternal ? "destructive" : "secondary"}>{comment.isInternal ? "Internal" : "Public"}</Badge><span className="text-xs text-muted-foreground">{authorLabel(comment.author)} · {formatDateTime(comment.createdAt)}</span></div><p className="whitespace-pre-wrap text-sm">{comment.body}</p></div>)}</div>
@@ -420,6 +426,18 @@ export function AdminCasesWorkspace() {
           </CardContent>
         </Card>
       </div>
+
+      <TwoStepConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete case"
+        description="This permanently removes the case, comments, and attachments."
+        confirmPhrase="DELETE"
+        confirmLabel="Delete case"
+        requireSecurityVerification
+        loading={deleting}
+        onConfirm={deleteCase}
+      />
     </div>
   );
 }

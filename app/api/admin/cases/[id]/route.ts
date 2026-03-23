@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import { deleteCase, getCaseById, updateCase } from "@/lib/cases/service";
 import { notifyCaseUpdated } from "@/lib/cases/notifications";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 
 const patchSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
@@ -65,21 +67,37 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
     const ok = await deleteCase(params.id);
     if (!ok) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
+    await db.auditLog.create({
+      data: {
+        userId: session.user.id,
+        action: "DELETE_CASE",
+        entity: "IssueTicket",
+        entityId: params.id,
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message ?? "Could not delete case." },
-      { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 }
+      {
+        status:
+          err.message === "UNAUTHORIZED"
+            ? 401
+            : err.message === "FORBIDDEN"
+              ? 403
+              : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+                ? 423
+                : 400,
+      }
     );
   }
 }

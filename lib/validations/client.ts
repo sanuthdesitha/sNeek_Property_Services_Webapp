@@ -15,6 +15,7 @@ const accessInfoSchema = z.object({
   instructions: z.string().optional(),
   defaultCleanDurationHours: z.number().positive().max(24).optional(),
   maxGuestCount: z.number().int().min(1).max(100).optional(),
+  laundryTeamUserIds: z.array(z.string().cuid()).optional(),
   attachments: z.array(accessAttachmentSchema).optional(),
 });
 

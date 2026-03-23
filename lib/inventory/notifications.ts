@@ -1,7 +1,9 @@
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { sendSms } from "@/lib/notifications/sms";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
 import type { ShoppingRunRecord } from "@/lib/inventory/shopping-runs";
@@ -16,21 +18,29 @@ type StockRunLike = {
 
 async function notifyAdmins(input: {
   category: "shopping";
-  subject: string;
-  body: string;
+  webSubject: string;
+  webBody: string;
+  smsBody?: string;
   templateSubject: string;
   templateHtml: string;
   jobId?: string | null;
 }) {
   const admins = await db.user.findMany({
     where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
-    select: { id: true, email: true, role: true },
+    select: { id: true, email: true, phone: true, role: true },
   });
 
   for (const admin of admins) {
-    const [allowWeb, allowEmail] = await Promise.all([
+    const [allowWeb, allowEmail, allowSms] = await Promise.all([
       canDeliverNotification({ userId: admin.id, category: input.category, channel: "WEB", role: admin.role }),
       canDeliverNotification({ userId: admin.id, category: input.category, channel: NotificationChannel.EMAIL, role: admin.role }),
+      canDeliverNotification({
+        userId: admin.id,
+        category: input.category,
+        channel: NotificationChannel.SMS,
+        role: admin.role,
+        hasPhone: Boolean(admin.phone),
+      }),
     ]);
 
     if (allowWeb) {
@@ -39,8 +49,8 @@ async function notifyAdmins(input: {
           userId: admin.id,
           jobId: input.jobId ?? undefined,
           channel: NotificationChannel.PUSH,
-          subject: input.subject,
-          body: input.body,
+          subject: input.webSubject,
+          body: input.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -52,6 +62,22 @@ async function notifyAdmins(input: {
         to: admin.email,
         subject: input.templateSubject,
         html: input.templateHtml,
+        });
+      }
+
+    if (allowSms && admin.phone && input.smsBody) {
+      const ok = await sendSms(admin.phone, input.smsBody);
+      await db.notification.create({
+        data: {
+          userId: admin.id,
+          jobId: input.jobId ?? undefined,
+          channel: NotificationChannel.SMS,
+          subject: input.webSubject,
+          body: input.smsBody,
+          status: ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+          sentAt: ok ? new Date() : undefined,
+          errorMsg: ok ? undefined : "SMS delivery failed or is not configured.",
+        },
       });
     }
   }
@@ -75,11 +101,19 @@ export async function notifyShoppingRunSubmitted(input: {
     actionUrl: "/admin/shopping-runs",
     actionLabel: "Open shopping runs",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "shoppingRunSubmitted", {
+    runTitle: input.run.name,
+    submittedBy: input.actorLabel,
+    paidBy: paidByDisplay,
+    actualAmount: `$${Number(input.run.totals.actualTotalCost ?? 0).toFixed(2)}`,
+    propertyNames,
+  });
 
   await notifyAdmins({
     category: "shopping",
-    subject: "Shopping run submitted",
-    body: `${input.run.name} submitted by ${input.actorLabel}`,
+    webSubject: notificationTemplate.webSubject,
+    webBody: notificationTemplate.webBody,
+    smsBody: notificationTemplate.smsBody,
     templateSubject: template.subject,
     templateHtml: template.html,
   });
@@ -96,11 +130,17 @@ export async function notifyStockRunRequested(input: {
     actionUrl: "/admin/stock-runs",
     actionLabel: "Open stock counts",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "stockRunRequested", {
+    propertyName: input.run.property.name,
+    requestedBy: input.actorLabel,
+    runTitle: input.run.title,
+  });
 
   await notifyAdmins({
     category: "shopping",
-    subject: "Stock count requested",
-    body: `${input.run.property.name}: ${input.actorLabel} started ${input.run.title}`,
+    webSubject: notificationTemplate.webSubject,
+    webBody: notificationTemplate.webBody,
+    smsBody: notificationTemplate.smsBody,
     templateSubject: template.subject,
     templateHtml: template.html,
   });
@@ -118,11 +158,18 @@ export async function notifyStockRunSubmitted(input: {
     actionUrl: "/admin/stock-runs",
     actionLabel: "Review stock run",
   });
+  const notificationTemplate = renderNotificationTemplate(settings, "stockRunSubmitted", {
+    propertyName: input.run.property.name,
+    submittedBy: input.actorLabel,
+    runTitle: input.run.title,
+    lineCount: String(input.run.lines?.length ?? 0),
+  });
 
   await notifyAdmins({
     category: "shopping",
-    subject: "Stock count submitted",
-    body: `${input.run.property.name}: ${input.actorLabel} submitted ${input.run.title}`,
+    webSubject: notificationTemplate.webSubject,
+    webBody: notificationTemplate.webBody,
+    smsBody: notificationTemplate.smsBody,
     templateSubject: template.subject,
     templateHtml: template.html,
   });

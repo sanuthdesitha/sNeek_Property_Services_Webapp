@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role, JobType } from "@prisma/client";
 import { z } from "zod";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 
 const updateTemplateSchema = z.object({
   name: z.string().optional(),
@@ -40,12 +41,11 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN]);
+    const session = await requireRole([Role.ADMIN]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
     const existing = await db.formTemplate.findUnique({ where: { id: params.id }, select: { id: true } });
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -54,8 +54,24 @@ export async function DELETE(
       where: { id: params.id },
       data: { isActive: false },
     });
+    await db.auditLog.create({
+      data: {
+        userId: session.user.id,
+        action: "DEACTIVATE_FORM_TEMPLATE",
+        entity: "FormTemplate",
+        entityId: params.id,
+      },
+    });
     return NextResponse.json({ ok: true, template });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : 400;
+    return NextResponse.json({ error: err.message }, { status });
   }
 }

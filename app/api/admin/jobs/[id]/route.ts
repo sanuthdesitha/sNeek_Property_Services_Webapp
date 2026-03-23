@@ -4,8 +4,20 @@ import { db } from "@/lib/db";
 import { updateJobSchema } from "@/lib/validations/job";
 import { Role, JobStatus } from "@prisma/client";
 import { z } from "zod";
-import { applyJobTimingRules, parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import {
+  applyJobTimingRules,
+  getJobTimingHighlights,
+  parseJobInternalNotes,
+  serializeJobInternalNotes,
+} from "@/lib/jobs/meta";
 import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { getAppSettings } from "@/lib/settings";
+import { getJobReference } from "@/lib/jobs/job-number";
+import { resolveAppUrl } from "@/lib/app-url";
+import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 
@@ -24,6 +36,17 @@ function normalizeRule(
     preset: rule.preset ?? "none",
     time: rule.time,
   };
+}
+
+function formatJobStatus(value: string | null | undefined) {
+  return (value ?? "")
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (part) => part.toUpperCase());
+}
+
+function formatJobDate(value: Date | null | undefined) {
+  return value ? value.toISOString().slice(0, 10) : "-";
 }
 
 export async function GET(
@@ -84,7 +107,24 @@ export async function PATCH(
     const { confirmCompletedReset, ...body } = parsed;
     const current = await db.job.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true, internalNotes: true, startTime: true, dueTime: true },
+      select: {
+        id: true,
+        jobNumber: true,
+        propertyId: true,
+        jobType: true,
+        status: true,
+        internalNotes: true,
+        startTime: true,
+        dueTime: true,
+        scheduledDate: true,
+        property: { select: { name: true, suburb: true } },
+        assignments: {
+          where: { removedAt: null },
+          select: {
+            user: { select: { id: true, name: true, email: true, phone: true, role: true, isActive: true } },
+          },
+        },
+      },
     });
     if (!current) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
@@ -175,6 +215,22 @@ export async function PATCH(
       });
     }
 
+    const refreshed = await db.job.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        jobNumber: true,
+        propertyId: true,
+        jobType: true,
+        status: true,
+        internalNotes: true,
+        startTime: true,
+        dueTime: true,
+        scheduledDate: true,
+        property: { select: { name: true, suburb: true } },
+      },
+    });
+
     await db.auditLog.create({
       data: {
         userId: session.user.id,
@@ -186,6 +242,95 @@ export async function PATCH(
       },
     });
 
+    if (refreshed) {
+      const previousMeta = parseJobInternalNotes(current.internalNotes);
+      const nextMeta = parseJobInternalNotes(refreshed.internalNotes);
+      const previousTiming = getJobTimingHighlights(previousMeta).join(" | ");
+      const nextTiming = getJobTimingHighlights(nextMeta).join(" | ");
+      const changes: string[] = [];
+
+      if (formatJobStatus(current.status) !== formatJobStatus(refreshed.status)) {
+        changes.push(`Status: ${formatJobStatus(current.status)} -> ${formatJobStatus(refreshed.status)}`);
+      }
+      if (formatJobDate(current.scheduledDate) !== formatJobDate(refreshed.scheduledDate)) {
+        changes.push(`Date: ${formatJobDate(current.scheduledDate)} -> ${formatJobDate(refreshed.scheduledDate)}`);
+      }
+      if ((current.startTime ?? "") !== (refreshed.startTime ?? "")) {
+        changes.push(`Start time: ${current.startTime ?? "-"} -> ${refreshed.startTime ?? "-"}`);
+      }
+      if ((current.dueTime ?? "") !== (refreshed.dueTime ?? "")) {
+        changes.push(`Finish time: ${current.dueTime ?? "-"} -> ${refreshed.dueTime ?? "-"}`);
+      }
+      if (previousTiming !== nextTiming) {
+        changes.push(`Turnaround flags: ${nextTiming || "Cleared"}`);
+      }
+      if ((body.internalNotes ?? "").trim()) {
+        changes.push("Job notes updated");
+      }
+
+      if (changes.length > 0) {
+        const settings = await getAppSettings();
+        const companyName = settings.companyName || "sNeek Property Services";
+        const jobReference = getJobReference(refreshed);
+        const propertyLabel = `${refreshed.property.name}${refreshed.property.suburb ? ` (${refreshed.property.suburb})` : ""}`;
+        const immediateAttention =
+          current.status !== refreshed.status ||
+          formatJobDate(current.scheduledDate) !== formatJobDate(refreshed.scheduledDate) ||
+          current.startTime !== refreshed.startTime ||
+          current.dueTime !== refreshed.dueTime;
+        const summaryLines = changes.map((row) => `<li>${row}</li>`).join("");
+        const emailHtml = `
+          <h2 style="margin:0 0 12px;">Job updated${immediateAttention ? " - immediate attention" : ""}</h2>
+          <p><strong>${jobReference}</strong> for <strong>${propertyLabel}</strong> has been updated.</p>
+          <ul style="padding-left:18px;margin:12px 0;">${summaryLines}</ul>
+          <p>Open the job for the latest instructions and schedule details.</p>
+        `;
+        const notificationTemplate = renderNotificationTemplate(settings, "jobUpdated", {
+          jobNumber: jobReference,
+          propertyName: propertyLabel,
+          changeSummary: changes.join(" | "),
+          immediateAttention: immediateAttention ? "Immediate attention required. " : "",
+        });
+        const webSubject = `${companyName}: ${notificationTemplate.webSubject}`;
+        const webBody = notificationTemplate.webBody;
+        const smsBody = notificationTemplate.smsBody.slice(0, 320);
+
+        const cleaners = current.assignments
+          .map((assignment) => assignment.user)
+          .filter((user): user is NonNullable<typeof current.assignments[number]["user"]> => Boolean(user?.id && user.isActive));
+        if (cleaners.length > 0) {
+          await deliverNotificationToRecipients({
+            recipients: cleaners,
+            category: "jobs",
+            jobId: refreshed.id,
+            web: { subject: webSubject, body: webBody },
+            email: {
+              subject: webSubject,
+              html: emailHtml,
+              logBody: webBody,
+            },
+            sms: smsBody,
+          });
+        }
+
+        const laundryRecipients = await getAssignedLaundryUsersForProperty(current.propertyId);
+        if (laundryRecipients.length > 0) {
+          await deliverNotificationToRecipients({
+            recipients: laundryRecipients,
+            category: "laundry",
+            jobId: refreshed.id,
+            web: { subject: webSubject, body: webBody },
+            email: {
+              subject: webSubject,
+              html: emailHtml,
+              logBody: webBody,
+            },
+            sms: smsBody,
+          });
+        }
+      }
+    }
+
     return NextResponse.json(job);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
@@ -193,12 +338,11 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
     const jobId = params.id;
 
     const existing = await db.job.findUnique({ where: { id: jobId }, select: { id: true } });
@@ -232,17 +376,26 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
     const jobId = params.id;
 
     const existing = await db.job.findUnique({
@@ -347,7 +500,14 @@ export async function POST(
       clearedContinuationRequests: continuationRequests.length - filteredContinuationRequests.length,
     });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

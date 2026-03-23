@@ -590,10 +590,14 @@ export default function JobDetailPage() {
     load();
   }
 
-  async function deleteJob() {
+  async function deleteJob(credentials?: { pin?: string; password?: string }) {
     setDeletingJob(true);
     try {
-      const res = await fetch(`/api/admin/jobs/${params.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/jobs/${params.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error ?? "Could not delete job.");
@@ -609,10 +613,14 @@ export default function JobDetailPage() {
     }
   }
 
-  async function resetJob() {
+  async function resetJob(credentials?: { pin?: string; password?: string }) {
     setResettingJob(true);
     try {
-      const res = await fetch(`/api/admin/jobs/${params.id}`, { method: "POST" });
+      const res = await fetch(`/api/admin/jobs/${params.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error ?? "Could not reset job.");
@@ -1581,7 +1589,9 @@ export default function JobDetailPage() {
         onOpenChange={setDeleteOpen}
         title="Delete this job"
         description="This permanently removes the job, submissions, QA, time logs, laundry links, and report data."
+        confirmPhrase="DELETE"
         confirmLabel="Delete job"
+        requireSecurityVerification
         loading={deletingJob}
         onConfirm={deleteJob}
       />
@@ -1590,7 +1600,9 @@ export default function JobDetailPage() {
         onOpenChange={setResetOpen}
         title="Reset this job"
         description="This resets the job back to Unassigned, removes all assigned cleaners, clears submissions, reports, QA, laundry progress, time logs, and restores deducted inventory."
+        confirmPhrase="RESET"
         confirmLabel="Reset job"
+        requireSecurityVerification
         loading={resettingJob}
         onConfirm={resetJob}
       />

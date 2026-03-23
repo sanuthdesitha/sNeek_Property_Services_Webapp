@@ -4,10 +4,11 @@ import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { addDays } from "date-fns";
 import { getApiErrorStatus } from "@/lib/api/http";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.LAUNDRY]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.LAUNDRY]);
     const { searchParams } = new URL(req.url);
     const startParam = searchParams.get("start");
     const daysParam = Number(searchParams.get("days") ?? 7);
@@ -39,7 +40,12 @@ export async function GET(req: NextRequest) {
       orderBy: { pickupDate: "asc" },
     });
 
-    return NextResponse.json(tasks);
+    const visibleTasks =
+      session.user.role === Role.LAUNDRY
+        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property?.accessInfo, session.user.id))
+        : tasks;
+
+    return NextResponse.json(visibleTasks);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: getApiErrorStatus(err) });
   }

@@ -89,6 +89,7 @@ export default async function CleanerJobsPage({
     where,
     select: {
       id: true,
+      jobNumber: true,
       jobType: true,
       status: true,
       scheduledDate: true,
@@ -244,9 +245,19 @@ export default async function CleanerJobsPage({
                 return (
                   <div key={job.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <Link href={`/cleaner/jobs/${job.id}`} className="truncate font-medium hover:underline">
-                        {job.property.name}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link href={`/cleaner/jobs/${job.id}`} className="truncate font-medium hover:underline">
+                          {job.property.name}
+                        </Link>
+                        {job.jobNumber ? (
+                          <Badge
+                            variant="warning"
+                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                          >
+                            {job.jobNumber}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")}
                       </p>

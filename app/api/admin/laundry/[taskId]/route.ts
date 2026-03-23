@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
@@ -31,13 +33,23 @@ function parseNotesJson(notes: string | null | undefined) {
 }
 
 async function createRoleNotifications(roles: Role[], subject: string, body: string, jobId?: string | null) {
-  const recipients = await db.user.findMany({
-    where: {
-      role: { in: roles },
-      isActive: true,
-    },
-    select: { id: true },
-  });
+  const recipients =
+    roles.length === 1 && roles[0] === Role.LAUNDRY && jobId
+      ? await db.laundryTask.findUnique({
+          where: { jobId },
+          select: { propertyId: true },
+        }).then(async (task) => {
+          if (!task?.propertyId) return [];
+          const users = await getAssignedLaundryUsersForProperty(task.propertyId);
+          return users.map((user) => ({ id: user.id }));
+        })
+      : await db.user.findMany({
+          where: {
+            role: { in: roles },
+            isActive: true,
+          },
+          select: { id: true },
+        });
 
   if (!recipients.length) return;
 
@@ -272,18 +284,47 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { taskId: string } }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: { taskId: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    await verifySensitiveAction(session.user.id, body?.security);
+    const existing = await db.laundryTask.findUnique({
+      where: { id: params.taskId },
+      select: { id: true, jobId: true, status: true, pickedUpAt: true, droppedAt: true, confirmations: { select: { id: true } } },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    }
     await db.laundryConfirmation.deleteMany({ where: { laundryTaskId: params.taskId } });
     await db.laundryTask.delete({ where: { id: params.taskId } });
+    await db.auditLog.create({
+      data: {
+        userId: session.user.id,
+        jobId: existing.jobId,
+        action: "DELETE_LAUNDRY_TASK",
+        entity: "LaundryTask",
+        entityId: params.taskId,
+        before: {
+          status: existing.status,
+          pickedUpAt: existing.pickedUpAt?.toISOString() ?? null,
+          droppedAt: existing.droppedAt?.toISOString() ?? null,
+          confirmationCount: existing.confirmations.length,
+        } as any,
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status =
-      err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : err.code === "P2025" ? 404 : 400;
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+            ? 423
+            : err.code === "P2025"
+              ? 404
+              : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

@@ -289,10 +289,14 @@ export default function FormsPage() {
     applyTemplate(body);
   }
 
-  async function deleteTemplate() {
+  async function deleteTemplate(credentials?: { pin?: string; password?: string }) {
     if (!isEditing) return;
     setDeletingTemplate(true);
-    const res = await fetch(`/api/admin/form-templates/${selectedTemplateId}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/form-templates/${selectedTemplateId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ security: credentials }),
+    });
     const body = await res.json().catch(() => ({}));
     setDeletingTemplate(false);
     if (!res.ok) {
@@ -785,7 +789,9 @@ export default function FormsPage() {
         onOpenChange={setDeleteOpen}
         title="Delete form template"
         description="This template will be deactivated and unavailable for future jobs."
+        confirmPhrase="DELETE"
         confirmLabel="Delete template"
+        requireSecurityVerification
         loading={deletingTemplate}
         onConfirm={deleteTemplate}
       />

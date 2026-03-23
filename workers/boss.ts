@@ -9,14 +9,13 @@ import { db } from "@/lib/db";
 import { syncAllIcal } from "@/lib/ical/sync";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { logger } from "@/lib/logger";
-import { sendEmail } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { dispatchJobReminders } from "@/lib/ops/reminders";
 import { generateRecurringJobs } from "@/lib/ops/recurring";
 import { runSlaEscalation } from "@/lib/ops/sla";
+import { sendStockAlerts } from "@/lib/ops/stock-alerts";
+import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
-import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
-import { resolveAppUrl } from "@/lib/app-url";
 
 const TZ = "Australia/Sydney";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -37,7 +36,7 @@ async function main() {
 
   await boss.schedule("reminder-dispatch", "*/5 * * * *", {});
   await boss.work<{ jobId?: string }>("reminder-dispatch", async () => {
-    await dispatchReminders();
+    await dispatchJobReminders({ reminderType: "ALL" });
   });
 
   await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});
@@ -52,9 +51,16 @@ async function main() {
     );
   });
 
-  await boss.schedule("stock-alerts", "0 7 * * *", {});
+  await boss.schedule("stock-alerts", "*/15 * * * *", {});
   await boss.work("stock-alerts", async () => {
     await sendStockAlerts();
+  });
+
+  await boss.schedule("tomorrow-prep-dispatch", "*/15 * * * *", {});
+  await boss.work("tomorrow-prep-dispatch", async () => {
+    const result = await dispatchTomorrowPrepSummaries(new Date());
+    if ("skipped" in result) return;
+    logger.info({ ...result }, "Tomorrow prep summaries sent");
   });
 
   await boss.schedule("sla-escalation", "*/15 * * * *", {});
@@ -86,123 +92,6 @@ async function main() {
   });
 
   logger.info("All workers registered. Listening for jobs.");
-}
-
-async function dispatchReminders() {
-  const now = new Date();
-  const settings = await getAppSettings();
-
-  const longWindowHours = Math.max(1, settings.reminder24hHours);
-  const shortWindowHours = Math.max(1, settings.reminder2hHours);
-
-  const longEnd = new Date(now.getTime() + longWindowHours * 3600_000);
-  const longStart = new Date(now.getTime() + (longWindowHours - 1) * 3600_000);
-
-  const jobsLong = await db.job.findMany({
-    where: {
-      scheduledDate: { gte: longStart, lte: longEnd },
-      status: { in: ["ASSIGNED"] },
-      reminder24hSent: false,
-    },
-    select: {
-      id: true,
-      jobType: true,
-      startTime: true,
-      internalNotes: true,
-      property: { select: { name: true, address: true } },
-      assignments: { select: { user: { select: { name: true, email: true, phone: true } } } },
-    },
-  });
-
-  for (const job of jobsLong) {
-    const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
-    const timingHtml = timingText ? `<p><strong>Timing:</strong> ${timingText}</p>` : "";
-    for (const assignment of job.assignments) {
-      if (!assignment.user.email) continue;
-      await sendEmail({
-        to: assignment.user.email,
-        subject: `Reminder: Cleaning job soon - ${job.property.name}`,
-        html: `<p>Hi ${assignment.user.name},</p><p>You have a ${job.jobType.replace(
-          /_/g,
-          " "
-        )} job coming up at <strong>${job.property.name}</strong>, ${job.property.address}.</p><p>Start time: ${
-          job.startTime ?? "TBD"
-        }</p>${timingHtml}`,
-      });
-    }
-    await db.job.update({ where: { id: job.id }, data: { reminder24hSent: true } });
-    logger.info({ jobId: job.id }, "Long-window reminder sent");
-  }
-
-  const shortEnd = new Date(now.getTime() + shortWindowHours * 3600_000);
-  const shortStart = new Date(now.getTime() + (shortWindowHours - 1) * 3600_000);
-
-  const jobsShort = await db.job.findMany({
-    where: {
-      scheduledDate: { gte: shortStart, lte: shortEnd },
-      status: { in: ["ASSIGNED"] },
-      reminder2hSent: false,
-    },
-    select: {
-      id: true,
-      jobType: true,
-      startTime: true,
-      internalNotes: true,
-      property: { select: { name: true, address: true } },
-      assignments: { select: { user: { select: { name: true, email: true, phone: true } } } },
-    },
-  });
-
-  for (const job of jobsShort) {
-    const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
-    const timingSuffix = timingText ? ` ${timingText}.` : "";
-    for (const assignment of job.assignments) {
-      if (!assignment.user.phone) continue;
-      await sendSms(
-        assignment.user.phone,
-        `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${
-          job.property.address
-        }.${timingSuffix}`
-      );
-    }
-    await db.job.update({ where: { id: job.id }, data: { reminder2hSent: true } });
-    logger.info({ jobId: job.id }, "Short-window reminder sent");
-  }
-}
-
-async function sendStockAlerts() {
-  const lowStocks = await db.propertyStock.findMany({
-    where: { onHand: { lte: db.propertyStock.fields.reorderThreshold } },
-    include: {
-      item: true,
-      property: { include: { client: true } },
-    },
-  });
-
-  if (lowStocks.length === 0) return;
-
-  const adminUsers = await db.user.findMany({ where: { role: "ADMIN", isActive: true } });
-  const lines = lowStocks
-    .map(
-      (stock) =>
-        `- ${stock.property.name} - ${stock.item.name}: ${stock.onHand} ${stock.item.unit} on hand (par: ${stock.parLevel})`
-    )
-    .join("\n");
-
-  for (const admin of adminUsers) {
-    if (!admin.email) continue;
-    const inventoryUrl = resolveAppUrl("/admin/inventory");
-    const inventoryLink = /^https?:\/\//i.test(inventoryUrl)
-      ? `<p><a href="${inventoryUrl}">View shopping list</a></p>`
-      : "";
-    await sendEmail({
-      to: admin.email,
-      subject: `sNeek Ops: ${lowStocks.length} items low on stock`,
-      html: `<p>${lowStocks.length} items are below reorder threshold:</p><pre>${lines}</pre>${inventoryLink}`,
-    });
-  }
-
-  logger.info({ count: lowStocks.length }, "Stock alerts sent");
 }
 
 main().catch((err) => {

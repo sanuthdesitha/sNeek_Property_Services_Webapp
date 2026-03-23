@@ -18,6 +18,12 @@ import {
   renderEmailTemplate,
   type AppEmailTemplateKey,
 } from "@/lib/email-templates";
+import {
+  NOTIFICATION_TEMPLATE_DEFINITIONS,
+  NOTIFICATION_TEMPLATE_KEYS,
+  renderNotificationTemplate,
+  type AppNotificationTemplateKey,
+} from "@/lib/notification-templates";
 
 interface SettingsEditorProps {
   initialSettings: AppSettings;
@@ -68,7 +74,7 @@ function dedupeOptionList(values: string[]) {
   return result;
 }
 
-type EmailBlockType = "heading" | "paragraph" | "button" | "divider";
+type EmailBlockType = "heading" | "paragraph" | "button" | "divider" | "html";
 
 interface EmailBuilderBlock {
   id: string;
@@ -140,6 +146,10 @@ function tryParseBuilderBlocks(html: string) {
   return decodeBuilderBlocks(match[1]);
 }
 
+function stripBuilderMetadata(html: string) {
+  return html.replace(/<!--SNEEK_EMAIL_BUILDER:[A-Za-z0-9+/=]+-->/g, "").trim();
+}
+
 function escapeEmailBlockText(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -151,37 +161,138 @@ function escapeEmailBlockAttribute(value: string) {
   return escapeEmailBlockText(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+function escapeEmailParagraphText(value: string) {
+  return escapeEmailBlockText(value).replace(/\r?\n/g, "<br />");
+}
+
+function hasUnsupportedHtmlFeatures(element: HTMLElement) {
+  return Boolean(
+    element.querySelector(
+      "img, table, tbody, thead, tr, td, th, ul, ol, li, blockquote, pre, code, iframe, video, audio, svg"
+    )
+  );
+}
+
+function isStandaloneButtonElement(element: HTMLElement) {
+  if (element.tagName === "A") return true;
+  if (!["P", "DIV", "SECTION", "ARTICLE"].includes(element.tagName)) return false;
+  if (element.children.length !== 1) return false;
+  const onlyChild = element.children[0];
+  return onlyChild?.tagName === "A" && element.textContent?.trim() === onlyChild.textContent?.trim();
+}
+
+function elementToBuilderBlocks(element: HTMLElement): EmailBuilderBlock[] {
+  if (element.tagName === "HR") {
+    return [{ id: createBlockId(), type: "divider", text: "" }];
+  }
+
+  if (/^H[1-6]$/.test(element.tagName)) {
+    return [{ id: createBlockId(), type: "heading", text: element.textContent?.trim() || "Heading" }];
+  }
+
+  if (isStandaloneButtonElement(element)) {
+    const anchor = element.tagName === "A" ? element : (element.querySelector("a") as HTMLAnchorElement | null);
+    return [
+      {
+        id: createBlockId(),
+        type: "button",
+        text: anchor?.textContent?.trim() || "Take action",
+        url: anchor?.getAttribute("href") || "{actionUrl}",
+      },
+    ];
+  }
+
+  if (["P", "DIV", "SECTION", "ARTICLE"].includes(element.tagName)) {
+    if (hasUnsupportedHtmlFeatures(element)) {
+      return [{ id: createBlockId(), type: "html", text: element.outerHTML.trim() }];
+    }
+
+    const inlineMarkup = element.innerHTML
+      .replace(/<br\s*\/?>/gi, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, "");
+    const textOnly = (element.textContent || "").replace(/\s+/g, "");
+
+    if (inlineMarkup && inlineMarkup !== textOnly) {
+      return [{ id: createBlockId(), type: "html", text: element.outerHTML.trim() }];
+    }
+
+    const paragraphText = element.innerHTML
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .trim();
+
+    if (!paragraphText) return [];
+    return [{ id: createBlockId(), type: "paragraph", text: paragraphText }];
+  }
+
+  return [{ id: createBlockId(), type: "html", text: element.outerHTML.trim() }];
+}
+
+function htmlToBuilderBlocks(html: string) {
+  if (typeof window === "undefined") return null;
+  const cleaned = stripBuilderMetadata(html);
+  if (!cleaned) return null;
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(cleaned, "text/html");
+    const blocks: EmailBuilderBlock[] = [];
+
+    for (const node of Array.from(doc.body.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim();
+        if (text) {
+          blocks.push({ id: createBlockId(), type: "paragraph", text });
+        }
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      blocks.push(...elementToBuilderBlocks(node as HTMLElement));
+    }
+
+    return blocks.length > 0 ? blocks : [{ id: createBlockId(), type: "html", text: cleaned }];
+  } catch {
+    return [{ id: createBlockId(), type: "html", text: cleaned }];
+  }
+}
+
 function blocksToHtml(blocks: EmailBuilderBlock[]) {
   const htmlParts: string[] = [];
   for (const block of blocks) {
     if (block.type === "heading") {
-      htmlParts.push(`<h2 style="margin:0 0 12px 0;font-size:22px;line-height:1.3;">${escapeEmailBlockText(block.text || "Heading")}</h2>`);
+      htmlParts.push(`<h2>${escapeEmailBlockText(block.text || "Heading")}</h2>`);
       continue;
     }
     if (block.type === "paragraph") {
-      htmlParts.push(`<p style="margin:0 0 12px 0;">${escapeEmailBlockText(block.text || "Add paragraph text here.")}</p>`);
+      htmlParts.push(`<p>${escapeEmailParagraphText(block.text || "Add paragraph text here.")}</p>`);
       continue;
     }
     if (block.type === "button") {
       const text = block.text?.trim() || "{actionLabel}";
       const url = block.url?.trim() || "{actionUrl}";
       htmlParts.push(
-        `<p style="margin:4px 0 16px 0;"><a href="${escapeEmailBlockAttribute(
-          url
-        )}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">${escapeEmailBlockText(
-          text
-        )}</a></p>`
+        `<p><a href="${escapeEmailBlockAttribute(url)}">${escapeEmailBlockText(text)}</a></p>`
       );
       continue;
     }
     if (block.type === "divider") {
-      htmlParts.push(`<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;" />`);
+      htmlParts.push("<hr />");
+      continue;
+    }
+    if (block.type === "html") {
+      const rawHtml = block.text?.trim();
+      if (rawHtml) {
+        htmlParts.push(rawHtml);
+      }
     }
   }
 
   const encoded = encodeBuilderBlocks(blocks);
-  const metadata = encoded ? `${BUILDER_META_PREFIX}${encoded}-->` : "";
-  return `${metadata}\n${htmlParts.join("\n")}`.trim();
+  const metadata = encoded ? `\n${BUILDER_META_PREFIX}${encoded}-->` : "";
+  return `${htmlParts.join("\n").trim()}${metadata}`.trim();
 }
 
 function defaultBuilderBlocks(templateLabel: string): EmailBuilderBlock[] {
@@ -266,6 +377,8 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
   const [newDropoffLocation, setNewDropoffLocation] = useState("");
   const [selectedCleanerToAdd, setSelectedCleanerToAdd] = useState("");
   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<AppEmailTemplateKey>("signupOtp");
+  const [selectedNotificationTemplate, setSelectedNotificationTemplate] =
+    useState<AppNotificationTemplateKey>("newProfileCreated");
   const [selectedEmailSnippetId, setSelectedEmailSnippetId] = useState<string>(EMAIL_TEMPLATE_SNIPPETS[0].id);
   const [builderEnabledByTemplate, setBuilderEnabledByTemplate] = useState<Record<AppEmailTemplateKey, boolean>>(
     () => Object.fromEntries(EMAIL_TEMPLATE_KEYS.map((key) => [key, false])) as Record<AppEmailTemplateKey, boolean>
@@ -480,7 +593,9 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           ? { id: createBlockId(), type, text: "Heading" }
           : type === "paragraph"
             ? { id: createBlockId(), type, text: "Paragraph text" }
-            : { id: createBlockId(), type, text: "" };
+            : type === "html"
+              ? { id: createBlockId(), type, text: "<div>Custom HTML</div>" }
+              : { id: createBlockId(), type, text: "" };
     setTemplateBlocks([...current, next]);
   }
 
@@ -507,11 +622,15 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
   }
 
   function enableBuilderForTemplate() {
-    const existing = tryParseBuilderBlocks(settings.emailTemplates[selectedEmailTemplate].html);
-    const blocks = existing ?? emailBlocksByTemplate[selectedEmailTemplate] ?? defaultBuilderBlocks(activeEmailTemplateDefinition.label);
+    const currentHtml = settings.emailTemplates[selectedEmailTemplate].html;
+    const existing = tryParseBuilderBlocks(currentHtml);
+    const imported = existing ?? htmlToBuilderBlocks(currentHtml);
+    const blocks =
+      imported ??
+      emailBlocksByTemplate[selectedEmailTemplate] ??
+      defaultBuilderBlocks(activeEmailTemplateDefinition.label);
     setEmailBlocksByTemplate((prev) => ({ ...prev, [selectedEmailTemplate]: blocks }));
     setBuilderEnabledByTemplate((prev) => ({ ...prev, [selectedEmailTemplate]: true }));
-    setActiveEmailHtml(blocksToHtml(blocks));
   }
 
   function applyEmailSnippet(mode: "append" | "replace") {
@@ -536,9 +655,34 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
   const activeBuilderEnabled = builderEnabledByTemplate[selectedEmailTemplate] === true;
   const activeTemplateBlocks = emailBlocksByTemplate[selectedEmailTemplate] ?? [];
   const activeSnippet = EMAIL_TEMPLATE_SNIPPETS.find((item) => item.id === selectedEmailSnippetId);
+  const activeNotificationTemplate = settings.notificationTemplates[selectedNotificationTemplate];
+  const activeNotificationTemplateDefinition =
+    NOTIFICATION_TEMPLATE_DEFINITIONS[selectedNotificationTemplate];
 
   const previewVariables = useMemo(() => {
     const base: Record<string, string> = {
+      companyName: settings.companyName,
+      projectName: settings.projectName,
+      logoUrl: settings.logoUrl,
+      accountsEmail: settings.accountsEmail,
+      supportEmail: settings.accountsEmail,
+      timezone: settings.timezone,
+      appUrl: "https://example.com",
+      portalUrl: "https://example.com",
+      loginUrl: "https://example.com/login",
+      adminUrl: "https://example.com/admin",
+      cleanerUrl: "https://example.com/cleaner",
+      clientUrl: "https://example.com/client",
+      laundryUrl: "https://example.com/laundry",
+      jobsUrl: "https://example.com/admin/jobs",
+      reportsUrl: "https://example.com/admin/reports",
+      settingsUrl: "https://example.com/admin/settings",
+      currentDate: "24 March 2026",
+      currentTime: "10:15 AM",
+      currentDateTime: "24 March 2026, 10:15 AM",
+      currentDateIso: "2026-03-24",
+      currentDateTimeIso: "2026-03-24T10:15:00.000Z",
+      currentYear: "2026",
       userName: "Alex",
       email: "user@example.com",
       code: "123456",
@@ -551,8 +695,6 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
       recipientName: "Laundry Team",
       reportLabel: "Week 11 Summary",
       cleanerName: "Chris",
-      accountsEmail: "accounts@sneekproservices.com.au",
-      jobCount: "8",
       itemName: "Watch",
       location: "Bedroom drawer",
       notes: "Found during final check",
@@ -565,21 +707,71 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
       jobUrl: "https://example.com/jobs/123",
       reportLink: "https://example.com/reports/123",
       caseLink: "https://example.com/admin/issues/123",
+      createdVia: "invited account onboarding",
+      createdAt: "24 Mar 2026, 10:15 AM",
+      status: "Open",
+      priority: "High",
+      runTitle: "Weekly restock run",
+      submittedBy: "Taylor",
+      paidBy: "Cleaner",
+      actualAmount: "$84.50",
+      propertyNames: "Harbour View Apartment, Bay Retreat",
+      requestedBy: "Taylor",
+      submittedByName: "Taylor",
+      lineCount: "14",
+      changeSummary: "Status: Assigned -> In progress | Start time: 10:00 -> 09:30",
+      immediateAttention: "Immediate attention required. ",
+      cleanDate: "Tuesday, 24 March 2026",
+      scheduledPickupDate: "Wednesday, 25 March 2026",
+      bagLocation: "Laundry bin",
+      laundryOutcome: "No pickup required",
+      reasonCode: "No linen used",
+      reasonNote: " No guest linen was used for this clean.",
+      roleLabel: "Cleaner",
+      dateLabel: "Wednesday, 25 March 2026",
+      jobCount: "4",
+      summaryHtml:
+        "<ol><li><strong>P1 · SPS-0001 · Harbour View Apartment</strong><br/>Airbnb Turnover · 09:30-12:30<br/>Priority: Early check-in due by 12:30<br/>Notes: VIP arrival, top up coffee pods.</li></ol>",
+      summaryText:
+        "1) P1 SPS-0001 Harbour View Apartment 09:30-12:30. Early check-in due by 12:30. Note: VIP arrival, top up coffee pods.",
+      propertyCount: "2",
+      itemCount: "3",
+      inventoryHtml:
+        "<ul><li><strong>Harbour View Apartment</strong><br/>Coffee Pods (0/4 box), Toilet Paper (1/8 roll)</li></ul>",
+      inventoryText:
+        "Harbour View Apartment: Coffee Pods (0/4 box), Toilet Paper (1/8 roll)",
     };
-    for (const variable of activeEmailTemplateDefinition.variables) {
+    const variables = Array.from(
+      new Set([
+        ...activeEmailTemplateDefinition.variables,
+        ...activeNotificationTemplateDefinition.variables,
+      ])
+    );
+    for (const variable of variables) {
       if (!base[variable]) {
         base[variable] = `{${variable}}`;
       }
     }
     return base;
-  }, [activeEmailTemplateDefinition.variables]);
+  }, [
+    activeEmailTemplateDefinition.variables,
+    activeNotificationTemplateDefinition.variables,
+    settings.accountsEmail,
+    settings.companyName,
+    settings.logoUrl,
+    settings.projectName,
+    settings.timezone,
+  ]);
 
   const emailPreview = useMemo(
     () =>
       renderEmailTemplate(
         {
           companyName: settings.companyName,
+          projectName: settings.projectName,
           logoUrl: settings.logoUrl,
+          accountsEmail: settings.accountsEmail,
+          timezone: settings.timezone,
           emailTemplates: settings.emailTemplates,
         },
         selectedEmailTemplate,
@@ -593,6 +785,35 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
       settings.logoUrl,
     ]
   );
+
+  const notificationPreview = useMemo(
+    () =>
+      renderNotificationTemplate(
+        {
+          companyName: settings.companyName,
+          projectName: settings.projectName,
+          accountsEmail: settings.accountsEmail,
+          timezone: settings.timezone,
+          notificationTemplates: settings.notificationTemplates,
+        },
+        selectedNotificationTemplate,
+        previewVariables
+      ),
+    [previewVariables, selectedNotificationTemplate, settings.notificationTemplates]
+  );
+
+  function setActiveNotificationField(field: "webSubject" | "webBody" | "smsBody", value: string) {
+    setSettings((prev) => ({
+      ...prev,
+      notificationTemplates: {
+        ...prev.notificationTemplates,
+        [selectedNotificationTemplate]: {
+          ...prev.notificationTemplates[selectedNotificationTemplate],
+          [field]: value,
+        },
+      },
+    }));
+  }
 
   return (
     <Card>
@@ -1033,7 +1254,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                             addBuilderBlock("paragraph");
                             return;
                           }
-                          setActiveEmailHtml(`${activeEmailTemplate.html}\n<p>${token}</p>`);
+                          setActiveEmailHtml(`${stripBuilderMetadata(activeEmailTemplate.html)}\n<p>${token}</p>`);
                         }}
                         disabled={readOnly}
                       >
@@ -1042,7 +1263,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Includes direct action variables: <code>{"{actionUrl}"}</code> and <code>{"{actionLabel}"}</code>.
+                    Common variables are available in every email template, including URLs like <code>{"{loginUrl}"}</code>, <code>{"{adminUrl}"}</code>, and date helpers like <code>{"{currentDateTime}"}</code>.
                   </p>
                 </div>
 
@@ -1067,7 +1288,10 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setBuilderEnabledByTemplate((prev) => ({ ...prev, [selectedEmailTemplate]: false }))}
+                        onClick={() => {
+                          setBuilderEnabledByTemplate((prev) => ({ ...prev, [selectedEmailTemplate]: false }));
+                          setActiveEmailHtml(stripBuilderMetadata(activeEmailTemplate.html));
+                        }}
                         disabled={readOnly}
                       >
                         Use raw HTML
@@ -1131,6 +1355,9 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                         <Button type="button" size="sm" variant="outline" onClick={() => addBuilderBlock("divider")} disabled={readOnly}>
                           Add divider
                         </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => addBuilderBlock("html")} disabled={readOnly}>
+                          Add custom HTML
+                        </Button>
                       </div>
                       <div className="space-y-2">
                         {activeTemplateBlocks.map((block) => (
@@ -1156,12 +1383,22 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                               </Button>
                             </div>
                             {block.type !== "divider" ? (
-                              <Input
-                                value={block.text}
-                                onChange={(e) => updateBuilderBlock(block.id, { text: e.target.value })}
-                                disabled={readOnly}
-                                placeholder={block.type === "button" ? "Button label" : "Text"}
-                              />
+                              block.type === "html" ? (
+                                <Textarea
+                                  value={block.text}
+                                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) => updateBuilderBlock(block.id, { text: e.target.value })}
+                                  disabled={readOnly}
+                                  placeholder="<table>...</table>"
+                                  rows={6}
+                                />
+                              ) : (
+                                <Input
+                                  value={block.text}
+                                  onChange={(e) => updateBuilderBlock(block.id, { text: e.target.value })}
+                                  disabled={readOnly}
+                                  placeholder={block.type === "button" ? "Button label" : "Text"}
+                                />
+                              )
                             ) : null}
                             {block.type === "button" ? (
                               <Input
@@ -1170,6 +1407,11 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                                 disabled={readOnly}
                                 placeholder="{actionUrl}"
                               />
+                            ) : null}
+                            {block.type === "html" ? (
+                              <p className="text-xs text-muted-foreground">
+                                This block preserves custom HTML that cannot be cleanly represented as a simple visual paragraph, heading, button, or divider.
+                              </p>
                             ) : null}
                           </div>
                         ))}
@@ -1185,7 +1427,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                 <div className="space-y-1.5">
                   <Label>HTML body</Label>
                   <Textarea
-                    value={activeEmailTemplate.html}
+                    value={stripBuilderMetadata(activeEmailTemplate.html)}
                     onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
                       setBuilderEnabledByTemplate((prev) => ({ ...prev, [selectedEmailTemplate]: false }));
                       setActiveEmailHtml(e.target.value);
@@ -1231,6 +1473,96 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       srcDoc={emailPreview.html}
                       className="h-[520px] w-full"
                     />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">SMS and Web Notification Templates</p>
+          <div className="space-y-3 rounded-md border p-4">
+            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-3">
+                <div className="max-w-md space-y-1.5">
+                  <Label>Template</Label>
+                  <Select
+                    value={selectedNotificationTemplate}
+                    onValueChange={(value: AppNotificationTemplateKey) => setSelectedNotificationTemplate(value)}
+                    disabled={readOnly}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NOTIFICATION_TEMPLATE_KEYS.map((key) => (
+                        <SelectItem key={key} value={key}>
+                          {NOTIFICATION_TEMPLATE_DEFINITIONS[key].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Available variables</Label>
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-input/70 bg-white/60 p-3">
+                    {activeNotificationTemplateDefinition.variables.map((variable) => (
+                      <span key={variable} className="rounded bg-muted px-2 py-1 text-xs">
+                        {`{${variable}}`}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Common notification variables are also available, including <code>{"{companyName}"}</code>, <code>{"{loginUrl}"}</code>, <code>{"{currentDate}"}</code>, and <code>{"{actionUrl}"}</code>.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Web notification title</Label>
+                  <Input
+                    value={activeNotificationTemplate.webSubject}
+                    onChange={(e) => setActiveNotificationField("webSubject", e.target.value)}
+                    disabled={readOnly}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Web notification message</Label>
+                  <Textarea
+                    value={activeNotificationTemplate.webBody}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setActiveNotificationField("webBody", e.target.value)}
+                    disabled={readOnly}
+                    rows={4}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>SMS message</Label>
+                  <Textarea
+                    value={activeNotificationTemplate.smsBody}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setActiveNotificationField("smsBody", e.target.value)}
+                    disabled={readOnly}
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    SMS should stay short. Current length: {activeNotificationTemplate.smsBody.length} characters.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <p className="text-sm font-medium">Preview</p>
+                <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                  <div className="rounded-md border bg-white p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Web title</p>
+                    <p className="mt-1 text-sm font-semibold">{notificationPreview.webSubject}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{notificationPreview.webBody}</p>
+                  </div>
+                  <div className="rounded-md border bg-white p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SMS</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{notificationPreview.smsBody}</p>
                   </div>
                 </div>
               </div>
@@ -1557,6 +1889,144 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Scheduled Notification Automation</p>
+          <div className="grid gap-4 rounded-md border p-3 md:grid-cols-2">
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">24-hour reminder emails</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Sends the scheduled email reminder flow based on the reminder hours above.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.reminder24hEnabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        reminder24hEnabled: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">2-hour reminder SMS</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Sends the scheduled SMS reminder flow based on the reminder hours above.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.reminder2hEnabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        reminder2hEnabled: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Tomorrow prep summaries</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Cleaner, laundry, and admin tomorrow-prep notifications with critical stock alerts.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.tomorrowPrepEnabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        tomorrowPrepEnabled: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tomorrow prep send time</Label>
+                <Input
+                  type="time"
+                  value={settings.scheduledNotifications.tomorrowPrepTime}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        tomorrowPrepTime: e.target.value || "17:00",
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Critical stock alert emails</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Daily admin low-stock alert using the inventory reorder thresholds.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.stockAlertsEnabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        stockAlertsEnabled: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Stock alert send time</Label>
+                <Input
+                  type="time"
+                  value={settings.scheduledNotifications.stockAlertsTime}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        stockAlertsTime: e.target.value || "07:00",
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These controls affect the worker-driven timed notification jobs. Manual dispatch remains available in the Notifications tab.
+          </p>
         </div>
 
         <div className="space-y-2">

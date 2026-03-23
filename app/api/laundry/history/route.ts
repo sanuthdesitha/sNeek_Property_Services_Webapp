@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export async function GET() {
   try {
@@ -30,7 +31,11 @@ export async function GET() {
       orderBy: [{ updatedAt: "desc" }],
       take: 300,
     });
-    return NextResponse.json(tasks);
+    const visibleTasks =
+      session.user.role === Role.LAUNDRY
+        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property?.accessInfo, session.user.id))
+        : tasks;
+    return NextResponse.json(visibleTasks);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

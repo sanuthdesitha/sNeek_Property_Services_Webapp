@@ -456,10 +456,14 @@ export default function LaundryPage() {
     fetchTasks();
   }
 
-  async function deleteTask() {
+  async function deleteTask(credentials?: { pin?: string; password?: string }) {
     if (!taskToDelete) return;
     setDeletingTask(true);
-    const res = await fetch(`/api/admin/laundry/${taskToDelete.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/laundry/${taskToDelete.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ security: credentials }),
+    });
     const body = await res.json().catch(() => ({}));
     setDeletingTask(false);
     if (!res.ok) {
@@ -1284,7 +1288,9 @@ export default function LaundryPage() {
         onOpenChange={(open) => !open && setTaskToDelete(null)}
         title="Delete laundry task"
         description="This removes the task and linked confirmations for this job."
+        confirmPhrase="DELETE"
         confirmLabel="Delete task"
+        requireSecurityVerification
         loading={deletingTask}
         onConfirm={deleteTask}
       />

@@ -7,6 +7,7 @@ import { sendSms } from "@/lib/notifications/sms";
 import { Role, JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { resolveNotificationRuleRecipients } from "@/lib/phase4/notification-rules";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -133,18 +134,26 @@ export async function POST(
       const subject = stillAssigned
         ? `${companyName}: Job assignment updated (${jobReference})`
         : `${companyName}: Job removed from your schedule (${jobReference})`;
-      const bodyText = stillAssigned
-        ? `${jobReference}: You have been assigned to ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
-        : `${jobReference}: You have been removed from ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`;
       const jobUrl = resolveAppUrl(`/cleaner/jobs/${job.id}`, req);
+      const notificationTemplate = renderNotificationTemplate(
+        settings,
+        stillAssigned ? "jobAssigned" : "jobRemoved",
+        {
+          jobNumber: jobReference,
+          jobType: job.jobType.replace(/_/g, " "),
+          propertyName: jobLabel,
+          when,
+          timingFlags: timingText,
+        }
+      );
 
       await db.notification.create({
         data: {
           userId,
           jobId: job.id,
           channel: NotificationChannel.PUSH,
-          subject,
-          body: bodyText,
+          subject: notificationTemplate.webSubject || subject,
+          body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -189,10 +198,7 @@ export async function POST(
       }
 
       if (user.phone && /^\+\d{8,15}$/.test(user.phone)) {
-        const smsOk = await sendSms(
-          user.phone,
-          `${companyName}: ${jobReference} ${stillAssigned ? "Assigned" : "Removed"} ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`
-        );
+        const smsOk = await sendSms(user.phone, notificationTemplate.smsBody);
 
         await db.notification.create({
           data: {
@@ -227,7 +233,13 @@ export async function POST(
             jobId: job.id,
             channel: NotificationChannel.PUSH,
             subject: `${companyName}: Rule alert`,
-            body: `${jobReference}: ${job.jobType.replace(/_/g, " ")} at ${jobLabel} on ${when}.${timingSentence}`,
+            body: renderNotificationTemplate(settings, "jobAssigned", {
+              jobNumber: jobReference,
+              jobType: job.jobType.replace(/_/g, " "),
+              propertyName: jobLabel,
+              when,
+              timingFlags: timingText,
+            }).webBody,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),

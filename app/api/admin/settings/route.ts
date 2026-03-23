@@ -5,6 +5,7 @@ import { getAppSettings, saveAppSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { EMAIL_TEMPLATE_KEYS } from "@/lib/email-templates";
+import { NOTIFICATION_TEMPLATE_KEYS } from "@/lib/notification-templates";
 
 const rolePolicySchema = z.object({
   canEditName: z.boolean(),
@@ -74,6 +75,15 @@ const notificationDefaultsSchema = z.object({
       approvals: notificationChannelsSchema.optional(),
     })
     .optional(),
+});
+
+const scheduledNotificationsSchema = z.object({
+  reminder24hEnabled: z.boolean().optional(),
+  reminder2hEnabled: z.boolean().optional(),
+  tomorrowPrepEnabled: z.boolean().optional(),
+  tomorrowPrepTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  stockAlertsEnabled: z.boolean().optional(),
+  stockAlertsTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
 const autoClockOutSchema = z.object({
@@ -156,6 +166,7 @@ const updateSchema = z.object({
   cleanerPortalVisibility: cleanerPortalVisibilitySchema.optional(),
   laundryPortalVisibility: laundryPortalVisibilitySchema.optional(),
   notificationDefaults: notificationDefaultsSchema.optional(),
+  scheduledNotifications: scheduledNotificationsSchema.optional(),
   autoClockOut: autoClockOutSchema.optional(),
   laundryOperations: laundryOperationsSchema.optional(),
   sla: slaSchema.optional(),
@@ -169,6 +180,16 @@ const updateSchema = z.object({
       z.object({
         subject: z.string().trim().min(1),
         html: z.string().trim().min(1),
+      })
+    )
+    .optional(),
+  notificationTemplates: z
+    .record(
+      z.enum(NOTIFICATION_TEMPLATE_KEYS as [string, ...string[]]),
+      z.object({
+        webSubject: z.string().trim().min(1),
+        webBody: z.string().trim().min(1),
+        smsBody: z.string().trim().min(1),
       })
     )
     .optional(),

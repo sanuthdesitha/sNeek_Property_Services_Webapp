@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { toast } from "@/hooks/use-toast";
 
 type AccountRole = "ADMIN" | "OPS_MANAGER" | "CLEANER" | "CLIENT" | "LAUNDRY";
@@ -90,6 +91,8 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
   const [busyUserId, setBusyUserId] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<UserItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -361,10 +364,15 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     }
   }
 
-  async function resetPassword(user: UserItem) {
-    setBusyUserId(user.id);
+  async function resetPassword(credentials?: { pin?: string; password?: string }) {
+    if (!resetTarget) return;
+    setResettingPassword(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/reset-password`, { method: "POST" });
+      const res = await fetch(`/api/admin/users/${resetTarget.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not reset password.");
       if (body.warning && body.tempPassword) {
@@ -376,18 +384,23 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       } else {
         toast({ title: "Temporary password sent", description: "The user received a reset email." });
       }
+      setResetTarget(null);
     } catch (err: any) {
       toast({ title: "Reset failed", description: err.message ?? "Could not reset password.", variant: "destructive" });
     } finally {
-      setBusyUserId("");
+      setResettingPassword(false);
     }
   }
 
-  async function deleteUser() {
+  async function deleteUser(credentials?: { pin?: string; password?: string }) {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/users/${deleteTarget.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/users/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not delete account.");
       toast({ title: "Account deleted" });
@@ -505,7 +518,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                               <UserCog className="mr-2 h-4 w-4" />
                               Edit
                             </Button>
-                            <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => resetPassword(user)}>
+                            <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => setResetTarget(user)}>
                               <KeyRound className="mr-2 h-4 w-4" />
                               Reset Password
                             </Button>
@@ -869,6 +882,10 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
               </div>
             </section>
 
+            {editingUser ? (
+              <ProfileActivityLog endpoint={`/api/admin/users/${editingUser.id}/activity`} title="Profile Activity" />
+            ) : null}
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeEditor}>Cancel</Button>
               <Button disabled={busyUserId === editingUser?.id || savingOverride} onClick={saveUserChanges}>
@@ -878,6 +895,24 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <TwoStepConfirmDialog
+        open={!!resetTarget}
+        onOpenChange={(open) => {
+          if (!open) setResetTarget(null);
+        }}
+        title="Reset account password"
+        description={
+          resetTarget
+            ? `This sends a new temporary password to ${resetTarget.name ?? resetTarget.email} and logs out existing sessions.`
+            : "This resets the account password."
+        }
+        confirmPhrase="RESET"
+        confirmLabel="Reset password"
+        requireSecurityVerification
+        loading={resettingPassword}
+        onConfirm={resetPassword}
+      />
 
       <TwoStepConfirmDialog
         open={!!deleteTarget}
@@ -890,7 +925,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
             ? `This will permanently delete ${deleteTarget.name ?? deleteTarget.email}. Accounts with job history cannot be deleted.`
             : "This action is permanent."
         }
+        confirmPhrase="DELETE"
         confirmLabel="Delete account"
+        requireSecurityVerification
         loading={deleting}
         onConfirm={deleteUser}
       />

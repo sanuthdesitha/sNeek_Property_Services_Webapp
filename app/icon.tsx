@@ -56,19 +56,9 @@ export default async function Icon() {
   const svg = logoDataUrl
     ? `
       <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-        <defs>
-          <clipPath id="icon-radius">
-            <rect width="64" height="64" rx="16" ry="16" />
-          </clipPath>
-        </defs>
-        <rect width="64" height="64" rx="16" ry="16" fill="#0f766e" />
-        <image
-          href="${logoDataUrl}"
-          width="64"
-          height="64"
-          preserveAspectRatio="xMidYMid slice"
-          clip-path="url(#icon-radius)"
-        />
+        <rect width="64" height="64" rx="16" ry="16" fill="#ffffff" />
+        <rect x="5" y="5" width="54" height="54" rx="13" ry="13" fill="#ffffff" stroke="#d7e0ea" />
+        <image href="${logoDataUrl}" x="7" y="7" width="50" height="50" preserveAspectRatio="xMidYMid contain" />
       </svg>
     `
     : `

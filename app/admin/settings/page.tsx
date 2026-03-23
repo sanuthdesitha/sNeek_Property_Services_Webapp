@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { NotificationTestForm } from "@/components/admin/notification-test-form";
+import { ScheduledNotificationControls } from "@/components/admin/scheduled-notification-controls";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getAppSettings } from "@/lib/settings";
 import { SettingsEditor } from "@/components/admin/settings-editor";
@@ -140,7 +141,9 @@ export default async function SettingsPage() {
                     Email sent to assigned cleaners {appSettings.reminder24hHours}h before job
                   </p>
                 </div>
-                <Badge variant="success">Active</Badge>
+                <Badge variant={appSettings.scheduledNotifications.reminder24hEnabled ? "success" : "secondary"}>
+                  {appSettings.scheduledNotifications.reminder24hEnabled ? "Active" : "Disabled"}
+                </Badge>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-muted p-3">
                 <div>
@@ -149,10 +152,34 @@ export default async function SettingsPage() {
                     SMS sent to assigned cleaners {appSettings.reminder2hHours}h before job
                   </p>
                 </div>
-                <Badge variant="success">Active</Badge>
+                <Badge variant={appSettings.scheduledNotifications.reminder2hEnabled ? "success" : "secondary"}>
+                  {appSettings.scheduledNotifications.reminder2hEnabled ? "Active" : "Disabled"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                <div>
+                  <p className="font-medium">Tomorrow prep dispatch</p>
+                  <p className="text-xs text-muted-foreground">
+                    Daily summary and stock warnings sent at {appSettings.scheduledNotifications.tomorrowPrepTime}
+                  </p>
+                </div>
+                <Badge variant={appSettings.scheduledNotifications.tomorrowPrepEnabled ? "success" : "secondary"}>
+                  {appSettings.scheduledNotifications.tomorrowPrepEnabled ? "Active" : "Disabled"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                <div>
+                  <p className="font-medium">Critical stock alert</p>
+                  <p className="text-xs text-muted-foreground">
+                    Daily admin alert sent at {appSettings.scheduledNotifications.stockAlertsTime}
+                  </p>
+                </div>
+                <Badge variant={appSettings.scheduledNotifications.stockAlertsEnabled ? "success" : "secondary"}>
+                  {appSettings.scheduledNotifications.stockAlertsEnabled ? "Active" : "Disabled"}
+                </Badge>
               </div>
               <p className="pt-2 text-xs text-muted-foreground">
-                Reminders are dispatched by the pg-boss worker every 5 minutes. Per-job overrides can be set from job details.
+                Reminder jobs are checked by the pg-boss worker every 5 minutes. Daily summary and stock jobs are checked every 15 minutes and only send after their configured local time.
               </p>
             </CardContent>
           </Card>
@@ -239,27 +266,31 @@ export default async function SettingsPage() {
         )}
 
         <TabsContent value="notifications">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Test Notifications</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant={emailConfigured ? "success" : "destructive"}>
-                  Email provider: {emailConfigured ? "Configured" : "Missing config"}
-                </Badge>
-                <Badge variant={smsConfigured ? "success" : "secondary"}>
-                  SMS provider: {smsConfigured ? "Configured" : "Not configured"}
-                </Badge>
-                {isAdmin && (
-                  <Link href="/admin/notifications" className="text-primary underline">
-                    View delivery log
-                  </Link>
-                )}
-              </div>
-              <NotificationTestForm defaultTo={session.user.email} />
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Test Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant={emailConfigured ? "success" : "destructive"}>
+                    Email provider: {emailConfigured ? "Configured" : "Missing config"}
+                  </Badge>
+                  <Badge variant={smsConfigured ? "success" : "secondary"}>
+                    SMS provider: {smsConfigured ? "Configured" : "Not configured"}
+                  </Badge>
+                  {isAdmin && (
+                    <Link href="/admin/notifications" className="text-primary underline">
+                      View delivery log
+                    </Link>
+                  )}
+                </div>
+                <NotificationTestForm defaultTo={session.user.email} />
+              </CardContent>
+            </Card>
+
+            <ScheduledNotificationControls settings={appSettings.scheduledNotifications} />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

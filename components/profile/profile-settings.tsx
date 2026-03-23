@@ -38,7 +38,11 @@ export function ProfileSettings() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [loadingPin, setLoadingPin] = useState(false);
+  const [savingPin, setSavingPin] = useState(false);
+  const [clearingPin, setClearingPin] = useState(false);
   const [data, setData] = useState<ProfilePayload | null>(null);
+  const [adminPinState, setAdminPinState] = useState<{ hasPin: boolean; updatedAt: string | null } | null>(null);
   const [profileForm, setProfileForm] = useState({
     name: "",
     email: "",
@@ -50,6 +54,11 @@ export function ProfileSettings() {
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
+  });
+  const [pinForm, setPinForm] = useState({
+    currentPassword: "",
+    pin: "",
+    confirmPin: "",
   });
 
   async function load() {
@@ -75,6 +84,21 @@ export function ProfileSettings() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!data?.user?.role || !["ADMIN", "OPS_MANAGER"].includes(data.user.role)) return;
+    setLoadingPin(true);
+    fetch("/api/me/admin-pin")
+      .then((res) => res.json().then((body) => ({ ok: res.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok) throw new Error(body.error ?? "Could not load admin PIN state.");
+        setAdminPinState(body);
+      })
+      .catch((err: any) => {
+        toast({ title: "PIN state unavailable", description: err.message ?? "Could not load admin PIN.", variant: "destructive" });
+      })
+      .finally(() => setLoadingPin(false));
+  }, [data?.user?.role]);
 
   async function saveProfile() {
     if (!data) return;
@@ -170,6 +194,61 @@ export function ProfileSettings() {
     }
     setNotificationPreferences(body);
     toast({ title: "Notification preferences updated" });
+  }
+
+  async function saveAdminPin() {
+    if (pinForm.pin.length < 4) {
+      toast({ title: "PIN must be at least 4 digits.", variant: "destructive" });
+      return;
+    }
+    if (pinForm.pin !== pinForm.confirmPin) {
+      toast({ title: "PIN confirmation does not match.", variant: "destructive" });
+      return;
+    }
+    if (!pinForm.currentPassword.trim()) {
+      toast({ title: "Current password is required.", variant: "destructive" });
+      return;
+    }
+    setSavingPin(true);
+    const res = await fetch("/api/me/admin-pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentPassword: pinForm.currentPassword,
+        pin: pinForm.pin,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingPin(false);
+    if (!res.ok) {
+      toast({ title: "PIN update failed", description: body.error ?? "Could not save admin PIN.", variant: "destructive" });
+      return;
+    }
+    setPinForm({ currentPassword: "", pin: "", confirmPin: "" });
+    setAdminPinState({ hasPin: true, updatedAt: new Date().toISOString() });
+    toast({ title: adminPinState?.hasPin ? "Admin PIN updated" : "Admin PIN created" });
+  }
+
+  async function clearAdminPin() {
+    if (!pinForm.currentPassword.trim()) {
+      toast({ title: "Current password is required.", variant: "destructive" });
+      return;
+    }
+    setClearingPin(true);
+    const res = await fetch("/api/me/admin-pin", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword: pinForm.currentPassword }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setClearingPin(false);
+    if (!res.ok) {
+      toast({ title: "Could not clear admin PIN", description: body.error ?? "Try again.", variant: "destructive" });
+      return;
+    }
+    setPinForm({ currentPassword: "", pin: "", confirmPin: "" });
+    setAdminPinState({ hasPin: false, updatedAt: null });
+    toast({ title: "Admin PIN removed" });
   }
 
   if (loading || !data) {
@@ -348,6 +427,57 @@ export function ProfileSettings() {
           </div>
         </CardContent>
       </Card>
+
+      {["ADMIN", "OPS_MANAGER"].includes(data.user.role) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Admin verification PIN</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+              <p className="font-medium">{loadingPin ? "Loading PIN status..." : adminPinState?.hasPin ? "PIN is active" : "No PIN set"}</p>
+              <p className="text-xs text-muted-foreground">
+                Use a PIN or your password to approve sensitive admin actions.
+                {adminPinState?.updatedAt ? ` Last updated ${new Date(adminPinState.updatedAt).toLocaleString("en-AU")}.` : ""}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Current password</Label>
+              <Input
+                type="password"
+                value={pinForm.currentPassword}
+                onChange={(e) => setPinForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>New PIN</Label>
+                <Input
+                  inputMode="numeric"
+                  value={pinForm.pin}
+                  onChange={(e) => setPinForm((prev) => ({ ...prev, pin: e.target.value.replace(/\D/g, "") }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Confirm PIN</Label>
+                <Input
+                  inputMode="numeric"
+                  value={pinForm.confirmPin}
+                  onChange={(e) => setPinForm((prev) => ({ ...prev, confirmPin: e.target.value.replace(/\D/g, "") }))}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" onClick={clearAdminPin} disabled={clearingPin || !adminPinState?.hasPin}>
+                {clearingPin ? "Removing..." : "Remove PIN"}
+              </Button>
+              <Button onClick={saveAdminPin} disabled={savingPin}>
+                {savingPin ? "Saving..." : adminPinState?.hasPin ? "Update PIN" : "Set PIN"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

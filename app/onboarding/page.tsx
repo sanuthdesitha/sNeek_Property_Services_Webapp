@@ -66,7 +66,6 @@ export default function OnboardingPage() {
   const [form, setForm] = useState({
     name: "",
     phone: "",
-    contactNumber: "",
     address: "",
     businessName: "",
     abn: "",
@@ -95,8 +94,7 @@ export default function OnboardingPage() {
       setTourStep(body.state.tutorialSeen ? TOUR_STEPS.length : 0);
       setForm({
         name: body.user.name ?? "",
-        phone: body.user.phone ?? "",
-        contactNumber: body.extendedProfile?.contactNumber ?? body.user.phone ?? "",
+        phone: body.extendedProfile?.contactNumber ?? body.user.phone ?? "",
         address: body.extendedProfile?.address ?? "",
         businessName: body.extendedProfile?.businessName ?? "",
         abn: body.extendedProfile?.abn ?? "",
@@ -112,7 +110,13 @@ export default function OnboardingPage() {
 
   const missingFieldsLabel = useMemo(() => {
     if (!data?.missingFields?.length) return "None";
-    return data.missingFields.join(", ");
+    const labels = data.missingFields.map((field) => {
+      if (field === "contactNumber") return "phone";
+      if (field === "bankDetails") return "bank details";
+      if (field === "businessName") return "business name";
+      return field;
+    });
+    return Array.from(new Set(labels)).join(", ");
   }, [data?.missingFields]);
 
   async function handleSave() {
@@ -124,7 +128,6 @@ export default function OnboardingPage() {
       body: JSON.stringify({
         name: form.name,
         phone: form.phone,
-        contactNumber: form.contactNumber,
         address: form.address,
         businessName: needsBusiness ? form.businessName : undefined,
         abn: needsBusiness ? form.abn : undefined,
@@ -230,13 +233,6 @@ export default function OnboardingPage() {
               <Input value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Contact number</Label>
-              <Input
-                value={form.contactNumber}
-                onChange={(e) => setForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
               <Label>Address</Label>
               <Input
                 value={form.address}
@@ -307,4 +303,3 @@ export default function OnboardingPage() {
     </div>
   );
 }
-

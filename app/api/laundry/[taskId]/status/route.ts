@@ -6,6 +6,7 @@ import { Role } from "@prisma/client";
 import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 const schema = z.object({
   status: z.enum([
@@ -114,12 +115,15 @@ export async function POST(
     const existing = await db.laundryTask.findUnique({
       where: { id: params.taskId },
       include: {
-        property: { select: { name: true, suburb: true } },
+        property: { select: { name: true, suburb: true, accessInfo: true } },
         job: { select: { id: true, scheduledDate: true } },
       },
     });
     if (!existing) {
       return NextResponse.json({ error: "Laundry task not found" }, { status: 404 });
+    }
+    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(existing.property?.accessInfo, session.user.id)) {
+      return NextResponse.json({ error: "You cannot access this property's laundry schedule." }, { status: 403 });
     }
 
     if (nextStatus === "PICKED_UP" && !["CONFIRMED", "PENDING"].includes(existing.status)) {

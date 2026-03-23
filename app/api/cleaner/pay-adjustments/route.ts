@@ -7,8 +7,10 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 
 const createSchema = z.object({
   jobId: z.string().trim().min(1),
@@ -153,32 +155,45 @@ export async function POST(req: NextRequest) {
       actionLabel: "Review pay request",
     });
 
-    const emailResult = await sendEmailDetailed({
-      to: settings.accountsEmail,
-      subject: emailTemplate.subject,
-      html: emailTemplate.html,
-    });
-
     const admins = await db.user.findMany({
       where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
-      select: { id: true },
+      select: { id: true, email: true, phone: true, role: true, name: true },
       take: 50,
     });
+    const alertSubject = `Cleaner extra pay request (${getJobReference(created.job)})`;
+    const notificationTemplate = renderNotificationTemplate(settings, "extraPayRequest", {
+      cleanerName: session.user.name ?? session.user.email,
+      propertyName: created.job.property.name,
+      jobNumber: getJobReference(created.job),
+      requestType: created.type,
+      requestedAmount: `$${created.requestedAmount.toFixed(2)}`,
+    });
+    const alertBody = notificationTemplate.webBody;
     if (admins.length > 0) {
-      await db.notification.createMany({
-        data: admins.map((admin) => ({
-          userId: admin.id,
-          jobId: created.job.id,
-          channel: NotificationChannel.PUSH,
-          subject: `Cleaner extra pay request (${getJobReference(created.job)})`,
-          body: `${getJobReference(created.job)}: ${session.user.name ?? session.user.email} requested ${created.type} extra pay for ${
-            created.job.property.name
-          } (${created.requestedAmount.toFixed(2)}).`,
-          status: NotificationStatus.SENT,
-          sentAt: new Date(),
-        })),
+      await deliverNotificationToRecipients({
+        recipients: admins,
+        category: "approvals",
+        jobId: created.job.id,
+        web: {
+          subject: notificationTemplate.webSubject || alertSubject,
+          body: alertBody,
+        },
+        email: {
+          subject: emailTemplate.subject,
+          html: emailTemplate.html,
+          logBody: alertBody,
+        },
+        sms: notificationTemplate.smsBody,
       });
     }
+
+    const emailResult = settings.accountsEmail
+      ? await sendEmailDetailed({
+          to: settings.accountsEmail,
+          subject: emailTemplate.subject,
+          html: emailTemplate.html,
+        })
+      : { ok: false, error: "Accounts email is not configured." };
 
     await db.notification.create({
       data: {

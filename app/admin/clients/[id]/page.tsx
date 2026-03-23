@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { ArrowLeft, Building2, Edit, Plus } from "lucide-react";
 import { format } from "date-fns";
 
@@ -104,6 +105,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </div>
         </div>
       </div>
+
+      <ProfileActivityLog endpoint={`/api/admin/clients/${client.id}/activity`} title="Client Activity" />
     </div>
   );
 }

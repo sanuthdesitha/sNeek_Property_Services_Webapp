@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
 
 export type PropertyAccessAttachment = {
@@ -21,12 +22,14 @@ export type PropertyAccessInfo = {
   parking?: string;
   other?: string;
   instructions?: string;
+  laundryTeamUserIds?: string[];
   attachments?: PropertyAccessAttachment[];
 };
 
 type Props = {
   value: PropertyAccessInfo;
   onChange: (next: PropertyAccessInfo) => void;
+  laundryTeamOptions?: Array<{ id: string; label: string; hint?: string }>;
   addressParts?: {
     address?: string;
     suburb?: string;
@@ -56,11 +59,12 @@ function normalizeAccessInfo(value?: PropertyAccessInfo): PropertyAccessInfo {
     parking: value?.parking ?? "",
     other: value?.other ?? "",
     instructions: value?.instructions ?? "",
+    laundryTeamUserIds: Array.isArray(value?.laundryTeamUserIds) ? value.laundryTeamUserIds : [],
     attachments: Array.isArray(value?.attachments) ? value?.attachments : [],
   };
 }
 
-export function PropertyAccessFields({ value, onChange, addressParts }: Props) {
+export function PropertyAccessFields({ value, onChange, addressParts, laundryTeamOptions = [] }: Props) {
   const [uploading, setUploading] = useState(false);
   const data = normalizeAccessInfo(value);
   const mapsUrl = useMemo(() => buildGoogleMapsUrl(addressParts), [addressParts]);
@@ -179,6 +183,21 @@ export function PropertyAccessFields({ value, onChange, addressParts }: Props) {
         />
       </div>
 
+      {laundryTeamOptions.length > 0 ? (
+        <div className="space-y-1.5">
+          <Label>Laundry team access</Label>
+          <MultiSelectDropdown
+            options={laundryTeamOptions}
+            selected={data.laundryTeamUserIds ?? []}
+            onChange={(ids) => patch({ laundryTeamUserIds: ids })}
+            placeholder="Select laundry users for this property"
+          />
+          <p className="text-xs text-muted-foreground">
+            If empty, all active laundry users can see this property's laundry schedule.
+          </p>
+        </div>
+      ) : null}
+
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -251,4 +270,3 @@ export function PropertyAccessFields({ value, onChange, addressParts }: Props) {
     </div>
   );
 }
-

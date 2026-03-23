@@ -5,6 +5,11 @@ import {
   sanitizeEmailTemplates,
   type AppEmailTemplates,
 } from "@/lib/email-templates";
+import {
+  getDefaultNotificationTemplates,
+  sanitizeNotificationTemplates,
+  type AppNotificationTemplates,
+} from "@/lib/notification-templates";
 
 export interface ProfileEditPolicy {
   canEditName: boolean;
@@ -75,6 +80,15 @@ export type NotificationPreferenceMap = Record<NotificationCategory, Notificatio
 
 export interface NotificationDefaultsSettings {
   categories: NotificationPreferenceMap;
+}
+
+export interface ScheduledNotificationSettings {
+  reminder24hEnabled: boolean;
+  reminder2hEnabled: boolean;
+  tomorrowPrepEnabled: boolean;
+  tomorrowPrepTime: string;
+  stockAlertsEnabled: boolean;
+  stockAlertsTime: string;
 }
 
 export interface AutoClockOutSettings {
@@ -151,6 +165,7 @@ export interface AppSettings {
   cleanerPortalVisibility: CleanerPortalVisibility;
   laundryPortalVisibility: LaundryPortalVisibility;
   notificationDefaults: NotificationDefaultsSettings;
+  scheduledNotifications: ScheduledNotificationSettings;
   autoClockOut: AutoClockOutSettings;
   laundryOperations: LaundryOperationsSettings;
   sla: SlaSettings;
@@ -160,6 +175,7 @@ export interface AppSettings {
   qaAutomation: QaAutomationSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
+  notificationTemplates: AppNotificationTemplates;
 }
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
@@ -267,6 +283,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationDefaults: {
     categories: DEFAULT_NOTIFICATION_PREFERENCES,
   },
+  scheduledNotifications: {
+    reminder24hEnabled: true,
+    reminder2hEnabled: true,
+    tomorrowPrepEnabled: true,
+    tomorrowPrepTime: "17:00",
+    stockAlertsEnabled: true,
+    stockAlertsTime: "07:00",
+  },
   autoClockOut: {
     enabled: true,
     graceMinutes: 30,
@@ -311,6 +335,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   propertyFormTemplateOverrides: {},
   emailTemplates: getDefaultEmailTemplates(),
+  notificationTemplates: getDefaultNotificationTemplates(),
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -479,6 +504,41 @@ function sanitizeNotificationDefaults(
   const row = input as Record<string, unknown>;
   return {
     categories: sanitizeNotificationPreferences(row.categories, fallback.categories),
+  };
+}
+
+function sanitizeScheduledNotifications(
+  input: unknown,
+  fallback: ScheduledNotificationSettings
+): ScheduledNotificationSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const timePattern = /^\d{2}:\d{2}$/;
+  return {
+    reminder24hEnabled:
+      typeof row.reminder24hEnabled === "boolean"
+        ? row.reminder24hEnabled
+        : fallback.reminder24hEnabled,
+    reminder2hEnabled:
+      typeof row.reminder2hEnabled === "boolean"
+        ? row.reminder2hEnabled
+        : fallback.reminder2hEnabled,
+    tomorrowPrepEnabled:
+      typeof row.tomorrowPrepEnabled === "boolean"
+        ? row.tomorrowPrepEnabled
+        : fallback.tomorrowPrepEnabled,
+    tomorrowPrepTime:
+      typeof row.tomorrowPrepTime === "string" && timePattern.test(row.tomorrowPrepTime)
+        ? row.tomorrowPrepTime
+        : fallback.tomorrowPrepTime,
+    stockAlertsEnabled:
+      typeof row.stockAlertsEnabled === "boolean"
+        ? row.stockAlertsEnabled
+        : fallback.stockAlertsEnabled,
+    stockAlertsTime:
+      typeof row.stockAlertsTime === "string" && timePattern.test(row.stockAlertsTime)
+        ? row.stockAlertsTime
+        : fallback.stockAlertsTime,
   };
 }
 
@@ -757,6 +817,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).notificationDefaults,
       DEFAULT_SETTINGS.notificationDefaults
     ),
+    scheduledNotifications: sanitizeScheduledNotifications(
+      (parsed as any).scheduledNotifications,
+      DEFAULT_SETTINGS.scheduledNotifications
+    ),
     autoClockOut: sanitizeAutoClockOut(
       (parsed as any).autoClockOut,
       DEFAULT_SETTINGS.autoClockOut
@@ -787,6 +851,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).emailTemplates,
       DEFAULT_SETTINGS.emailTemplates
     ),
+    notificationTemplates: sanitizeNotificationTemplates(
+      (parsed as any).notificationTemplates,
+      DEFAULT_SETTINGS.notificationTemplates
+    ),
   };
 }
 
@@ -809,10 +877,12 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
+    scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,
     autoClockOut: input.autoClockOut ?? current.autoClockOut,
     propertyFormTemplateOverrides:
       input.propertyFormTemplateOverrides ?? current.propertyFormTemplateOverrides,
     emailTemplates: input.emailTemplates ?? current.emailTemplates,
+    notificationTemplates: input.notificationTemplates ?? current.notificationTemplates,
   });
 
   await db.appSetting.upsert({
