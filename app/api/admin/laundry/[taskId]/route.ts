@@ -3,12 +3,19 @@ import { LaundryStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
   dropoffDate: z.string().datetime().optional(),
   status: z.nativeEnum(LaundryStatus).optional(),
   flagNotes: z.string().trim().optional().nullable(),
+  skipReasonCode: z
+    .enum(LAUNDRY_SKIP_REASONS.map((row) => row.value) as [string, ...string[]])
+    .optional()
+    .nullable(),
+  skipReasonNote: z.string().trim().max(2000).optional().nullable(),
+  adminOverrideNote: z.string().trim().max(2000).optional().nullable(),
   action: z.enum(["APPROVE_FAILED_PICKUP_SKIP", "APPROVE_FAILED_PICKUP_DELETE", "REJECT_FAILED_PICKUP_REQUEST"]).optional(),
   resolutionNotes: z.string().trim().max(2000).optional().nullable(),
 });
@@ -195,11 +202,50 @@ export async function PATCH(
       return NextResponse.json(updated);
     }
 
+    const existingTask = await db.laundryTask.findUnique({
+      where: { id: params.taskId },
+      select: {
+        id: true,
+        jobId: true,
+        property: { select: { name: true } },
+        status: true,
+        skipReasonCode: true,
+        skipReasonNote: true,
+        adminOverrideNote: true,
+      },
+    });
+    if (!existingTask) {
+      return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    }
+
+    if (body.status === LaundryStatus.SKIPPED_PICKUP && !body.skipReasonCode && !existingTask.skipReasonCode) {
+      return NextResponse.json({ error: "Skip reason is required when marking pickup as skipped." }, { status: 400 });
+    }
+
     const data: Record<string, unknown> = {};
     if (body.pickupDate !== undefined) data.pickupDate = new Date(body.pickupDate);
     if (body.dropoffDate !== undefined) data.dropoffDate = new Date(body.dropoffDate);
     if (body.status !== undefined) data.status = body.status;
     if (body.flagNotes !== undefined) data.flagNotes = body.flagNotes || null;
+    if (body.status === LaundryStatus.SKIPPED_PICKUP) {
+      data.noPickupRequired = true;
+      data.skipReasonCode = body.skipReasonCode ?? existingTask.skipReasonCode ?? null;
+      data.skipReasonNote = body.skipReasonNote ?? existingTask.skipReasonNote ?? null;
+      data.adminOverrideNote = body.adminOverrideNote ?? body.flagNotes ?? existingTask.adminOverrideNote ?? null;
+      data.adminOverrideById = session.user.id;
+      data.adminOverrideAt = new Date();
+    } else {
+      if (body.skipReasonCode !== undefined) data.skipReasonCode = body.skipReasonCode || null;
+      if (body.skipReasonNote !== undefined) data.skipReasonNote = body.skipReasonNote || null;
+      if (body.adminOverrideNote !== undefined) {
+        data.adminOverrideNote = body.adminOverrideNote || null;
+        data.adminOverrideById = body.adminOverrideNote ? session.user.id : null;
+        data.adminOverrideAt = body.adminOverrideNote ? new Date() : null;
+      }
+      if (body.status && existingTask.status === LaundryStatus.SKIPPED_PICKUP) {
+        data.noPickupRequired = false;
+      }
+    }
 
     const task = await db.laundryTask.update({
       where: { id: params.taskId },
@@ -209,6 +255,15 @@ export async function PATCH(
         job: { select: { scheduledDate: true } },
       },
     });
+
+    if (body.status === LaundryStatus.SKIPPED_PICKUP) {
+      await createRoleNotifications(
+        [Role.LAUNDRY],
+        "Pickup skipped",
+        `${existingTask.property.name}: pickup skipped.${data.skipReasonCode ? ` Reason: ${String(data.skipReasonCode).replace(/_/g, " ")}` : ""}`,
+        existingTask.jobId
+      );
+    }
     return NextResponse.json(task);
   } catch (err: any) {
     const status =

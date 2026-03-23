@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { toast } from "@/hooks/use-toast";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 
 const FLAG_LABELS: Record<string, string> = {
   NO_WINDOW: "No window",
@@ -27,6 +28,7 @@ const STATUS_COLORS: Record<string, string> = {
   PICKED_UP: "default",
   DROPPED: "success",
   FLAGGED: "destructive",
+  SKIPPED_PICKUP: "warning",
 };
 
 function parseEventNotes(notes: string | null | undefined) {
@@ -178,6 +180,9 @@ export default function LaundryPage() {
     dropoffDate: "",
     status: "PENDING",
     flagNotes: "",
+    skipReasonCode: "NONE",
+    skipReasonNote: "",
+    adminOverrideNote: "",
   });
 
   function fetchTasks() {
@@ -349,6 +354,9 @@ export default function LaundryPage() {
       dropoffDate: dateInputValue(editTask.dropoffDate),
       status: editTask.status ?? "PENDING",
       flagNotes: editTask.flagNotes ?? "",
+      skipReasonCode: editTask.skipReasonCode ?? "NONE",
+      skipReasonNote: editTask.skipReasonNote ?? "",
+      adminOverrideNote: editTask.adminOverrideNote ?? "",
     });
   }, [editTask]);
 
@@ -419,6 +427,11 @@ export default function LaundryPage() {
       toast({ title: "Invalid dates selected.", variant: "destructive" });
       return;
     }
+    if (editForm.status === "SKIPPED_PICKUP" && editForm.skipReasonCode === "NONE") {
+      toast({ title: "Skip reason is required.", description: "Select why this pickup is being skipped.", variant: "destructive" });
+      setSavingTask(false);
+      return;
+    }
     const res = await fetch(`/api/admin/laundry/${editTask.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -427,6 +440,9 @@ export default function LaundryPage() {
         dropoffDate,
         status: editForm.status,
         flagNotes: editForm.flagNotes || null,
+        skipReasonCode: editForm.status === "SKIPPED_PICKUP" ? (editForm.skipReasonCode === "NONE" ? null : editForm.skipReasonCode) : null,
+        skipReasonNote: editForm.skipReasonNote || null,
+        adminOverrideNote: editForm.adminOverrideNote || null,
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -886,6 +902,17 @@ export default function LaundryPage() {
                         {task.property.linenBufferSets > 0 && ` | ${task.property.linenBufferSets} buffer sets`}
                       </p>
                       {task.flagNotes && <p className="mt-0.5 text-xs text-destructive">{task.flagNotes}</p>}
+                      {task.status === "SKIPPED_PICKUP" ? (
+                        <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                          <p>
+                            Skip reason:{" "}
+                            {LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
+                              String(task.skipReasonCode ?? "Not set").replace(/_/g, " ")}
+                          </p>
+                          {task.skipReasonNote ? <p className="mt-1 text-amber-800">Cleaner note: {task.skipReasonNote}</p> : null}
+                          {task.adminOverrideNote ? <p className="mt-1 text-amber-800">Admin note: {task.adminOverrideNote}</p> : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
@@ -985,6 +1012,44 @@ export default function LaundryPage() {
                 placeholder="Optional notes"
               />
             </div>
+            {editForm.status === "SKIPPED_PICKUP" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Skip reason</Label>
+                  <Select
+                    value={editForm.skipReasonCode}
+                    onValueChange={(value) => setEditForm((prev) => ({ ...prev, skipReasonCode: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a reason" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LAUNDRY_SKIP_REASONS.map((reason) => (
+                        <SelectItem key={reason.value} value={reason.value}>
+                          {reason.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cleaner note</Label>
+                  <Textarea
+                    value={editForm.skipReasonNote}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, skipReasonNote: e.target.value }))}
+                    placeholder="Optional cleaner or operational note"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Admin override note</Label>
+                  <Textarea
+                    value={editForm.adminOverrideNote}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, adminOverrideNote: e.target.value }))}
+                    placeholder="Shown to the laundry team when admin needs to clarify the skip"
+                  />
+                </div>
+              </>
+            ) : null}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditTask(null)} disabled={savingTask}>
                 Cancel

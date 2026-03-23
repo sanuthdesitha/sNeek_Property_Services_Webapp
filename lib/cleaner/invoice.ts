@@ -2,7 +2,10 @@ import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
-import { listCleanerReimbursableShoppingRuns } from "@/lib/inventory/shopping-runs";
+import {
+  listCleanerApprovedShoppingTimeRuns,
+  listCleanerReimbursableShoppingRuns,
+} from "@/lib/inventory/shopping-runs";
 
 interface InvoiceOptions {
   userId: string;
@@ -52,6 +55,17 @@ export interface CleanerInvoiceData {
     note?: string;
   }>;
   expenseTotal: number;
+  shoppingTimeRows: Array<{
+    runId: string;
+    date: string;
+    runName: string;
+    properties: string;
+    minutes: number;
+    hourlyRate: number;
+    amount: number;
+    note?: string;
+  }>;
+  shoppingTimeTotal: number;
   pendingAdjustmentCount: number;
   pendingAdjustmentAmount: number;
   companyName: string;
@@ -227,6 +241,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     start,
     end,
   });
+  const shoppingTimeRuns = await listCleanerApprovedShoppingTimeRuns({
+    cleanerId: options.userId,
+    start,
+    end,
+  });
   const expenseRows = shoppingExpenseRuns.map((run) => ({
     runId: run.id,
     date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU"),
@@ -237,9 +256,21 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     note: run.reimbursementNote || run.payment.note || undefined,
   }));
   const expenseTotal = expenseRows.reduce((sum, row) => sum + row.amount, 0);
+  const shoppingTimeRows = shoppingTimeRuns.map((run) => ({
+    runId: run.id,
+    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU"),
+    runName: run.name,
+    properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
+    minutes: Number(run.shoppingTime.approvedMinutes ?? 0),
+    hourlyRate: Number(run.shoppingTime.approvedRate ?? 0),
+    amount: Number(run.shoppingTime.approvedAmount ?? 0),
+    note: run.shoppingTime.note || undefined,
+  }));
+  const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
 
   const hours = rows.reduce((sum, row) => sum + row.hours, 0);
-  const estimatedPay = rows.reduce((sum, row) => sum + row.amount, 0) + expenseTotal;
+  const estimatedPay =
+    rows.reduce((sum, row) => sum + row.amount, 0) + expenseTotal + shoppingTimeTotal;
   const pendingAdjustmentAmount = pendingAdjustments.reduce(
     (sum, row) => sum + Number(row.requestedAmount ?? 0),
     0
@@ -256,6 +287,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     rows,
     expenseRows,
     expenseTotal,
+    shoppingTimeRows,
+    shoppingTimeTotal,
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,
@@ -282,6 +315,21 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <td class="cell">${escapeHtml(row.runName)}</td>
           <td class="cell">${escapeHtml(row.properties)}</td>
           <td class="cell">${escapeHtml(row.paymentMethod)}</td>
+          <td class="cell right">${formatCurrency(row.amount)}</td>
+          <td class="cell">${row.note ? escapeHtml(row.note) : "-"}</td>
+        </tr>
+      `
+    )
+    .join("");
+  const shoppingTimeRowsHtml = data.shoppingTimeRows
+    .map(
+      (row) => `
+        <tr>
+          <td class="cell">${row.date}</td>
+          <td class="cell">${escapeHtml(row.runName)}</td>
+          <td class="cell">${escapeHtml(row.properties)}</td>
+          <td class="cell right">${row.minutes}</td>
+          <td class="cell right">${formatCurrency(row.hourlyRate)}</td>
           <td class="cell right">${formatCurrency(row.amount)}</td>
           <td class="cell">${row.note ? escapeHtml(row.note) : "-"}</td>
         </tr>
@@ -380,6 +428,10 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <div class="value">${formatCurrency(data.expenseTotal)}</div>
           </div>
           <div class="box">
+            <div class="label">Shopping Time</div>
+            <div class="value">${formatCurrency(data.shoppingTimeTotal)}</div>
+          </div>
+          <div class="box">
             <div class="label">Payable Jobs</div>
             <div class="value">${data.rows.length}</div>
           </div>
@@ -408,6 +460,28 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
                   </tr>
                 </thead>
                 <tbody>${expenseRowsHtml}</tbody>
+              </table>
+            `
+            : ""
+        }
+
+        ${
+          data.shoppingTimeRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">Shopping time</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Run</th>
+                    <th>Properties</th>
+                    <th class="right">Minutes</th>
+                    <th class="right">Rate</th>
+                    <th class="right">Amount</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>${shoppingTimeRowsHtml}</tbody>
               </table>
             `
             : ""

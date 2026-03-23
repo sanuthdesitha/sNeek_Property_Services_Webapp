@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
+import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 
 type ActionType =
   | "PICKED_UP"
@@ -46,38 +48,12 @@ function getAccessInfo(task: any) {
 
 function LaundryAccessInstructions({ task }: { task: any }) {
   const accessInfo = getAccessInfo(task);
-  if (!accessInfo) return null;
-
-  const attachments = Array.isArray(accessInfo.attachments) ? accessInfo.attachments : [];
-  const mediaItems = attachments
-    .filter((item: any) => item?.url)
-    .map((item: any, index: number) => ({
-      id: item.id ?? `${task.id}-access-${index}` ,
-      url: item.url,
-      label: item.label || item.name || "Access attachment",
-      mediaType: String(item.type || item.mediaType || "PHOTO").toUpperCase().includes("VIDEO") ? "VIDEO" : "PHOTO",
-    }));
-
-  const hasText = accessInfo.lockbox || accessInfo.codes || accessInfo.parking || accessInfo.instructions || accessInfo.other;
-  if (!hasText && mediaItems.length === 0) return null;
-
   return (
-    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950">
-      <p className="font-semibold uppercase tracking-[0.14em] text-amber-800">Property access instructions</p>
-      <div className="mt-2 space-y-1">
-        {accessInfo.instructions ? <p>{accessInfo.instructions}</p> : null}
-        {accessInfo.lockbox ? <p>Lockbox: <strong>{accessInfo.lockbox}</strong></p> : null}
-        {accessInfo.codes ? <p>Codes: <strong>{accessInfo.codes}</strong></p> : null}
-        {accessInfo.parking ? <p>Parking: {accessInfo.parking}</p> : null}
-        {accessInfo.other ? <p>{accessInfo.other}</p> : null}
-      </div>
-      {mediaItems.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 font-medium text-amber-800">Access references</p>
-          <MediaGallery items={mediaItems as any} title="Access Instructions" className="grid grid-cols-1 gap-2 sm:grid-cols-2" />
-        </div>
-      ) : null}
-    </div>
+    <AccessInstructionsPanel
+      accessInfo={accessInfo}
+      title="Property Access Instructions"
+      className="mt-3"
+    />
   );
 }
 
@@ -890,7 +866,8 @@ export default function LaundryPortal() {
       if (readyFilter === "tomorrow") return pickupKey === tomorrowKey;
       return true;
     });
-  const allTasks = sortedTasks.filter((task) => task.status !== "FLAGGED");
+  const skippedTasks = sortedTasks.filter((task) => task.status === "SKIPPED_PICKUP");
+  const allTasks = sortedTasks.filter((task) => !["FLAGGED", "SKIPPED_PICKUP"].includes(task.status));
   const pickedUpCount = allTasks.filter((task) => task.status === "PICKED_UP").length;
   const returnedCount = allTasks.filter((task) => task.status === "DROPPED").length;
   const trackedReturnCost = allTasks
@@ -906,6 +883,7 @@ export default function LaundryPortal() {
     PICKED_UP: "default",
     DROPPED: "success",
     FLAGGED: "destructive",
+    SKIPPED_PICKUP: "warning",
   };
 
   const actionTitle = useMemo(() => {
@@ -947,6 +925,7 @@ export default function LaundryPortal() {
     }).length;
 
     const flagged = sortedTasks.filter((task) => task.status === "FLAGGED").length;
+    const skipped = skippedTasks.length;
 
     const waitingCleanerConfirmation = sortedTasks.filter((task) => {
       if (task.status !== "PENDING") return false;
@@ -977,6 +956,13 @@ export default function LaundryPortal() {
         tone: "warning" as const,
       },
       {
+        id: "laundry-skipped-pickups",
+        title: "Skipped pickups",
+        description: "No-pickup-required tasks from cleaner/admin instructions.",
+        count: skipped,
+        tone: "warning" as const,
+      },
+      {
         id: "laundry-pending-cleaner",
         title: "Waiting cleaner confirmation",
         description: "Upcoming pickups still not marked laundry-ready by cleaners.",
@@ -984,7 +970,7 @@ export default function LaundryPortal() {
         tone: "warning" as const,
       },
     ];
-  }, [sortedTasks]);
+  }, [skippedTasks.length, sortedTasks]);
 
   return (
     <div className="space-y-4">
@@ -1098,7 +1084,54 @@ export default function LaundryPortal() {
             <p className="text-2xl font-semibold capitalize">{rangeMode}</p>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Skipped pickups</p>
+            <p className="text-2xl font-semibold">{skippedTasks.length}</p>
+          </CardContent>
+        </Card>
       </section>
+
+      {skippedTasks.length > 0 ? (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Skipped Pickups</CardTitle>
+            <CardDescription>
+              These bookings should be skipped by the laundry team unless admin changes the instruction.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {skippedTasks.map((task) => {
+              const reasonLabel =
+                LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
+                String(task.skipReasonCode ?? "Not set").replace(/_/g, " ");
+              return (
+                <div key={task.id} className="rounded-xl border border-amber-300 bg-white/80 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{task.property.name}</p>
+                      <p className="text-sm text-muted-foreground">{task.property.suburb}</p>
+                      <LaundryAccessInstructions task={task} />
+                      <p className="mt-2 text-sm">
+                        <strong>Scheduled pickup:</strong> {format(new Date(task.pickupDate), "EEE dd MMM yyyy")}
+                      </p>
+                      <p className="text-sm">
+                        <strong>Scheduled drop-off:</strong> {format(new Date(task.dropoffDate), "EEE dd MMM yyyy")}
+                      </p>
+                      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                        <p><strong>Reason:</strong> {reasonLabel}</p>
+                        {task.skipReasonNote ? <p className="mt-1">Cleaner note: {task.skipReasonNote}</p> : null}
+                        {task.adminOverrideNote ? <p className="mt-1">Admin note: {task.adminOverrideNote}</p> : null}
+                      </div>
+                    </div>
+                    <Badge variant="warning">Skipped Pickup</Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="pb-3">

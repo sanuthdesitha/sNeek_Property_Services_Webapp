@@ -39,6 +39,17 @@ type ShoppingRun = {
     note?: string;
     receipts: Array<{ key: string; url: string; name: string }>;
   };
+  shoppingTime: {
+    requestedMinutes: number;
+    note?: string;
+    status: "NOT_REQUESTED" | "PENDING" | "APPROVED" | "INVOICED" | "PAID";
+    approvedMinutes: number;
+    approvedRate?: number | null;
+    approvedAmount: number;
+    approvedAt?: string | null;
+    invoicedAt?: string | null;
+    paidAt?: string | null;
+  };
   totals: {
     includedLineCount: number;
     estimatedTotalCost: number;
@@ -66,6 +77,8 @@ export default function AdminShoppingRunsPage() {
   const [poEmail, setPoEmail] = useState("");
   const [reimbursementEmail, setReimbursementEmail] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [shoppingMinutes, setShoppingMinutes] = useState("");
+  const [shoppingRate, setShoppingRate] = useState("");
   const [busy, setBusy] = useState<string>("");
 
   const selectedRun = useMemo(
@@ -125,6 +138,18 @@ export default function AdminShoppingRunsPage() {
   useEffect(() => {
     void loadRuns();
   }, []);
+
+  useEffect(() => {
+    if (!selectedRun) return;
+    setShoppingMinutes(
+      String(selectedRun.shoppingTime?.approvedMinutes || selectedRun.shoppingTime?.requestedMinutes || 0)
+    );
+    setShoppingRate(
+      selectedRun.shoppingTime?.approvedRate != null
+        ? String(selectedRun.shoppingTime.approvedRate)
+        : ""
+    );
+  }, [selectedRun]);
 
   async function downloadPdf(url: string, fileName: string) {
     const res = await fetch(url);
@@ -357,7 +382,7 @@ export default function AdminShoppingRunsPage() {
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid by</p><p className="text-lg font-semibold">{selectedRun.paidByDisplay}</p><p className="text-xs text-muted-foreground">{selectedRun.payment.method.replace(/_/g, " ")}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Estimated</p><p className="text-lg font-semibold">{money(selectedRun.totals.estimatedTotalCost)}</p><p className="text-xs text-muted-foreground">{selectedRun.totals.includedLineCount} included lines</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Actual</p><p className="text-lg font-semibold">{money(selectedRun.totals.actualTotalCost)}</p><p className="text-xs text-muted-foreground">{selectedRun.payment.receipts.length} receipts</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Statuses</p><div className="flex flex-wrap gap-2 pt-1"><Badge variant="secondary">Client: {selectedRun.clientChargeStatus}</Badge><Badge variant="secondary">Cleaner: {selectedRun.cleanerReimbursementStatus}</Badge></div></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Statuses</p><div className="flex flex-wrap gap-2 pt-1"><Badge variant="secondary">Client: {selectedRun.clientChargeStatus}</Badge><Badge variant="secondary">Cleaner: {selectedRun.cleanerReimbursementStatus}</Badge><Badge variant="secondary">Shopping time: {selectedRun.shoppingTime.status}</Badge></div></CardContent></Card>
           </section>
 
           <div className="grid gap-4 xl:grid-cols-2">
@@ -441,6 +466,116 @@ export default function AdminShoppingRunsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {selectedRun.ownerScope === "CLEANER" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Shopping time approval</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <p className="font-medium">
+                    Requested time: {selectedRun.shoppingTime.requestedMinutes} min
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Status: {selectedRun.shoppingTime.status.replace(/_/g, " ")}
+                    {selectedRun.shoppingTime.note ? ` | Note: ${selectedRun.shoppingTime.note}` : ""}
+                  </p>
+                  {selectedRun.shoppingTime.approvedAmount > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Approved: {selectedRun.shoppingTime.approvedMinutes} min at{" "}
+                      {money(selectedRun.shoppingTime.approvedRate ?? 0)}/hr ={" "}
+                      {money(selectedRun.shoppingTime.approvedAmount)}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Approved minutes</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="1440"
+                      value={shoppingMinutes}
+                      onChange={(event) => setShoppingMinutes(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Approved hourly rate</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={shoppingRate}
+                      onChange={(event) => setShoppingRate(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      updateRunStatus(
+                        {
+                          shoppingTime: {
+                            status: "APPROVED",
+                            approvedMinutes: Math.max(0, Number(shoppingMinutes || 0)),
+                            approvedRate: Math.max(0, Number(shoppingRate || 0)),
+                          },
+                        },
+                        "Shopping time approved"
+                      )
+                    }
+                    disabled={
+                      selectedRun.shoppingTime.requestedMinutes <= 0 ||
+                      Number(shoppingMinutes || 0) <= 0 ||
+                      Number(shoppingRate || 0) <= 0
+                    }
+                  >
+                    Approve shopping time
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      updateRunStatus(
+                        {
+                          shoppingTime: {
+                            status: "PENDING",
+                            approvedMinutes: 0,
+                            approvedRate: 0,
+                          },
+                        },
+                        "Shopping time moved back to pending"
+                      )
+                    }
+                    disabled={selectedRun.shoppingTime.requestedMinutes <= 0}
+                  >
+                    Reset approval
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      updateRunStatus(
+                        {
+                          shoppingTime: {
+                            status: "PAID",
+                            paidAt: new Date().toISOString(),
+                          },
+                        },
+                        "Shopping time marked paid"
+                      )
+                    }
+                    disabled={selectedRun.shoppingTime.status !== "INVOICED"}
+                  >
+                    Mark shopping time paid
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Approved shopping time is added to the next cleaner invoice. It stays hidden from the cleaner invoice until approved here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader><CardTitle className="text-base">Client allocations</CardTitle></CardHeader>

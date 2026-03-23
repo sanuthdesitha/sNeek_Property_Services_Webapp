@@ -18,6 +18,7 @@ const clientPortalVisibilitySchema = z.object({
   showInventory: z.boolean().optional(),
   showShopping: z.boolean().optional(),
   showStockRuns: z.boolean().optional(),
+  showFinanceDetails: z.boolean().optional(),
   showOngoingJobs: z.boolean().optional(),
   showCases: z.boolean().optional(),
   showExtraPayRequests: z.boolean().optional(),

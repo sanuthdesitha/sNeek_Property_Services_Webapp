@@ -44,6 +44,17 @@ interface InvoicePreview {
     note?: string;
   }>;
   expenseTotal?: number;
+  shoppingTimeRows?: Array<{
+    runId: string;
+    date: string;
+    runName: string;
+    properties: string;
+    minutes: number;
+    hourlyRate: number;
+    amount: number;
+    note?: string;
+  }>;
+  shoppingTimeTotal?: number;
   pendingAdjustmentCount?: number;
   pendingAdjustmentAmount?: number;
 }
@@ -272,6 +283,11 @@ export function CleanerInvoicesPage() {
                       Shopping reimbursements: {money(invoicePreview.expenseTotal)}
                     </Badge>
                   ) : null}
+                  {Number(invoicePreview.shoppingTimeTotal ?? 0) > 0 ? (
+                    <Badge variant="secondary">
+                      Shopping time: {money(invoicePreview.shoppingTimeTotal)}
+                    </Badge>
+                  ) : null}
                   {Number(invoicePreview.pendingAdjustmentCount ?? 0) > 0 ? (
                     <Badge variant="warning">
                       Pending approvals: {Number(invoicePreview.pendingAdjustmentCount ?? 0)} ({money(invoicePreview.pendingAdjustmentAmount)})
@@ -290,6 +306,15 @@ export function CleanerInvoicesPage() {
                       <p className="text-xs font-medium">Shopping reimbursement - {row.runName}</p>
                       <p className="text-[11px] text-muted-foreground">
                         {row.date} | {row.properties} | {row.paymentMethod} | Total: {money(row.amount)}
+                      </p>
+                      {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
+                    </div>
+                  ))}
+                  {(invoicePreview.shoppingTimeRows ?? []).map((row) => (
+                    <div key={`time-${row.runId}`} className="rounded border border-sky-200 bg-sky-50/60 p-2">
+                      <p className="text-xs font-medium">Shopping time - {row.runName}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {row.date} | {row.properties} | {row.minutes} min | Rate: {money(row.hourlyRate)} | Total: {money(row.amount)}
                       </p>
                       {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
                     </div>

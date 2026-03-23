@@ -18,6 +18,7 @@ export interface ClientPortalVisibility {
   showInventory: boolean;
   showShopping: boolean;
   showStockRuns: boolean;
+  showFinanceDetails: boolean;
   showOngoingJobs: boolean;
   showCases: boolean;
   showExtraPayRequests: boolean;
@@ -230,6 +231,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showInventory: true,
     showShopping: true,
     showStockRuns: true,
+    showFinanceDetails: false,
     showOngoingJobs: true,
     showCases: false,
     showExtraPayRequests: false,
@@ -377,6 +379,8 @@ function sanitizeClientPortalVisibility(
     showInventory: typeof row.showInventory === "boolean" ? row.showInventory : fallback.showInventory,
     showShopping: typeof row.showShopping === "boolean" ? row.showShopping : fallback.showShopping,
     showStockRuns: typeof row.showStockRuns === "boolean" ? row.showStockRuns : fallback.showStockRuns,
+    showFinanceDetails:
+      typeof row.showFinanceDetails === "boolean" ? row.showFinanceDetails : fallback.showFinanceDetails,
     showOngoingJobs: typeof row.showOngoingJobs === "boolean" ? row.showOngoingJobs : fallback.showOngoingJobs,
     showCases: typeof row.showCases === "boolean" ? row.showCases : fallback.showCases,
     showExtraPayRequests:

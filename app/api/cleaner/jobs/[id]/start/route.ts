@@ -6,6 +6,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
+import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -58,6 +59,21 @@ export async function POST(
       return NextResponse.json(
         { error: "Job is already finished. Admin must move it back to ASSIGNED before restarting." },
         { status: 400 }
+      );
+    }
+
+    if (job.status === JobStatus.WAITING_CONTINUATION_APPROVAL) {
+      return NextResponse.json(
+        { error: "A continuation request is pending admin decision for this job." },
+        { status: 409 }
+      );
+    }
+
+    const pendingContinuation = await listContinuationRequests({ jobId: params.id, status: "PENDING" });
+    if (pendingContinuation.length > 0) {
+      return NextResponse.json(
+        { error: "A continuation request is pending admin decision for this job." },
+        { status: 409 }
       );
     }
 

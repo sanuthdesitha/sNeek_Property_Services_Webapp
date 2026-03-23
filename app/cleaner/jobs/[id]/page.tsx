@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, Key, MapPin, Play, Send, Square } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -2237,27 +2238,7 @@ function formatDateTimeLabel(value: string | undefined) {
         </Card>
       ) : null}
 
-      {accessInfo && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardContent className="p-3 text-sm">
-            <p className="mb-1 flex items-center gap-1 font-semibold">
-              <Key className="h-4 w-4" />
-              Access Info
-            </p>
-            {accessInfo.lockbox && (
-              <p>
-                Lockbox: <strong>{accessInfo.lockbox}</strong>
-              </p>
-            )}
-            {accessInfo.codes && (
-              <p>
-                Codes: <strong>{accessInfo.codes}</strong>
-              </p>
-            )}
-            {accessInfo.parking && <p>Parking: {accessInfo.parking}</p>}
-          </CardContent>
-        </Card>
-      )}
+      <AccessInstructionsPanel accessInfo={accessInfo} title="Property Access Instructions" />
 
       {hasServiceContext ? (
         <Card className="border-border/70">

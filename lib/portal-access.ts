@@ -15,6 +15,7 @@ type ClientModule =
   | "inventory"
   | "shopping"
   | "stockRuns"
+  | "finance"
   | "reports"
   | "quoteRequests"
   | "approvals"
@@ -73,6 +74,7 @@ export function isClientModuleEnabled(settings: AppSettings, module: ClientModul
     (module === "inventory" && visibility.showInventory) ||
     (module === "shopping" && visibility.showInventory && visibility.showShopping) ||
     (module === "stockRuns" && visibility.showInventory && visibility.showStockRuns && visibility.allowStockRuns) ||
+    (module === "finance" && visibility.showFinanceDetails) ||
     (module === "reports" && visibility.showReports) ||
     (module === "quoteRequests" && visibility.showQuoteRequests) ||
     (module === "approvals" && visibility.showApprovals) ||

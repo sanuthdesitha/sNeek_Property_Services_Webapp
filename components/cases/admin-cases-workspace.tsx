@@ -6,6 +6,7 @@ import { RefreshCw, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CaseAttachmentsGallery } from "@/components/cases/case-attachments-gallery";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -403,7 +404,16 @@ export function AdminCasesWorkspace() {
                 </div>
                 <div className="space-y-3 rounded-2xl border p-4">
                   <div className="flex items-center justify-between gap-2"><div><h3 className="font-semibold">Attachments</h3><p className="text-xs text-muted-foreground">Upload evidence, documents, and photos against the case.</p></div><label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-sm"><input type="file" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); event.currentTarget.value = ""; }} /><Upload className="mr-2 h-4 w-4" />{uploadingAttachment ? "Uploading..." : "Attach file"}</label></div>
-                  {selected.attachments.length === 0 ? <p className="text-sm text-muted-foreground">No attachments yet.</p> : <div className="grid gap-2 md:grid-cols-2">{selected.attachments.map((attachment) => <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-xl border p-3 text-sm hover:bg-muted/50"><p className="font-medium">{attachment.label || attachment.mimeType || "Attachment"}</p><p className="text-xs text-muted-foreground">{authorLabel(attachment.uploadedBy)} · {formatDateTime(attachment.createdAt)}</p></a>)}</div>}
+                  <CaseAttachmentsGallery
+                    attachments={selected.attachments.map((attachment) => ({
+                      id: attachment.id,
+                      url: attachment.url,
+                      label: attachment.label,
+                      mimeType: attachment.mimeType,
+                      meta: `${authorLabel(attachment.uploadedBy)} · ${formatDateTime(attachment.createdAt)}`,
+                    }))}
+                    emptyText="No attachments yet."
+                  />
                 </div>
               </>
             )}

@@ -213,8 +213,8 @@ export async function updateStockRun(
   const run = await assertRunAccess(scope, runId);
   const allowThresholds = canEditThresholds(scope);
 
-  if (run.status === StockRunStatus.APPLIED) {
-    throw new Error("Applied stock runs are read-only.");
+  if (run.status === StockRunStatus.APPLIED || run.status === StockRunStatus.DISCARDED) {
+    throw new Error("Finalized stock runs are read-only.");
   }
 
   if (Array.isArray(input.lines) && input.lines.length > 0) {
@@ -243,6 +243,21 @@ export async function updateStockRun(
     : input.status && Object.values(StockRunStatus).includes(input.status)
       ? input.status
       : undefined;
+
+  if (nextStatus === StockRunStatus.DISCARDED) {
+    if (!(scope.role === "ADMIN" || scope.role === "OPS_MANAGER")) {
+      throw new Error("FORBIDDEN");
+    }
+    await db.stockRun.update({
+      where: { id: runId },
+      data: {
+        title: input.title?.trim() || undefined,
+        notes: input.notes?.trim() || null,
+        status: StockRunStatus.DISCARDED,
+      },
+    });
+    return getStockRun(scope, runId);
+  }
 
   if (nextStatus === StockRunStatus.APPLIED) {
     if (!(scope.role === "ADMIN" || scope.role === "OPS_MANAGER")) {

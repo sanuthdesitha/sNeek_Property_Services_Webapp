@@ -39,6 +39,8 @@ enum JobStatus {
   UNASSIGNED
   ASSIGNED
   IN_PROGRESS
+  PAUSED
+  WAITING_CONTINUATION_APPROVAL
   SUBMITTED
   QA_REVIEW
   COMPLETED
@@ -51,6 +53,7 @@ enum LaundryStatus {
   PICKED_UP
   DROPPED
   FLAGGED
+  SKIPPED_PICKUP
 }
 
 enum LaundryFlag {
@@ -160,6 +163,7 @@ enum StockRunStatus {
   ACTIVE
   SUBMITTED
   APPLIED
+  DISCARDED
 }
 
 enum ClientInvoiceStatus {

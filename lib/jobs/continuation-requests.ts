@@ -343,6 +343,12 @@ export async function createContinuationRequest(input: {
     store.requests = store.requests.slice(0, 2000);
   }
   await writeStore(store);
+  await db.job.update({
+    where: { id: input.jobId },
+    data: {
+      status: JobStatus.WAITING_CONTINUATION_APPROVAL,
+    },
+  });
   return created;
 }
 
@@ -372,6 +378,12 @@ export async function decideContinuationRequest(input: {
   const now = new Date().toISOString();
 
   if (input.decision === "REJECT") {
+    await db.job.update({
+      where: { id: current.jobId },
+      data: {
+        status: JobStatus.PAUSED,
+      },
+    });
     const rejected: ContinuationRequest = {
       ...current,
       status: "REJECTED",

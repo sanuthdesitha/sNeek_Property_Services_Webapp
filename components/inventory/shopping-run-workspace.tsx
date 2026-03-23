@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, Play, Receipt, Save, ShoppingBag, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Play,
+  Plus,
+  Receipt,
+  Save,
+  ShoppingBag,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +43,7 @@ type RunRow = {
   propertyName: string;
   suburb: string;
   itemId: string;
+  isCustom?: boolean;
   itemName: string;
   category: string;
   supplier: string | null;
@@ -78,7 +89,59 @@ type RunDetail = {
   };
   clientChargeStatus?: string;
   cleanerReimbursementStatus?: string;
+  shoppingTime?: {
+    requestedMinutes: number;
+    note?: string;
+    status: "NOT_REQUESTED" | "PENDING" | "APPROVED" | "INVOICED" | "PAID";
+    approvedMinutes: number;
+    approvedRate?: number | null;
+    approvedAmount: number;
+    approvedAt?: string | null;
+    invoicedAt?: string | null;
+    paidAt?: string | null;
+  };
 };
+
+type CustomDraft = {
+  propertyId: string;
+  itemName: string;
+  category: string;
+  unit: string;
+  qty: string;
+  unitCost: string;
+  note: string;
+};
+
+function derivePaidByScope(
+  method: PaymentMethod,
+  ownerScope: "CLIENT" | "CLEANER"
+): PaidByScope {
+  switch (method) {
+    case "CLIENT_CARD":
+      return "CLIENT";
+    case "CLEANER_PERSONAL_CARD":
+      return "CLEANER";
+    case "ADMIN_PERSONAL_CARD":
+      return "ADMIN";
+    case "COMPANY_CARD":
+      return "COMPANY";
+    case "CASH":
+    case "BANK_TRANSFER":
+    case "OTHER":
+      return ownerScope === "CLIENT" ? "CLIENT" : "CLEANER";
+    default:
+      return ownerScope === "CLIENT" ? "CLIENT" : "COMPANY";
+  }
+}
+
+function paymentGuidance(method: PaymentMethod, ownerScope: "CLIENT" | "CLEANER") {
+  const scope = derivePaidByScope(method, ownerScope);
+  if (scope === "CLIENT") return "Client-paid purchase. No reimbursement is needed.";
+  if (scope === "CLEANER")
+    return "Cleaner-paid purchase. Admin approval is required before reimbursement goes to the next cleaner invoice.";
+  if (scope === "ADMIN") return "Admin-paid purchase. Cleaner reimbursement is not needed.";
+  return "Company-paid purchase. Cleaner reimbursement is not needed.";
+}
 
 function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
@@ -108,6 +171,15 @@ export function ShoppingRunWorkspace({
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [customDraft, setCustomDraft] = useState<CustomDraft>({
+    propertyId: "",
+    itemName: "",
+    category: "Custom purchase",
+    unit: "unit",
+    qty: "1",
+    unitCost: "",
+    note: "",
+  });
 
   async function loadRun() {
     setLoading(true);
@@ -130,7 +202,7 @@ export function ShoppingRunWorkspace({
   const grouped = useMemo(() => {
     if (!run) return [] as Array<{ propertyId: string; propertyName: string; suburb: string; rows: RunRow[] }>;
     const map = new Map<string, { propertyId: string; propertyName: string; suburb: string; rows: RunRow[] }>();
-    for (const row of run.rows) {
+    for (const row of run.rows.filter((entry) => !entry.isCustom)) {
       const key = row.propertyId;
       if (!map.has(key)) {
         map.set(key, { propertyId: row.propertyId, propertyName: row.propertyName, suburb: row.suburb, rows: [] });
@@ -139,6 +211,32 @@ export function ShoppingRunWorkspace({
     }
     return Array.from(map.values());
   }, [run]);
+
+  const customRows = useMemo(
+    () => (run?.rows ?? []).filter((entry) => entry.isCustom),
+    [run]
+  );
+
+  const propertyOptions = useMemo(() => {
+    if (!run) return [] as Array<{ propertyId: string; propertyName: string; suburb: string }>;
+    const seen = new Map<string, { propertyId: string; propertyName: string; suburb: string }>();
+    for (const row of run.rows) {
+      if (!seen.has(row.propertyId)) {
+        seen.set(row.propertyId, {
+          propertyId: row.propertyId,
+          propertyName: row.propertyName,
+          suburb: row.suburb,
+        });
+      }
+    }
+    return Array.from(seen.values());
+  }, [run]);
+
+  useEffect(() => {
+    if (!customDraft.propertyId && propertyOptions.length > 0) {
+      setCustomDraft((prev) => ({ ...prev, propertyId: propertyOptions[0]!.propertyId }));
+    }
+  }, [customDraft.propertyId, propertyOptions]);
 
   const summary = useMemo(() => {
     if (!run) return { lines: 0, planned: 0, purchased: 0, estimated: 0, actual: 0 };
@@ -160,6 +258,11 @@ export function ShoppingRunWorkspace({
         const actualPurchasedQty = Number(next.actualPurchasedQty || 0);
         const actualUnitCost = next.actualUnitCost == null ? null : Number(next.actualUnitCost || 0);
         next.actualLineCost = actualUnitCost == null ? null : actualPurchasedQty * actualUnitCost;
+        const estimatedUnitCost =
+          next.estimatedUnitCost == null ? actualUnitCost : Number(next.estimatedUnitCost || 0);
+        next.estimatedUnitCost = estimatedUnitCost;
+        next.estimatedLineCost =
+          estimatedUnitCost == null ? null : Math.max(0, Number(next.plannedQty || 0)) * estimatedUnitCost;
         return next;
       });
       return {
@@ -172,17 +275,105 @@ export function ShoppingRunWorkspace({
   function updatePayment(patch: Partial<NonNullable<RunDetail["payment"]>>) {
     setRun((prev) => {
       if (!prev) return prev;
+      const nextMethod =
+        (patch.method ?? prev.payment?.method ?? (prev.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD")) as PaymentMethod;
+      const basePayment = prev.payment ?? {
+        method: prev.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD",
+        paidByScope: prev.ownerScope === "CLIENT" ? "CLIENT" : "COMPANY",
+        receipts: [],
+      };
       return {
         ...prev,
         payment: {
-          method: "CLIENT_CARD",
-          paidByScope: prev.ownerScope === "CLIENT" ? "CLIENT" : "COMPANY",
-          receipts: [],
-          ...(prev.payment ?? {}),
+          ...basePayment,
           ...patch,
+          method: nextMethod,
+          paidByScope: derivePaidByScope(nextMethod, prev.ownerScope),
         },
       };
     });
+  }
+
+  function addCustomPurchase() {
+    if (!run) return;
+    if (!customDraft.propertyId || !customDraft.itemName.trim()) {
+      toast({
+        title: "Custom purchase incomplete",
+        description: "Choose a property and enter the purchase name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const qty = Math.max(0, Number(customDraft.qty || 0));
+    const unitCost = Math.max(0, Number(customDraft.unitCost || 0));
+    if (qty <= 0 || unitCost <= 0) {
+      toast({
+        title: "Enter quantity and cost",
+        description: "Custom purchases need both quantity and unit cost.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const property = propertyOptions.find((entry) => entry.propertyId === customDraft.propertyId);
+    if (!property) {
+      toast({
+        title: "Property missing",
+        description: "The selected property could not be resolved.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const itemId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? `custom:${crypto.randomUUID()}`
+        : `custom:${Date.now()}`;
+    const nextRow: RunRow = {
+      propertyId: property.propertyId,
+      propertyName: property.propertyName,
+      suburb: property.suburb,
+      itemId,
+      isCustom: true,
+      itemName: customDraft.itemName.trim(),
+      category: customDraft.category.trim() || "Custom purchase",
+      supplier: null,
+      unit: customDraft.unit.trim() || "unit",
+      onHand: 0,
+      parLevel: 0,
+      reorderThreshold: 0,
+      needed: 0,
+      plannedQty: qty,
+      include: true,
+      purchased: true,
+      actualPurchasedQty: qty,
+      actualUnitCost: unitCost,
+      actualLineCost: qty * unitCost,
+      note: customDraft.note.trim() || undefined,
+      priority: "Medium",
+      estimatedUnitCost: unitCost,
+      estimatedLineCost: qty * unitCost,
+    };
+    setRun((prev) => (prev ? { ...prev, rows: [...prev.rows, nextRow] } : prev));
+    setCustomDraft((prev) => ({
+      ...prev,
+      itemName: "",
+      qty: "1",
+      unitCost: "",
+      note: "",
+    }));
+    toast({ title: "Custom purchase added" });
+  }
+
+  function removeCustomPurchase(itemId: string, propertyId: string) {
+    setRun((prev) =>
+      prev
+        ? {
+            ...prev,
+            rows: prev.rows.filter(
+              (row) => !(row.itemId === itemId && row.propertyId === propertyId)
+            ),
+          }
+        : prev
+    );
   }
 
   async function save(statusOverride?: RunStatus) {
@@ -198,6 +389,7 @@ export function ShoppingRunWorkspace({
         startedAt: status === "IN_PROGRESS" || status === "COMPLETED" ? run.startedAt ?? now : run.startedAt ?? null,
         completedAt: status === "COMPLETED" ? run.completedAt ?? now : null,
         payment: run.payment,
+        shoppingTime: run.ownerScope === "CLEANER" ? run.shoppingTime : undefined,
         rows: run.rows,
       };
       const res = await fetch(`${apiBase}/${run.id}`, {
@@ -329,15 +521,15 @@ export function ShoppingRunWorkspace({
               <option value="BANK_TRANSFER">Bank transfer</option>
               <option value="OTHER">Other</option>
             </select>
-            <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={run.payment?.paidByScope ?? (run.ownerScope === "CLIENT" ? "CLIENT" : "COMPANY")} onChange={(event) => updatePayment({ paidByScope: event.target.value as PaidByScope })}>
-              <option value="COMPANY">Company</option>
-              <option value="CLIENT">Client</option>
-              <option value="CLEANER">Cleaner</option>
-              <option value="ADMIN">Admin</option>
-              <option value="OTHER">Other</option>
-            </select>
+            <Input value={run.payment?.paidByScope?.replace(/_/g, " ") ?? "-"} disabled />
             <Input placeholder="Paid by name" value={run.payment?.paidByName ?? ""} onChange={(event) => updatePayment({ paidByName: event.target.value })} />
             <Input placeholder="Payment note" value={run.payment?.note ?? ""} onChange={(event) => updatePayment({ note: event.target.value })} />
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-sm text-emerald-950">
+            {paymentGuidance(
+              run.payment?.method ?? (run.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD"),
+              run.ownerScope
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-sm">
@@ -359,6 +551,232 @@ export function ShoppingRunWorkspace({
               ))}
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {run.ownerScope === "CLEANER" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Shopping time</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Minutes spent shopping</label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="1440"
+                  value={run.shoppingTime?.requestedMinutes ?? 0}
+                  onChange={(event) =>
+                    setRun((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            shoppingTime: {
+                              requestedMinutes: Math.max(0, Number(event.target.value || 0)),
+                              note: prev.shoppingTime?.note,
+                              status: prev.shoppingTime?.status ?? "NOT_REQUESTED",
+                              approvedMinutes: prev.shoppingTime?.approvedMinutes ?? 0,
+                              approvedRate: prev.shoppingTime?.approvedRate ?? null,
+                              approvedAmount: prev.shoppingTime?.approvedAmount ?? 0,
+                              approvedAt: prev.shoppingTime?.approvedAt ?? null,
+                              invoicedAt: prev.shoppingTime?.invoicedAt ?? null,
+                              paidAt: prev.shoppingTime?.paidAt ?? null,
+                            },
+                          }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Time note for admin</label>
+                <Textarea
+                  rows={3}
+                  placeholder="What took extra time while shopping?"
+                  value={run.shoppingTime?.note ?? ""}
+                  onChange={(event) =>
+                    setRun((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            shoppingTime: {
+                              requestedMinutes: prev.shoppingTime?.requestedMinutes ?? 0,
+                              note: event.target.value,
+                              status: prev.shoppingTime?.status ?? "NOT_REQUESTED",
+                              approvedMinutes: prev.shoppingTime?.approvedMinutes ?? 0,
+                              approvedRate: prev.shoppingTime?.approvedRate ?? null,
+                              approvedAmount: prev.shoppingTime?.approvedAmount ?? 0,
+                              approvedAt: prev.shoppingTime?.approvedAt ?? null,
+                              invoicedAt: prev.shoppingTime?.invoicedAt ?? null,
+                              paidAt: prev.shoppingTime?.paidAt ?? null,
+                            },
+                          }
+                        : prev
+                    )
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>Status: {run.shoppingTime?.status?.replace(/_/g, " ") ?? "NOT REQUESTED"}</span>
+              {run.shoppingTime?.approvedMinutes ? (
+                <span>
+                  Approved: {run.shoppingTime.approvedMinutes} min at {money(run.shoppingTime.approvedRate ?? 0)}/hr
+                </span>
+              ) : null}
+              {run.shoppingTime?.approvedAmount ? (
+                <span>Approved amount: {money(run.shoppingTime.approvedAmount)}</span>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Shopping time does not reach the cleaner invoice until admin approves it.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Custom purchases</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_110px_110px]">
+            <select
+              className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm"
+              value={customDraft.propertyId}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, propertyId: event.target.value }))
+              }
+            >
+              <option value="">Select property</option>
+              {propertyOptions.map((property) => (
+                <option key={property.propertyId} value={property.propertyId}>
+                  {property.propertyName} ({property.suburb})
+                </option>
+              ))}
+            </select>
+            <Input
+              placeholder="Purchase name"
+              value={customDraft.itemName}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, itemName: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="Qty"
+              type="number"
+              min="0"
+              step="0.01"
+              value={customDraft.qty}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, qty: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="Unit cost"
+              type="number"
+              min="0"
+              step="0.01"
+              value={customDraft.unitCost}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, unitCost: event.target.value }))
+              }
+            />
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[1fr_140px_1fr_auto]">
+            <Input
+              placeholder="Category"
+              value={customDraft.category}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, category: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="Unit"
+              value={customDraft.unit}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, unit: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="Optional note"
+              value={customDraft.note}
+              onChange={(event) =>
+                setCustomDraft((prev) => ({ ...prev, note: event.target.value }))
+              }
+            />
+            <Button type="button" onClick={addCustomPurchase}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add
+            </Button>
+          </div>
+          {customRows.length > 0 ? (
+            <div className="space-y-3">
+              {customRows.map((row) => (
+                <div key={`${row.propertyId}-${row.itemId}`} className="rounded-xl border p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{row.itemName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.propertyName} · {row.category} · {row.unit}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeCustomPurchase(row.itemId, row.propertyId)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Remove
+                    </Button>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[120px_120px_1fr]">
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={row.actualPurchasedQty ?? 0}
+                      onChange={(event) =>
+                        updateRow(row.itemId, row.propertyId, {
+                          actualPurchasedQty: Math.max(0, Number(event.target.value || 0)),
+                          plannedQty: Math.max(0, Number(event.target.value || 0)),
+                          purchased: true,
+                          include: true,
+                        })
+                      }
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={row.actualUnitCost ?? 0}
+                      onChange={(event) =>
+                        updateRow(row.itemId, row.propertyId, {
+                          actualUnitCost: Math.max(0, Number(event.target.value || 0)),
+                          purchased: true,
+                          include: true,
+                        })
+                      }
+                    />
+                    <Input
+                      value={row.note ?? ""}
+                      onChange={(event) =>
+                        updateRow(row.itemId, row.propertyId, { note: event.target.value })
+                      }
+                      placeholder="Receipt or purchase note"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Add manual purchases here when the item was not already on the planned shopping list.
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -1310,6 +1310,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               ["showInventory", "Show inventory"],
               ["showShopping", "Show shopping"],
               ["showStockRuns", "Show stock count runs"],
+              ["showFinanceDetails", "Show finance details"],
               ["showOngoingJobs", "Show ongoing jobs"],
               ["showLaundryUpdates", "Show laundry updates"],
               ["showLaundryCosts", "Show laundry costs"],

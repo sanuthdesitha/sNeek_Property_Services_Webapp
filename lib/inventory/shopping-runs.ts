@@ -26,6 +26,12 @@ export type ShoppingRunCleanerReimbursementStatus =
   | "READY"
   | "INVOICED"
   | "REIMBURSED";
+export type ShoppingRunTimeStatus =
+  | "NOT_REQUESTED"
+  | "PENDING"
+  | "APPROVED"
+  | "INVOICED"
+  | "PAID";
 
 export type ShoppingRunAttachment = {
   key: string;
@@ -44,11 +50,24 @@ export type ShoppingRunPayment = {
   receipts: ShoppingRunAttachment[];
 };
 
+export type ShoppingRunTimeEntry = {
+  requestedMinutes: number;
+  note?: string;
+  status: ShoppingRunTimeStatus;
+  approvedMinutes: number;
+  approvedRate?: number | null;
+  approvedAmount: number;
+  approvedAt?: string | null;
+  invoicedAt?: string | null;
+  paidAt?: string | null;
+};
+
 export type ShoppingRunRow = {
   propertyId: string;
   propertyName: string;
   suburb: string;
   itemId: string;
+  isCustom?: boolean;
   itemName: string;
   category: string;
   supplier: string | null;
@@ -113,6 +132,7 @@ export type ShoppingRunRecord = {
   planningScope: string; // "all" or propertyId
   rows: ShoppingRunRow[];
   payment: ShoppingRunPayment;
+  shoppingTime: ShoppingRunTimeEntry;
   totals: ShoppingRunTotals;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -123,6 +143,8 @@ export type ShoppingRunRecord = {
   cleanerReimbursementInvoicedAt?: string | null;
   cleanerReimbursementPaidAt?: string | null;
   reimbursementNote?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -161,6 +183,14 @@ type ShoppingRunCompatData = {
   cleanerReimbursementInvoicedAt?: string | null;
   cleanerReimbursementPaidAt?: string | null;
   reimbursementNote?: string;
+  shoppingTimeRequestedMinutes?: number;
+  shoppingTimeNote?: string;
+  shoppingTimeStatus?: ShoppingRunTimeStatus;
+  shoppingTimeApprovedMinutes?: number;
+  shoppingTimeApprovedRate?: number | null;
+  shoppingTimeApprovedAt?: string | null;
+  shoppingTimeInvoicedAt?: string | null;
+  shoppingTimePaidAt?: string | null;
   paidByName?: string | null;
   importedFromLegacy?: boolean;
   source?: string;
@@ -177,6 +207,46 @@ function trimText(value: unknown, max = 500) {
 
 function sanitizeStatus(value: unknown): ShoppingRunStatus {
   return value === "IN_PROGRESS" || value === "COMPLETED" ? value : "DRAFT";
+}
+
+function sanitizeShoppingTimeStatus(value: unknown): ShoppingRunTimeStatus {
+  switch (value) {
+    case "PENDING":
+    case "APPROVED":
+    case "INVOICED":
+    case "PAID":
+      return value;
+    default:
+      return "NOT_REQUESTED";
+  }
+}
+
+function buildShoppingTimeEntry(value?: Partial<ShoppingRunTimeEntry> | null): ShoppingRunTimeEntry {
+  const requestedMinutes = Math.max(0, toNumber(value?.requestedMinutes, 0));
+  const approvedMinutes = Math.max(0, toNumber(value?.approvedMinutes, 0));
+  const approvedRateRaw =
+    value?.approvedRate == null ? null : Math.max(0, toNumber(value.approvedRate, 0));
+  const approvedRate =
+    approvedRateRaw != null && Number.isFinite(approvedRateRaw) ? approvedRateRaw : null;
+  const fallbackStatus = requestedMinutes > 0 ? "PENDING" : "NOT_REQUESTED";
+  const status =
+    requestedMinutes <= 0 && sanitizeShoppingTimeStatus(value?.status) === "NOT_REQUESTED"
+      ? "NOT_REQUESTED"
+      : sanitizeShoppingTimeStatus(value?.status) === "NOT_REQUESTED"
+        ? fallbackStatus
+        : sanitizeShoppingTimeStatus(value?.status);
+  return {
+    requestedMinutes,
+    note: trimText(value?.note, 1000) || undefined,
+    status,
+    approvedMinutes,
+    approvedRate,
+    approvedAmount:
+      approvedRate != null && approvedMinutes > 0 ? (approvedMinutes / 60) * approvedRate : 0,
+    approvedAt: trimText(value?.approvedAt, 40) || null,
+    invoicedAt: trimText(value?.invoicedAt, 40) || null,
+    paidAt: trimText(value?.paidAt, 40) || null,
+  };
 }
 
 function sanitizeOwnerScope(value: unknown): ShoppingRunOwnerScope {
@@ -323,6 +393,10 @@ function sanitizeRow(row: unknown): ShoppingRunRow | null {
     propertyName,
     suburb: trimText(r.suburb, 160),
     itemId,
+    isCustom:
+      r.isCustom === true ||
+      itemId.startsWith("custom:") ||
+      itemId.startsWith("manual:"),
     itemName,
     category: trimText(r.category, 120) || "General",
     supplier: trimText(r.supplier, 160) || null,
@@ -418,6 +492,17 @@ function sanitizeRun(value: unknown): ShoppingRunRecord | null {
     planningScope: trimText(v.planningScope, 120) || "all",
     rows,
     payment,
+    shoppingTime: buildShoppingTimeEntry({
+      requestedMinutes: toNumber(v.shoppingTimeRequestedMinutes, 0),
+      note: trimText(v.shoppingTimeNote, 1000) || undefined,
+      status: sanitizeShoppingTimeStatus(v.shoppingTimeStatus),
+      approvedMinutes: toNumber(v.shoppingTimeApprovedMinutes, 0),
+      approvedRate:
+        v.shoppingTimeApprovedRate == null ? null : toNumber(v.shoppingTimeApprovedRate, 0),
+      approvedAt: trimText(v.shoppingTimeApprovedAt, 40) || null,
+      invoicedAt: trimText(v.shoppingTimeInvoicedAt, 40) || null,
+      paidAt: trimText(v.shoppingTimePaidAt, 40) || null,
+    }),
     totals: sanitizeTotals(v.totals, rows, payment, hasClient),
     startedAt: trimText(v.startedAt, 40) || null,
     completedAt: trimText(v.completedAt, 40) || null,
@@ -462,6 +547,23 @@ function parseCompatData(value: unknown): ShoppingRunCompatData {
     cleanerReimbursementInvoicedAt: trimText(row.cleanerReimbursementInvoicedAt, 40) || null,
     cleanerReimbursementPaidAt: trimText(row.cleanerReimbursementPaidAt, 40) || null,
     reimbursementNote: trimText(row.reimbursementNote, 1000) || undefined,
+    shoppingTimeRequestedMinutes: Math.max(
+      0,
+      toNumber(row.shoppingTimeRequestedMinutes, 0)
+    ),
+    shoppingTimeNote: trimText(row.shoppingTimeNote, 1000) || undefined,
+    shoppingTimeStatus: sanitizeShoppingTimeStatus(row.shoppingTimeStatus),
+    shoppingTimeApprovedMinutes: Math.max(
+      0,
+      toNumber(row.shoppingTimeApprovedMinutes, 0)
+    ),
+    shoppingTimeApprovedRate:
+      row.shoppingTimeApprovedRate == null
+        ? null
+        : Math.max(0, toNumber(row.shoppingTimeApprovedRate, 0)),
+    shoppingTimeApprovedAt: trimText(row.shoppingTimeApprovedAt, 40) || null,
+    shoppingTimeInvoicedAt: trimText(row.shoppingTimeInvoicedAt, 40) || null,
+    shoppingTimePaidAt: trimText(row.shoppingTimePaidAt, 40) || null,
     paidByName: trimText(row.paidByName, 160) || null,
     importedFromLegacy: row.importedFromLegacy === true,
     source: trimText(row.source, 60) || undefined,
@@ -479,6 +581,17 @@ function serializeCompatData(input: ShoppingRunCompatData) {
     cleanerReimbursementInvoicedAt: input.cleanerReimbursementInvoicedAt ?? null,
     cleanerReimbursementPaidAt: input.cleanerReimbursementPaidAt ?? null,
     reimbursementNote: input.reimbursementNote ?? null,
+    shoppingTimeRequestedMinutes: Math.max(0, toNumber(input.shoppingTimeRequestedMinutes, 0)),
+    shoppingTimeNote: input.shoppingTimeNote ?? null,
+    shoppingTimeStatus: input.shoppingTimeStatus ?? "NOT_REQUESTED",
+    shoppingTimeApprovedMinutes: Math.max(0, toNumber(input.shoppingTimeApprovedMinutes, 0)),
+    shoppingTimeApprovedRate:
+      input.shoppingTimeApprovedRate == null
+        ? null
+        : Math.max(0, toNumber(input.shoppingTimeApprovedRate, 0)),
+    shoppingTimeApprovedAt: input.shoppingTimeApprovedAt ?? null,
+    shoppingTimeInvoicedAt: input.shoppingTimeInvoicedAt ?? null,
+    shoppingTimePaidAt: input.shoppingTimePaidAt ?? null,
     paidByName: input.paidByName ?? null,
     importedFromLegacy: input.importedFromLegacy === true,
     source: input.source ?? "db",
@@ -593,6 +706,92 @@ function buildFallbackPayment(ownerScope: ShoppingRunOwnerScope | "ADMIN"): Shop
   };
 }
 
+function deriveOwnerPaidByScope(
+  method: ShoppingPaymentMethod,
+  ownerScope: ShoppingRunOwnerScope
+): ShoppingPaidByScope {
+  switch (method) {
+    case "CLIENT_CARD":
+      return "CLIENT";
+    case "CLEANER_PERSONAL_CARD":
+      return "CLEANER";
+    case "ADMIN_PERSONAL_CARD":
+      return "ADMIN";
+    case "COMPANY_CARD":
+      return "COMPANY";
+    case "CASH":
+    case "BANK_TRANSFER":
+    case "OTHER":
+      return ownerScope === "CLIENT" ? "CLIENT" : "CLEANER";
+    default:
+      return ownerScope === "CLIENT" ? "CLIENT" : "COMPANY";
+  }
+}
+
+function normalizeOwnerPayment(
+  payment: ShoppingRunPayment,
+  ownerScope: ShoppingRunOwnerScope
+): ShoppingRunPayment {
+  return {
+    ...payment,
+    paidByScope: deriveOwnerPaidByScope(payment.method, ownerScope),
+  };
+}
+
+function resolveRequestedShoppingTimeEntry(input: {
+  existing: ShoppingRunTimeEntry;
+  requestedMinutes?: number;
+  note?: string | null;
+}) {
+  const locked =
+    input.existing.status === "INVOICED" || input.existing.status === "PAID";
+  if (locked) return input.existing;
+
+  const requestedMinutes =
+    input.requestedMinutes === undefined
+      ? input.existing.requestedMinutes
+      : Math.max(0, toNumber(input.requestedMinutes, 0));
+  const note =
+    input.note === undefined
+      ? input.existing.note
+      : trimText(input.note, 1000) || undefined;
+
+  if (requestedMinutes <= 0) {
+    return buildShoppingTimeEntry({
+      requestedMinutes: 0,
+      note,
+      status: "NOT_REQUESTED",
+      approvedMinutes: 0,
+      approvedRate: null,
+    });
+  }
+
+  const unchanged =
+    requestedMinutes === input.existing.requestedMinutes &&
+    (note ?? "") === (input.existing.note ?? "");
+
+  if (unchanged && input.existing.status === "APPROVED") {
+    return buildShoppingTimeEntry({
+      requestedMinutes,
+      note,
+      status: "APPROVED",
+      approvedMinutes: input.existing.approvedMinutes,
+      approvedRate: input.existing.approvedRate,
+      approvedAt: input.existing.approvedAt,
+      invoicedAt: input.existing.invoicedAt,
+      paidAt: input.existing.paidAt,
+    });
+  }
+
+  return buildShoppingTimeEntry({
+    requestedMinutes,
+    note,
+    status: "PENDING",
+    approvedMinutes: 0,
+    approvedRate: null,
+  });
+}
+
 function deriveClientChargeStatus(
   compat: ShoppingRunCompatData,
   payment: ShoppingRunPayment,
@@ -623,6 +822,17 @@ function reconcileDbStatusFromCompat(
   compat: ShoppingRunCompatData
 ): PrismaShoppingRunStatus {
   if (
+    compat.shoppingTimeStatus === "PAID" &&
+    (compat.cleanerReimbursementStatus === "REIMBURSED" ||
+      compat.cleanerReimbursementStatus === "NOT_APPLICABLE" ||
+      !compat.cleanerReimbursementStatus) &&
+    (compat.clientChargeStatus === "PAID" ||
+      compat.clientChargeStatus === "NOT_REQUIRED" ||
+      !compat.clientChargeStatus)
+  ) {
+    return PrismaShoppingRunStatus.CLOSED;
+  }
+  if (
     compat.clientChargeStatus === "PAID" &&
     (compat.cleanerReimbursementStatus === "REIMBURSED" ||
       compat.cleanerReimbursementStatus === "NOT_APPLICABLE" ||
@@ -633,13 +843,18 @@ function reconcileDbStatusFromCompat(
   if (compat.cleanerReimbursementStatus === "REIMBURSED") {
     return PrismaShoppingRunStatus.REIMBURSED;
   }
+  if (compat.shoppingTimeStatus === "PAID") {
+    return PrismaShoppingRunStatus.REIMBURSED;
+  }
   if (compat.clientChargeStatus === "SENT" || compat.clientChargeStatus === "PAID") {
     return PrismaShoppingRunStatus.BILLED;
   }
   if (
     compat.clientChargeStatus === "READY" ||
     compat.cleanerReimbursementStatus === "READY" ||
-    compat.cleanerReimbursementStatus === "INVOICED"
+    compat.cleanerReimbursementStatus === "INVOICED" ||
+    compat.shoppingTimeStatus === "APPROVED" ||
+    compat.shoppingTimeStatus === "INVOICED"
   ) {
     return current === PrismaShoppingRunStatus.DRAFT || current === PrismaShoppingRunStatus.ACTIVE
       ? PrismaShoppingRunStatus.APPROVED
@@ -946,12 +1161,23 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
           : [],
       } satisfies ShoppingRunPayment)
     : buildFallbackPayment(ownerScope);
+  const shoppingTime = buildShoppingTimeEntry({
+    requestedMinutes: compat.shoppingTimeRequestedMinutes,
+    note: compat.shoppingTimeNote,
+    status: compat.shoppingTimeStatus,
+    approvedMinutes: compat.shoppingTimeApprovedMinutes,
+    approvedRate: compat.shoppingTimeApprovedRate,
+    approvedAt: compat.shoppingTimeApprovedAt,
+    invoicedAt: compat.shoppingTimeInvoicedAt,
+    paidAt: compat.shoppingTimePaidAt,
+  });
   const rows: ShoppingRunRow[] = Array.isArray(run.lines)
     ? run.lines.map((line: any) => ({
         propertyId: line.propertyId,
         propertyName: line.property?.name ?? "Property",
         suburb: line.property?.suburb ?? "",
         itemId: line.itemId ?? line.item?.id ?? line.id,
+        isCustom: !line.itemId,
         itemName: line.itemName ?? line.item?.name ?? "Item",
         category: line.category ?? line.item?.category ?? "General",
         supplier: line.supplier ?? line.item?.supplier ?? null,
@@ -989,6 +1215,7 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
     planningScope: compat.planningScope ?? "all",
     rows,
     payment,
+    shoppingTime,
     totals,
     startedAt: run.startedAt?.toISOString?.() ?? null,
     completedAt:
@@ -1014,6 +1241,8 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
     cleanerReimbursementInvoicedAt: compat.cleanerReimbursementInvoicedAt ?? null,
     cleanerReimbursementPaidAt: compat.cleanerReimbursementPaidAt ?? null,
     reimbursementNote: compat.reimbursementNote,
+    ownerName: run.owner?.name?.trim() || run.owner?.email || "Unknown user",
+    ownerEmail: run.owner?.email ?? "",
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   };
@@ -1178,6 +1407,24 @@ export async function listCleanerReimbursableShoppingRuns(input: {
   });
 }
 
+export async function listCleanerApprovedShoppingTimeRuns(input: {
+  cleanerId: string;
+  start: Date;
+  end: Date;
+}) {
+  const runs = await listShoppingRunsForAdmin();
+  return runs.filter((run) => {
+    if (run.ownerScope !== "CLEANER") return false;
+    if (run.ownerUserId !== input.cleanerId) return false;
+    if (run.shoppingTime.status !== "APPROVED") return false;
+    if (run.shoppingTime.approvedMinutes <= 0) return false;
+    if ((run.shoppingTime.approvedRate ?? 0) <= 0) return false;
+    const effectiveDate = run.completedAt || run.updatedAt || run.createdAt;
+    const when = new Date(effectiveDate);
+    return when >= input.start && when <= input.end;
+  });
+}
+
 export async function saveShoppingRunForOwner(input: {
   id?: string;
   name: string;
@@ -1191,6 +1438,10 @@ export async function saveShoppingRunForOwner(input: {
   startedAt?: string | null;
   completedAt?: string | null;
   reimbursementNote?: string;
+  shoppingTime?: {
+    requestedMinutes?: number;
+    note?: string | null;
+  };
 }) {
   await ensureLegacyShoppingRunsMigrated();
   const now = new Date();
@@ -1210,14 +1461,22 @@ export async function saveShoppingRunForOwner(input: {
   }
 
   const ownerScope = existingRecord?.ownerScope ?? input.ownerScope;
-  const payment = sanitizePayment(
-    {
-      ...(existingRecord?.payment ?? buildFallbackPayment(ownerScope)),
-      ...(input.payment ?? {}),
-      receipts: input.payment?.receipts ?? existingRecord?.payment.receipts ?? [],
-    },
+  const payment = normalizeOwnerPayment(
+    sanitizePayment(
+      {
+        ...(existingRecord?.payment ?? buildFallbackPayment(ownerScope)),
+        ...(input.payment ?? {}),
+        receipts: input.payment?.receipts ?? existingRecord?.payment.receipts ?? [],
+      },
+      ownerScope
+    ),
     ownerScope
   );
+  const shoppingTime = resolveRequestedShoppingTimeEntry({
+    existing: existingRecord?.shoppingTime ?? buildShoppingTimeEntry(),
+    requestedMinutes: input.shoppingTime?.requestedMinutes,
+    note: input.shoppingTime?.note,
+  });
   const hasClient = Boolean(existing?.clientId ?? input.clientId);
   const totals = computeShoppingRunTotals(input.rows, payment, hasClient);
   const existingCompat = existing ? parseCompatData(existing.legacySource) : {};
@@ -1229,6 +1488,14 @@ export async function saveShoppingRunForOwner(input: {
       input.reimbursementNote !== undefined
         ? trimText(input.reimbursementNote, 1000) || undefined
         : existingCompat.reimbursementNote,
+    shoppingTimeRequestedMinutes: shoppingTime.requestedMinutes,
+    shoppingTimeNote: shoppingTime.note,
+    shoppingTimeStatus: shoppingTime.status,
+    shoppingTimeApprovedMinutes: shoppingTime.approvedMinutes,
+    shoppingTimeApprovedRate: shoppingTime.approvedRate ?? null,
+    shoppingTimeApprovedAt: shoppingTime.approvedAt ?? null,
+    shoppingTimeInvoicedAt: shoppingTime.invoicedAt ?? null,
+    shoppingTimePaidAt: shoppingTime.paidAt ?? null,
     paidByName: payment.paidByName ?? existingCompat.paidByName ?? null,
     source: existingCompat.importedFromLegacy ? existingCompat.source ?? "legacy-json" : "db",
   };
@@ -1314,11 +1581,16 @@ export async function saveShoppingRunForOwner(input: {
       includeInCleanerInvoice:
         compat.cleanerReimbursementStatus === "READY" ||
         compat.cleanerReimbursementStatus === "INVOICED" ||
-        compat.cleanerReimbursementStatus === "REIMBURSED",
+        compat.cleanerReimbursementStatus === "REIMBURSED" ||
+        compat.shoppingTimeStatus === "APPROVED" ||
+        compat.shoppingTimeStatus === "INVOICED" ||
+        compat.shoppingTimeStatus === "PAID",
       includedInClientInvoiceId: existing?.settlements?.[0]?.includedInClientInvoiceId ?? null,
       includedInCleanerInvoiceReference:
         compat.cleanerReimbursementStatus === "INVOICED" ||
-        compat.cleanerReimbursementStatus === "REIMBURSED"
+        compat.cleanerReimbursementStatus === "REIMBURSED" ||
+        compat.shoppingTimeStatus === "INVOICED" ||
+        compat.shoppingTimeStatus === "PAID"
           ? existing?.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${runId}`
           : null,
     };
@@ -1402,6 +1674,13 @@ export async function updateShoppingRunByAdmin(input: {
   cleanerReimbursementInvoicedAt?: string | null;
   cleanerReimbursementPaidAt?: string | null;
   reimbursementNote?: string | null;
+  shoppingTime?: {
+    status?: ShoppingRunTimeStatus;
+    approvedMinutes?: number | null;
+    approvedRate?: number | null;
+    note?: string | null;
+    paidAt?: string | null;
+  };
 }) {
   const dbRuns = await loadShoppingRunsFromDb({ id: input.id });
   const existing = dbRuns[0];
@@ -1438,8 +1717,78 @@ export async function updateShoppingRunByAdmin(input: {
         : current.cleanerReimbursementPaidAt,
     reimbursementNote:
       input.reimbursementNote === null ? undefined : input.reimbursementNote ?? current.reimbursementNote,
+    shoppingTimeRequestedMinutes: current.shoppingTime.requestedMinutes,
+    shoppingTimeNote:
+      input.shoppingTime?.note === undefined
+        ? current.shoppingTime.note
+        : trimText(input.shoppingTime.note, 1000) || undefined,
+    shoppingTimeStatus: current.shoppingTime.status,
+    shoppingTimeApprovedMinutes: current.shoppingTime.approvedMinutes,
+    shoppingTimeApprovedRate: current.shoppingTime.approvedRate ?? null,
+    shoppingTimeApprovedAt: current.shoppingTime.approvedAt ?? null,
+    shoppingTimeInvoicedAt: current.shoppingTime.invoicedAt ?? null,
+    shoppingTimePaidAt:
+      input.shoppingTime?.paidAt !== undefined
+        ? input.shoppingTime.paidAt
+        : current.shoppingTime.paidAt ?? null,
     source: currentCompat.source ?? "db",
   };
+
+  if (input.shoppingTime) {
+    const nextStatus = input.shoppingTime.status ?? current.shoppingTime.status;
+    compat.shoppingTimeStatus = nextStatus;
+    compat.shoppingTimeApprovedMinutes =
+      input.shoppingTime.approvedMinutes == null
+        ? current.shoppingTime.approvedMinutes
+        : Math.max(0, toNumber(input.shoppingTime.approvedMinutes, 0));
+    compat.shoppingTimeApprovedRate =
+      input.shoppingTime.approvedRate == null
+        ? current.shoppingTime.approvedRate ?? null
+        : Math.max(0, toNumber(input.shoppingTime.approvedRate, 0));
+    const requestedMinutes = Math.max(0, toNumber(compat.shoppingTimeRequestedMinutes, 0));
+
+    if (nextStatus === "NOT_REQUESTED" || requestedMinutes <= 0) {
+      compat.shoppingTimeRequestedMinutes = 0;
+      compat.shoppingTimeApprovedMinutes = 0;
+      compat.shoppingTimeApprovedRate = null;
+      compat.shoppingTimeApprovedAt = null;
+      compat.shoppingTimeInvoicedAt = null;
+      compat.shoppingTimePaidAt = null;
+      compat.shoppingTimeStatus = "NOT_REQUESTED";
+    } else if (nextStatus === "PENDING") {
+      compat.shoppingTimeApprovedMinutes = 0;
+      compat.shoppingTimeApprovedRate = null;
+      compat.shoppingTimeApprovedAt = null;
+      compat.shoppingTimeInvoicedAt = null;
+      compat.shoppingTimePaidAt = null;
+    } else if (nextStatus === "APPROVED") {
+      compat.shoppingTimeApprovedMinutes =
+        compat.shoppingTimeApprovedMinutes && compat.shoppingTimeApprovedMinutes > 0
+          ? compat.shoppingTimeApprovedMinutes
+          : requestedMinutes;
+      compat.shoppingTimeApprovedAt = current.shoppingTime.approvedAt ?? new Date().toISOString();
+      compat.shoppingTimeInvoicedAt = null;
+      compat.shoppingTimePaidAt = null;
+    } else if (nextStatus === "INVOICED") {
+      compat.shoppingTimeApprovedMinutes =
+        compat.shoppingTimeApprovedMinutes && compat.shoppingTimeApprovedMinutes > 0
+          ? compat.shoppingTimeApprovedMinutes
+          : requestedMinutes;
+      compat.shoppingTimeApprovedAt = current.shoppingTime.approvedAt ?? new Date().toISOString();
+      compat.shoppingTimeInvoicedAt =
+        current.shoppingTime.invoicedAt ?? new Date().toISOString();
+    } else if (nextStatus === "PAID") {
+      compat.shoppingTimeApprovedMinutes =
+        compat.shoppingTimeApprovedMinutes && compat.shoppingTimeApprovedMinutes > 0
+          ? compat.shoppingTimeApprovedMinutes
+          : requestedMinutes;
+      compat.shoppingTimeApprovedAt = current.shoppingTime.approvedAt ?? new Date().toISOString();
+      compat.shoppingTimeInvoicedAt =
+        current.shoppingTime.invoicedAt ?? new Date().toISOString();
+      compat.shoppingTimePaidAt =
+        compat.shoppingTimePaidAt ?? new Date().toISOString();
+    }
+  }
 
   await db.shoppingRun.update({
     where: { id: input.id },
@@ -1452,12 +1801,15 @@ export async function updateShoppingRunByAdmin(input: {
       approvedAt:
         compat.clientChargeStatus === "READY" ||
         compat.cleanerReimbursementStatus === "READY" ||
-        compat.cleanerReimbursementStatus === "INVOICED"
+        compat.cleanerReimbursementStatus === "INVOICED" ||
+        compat.shoppingTimeStatus === "APPROVED" ||
+        compat.shoppingTimeStatus === "INVOICED"
           ? existing.approvedAt ?? new Date()
           : existing.approvedAt,
       closedAt:
         compat.clientChargeStatus === "PAID" ||
-        compat.cleanerReimbursementStatus === "REIMBURSED"
+        compat.cleanerReimbursementStatus === "REIMBURSED" ||
+        compat.shoppingTimeStatus === "PAID"
           ? existing.closedAt ?? new Date()
           : existing.closedAt,
       legacySource: serializeCompatData(compat),
@@ -1492,11 +1844,16 @@ export async function updateShoppingRunByAdmin(input: {
             includeInCleanerInvoice:
               compat.cleanerReimbursementStatus === "READY" ||
               compat.cleanerReimbursementStatus === "INVOICED" ||
-              compat.cleanerReimbursementStatus === "REIMBURSED",
+              compat.cleanerReimbursementStatus === "REIMBURSED" ||
+              compat.shoppingTimeStatus === "APPROVED" ||
+              compat.shoppingTimeStatus === "INVOICED" ||
+              compat.shoppingTimeStatus === "PAID",
             includedInClientInvoiceId: existing.settlements?.[0]?.includedInClientInvoiceId ?? null,
             includedInCleanerInvoiceReference:
               compat.cleanerReimbursementStatus === "INVOICED" ||
-              compat.cleanerReimbursementStatus === "REIMBURSED"
+              compat.cleanerReimbursementStatus === "REIMBURSED" ||
+              compat.shoppingTimeStatus === "INVOICED" ||
+              compat.shoppingTimeStatus === "PAID"
                 ? existing.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${input.id}`
                 : null,
           },
@@ -1519,16 +1876,34 @@ export async function markCleanerShoppingRunsInvoiced(input: {
   const now = new Date().toISOString();
   for (const run of dbRuns) {
     const current = buildShoppingRunRecordFromDb(run);
-    if (current.payment.paidByScope !== "CLEANER") continue;
-    if (current.payment.paidByUserId && current.payment.paidByUserId !== input.cleanerId) continue;
+    if (current.ownerUserId !== input.cleanerId) continue;
+    const shouldInvoiceReimbursement =
+      current.payment.paidByScope === "CLEANER" &&
+      (!current.payment.paidByUserId || current.payment.paidByUserId === input.cleanerId);
+    const shouldInvoiceTime = current.shoppingTime.status === "APPROVED";
+    if (!shouldInvoiceReimbursement && !shouldInvoiceTime) continue;
     const compat: ShoppingRunCompatData = {
       ...parseCompatData(run.legacySource),
       ownerScope: current.ownerScope,
       planningScope: current.planningScope,
       clientChargeStatus: current.clientChargeStatus,
-      cleanerReimbursementStatus: "INVOICED",
-      cleanerReimbursementInvoicedAt: now,
+      cleanerReimbursementStatus: shouldInvoiceReimbursement
+        ? "INVOICED"
+        : current.cleanerReimbursementStatus,
+      cleanerReimbursementInvoicedAt: shouldInvoiceReimbursement
+        ? now
+        : current.cleanerReimbursementInvoicedAt ?? null,
       reimbursementNote: current.reimbursementNote,
+      shoppingTimeRequestedMinutes: current.shoppingTime.requestedMinutes,
+      shoppingTimeNote: current.shoppingTime.note,
+      shoppingTimeStatus: shouldInvoiceTime ? "INVOICED" : current.shoppingTime.status,
+      shoppingTimeApprovedMinutes: current.shoppingTime.approvedMinutes,
+      shoppingTimeApprovedRate: current.shoppingTime.approvedRate ?? null,
+      shoppingTimeApprovedAt: current.shoppingTime.approvedAt ?? null,
+      shoppingTimeInvoicedAt: shouldInvoiceTime
+        ? current.shoppingTime.invoicedAt ?? now
+        : current.shoppingTime.invoicedAt ?? null,
+      shoppingTimePaidAt: current.shoppingTime.paidAt ?? null,
       paidByName: current.payment.paidByName ?? null,
       source: parseCompatData(run.legacySource).source ?? "db",
     };
@@ -1550,11 +1925,13 @@ export async function markCleanerShoppingRunsInvoiced(input: {
                 current.clientChargeStatus === "READY" ||
                 current.clientChargeStatus === "SENT" ||
                 current.clientChargeStatus === "PAID",
-              adminApprovedForCleanerReimbursement: true,
-              includeInCleanerInvoice: true,
+              adminApprovedForCleanerReimbursement: shouldInvoiceReimbursement,
+              includeInCleanerInvoice: shouldInvoiceReimbursement || shouldInvoiceTime,
               includedInClientInvoiceId: run.settlements?.[0]?.includedInClientInvoiceId ?? null,
               includedInCleanerInvoiceReference:
-                run.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${run.id}`,
+                shouldInvoiceReimbursement || shouldInvoiceTime
+                  ? run.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${run.id}`
+                  : null,
             },
           ],
         },

@@ -16,6 +16,8 @@ const STATUS_BADGE: Record<string, any> = {
   UNASSIGNED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
+  PAUSED: "warning",
+  WAITING_CONTINUATION_APPROVAL: "destructive",
   SUBMITTED: "default",
   QA_REVIEW: "warning",
   COMPLETED: "success",
@@ -140,7 +142,7 @@ export default async function CleanerJobsPage({
 
   const total = sortedJobs.length;
   const completedCount = sortedJobs.filter((j) => ["COMPLETED", "INVOICED"].includes(j.status)).length;
-  const inProgressCount = sortedJobs.filter((j) => ["ASSIGNED", "IN_PROGRESS"].includes(j.status)).length;
+  const activeCount = sortedJobs.filter((j) => ["ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"].includes(j.status)).length;
 
   return (
     <div className="space-y-5">
@@ -222,8 +224,8 @@ export default async function CleanerJobsPage({
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Assigned / in progress</p>
-            <p className="text-2xl font-bold">{inProgressCount}</p>
+            <p className="text-xs text-muted-foreground">Active / paused</p>
+            <p className="text-2xl font-bold">{activeCount}</p>
           </CardContent>
         </Card>
       </section>

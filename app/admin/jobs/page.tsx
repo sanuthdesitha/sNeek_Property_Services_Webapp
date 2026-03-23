@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Kanban, List, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, Kanban, List, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,11 +17,23 @@ import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialo
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
 
-const JOB_STATUSES = ["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"];
+const JOB_STATUSES = [
+  "UNASSIGNED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "PAUSED",
+  "WAITING_CONTINUATION_APPROVAL",
+  "SUBMITTED",
+  "QA_REVIEW",
+  "COMPLETED",
+  "INVOICED",
+];
 const STATUS_COLORS: Record<string, string> = {
   UNASSIGNED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
+  PAUSED: "warning",
+  WAITING_CONTINUATION_APPROVAL: "destructive",
   SUBMITTED: "secondary",
   QA_REVIEW: "warning",
   COMPLETED: "success",
@@ -31,6 +43,8 @@ const STATUS_LABELS: Record<string, string> = {
   UNASSIGNED: "Unassigned",
   ASSIGNED: "Assigned",
   IN_PROGRESS: "In Progress",
+  PAUSED: "Paused",
+  WAITING_CONTINUATION_APPROVAL: "Waiting Approval",
   SUBMITTED: "Submitted",
   QA_REVIEW: "QA Review",
   COMPLETED: "Completed",
@@ -60,6 +74,7 @@ export default function JobsPage() {
   const [quickAssignJob, setQuickAssignJob] = useState<any | null>(null);
   const [quickAssignSelected, setQuickAssignSelected] = useState<string[]>([]);
   const [quickAssignSubmitting, setQuickAssignSubmitting] = useState(false);
+  const [pendingContinuationRows, setPendingContinuationRows] = useState<any[]>([]);
 
   async function loadJobs(status = filterStatus) {
     const url = status !== "all" ? `/api/jobs?status=${status}` : "/api/jobs";
@@ -70,8 +85,15 @@ export default function JobsPage() {
     setLoading(false);
   }
 
+  async function loadPendingContinuations() {
+    const res = await fetch("/api/admin/job-continuations?status=PENDING", { cache: "no-store" });
+    const data = await res.json().catch(() => []);
+    setPendingContinuationRows(Array.isArray(data) ? data : []);
+  }
+
   useEffect(() => {
     loadJobs(filterStatus);
+    loadPendingContinuations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStatus]);
 
@@ -107,6 +129,10 @@ export default function JobsPage() {
         hint: cleaner.email,
       })),
     [cleaners]
+  );
+  const pendingContinuationJobIds = useMemo(
+    () => new Set(pendingContinuationRows.map((row) => row.jobId).filter(Boolean)),
+    [pendingContinuationRows]
   );
 
   useEffect(() => {
@@ -224,6 +250,7 @@ export default function JobsPage() {
       setDeleteOpen(false);
       setJobToDelete(null);
       await loadJobs();
+      await loadPendingContinuations();
       router.refresh();
     } catch (err: any) {
       toast({
@@ -273,6 +300,7 @@ export default function JobsPage() {
       setQuickAssignJob(null);
       setQuickAssignSelected([]);
       await loadJobs();
+      await loadPendingContinuations();
       router.refresh();
     } catch (err: any) {
       toast({
@@ -351,6 +379,60 @@ export default function JobsPage() {
         <p className="text-muted-foreground">Loading...</p>
       ) : view === "list" ? (
         <div className="space-y-4">
+          {pendingContinuationRows.length > 0 ? (
+            <Card className="border-amber-300 bg-amber-50/60">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">Pause / Continuation Requests</p>
+                    <p className="text-xs text-muted-foreground">
+                      These jobs are waiting for admin reschedule approval.
+                    </p>
+                  </div>
+                  <Badge variant="warning">{pendingContinuationRows.length} pending</Badge>
+                </div>
+                <div className="space-y-2">
+                  {pendingContinuationRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex flex-col gap-3 rounded-md border border-amber-300 bg-white/80 p-3 md:flex-row md:items-start md:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {row.job?.property?.name ?? "Job"}{" "}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {row.job?.property?.suburb ? `- ${row.job.property.suburb}` : ""}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.job?.jobType ? String(row.job.jobType).replace(/_/g, " ") : "Job"}{" "}
+                          {row.job?.scheduledDate ? `- ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          <strong>Cleaner:</strong> {row.requestedBy?.name ?? row.requestedBy?.email ?? "Unknown"}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          <strong>Reason:</strong> {row.reason}
+                        </p>
+                        {row.preferredDate ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Preferred continuation date: {format(new Date(`${row.preferredDate}T00:00:00`), "dd MMM yyyy")}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="destructive">Waiting Approval</Badge>
+                        <Button size="sm" asChild>
+                          <Link href={`/admin/jobs/${row.jobId}`}>Review job</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardContent className="space-y-4 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -503,7 +585,9 @@ export default function JobsPage() {
                 {jobs.map((job) => (
                   <div
                     key={job.id}
-                    className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50"
+                    className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${
+                      pendingContinuationJobIds.has(job.id) ? "bg-amber-50/50" : ""
+                    }`}
                   >
                     <div>
                       <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
@@ -518,6 +602,12 @@ export default function JobsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {job.assignments?.[0] ? (
                         <span className="hidden text-xs text-muted-foreground sm:block">{job.assignments[0].user.name}</span>
+                      ) : null}
+                      {pendingContinuationJobIds.has(job.id) ? (
+                        <Badge variant="destructive">
+                          <AlertTriangle className="mr-1 h-3 w-3" />
+                          Continuation pending
+                        </Badge>
                       ) : null}
                       <Badge variant={STATUS_COLORS[job.status] as any}>{STATUS_LABELS[job.status]}</Badge>
                       {job.status === "UNASSIGNED" ? (
@@ -556,7 +646,7 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
+          {["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
             <div key={status} className="min-w-[260px] flex-shrink-0">
               <div className="mb-3 flex items-center gap-2">
                 <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>
@@ -564,7 +654,12 @@ export default function JobsPage() {
               </div>
               <div className="space-y-2">
                 {groupedByStatus[status]?.map((job) => (
-                  <Card key={job.id} className="transition-colors hover:border-primary/50">
+                  <Card
+                    key={job.id}
+                    className={`transition-colors hover:border-primary/50 ${
+                      pendingContinuationJobIds.has(job.id) ? "border-amber-300 bg-amber-50/60" : ""
+                    }`}
+                  >
                     <CardContent className="p-3">
                       <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
                         {job.property.name}
@@ -572,6 +667,11 @@ export default function JobsPage() {
                       <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
                       <p className="mt-1 text-xs font-medium">{format(new Date(job.scheduledDate), "dd MMM")}</p>
+                      {pendingContinuationJobIds.has(job.id) ? (
+                        <Badge variant="destructive" className="mt-2">
+                          Continuation pending
+                        </Badge>
+                      ) : null}
                       {job.assignments?.[0] ? (
                         <p className="mt-1 text-xs text-muted-foreground">- {job.assignments[0].user.name}</p>
                       ) : null}

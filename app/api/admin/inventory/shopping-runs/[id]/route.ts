@@ -36,6 +36,14 @@ const paymentSchema = z.object({
   receipts: z.array(attachmentSchema).max(40).optional(),
 });
 
+const shoppingTimeSchema = z.object({
+  status: z.enum(["NOT_REQUESTED", "PENDING", "APPROVED", "INVOICED", "PAID"]).optional(),
+  approvedMinutes: z.number().min(0).max(1440).optional().nullable(),
+  approvedRate: z.number().min(0).max(1000).optional().nullable(),
+  note: z.string().max(1000).optional().nullable(),
+  paidAt: z.string().optional().nullable(),
+});
+
 const patchSchema = z.object({
   status: z.enum(["DRAFT", "IN_PROGRESS", "COMPLETED"]).optional(),
   payment: paymentSchema.optional(),
@@ -48,6 +56,7 @@ const patchSchema = z.object({
   cleanerReimbursementInvoicedAt: z.string().optional().nullable(),
   cleanerReimbursementPaidAt: z.string().optional().nullable(),
   reimbursementNote: z.string().max(1000).optional().nullable(),
+  shoppingTime: shoppingTimeSchema.optional(),
 });
 
 export async function GET(
@@ -104,6 +113,15 @@ export async function PATCH(
       cleanerReimbursementInvoicedAt: body.cleanerReimbursementInvoicedAt ?? undefined,
       cleanerReimbursementPaidAt: body.cleanerReimbursementPaidAt ?? undefined,
       reimbursementNote: body.reimbursementNote ?? undefined,
+      shoppingTime: body.shoppingTime
+        ? {
+            status: body.shoppingTime.status,
+            approvedMinutes: body.shoppingTime.approvedMinutes ?? undefined,
+            approvedRate: body.shoppingTime.approvedRate ?? undefined,
+            note: body.shoppingTime.note ?? undefined,
+            paidAt: body.shoppingTime.paidAt ?? undefined,
+          }
+        : undefined,
     });
     return NextResponse.json(saved);
   } catch (err: any) {

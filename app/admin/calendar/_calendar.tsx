@@ -18,6 +18,8 @@ const STATUS_META: Record<
   UNASSIGNED: { color: "#f59e0b", soft: "rgba(245,158,11,0.14)", badge: "warning", label: "Unassigned" },
   ASSIGNED: { color: "#2563eb", soft: "rgba(37,99,235,0.14)", badge: "secondary", label: "Assigned" },
   IN_PROGRESS: { color: "#0f766e", soft: "rgba(15,118,110,0.14)", badge: "default", label: "In Progress" },
+  PAUSED: { color: "#d97706", soft: "rgba(217,119,6,0.16)", badge: "warning", label: "Paused" },
+  WAITING_CONTINUATION_APPROVAL: { color: "#dc2626", soft: "rgba(220,38,38,0.14)", badge: "destructive", label: "Waiting Approval" },
   SUBMITTED: { color: "#4f46e5", soft: "rgba(79,70,229,0.14)", badge: "secondary", label: "Submitted" },
   QA_REVIEW: { color: "#ea580c", soft: "rgba(234,88,12,0.14)", badge: "warning", label: "QA Review" },
   COMPLETED: { color: "#16a34a", soft: "rgba(22,163,74,0.14)", badge: "success", label: "Completed" },

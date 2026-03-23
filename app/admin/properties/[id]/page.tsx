@@ -21,6 +21,7 @@ import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, Clock, Trash2, Save, Copy, MapPinned } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { PropertyClientRateEditor } from "@/components/admin/property-client-rate-editor";
 import { format } from "date-fns";
 import {
   INVENTORY_LOCATIONS,
@@ -722,7 +723,7 @@ export default function PropertyDetailPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="edit">
+        <TabsContent value="edit" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Edit Property Details</CardTitle>
@@ -848,6 +849,8 @@ export default function PropertyDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          <PropertyClientRateEditor propertyId={String(params.id)} />
         </TabsContent>
 
         <TabsContent value="forms">

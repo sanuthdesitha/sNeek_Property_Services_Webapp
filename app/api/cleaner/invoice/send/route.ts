@@ -78,7 +78,12 @@ export async function POST(req: NextRequest) {
 
     await markCleanerShoppingRunsInvoiced({
       cleanerId: session.user.id,
-      runIds: data.expenseRows.map((row) => row.runId),
+      runIds: Array.from(
+        new Set([
+          ...data.expenseRows.map((row) => row.runId),
+          ...data.shoppingTimeRows.map((row) => row.runId),
+        ])
+      ),
     });
 
     return NextResponse.json({

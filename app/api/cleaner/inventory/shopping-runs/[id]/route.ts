@@ -40,6 +40,11 @@ const paymentSchema = z.object({
   receipts: z.array(attachmentSchema).max(40).optional().default([]),
 });
 
+const shoppingTimeSchema = z.object({
+  requestedMinutes: z.number().min(0).max(1440).optional(),
+  note: z.string().max(1000).optional().nullable(),
+});
+
 const patchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   status: z.enum(["DRAFT", "IN_PROGRESS", "COMPLETED"]).optional(),
@@ -78,6 +83,7 @@ const patchSchema = z.object({
   startedAt: z.string().optional().nullable(),
   completedAt: z.string().optional().nullable(),
   reimbursementNote: z.string().max(1000).optional().nullable(),
+  shoppingTime: shoppingTimeSchema.optional(),
 });
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -159,6 +165,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       startedAt: body.startedAt ?? undefined,
       completedAt: body.completedAt ?? undefined,
       reimbursementNote: body.reimbursementNote ?? undefined,
+      shoppingTime: body.shoppingTime
+        ? {
+            requestedMinutes: body.shoppingTime.requestedMinutes,
+            note: body.shoppingTime.note ?? undefined,
+          }
+        : undefined,
     });
     if ((body.status ?? existing.status) === "COMPLETED" && existing.status !== "COMPLETED") {
       await notifyShoppingRunSubmitted({

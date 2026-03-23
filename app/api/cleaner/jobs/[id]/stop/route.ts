@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { Role } from "@prisma/client";
+import { JobStatus, Role } from "@prisma/client";
 
 export async function POST(
   _req: NextRequest,
@@ -24,6 +24,11 @@ export async function POST(
     await db.timeLog.update({
       where: { id: openLog.id },
       data: { stoppedAt: now, durationM },
+    });
+
+    await db.job.update({
+      where: { id: params.id },
+      data: { status: JobStatus.PAUSED },
     });
 
     return NextResponse.json({ ok: true, durationM });

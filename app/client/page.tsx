@@ -11,6 +11,7 @@ import { toZonedTime } from "date-fns-tz";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getClientImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
+import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 
 const TZ = "Australia/Sydney";
 
@@ -59,7 +60,7 @@ export default async function ClientDashboard() {
     ? await db.job.findMany({
         where: {
           property: { clientId: client.id },
-          status: { in: ["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "QA_REVIEW"] },
+          status: { in: ["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW"] },
         },
         select: {
           id: true,
@@ -132,6 +133,8 @@ export default async function ClientDashboard() {
   });
 
   const nextJob = ongoingJobs[0] ?? null;
+  const financeOverview =
+    client && visibility.showFinanceDetails ? await getClientFinanceOverview(client.id) : null;
   const urgentItems = await getClientImmediateAttention({
     clientId: client?.id ?? null,
     visibility,
@@ -255,6 +258,21 @@ export default async function ClientDashboard() {
             </div>
           </CardContent>
         </Card>
+        {visibility.showFinanceDetails ? (
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Pending charges</p>
+                <p className="text-2xl font-semibold">
+                  ${Number(financeOverview?.summary.pendingChargeTotal ?? 0).toFixed(2)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -398,6 +416,44 @@ export default async function ClientDashboard() {
                     No reports available yet.
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {visibility.showFinanceDetails ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-lg">Finance Snapshot</CardTitle>
+                    <CardDescription>
+                      Admin-approved pricing and invoice totals for your account.
+                    </CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/client/finance">Open finance</Link>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <p className="text-xs text-muted-foreground">Active property rates</p>
+                  <p className="mt-1 text-2xl font-semibold">{financeOverview?.summary.activeRates ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <p className="text-xs text-muted-foreground">Total billed</p>
+                  <p className="mt-1 text-2xl font-semibold">
+                    ${Number(financeOverview?.summary.totalBilled ?? 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <p className="text-xs text-muted-foreground">Pending billable services</p>
+                  <p className="mt-1 text-2xl font-semibold">{financeOverview?.summary.pendingChargeCount ?? 0}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <p className="text-xs text-muted-foreground">Invoice count</p>
+                  <p className="mt-1 text-2xl font-semibold">{financeOverview?.summary.invoiceCount ?? 0}</p>
+                </div>
               </CardContent>
             </Card>
           ) : null}

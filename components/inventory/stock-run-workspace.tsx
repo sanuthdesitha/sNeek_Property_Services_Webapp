@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
 
 type RunSummary = {
   id: string;
   title: string;
-  status: "DRAFT" | "ACTIVE" | "SUBMITTED" | "APPLIED";
+  status: "DRAFT" | "ACTIVE" | "SUBMITTED" | "APPLIED" | "DISCARDED";
   property: { id: string; name: string; suburb: string };
   requestedBy: { name: string | null; email: string };
   updatedAt: string;
@@ -38,7 +39,7 @@ type RunDetail = {
   id: string;
   title: string;
   notes: string | null;
-  status: "DRAFT" | "ACTIVE" | "SUBMITTED" | "APPLIED";
+  status: "DRAFT" | "ACTIVE" | "SUBMITTED" | "APPLIED" | "DISCARDED";
   property: { id: string; name: string; suburb: string };
   requestedBy: { name: string | null; email: string };
   canEditThresholds: boolean;
@@ -78,6 +79,7 @@ export function StockRunWorkspace({
   const [newPropertyId, setNewPropertyId] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newNotes, setNewNotes] = useState("");
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [draftLines, setDraftLines] = useState<Record<string, { countedOnHand: string; parLevel: string; reorderThreshold: string; note: string }>>({});
 
   async function loadListing() {
@@ -144,6 +146,7 @@ export function StockRunWorkspace({
       }, {})
     );
   }, [run]);
+  const runIsReadOnly = run?.status === "APPLIED" || run?.status === "DISCARDED";
 
   async function createRun() {
     if (!newPropertyId) {
@@ -169,7 +172,7 @@ export function StockRunWorkspace({
     setSelectedRunId(body.id);
   }
 
-  async function saveRun(action?: "SUBMITTED" | "APPLIED") {
+  async function saveRun(action?: "SUBMITTED" | "APPLIED" | "DISCARDED") {
     if (!run) return;
     setSaving(true);
     const res = await fetch(`${apiBase}/${run.id}`, {
@@ -178,7 +181,7 @@ export function StockRunWorkspace({
       body: JSON.stringify({
         title: run.title,
         notes: run.notes,
-        status: action === "SUBMITTED" ? "SUBMITTED" : undefined,
+        status: action === "SUBMITTED" || action === "DISCARDED" ? action : undefined,
         apply: action === "APPLIED",
         lines: run.lines.map((line) => ({
           id: line.id,
@@ -193,6 +196,9 @@ export function StockRunWorkspace({
     });
     const body = await res.json().catch(() => ({}));
     setSaving(false);
+    if (action === "DISCARDED") {
+      setDiscardConfirmOpen(false);
+    }
     if (!res.ok) {
       toast({ title: "Save failed", description: body.error ?? "Could not update stock run.", variant: "destructive" });
       return;
@@ -201,6 +207,8 @@ export function StockRunWorkspace({
       title:
         action === "APPLIED"
           ? "Stock count applied"
+          : action === "DISCARDED"
+            ? "Stock count discarded"
           : action === "SUBMITTED"
             ? "Stock count submitted"
             : "Stock run saved",
@@ -293,15 +301,25 @@ export function StockRunWorkspace({
             ) : (
               <>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Input value={run.title} onChange={(e) => setRun((prev) => (prev ? { ...prev, title: e.target.value } : prev))} />
+                  <Input
+                    value={run.title}
+                    disabled={runIsReadOnly}
+                    onChange={(e) => setRun((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+                  />
                   <Input value={`${run.property.name} - ${run.property.suburb}`} disabled />
                 </div>
                 <Textarea
                   rows={3}
+                  disabled={runIsReadOnly}
                   value={run.notes ?? ""}
                   onChange={(e) => setRun((prev) => (prev ? { ...prev, notes: e.target.value } : prev))}
                   placeholder="Run notes"
                 />
+                {run.status === "DISCARDED" ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    This stock count was discarded. It stays here for reference only and cannot be edited or applied.
+                  </p>
+                ) : null}
 
                 {groupedLines.map(([category, lines]) => (
                   <div key={category} className="space-y-3 rounded-2xl border p-4">
@@ -332,6 +350,7 @@ export function StockRunWorkspace({
                                   type="number"
                                   min="0"
                                   step="0.01"
+                                  disabled={runIsReadOnly}
                                   value={draft.countedOnHand}
                                   onChange={(e) =>
                                     setDraftLines((prev) => ({
@@ -344,7 +363,7 @@ export function StockRunWorkspace({
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  disabled={!run.canEditThresholds}
+                                  disabled={!run.canEditThresholds || runIsReadOnly}
                                   value={draft.parLevel}
                                   onChange={(e) =>
                                     setDraftLines((prev) => ({
@@ -357,7 +376,7 @@ export function StockRunWorkspace({
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  disabled={!run.canEditThresholds}
+                                  disabled={!run.canEditThresholds || runIsReadOnly}
                                   value={draft.reorderThreshold}
                                   onChange={(e) =>
                                     setDraftLines((prev) => ({
@@ -372,6 +391,7 @@ export function StockRunWorkspace({
                               <Textarea
                                 rows={2}
                                 placeholder="Notes"
+                                disabled={runIsReadOnly}
                                 value={draft.note}
                                 onChange={(e) =>
                                   setDraftLines((prev) => ({
@@ -389,10 +409,10 @@ export function StockRunWorkspace({
                 ))}
 
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => void saveRun()} disabled={saving || run.status === "APPLIED"}>
+                  <Button variant="outline" onClick={() => void saveRun()} disabled={saving || runIsReadOnly}>
                     {saving ? "Saving..." : "Save"}
                   </Button>
-                  {run.status !== "SUBMITTED" && run.status !== "APPLIED" ? (
+                  {run.status !== "SUBMITTED" && !runIsReadOnly ? (
                     <Button onClick={() => void saveRun("SUBMITTED")} disabled={saving}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />
                       Submit
@@ -403,12 +423,26 @@ export function StockRunWorkspace({
                       Apply to inventory
                     </Button>
                   ) : null}
+                  {run.canApply && !runIsReadOnly ? (
+                    <Button variant="destructive" onClick={() => setDiscardConfirmOpen(true)} disabled={saving}>
+                      Discard
+                    </Button>
+                  ) : null}
                 </div>
               </>
             )}
           </CardContent>
         </Card>
       </div>
+      <TwoStepConfirmDialog
+        open={discardConfirmOpen}
+        onOpenChange={setDiscardConfirmOpen}
+        title="Discard stock count"
+        description="This keeps the stock count for reference but prevents it from being edited or applied to inventory."
+        confirmLabel="Discard stock count"
+        loading={saving}
+        onConfirm={() => void saveRun("DISCARDED")}
+      />
     </div>
   );
 }

@@ -28,6 +28,8 @@ const STATUS_COLORS: Record<string, any> = {
   UNASSIGNED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
+  PAUSED: "warning",
+  WAITING_CONTINUATION_APPROVAL: "destructive",
   SUBMITTED: "success",
   QA_REVIEW: "warning",
   COMPLETED: "success",

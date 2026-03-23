@@ -39,6 +39,11 @@ const paymentSchema = z.object({
   receipts: z.array(attachmentSchema).max(40).optional().default([]),
 });
 
+const shoppingTimeSchema = z.object({
+  requestedMinutes: z.number().min(0).max(1440).optional(),
+  note: z.string().max(1000).optional().nullable(),
+});
+
 const rowSchema = z.object({
   propertyId: z.string().min(1),
   propertyName: z.string().min(1),
@@ -75,6 +80,7 @@ const saveSchema = z.object({
   startedAt: z.string().optional().nullable(),
   completedAt: z.string().optional().nullable(),
   reimbursementNote: z.string().max(1000).optional().nullable(),
+  shoppingTime: shoppingTimeSchema.optional(),
 });
 
 export async function GET() {
@@ -148,6 +154,12 @@ export async function POST(req: NextRequest) {
       startedAt: body.startedAt ?? undefined,
       completedAt: body.completedAt ?? undefined,
       reimbursementNote: body.reimbursementNote ?? undefined,
+      shoppingTime: body.shoppingTime
+        ? {
+            requestedMinutes: body.shoppingTime.requestedMinutes,
+            note: body.shoppingTime.note ?? undefined,
+          }
+        : undefined,
     });
     if (body.status === "COMPLETED") {
       await notifyShoppingRunSubmitted({

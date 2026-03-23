@@ -14,11 +14,14 @@ const schema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const { searchParams } = new URL(req.url);
+    const propertyId = searchParams.get("propertyId")?.trim() || undefined;
     return NextResponse.json(
       await db.propertyClientRate.findMany({
+        where: propertyId ? { propertyId } : undefined,
         include: {
           property: { select: { id: true, name: true, clientId: true, client: { select: { name: true } } } },
         },

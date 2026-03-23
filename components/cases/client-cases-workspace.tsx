@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Paperclip, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CaseAttachmentsGallery } from "@/components/cases/case-attachments-gallery";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -312,7 +313,16 @@ export function ClientCasesWorkspace() {
                       {uploading ? "Uploading..." : "Attach file"}
                     </label>
                   </div>
-                  {selected.attachments.length === 0 ? <p className="text-sm text-muted-foreground">No evidence uploaded yet.</p> : <div className="grid gap-2 md:grid-cols-2">{selected.attachments.map((attachment) => <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-xl border p-3 text-sm hover:bg-muted/50"><p className="font-medium">{attachment.label || attachment.mimeType || "Attachment"}</p><p className="text-xs text-muted-foreground">Added {formatDateTime(attachment.createdAt)}</p></a>)}</div>}
+                  <CaseAttachmentsGallery
+                    attachments={selected.attachments.map((attachment) => ({
+                      id: attachment.id,
+                      url: attachment.url,
+                      label: attachment.label,
+                      mimeType: attachment.mimeType,
+                      meta: `Added ${formatDateTime(attachment.createdAt)}`,
+                    }))}
+                    emptyText="No evidence uploaded yet."
+                  />
                 </div>
                 <div className="space-y-2 rounded-2xl border p-4">
                   <div><h4 className="font-semibold">Reply</h4><p className="text-xs text-muted-foreground">Reply to this case with more context or updated evidence.</p></div>

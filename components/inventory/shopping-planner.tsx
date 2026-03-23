@@ -59,6 +59,11 @@ type PaymentState = {
   note?: string;
   receipts: Attachment[];
 };
+type ShoppingTimeState = {
+  requestedMinutes: number;
+  note?: string;
+  status: "NOT_REQUESTED" | "PENDING" | "APPROVED" | "INVOICED" | "PAID";
+};
 type SavedRun = {
   id: string;
   name: string;
@@ -70,12 +75,24 @@ type SavedRun = {
   clientChargeStatus?: "NOT_REQUIRED" | "READY" | "SENT" | "PAID";
   cleanerReimbursementStatus?: "NOT_APPLICABLE" | "READY" | "INVOICED" | "REIMBURSED";
   payment?: PaymentState;
+  shoppingTime?: ShoppingTimeState;
   totals?: {
     actualTotalCost?: number;
   };
   rows: Array<{
     propertyId: string;
+    propertyName?: string;
+    suburb?: string;
     itemId: string;
+    itemName?: string;
+    category?: string;
+    supplier?: string | null;
+    unit?: string;
+    onHand?: number;
+    parLevel?: number;
+    reorderThreshold?: number;
+    needed?: number;
+    isCustom?: boolean;
     plannedQty: number;
     include: boolean;
     purchased: boolean;
@@ -116,6 +133,37 @@ const DEFAULT_PAYMENT: PaymentState = {
   receipts: [],
 };
 
+function derivePaidByScope(
+  method: PaymentMethod,
+  ownerScope: "client" | "cleaner"
+): PaidByScope {
+  switch (method) {
+    case "CLIENT_CARD":
+      return "CLIENT";
+    case "CLEANER_PERSONAL_CARD":
+      return "CLEANER";
+    case "ADMIN_PERSONAL_CARD":
+      return "ADMIN";
+    case "COMPANY_CARD":
+      return "COMPANY";
+    case "CASH":
+    case "BANK_TRANSFER":
+    case "OTHER":
+      return ownerScope === "client" ? "CLIENT" : "CLEANER";
+    default:
+      return ownerScope === "client" ? "CLIENT" : "COMPANY";
+  }
+}
+
+function paymentGuidance(method: PaymentMethod, ownerScope: "client" | "cleaner") {
+  const scope = derivePaidByScope(method, ownerScope);
+  if (scope === "CLIENT") return "Client-paid purchase. No reimbursement is needed.";
+  if (scope === "CLEANER")
+    return "Cleaner-paid purchase. Admin approval is required before reimbursement reaches the cleaner invoice.";
+  if (scope === "ADMIN") return "Admin-paid purchase. Cleaner reimbursement is not needed.";
+  return "Company-paid purchase. Cleaner reimbursement is not needed.";
+}
+
 function getDefaultPayment(mode: "client" | "cleaner"): PaymentState {
   return mode === "client"
     ? { ...DEFAULT_PAYMENT }
@@ -149,6 +197,7 @@ export function ShoppingPlanner({
   const [runs, setRuns] = useState<SavedRun[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [customRows, setCustomRows] = useState<SavedRun["rows"]>([]);
   const [runName, setRunName] = useState("Shopping Run");
   const [runStatus, setRunStatus] = useState<RunStatus>("DRAFT");
   const [savingRun, setSavingRun] = useState(false);
@@ -332,7 +381,7 @@ export function ShoppingPlanner({
   }
 
   function buildSaveRows() {
-    return payload.rows.map((row) => {
+    const plannedRows = payload.rows.map((row) => {
       const d = drafts[rowKey(row)] ?? {
         include: true,
         plannedQty: row.needed,
@@ -355,6 +404,42 @@ export function ShoppingPlanner({
         estimatedLineCost: row.estimatedUnitCost == null ? null : plannedQty * Number(row.estimatedUnitCost),
       };
     });
+    return [
+      ...plannedRows,
+      ...customRows.map((row) => ({
+        propertyId: row.propertyId,
+        propertyName: row.propertyName ?? "Property",
+        suburb: row.suburb ?? "",
+        itemId: row.itemId,
+        itemName: row.itemName ?? "Custom purchase",
+        category: row.category ?? "Custom purchase",
+        supplier: row.supplier ?? null,
+        unit: row.unit ?? "unit",
+        onHand: Number(row.onHand ?? 0),
+        parLevel: Number(row.parLevel ?? 0),
+        reorderThreshold: Number(row.reorderThreshold ?? 0),
+        needed: Number(row.needed ?? 0),
+        plannedQty: Number(row.plannedQty ?? row.actualPurchasedQty ?? 0),
+        include: Boolean(row.include),
+        purchased: Boolean(row.purchased),
+        actualPurchasedQty: Number(row.actualPurchasedQty ?? 0),
+        actualUnitCost: row.actualUnitCost ?? null,
+        actualLineCost:
+          row.actualLineCost ??
+          (row.actualUnitCost != null
+            ? Number(row.actualPurchasedQty ?? 0) * Number(row.actualUnitCost)
+            : null),
+        checkedAt: row.purchased ? new Date().toISOString() : undefined,
+        note: row.note || undefined,
+        priority: "Medium" as const,
+        estimatedUnitCost: row.actualUnitCost ?? null,
+        estimatedLineCost:
+          row.actualUnitCost != null
+            ? Number(row.plannedQty ?? row.actualPurchasedQty ?? 0) * Number(row.actualUnitCost)
+            : row.actualLineCost ?? null,
+        isCustom: true,
+      })),
+    ];
   }
 
   function applyRun(run: SavedRun) {
@@ -363,6 +448,10 @@ export function ShoppingPlanner({
     setStartedAt(run.startedAt ?? null);
     setCompletedAt(run.completedAt ?? null);
     setReimbursementNote("");
+    const knownKeys = new Set(payload.rows.map((row) => rowKey(row)));
+    setCustomRows(
+      run.rows.filter((row) => row.isCustom || !knownKeys.has(`${row.propertyId}::${row.itemId}`))
+    );
     if (run.planningScope && run.planningScope !== propertyId) setPropertyId(run.planningScope);
     const saved = new Map(run.rows.map((r) => [`${r.propertyId}::${r.itemId}`, r]));
     setDrafts((prev) => {
@@ -559,7 +648,7 @@ export function ShoppingPlanner({
               <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={selectedRunId} onChange={(e) => {
                 const id = e.target.value; setSelectedRunId(id);
                 const run = runs.find((r) => r.id === id);
-                if (run) applyRun(run); else { setRunName("Shopping Run"); setRunStatus("DRAFT"); setPayment(getDefaultPayment(mode)); setStartedAt(null); setCompletedAt(null); setReimbursementNote(""); }
+                if (run) applyRun(run); else { setRunName("Shopping Run"); setRunStatus("DRAFT"); setPayment(getDefaultPayment(mode)); setStartedAt(null); setCompletedAt(null); setReimbursementNote(""); setCustomRows([]); }
               }} disabled={loadingRuns}>
                 <option value="">{loadingRuns ? "Loading..." : "New run (unsaved)"}</option>
                 {runs.map((r) => <option key={r.id} value={r.id}>{r.name} [{r.status}]</option>)}
@@ -610,7 +699,14 @@ export function ShoppingPlanner({
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                 value={payment?.method ?? (mode === "client" ? "CLIENT_CARD" : "COMPANY_CARD")}
                 onChange={(e) =>
-                  setPayment((prev) => ({ ...prev, method: e.target.value as PaymentMethod }))
+                  setPayment((prev) => {
+                    const method = e.target.value as PaymentMethod;
+                    return {
+                      ...prev,
+                      method,
+                      paidByScope: derivePaidByScope(method, mode),
+                    };
+                  })
                 }
               >
                 <option value="COMPANY_CARD">Company card</option>
@@ -624,19 +720,10 @@ export function ShoppingPlanner({
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Paid by</label>
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={payment?.paidByScope ?? (mode === "client" ? "CLIENT" : "COMPANY")}
-                onChange={(e) =>
-                  setPayment((prev) => ({ ...prev, paidByScope: e.target.value as PaidByScope }))
-                }
-              >
-                <option value="COMPANY">Company</option>
-                <option value="CLIENT">Client</option>
-                <option value="CLEANER">Cleaner</option>
-                <option value="ADMIN">Admin</option>
-                <option value="OTHER">Other</option>
-              </select>
+              <Input
+                value={(payment?.paidByScope ?? derivePaidByScope(payment.method, mode)).replace(/_/g, " ")}
+                disabled
+              />
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Paid by name</label>
@@ -656,6 +743,9 @@ export function ShoppingPlanner({
                 placeholder="Client to reimburse / paid on client card"
               />
             </div>
+          </div>
+          <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-950">
+            {paymentGuidance(payment.method, mode)}
           </div>
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Payment note</label>
@@ -688,6 +778,11 @@ export function ShoppingPlanner({
             <span className="text-xs text-muted-foreground">
               Actual spend tracked: {money(summary.actualTotal)}
             </span>
+            {customRows.length > 0 ? (
+              <span className="text-xs text-muted-foreground">
+                Custom purchases preserved: {customRows.length}
+              </span>
+            ) : null}
           </div>
           {(payment?.receipts?.length ?? 0) > 0 ? (
             <div className="grid gap-2 md:grid-cols-2">

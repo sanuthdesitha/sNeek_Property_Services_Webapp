@@ -503,7 +503,7 @@ export async function POST(
             where: { id: laundryTask.id },
             data: {
               notifyLaundry: false,
-              status: LaundryStatus.FLAGGED,
+              status: noPickupRequired ? LaundryStatus.SKIPPED_PICKUP : LaundryStatus.FLAGGED,
               noPickupRequired,
               skipReasonCode: laundrySkipReasonCode || null,
               skipReasonNote: laundrySkipReasonNote || null,

@@ -14,6 +14,8 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
   JobStatus.ASSIGNED,
   JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
   JobStatus.SUBMITTED,
   JobStatus.QA_REVIEW,
 ];
@@ -181,7 +183,16 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
       }),
       db.job.count({
         where: {
-          status: { in: [JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.SUBMITTED, JobStatus.QA_REVIEW] },
+          status: {
+            in: [
+              JobStatus.ASSIGNED,
+              JobStatus.IN_PROGRESS,
+              JobStatus.PAUSED,
+              JobStatus.WAITING_CONTINUATION_APPROVAL,
+              JobStatus.SUBMITTED,
+              JobStatus.QA_REVIEW,
+            ],
+          },
           scheduledDate: { lt: todayStart },
           assignments: { some: { userId: cleanerId, removedAt: null } },
         },
@@ -192,7 +203,7 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
           status: "OPEN",
           title: { startsWith: "Carry-forward task" },
           job: {
-            status: { in: [JobStatus.ASSIGNED, JobStatus.IN_PROGRESS] },
+            status: { in: [JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL] },
             assignments: { some: { userId: cleanerId, removedAt: null } },
           },
         },

@@ -27,6 +27,7 @@ export default async function ClientLayout({ children }: { children: React.React
         ...(visibility.showInventory && visibility.showStockRuns && visibility.allowStockRuns
           ? [{ href: "/client/stock-runs", label: "Stock Counts" }]
           : []),
+        ...(visibility.showFinanceDetails ? [{ href: "/client/finance", label: "Finance" }] : []),
         ...(visibility.showReports ? [{ href: "/client/reports", label: "Reports" }] : []),
         ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Quotes" }] : []),
         ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),

@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+﻿import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { Role, JobStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import Link from "next/link";
 import { getAppSettings } from "@/lib/settings";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
+import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 
 const TZ = "Australia/Sydney";
 
@@ -52,7 +53,17 @@ async function getDashboardStats() {
     }),
     db.job.findMany({
       where: {
-        status: { in: [JobStatus.UNASSIGNED, JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.SUBMITTED, JobStatus.QA_REVIEW] },
+        status: {
+          in: [
+            JobStatus.UNASSIGNED,
+            JobStatus.ASSIGNED,
+            JobStatus.IN_PROGRESS,
+            JobStatus.PAUSED,
+            JobStatus.WAITING_CONTINUATION_APPROVAL,
+            JobStatus.SUBMITTED,
+            JobStatus.QA_REVIEW,
+          ],
+        },
         dueTime: { not: null },
         scheduledDate: { lte: todayEnd },
       },
@@ -102,6 +113,8 @@ const STATUS_COLORS: Record<JobStatus, string> = {
   UNASSIGNED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
+  PAUSED: "warning",
+  WAITING_CONTINUATION_APPROVAL: "destructive",
   SUBMITTED: "secondary",
   QA_REVIEW: "warning",
   COMPLETED: "success",
@@ -114,6 +127,20 @@ export default async function AdminDashboard() {
     getDashboardStats(),
     getAdminImmediateAttention(),
   ]);
+  const pendingContinuations = (await listContinuationRequests({ status: "PENDING" })).slice(0, 5);
+  const continuationJobIds = Array.from(new Set(pendingContinuations.map((row) => row.jobId)));
+  const continuationJobs = continuationJobIds.length
+    ? await db.job.findMany({
+        where: { id: { in: continuationJobIds } },
+        select: {
+          id: true,
+          jobType: true,
+          scheduledDate: true,
+          property: { select: { name: true, suburb: true } },
+        },
+      })
+    : [];
+  const continuationJobById = new Map(continuationJobs.map((job) => [job.id, job]));
 
   const statCards = [
     { label: "Today's Jobs", value: stats.todayJobs, icon: Calendar, color: "text-blue-600", bg: "bg-blue-50" },
@@ -161,11 +188,45 @@ export default async function AdminDashboard() {
         items={urgentItems}
       />
 
+      {pendingContinuations.length > 0 ? (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Pause / Continuation Approvals</CardTitle>
+            <Badge variant="warning">{pendingContinuations.length} pending</Badge>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingContinuations.map((row) => {
+              const job = continuationJobById.get(row.jobId);
+              return (
+                <Link
+                  key={row.id}
+                  href={`/admin/jobs/${row.jobId}`}
+                  className="flex items-center justify-between rounded-md border border-amber-300 bg-white/80 px-4 py-3 transition hover:bg-white"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{job?.property?.name ?? `Job ${row.jobId}`}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {job?.property?.suburb ? `${job.property.suburb} · ` : ""}
+                      {job?.jobType ? `${String(job.jobType).replace(/_/g, " ")} · ` : ""}
+                      {job?.scheduledDate ? `${format(new Date(job.scheduledDate), "dd MMM yyyy")} · ` : ""}
+                      Requested {format(new Date(row.requestedAt), "dd MMM HH:mm")}
+                      {row.preferredDate ? ` · Prefers ${row.preferredDate}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs">{row.reason}</p>
+                  </div>
+                  <Badge variant="destructive">Waiting Approval</Badge>
+                </Link>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Recent Jobs */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Recent Jobs</CardTitle>
-          <Link href="/admin/jobs" className="text-sm text-primary hover:underline">View all →</Link>
+          <Link href="/admin/jobs" className="text-sm text-primary hover:underline">View all â†’</Link>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
@@ -178,7 +239,7 @@ export default async function AdminDashboard() {
                 <div>
                   <p className="text-sm font-medium">{job.property.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {job.property.suburb} · {job.jobType.replace(/_/g, " ")} ·{" "}
+                    {job.property.suburb} Â· {job.jobType.replace(/_/g, " ")} Â·{" "}
                     {format(toZonedTime(job.scheduledDate, TZ), "dd MMM")}
                   </p>
                 </div>
