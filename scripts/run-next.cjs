@@ -4,6 +4,24 @@ const { spawnSync } = require("node:child_process");
 
 const mode = process.argv[2];
 
+function movePathSync(sourcePath, targetPath) {
+  try {
+    fs.renameSync(sourcePath, targetPath);
+    return;
+  } catch (error) {
+    if (error && error.code !== "EXDEV") {
+      throw error;
+    }
+  }
+
+  fs.cpSync(sourcePath, targetPath, {
+    recursive: true,
+    force: true,
+    errorOnExist: false,
+  });
+  fs.rmSync(sourcePath, { recursive: true, force: true });
+}
+
 if (!mode || !["build", "start", "dev"].includes(mode)) {
   console.error("Usage: node ./scripts/run-next.cjs <build|start|dev> [args...]");
   process.exit(1);
@@ -53,14 +71,14 @@ if (mode === "build" && result.status === 0) {
 
   try {
     if (fs.existsSync(finalDistDir)) {
-      fs.renameSync(finalDistDir, backupDistDir);
+      movePathSync(finalDistDir, backupDistDir);
     }
-    fs.renameSync(stagedDistDir, finalDistDir);
+    movePathSync(stagedDistDir, finalDistDir);
     fs.rmSync(backupDistDir, { recursive: true, force: true });
   } catch (error) {
     if (fs.existsSync(backupDistDir) && !fs.existsSync(finalDistDir)) {
       try {
-        fs.renameSync(backupDistDir, finalDistDir);
+        movePathSync(backupDistDir, finalDistDir);
       } catch {}
     }
 
