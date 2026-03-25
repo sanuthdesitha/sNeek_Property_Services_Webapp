@@ -103,15 +103,22 @@ export function ProfileSettings() {
   async function saveProfile() {
     if (!data) return;
     setSavingProfile(true);
+    const payload: { name?: string; email?: string; phone?: string; image?: string | null } = {
+      image: profileForm.image || null,
+    };
+    if (data.editPolicy.canEditName) {
+      payload.name = profileForm.name;
+    }
+    if (data.editPolicy.canEditEmail) {
+      payload.email = profileForm.email;
+    }
+    if (data.editPolicy.canEditPhone) {
+      payload.phone = profileForm.phone;
+    }
     const res = await fetch("/api/me/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: profileForm.name,
-        email: profileForm.email,
-        phone: profileForm.phone,
-        image: profileForm.image || null,
-      }),
+      body: JSON.stringify(payload),
     });
     const body = await res.json();
     setSavingProfile(false);

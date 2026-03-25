@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
@@ -23,6 +25,27 @@ function toUtcDayRange(date: Date) {
   return { start, end };
 }
 
+function resolveScheduledAt(
+  job: {
+    scheduledDate: Date;
+    startTime?: string | null;
+    dueTime?: string | null;
+    endTime?: string | null;
+  },
+  timezone: string
+) {
+  const localDate = toZonedTime(job.scheduledDate, timezone);
+  const datePart = format(localDate, "yyyy-MM-dd");
+  const timeValue = job.startTime || job.dueTime || job.endTime || "09:00";
+  const safeTime = /^\d{2}:\d{2}$/.test(timeValue) ? timeValue : "09:00";
+  return fromZonedTime(`${datePart}T${safeTime}:00`, timezone);
+}
+
+function isInsideReminderWindow(scheduledAt: Date, now: Date, hoursBefore: number) {
+  const deltaHours = (scheduledAt.getTime() - now.getTime()) / 3600_000;
+  return deltaHours <= hoursBefore && deltaHours > Math.max(0, hoursBefore - 1);
+}
+
 async function findNextScheduledDate(now: Date) {
   const nextJob = await db.job.findFirst({
     where: {
@@ -38,6 +61,7 @@ async function findNextScheduledDate(now: Date) {
 export async function dispatchJobReminders(options: DispatchJobRemindersOptions = {}) {
   const now = options.now ?? new Date();
   const settings = await getAppSettings();
+  const timezone = settings.timezone || "Australia/Sydney";
 
   const summary = {
     longCandidates: 0,
@@ -55,27 +79,31 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
     if (!settings.scheduledNotifications.reminder24hEnabled && !options.ignoreEnabled) {
       summary.skipped.push("24-hour reminders are disabled in settings.");
     } else {
-      const longWindowHours = Math.max(1, settings.reminder24hHours);
-      const longEnd = new Date(now.getTime() + longWindowHours * 3600_000);
-      const longStart = new Date(now.getTime() + (longWindowHours - 1) * 3600_000);
-
       const jobsLong = await db.job.findMany({
         where: {
-          scheduledDate: { gte: longStart, lte: longEnd },
+          scheduledDate: {
+            gte: new Date(now.getTime() - 24 * 3600_000),
+            lte: new Date(now.getTime() + 72 * 3600_000),
+          },
           status: { in: ["ASSIGNED"] },
           ...(options.force ? {} : { reminder24hSent: false }),
         },
         select: {
           id: true,
           jobType: true,
+          scheduledDate: true,
           startTime: true,
+          dueTime: true,
+          endTime: true,
           internalNotes: true,
           property: { select: { name: true, address: true } },
           assignments: { select: { user: { select: { name: true, email: true } } } },
         },
       });
 
-      let effectiveJobsLong = jobsLong;
+      let effectiveJobsLong = jobsLong.filter((job) =>
+        isInsideReminderWindow(resolveScheduledAt(job, timezone), now, Math.max(1, settings.reminder24hHours))
+      );
       if (effectiveJobsLong.length === 0 && options.force && options.useNextAvailableDate !== false) {
         const nextScheduledDate = await findNextScheduledDate(now);
         if (nextScheduledDate) {
@@ -89,7 +117,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             select: {
               id: true,
               jobType: true,
+              scheduledDate: true,
               startTime: true,
+              dueTime: true,
+              endTime: true,
               internalNotes: true,
               property: { select: { name: true, address: true } },
               assignments: { select: { user: { select: { name: true, email: true } } } },
@@ -139,27 +170,31 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
     if (!settings.scheduledNotifications.reminder2hEnabled && !options.ignoreEnabled) {
       summary.skipped.push("2-hour reminders are disabled in settings.");
     } else {
-      const shortWindowHours = Math.max(1, settings.reminder2hHours);
-      const shortEnd = new Date(now.getTime() + shortWindowHours * 3600_000);
-      const shortStart = new Date(now.getTime() + (shortWindowHours - 1) * 3600_000);
-
       const jobsShort = await db.job.findMany({
         where: {
-          scheduledDate: { gte: shortStart, lte: shortEnd },
+          scheduledDate: {
+            gte: new Date(now.getTime() - 24 * 3600_000),
+            lte: new Date(now.getTime() + 48 * 3600_000),
+          },
           status: { in: ["ASSIGNED"] },
           ...(options.force ? {} : { reminder2hSent: false }),
         },
         select: {
           id: true,
           jobType: true,
+          scheduledDate: true,
           startTime: true,
+          dueTime: true,
+          endTime: true,
           internalNotes: true,
           property: { select: { name: true, address: true } },
           assignments: { select: { user: { select: { phone: true } } } },
         },
       });
 
-      let effectiveJobsShort = jobsShort;
+      let effectiveJobsShort = jobsShort.filter((job) =>
+        isInsideReminderWindow(resolveScheduledAt(job, timezone), now, Math.max(1, settings.reminder2hHours))
+      );
       if (effectiveJobsShort.length === 0 && options.force && options.useNextAvailableDate !== false) {
         const nextScheduledDate = await findNextScheduledDate(now);
         if (nextScheduledDate) {
@@ -173,7 +208,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             select: {
               id: true,
               jobType: true,
+              scheduledDate: true,
               startTime: true,
+              dueTime: true,
+              endTime: true,
               internalNotes: true,
               property: { select: { name: true, address: true } },
               assignments: { select: { user: { select: { phone: true } } } },

@@ -50,33 +50,45 @@ export async function PATCH(req: NextRequest) {
 
     const policy = await getProfilePolicyForUser(current.id, current.role as Role);
     const data: { name?: string; phone?: string | null; email?: string; image?: string | null } = {};
+    const currentName = (current.name ?? "").trim();
+    const currentPhone = (current.phone ?? "").trim();
+    const currentEmail = current.email.trim().toLowerCase();
 
     if (body.name !== undefined) {
       if (!policy.canEditName) {
-        return NextResponse.json({ error: "Name editing is disabled for your role." }, { status: 403 });
+        if (body.name.trim() !== currentName) {
+          return NextResponse.json({ error: "Name editing is disabled for your role." }, { status: 403 });
+        }
+      } else {
+        data.name = body.name;
       }
-      data.name = body.name;
     }
 
     if (body.phone !== undefined) {
       if (!policy.canEditPhone) {
-        return NextResponse.json({ error: "Phone editing is disabled for your role." }, { status: 403 });
+        if (body.phone.trim() != currentPhone) {
+          return NextResponse.json({ error: "Phone editing is disabled for your role." }, { status: 403 });
+        }
+      } else {
+        data.phone = body.phone || null;
       }
-      data.phone = body.phone || null;
     }
 
     if (body.email !== undefined) {
-      if (!policy.canEditEmail) {
-        return NextResponse.json({ error: "Email editing is disabled for your role." }, { status: 403 });
-      }
       const normalizedEmail = body.email.toLowerCase();
-      if (normalizedEmail !== current.email.toLowerCase()) {
-        const existing = await db.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
-        if (existing && existing.id !== current.id) {
-          return NextResponse.json({ error: "Email is already in use." }, { status: 409 });
+      if (!policy.canEditEmail) {
+        if (normalizedEmail !== currentEmail) {
+          return NextResponse.json({ error: "Email editing is disabled for your role." }, { status: 403 });
         }
+      } else {
+        if (normalizedEmail !== currentEmail) {
+          const existing = await db.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
+          if (existing && existing.id !== current.id) {
+            return NextResponse.json({ error: "Email is already in use." }, { status: 409 });
+          }
+        }
+        data.email = normalizedEmail;
       }
-      data.email = normalizedEmail;
     }
 
     if (body.image !== undefined) {
