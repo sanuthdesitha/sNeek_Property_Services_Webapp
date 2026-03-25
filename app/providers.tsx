@@ -7,6 +7,7 @@ import { TextHistorySuggestions } from "@/components/shared/text-history-suggest
 import { GlobalRequestProgress } from "@/components/shared/global-request-progress";
 import { ReturnSync } from "@/components/shared/return-sync";
 import { LiveNotifications } from "@/components/shared/live-notifications";
+import { NativeDevicePushRegistration } from "@/components/shared/native-device-push-registration";
 import { useState } from "react";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -22,6 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <div key={hardRefreshKey}>{children}</div>
         <GlobalRequestProgress />
         <LiveNotifications />
+        <NativeDevicePushRegistration />
         <TextHistorySuggestions />
         <Toaster />
       </QueryClientProvider>

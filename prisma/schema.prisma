@@ -240,6 +240,7 @@ model User {
   auditLogs     AuditLog[]        @relation("AuditUser")
   notifications Notification[]
   notificationPreference UserNotificationPreference?
+  pushDevices    UserPushDevice[]
   payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
   payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
   timeAdjustmentRequests TimeLogAdjustmentRequest[] @relation("TimeAdjustmentRequestedBy")
@@ -1023,6 +1024,23 @@ model Notification {
   createdAt   DateTime            @default(now())
 
   user        User?               @relation(fields: [userId], references: [id])
+}
+
+model UserPushDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  token       String   @unique
+  platform    String
+  appVersion  String?
+  provider    String   @default("expo")
+  isActive    Boolean  @default(true)
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
 }
 
 model AuditLog {

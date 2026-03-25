@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Role } from "@prisma/client";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { notificationWhereForRole, toNotificationFeedItem } from "@/lib/notifications/feed";
+import { isNotificationVisibleToRole, notificationWhereForRole, toNotificationFeedItem } from "@/lib/notifications/feed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +78,11 @@ export async function GET(req: NextRequest) {
           if (rows.length === 0) return;
 
           for (const row of rows) {
+            if (!isNotificationVisibleToRole(row, role)) {
+              cursor.createdAt = row.createdAt;
+              cursor.id = row.id;
+              continue;
+            }
             enqueueSafe(sseEvent("notification", toNotificationFeedItem(row, role)));
             cursor.createdAt = row.createdAt;
             cursor.id = row.id;

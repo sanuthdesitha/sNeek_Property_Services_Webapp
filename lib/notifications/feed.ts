@@ -21,6 +21,23 @@ export function notificationWhereForRole(role: Role, userId: string) {
   };
 }
 
+const END_USER_HIDDEN_PATTERNS = [
+  /\b(?:email|sms)\s+sent\s+to\b/i,
+  /\btest sent to\b/i,
+  /\bprovider failed\b/i,
+  /\bdelivery failed\b/i,
+];
+
+export function isNotificationVisibleToRole(
+  notification: Pick<Notification, "subject" | "body">,
+  role: Role
+) {
+  if (role === Role.ADMIN || role === Role.OPS_MANAGER) return true;
+  const subject = notification.subject ?? "";
+  const body = notification.body ?? "";
+  return !END_USER_HIDDEN_PATTERNS.some((pattern) => pattern.test(subject) || pattern.test(body));
+}
+
 export function resolveNotificationHrefForRole(notification: Pick<Notification, "jobId" | "subject" | "body">, role: Role) {
   if (role === Role.ADMIN || role === Role.OPS_MANAGER) {
     return resolveAdminNotificationHref(notification);

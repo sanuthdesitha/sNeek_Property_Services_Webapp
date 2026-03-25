@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
-import { notificationWhereForRole, toNotificationFeedItem } from "@/lib/notifications/feed";
+import { isNotificationVisibleToRole, notificationWhereForRole, toNotificationFeedItem } from "@/lib/notifications/feed";
 
 export async function GET() {
   try {
@@ -15,7 +15,11 @@ export async function GET() {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 200,
     });
-    return NextResponse.json(rows.map((row) => toNotificationFeedItem(row, role)));
+    return NextResponse.json(
+      rows
+        .filter((row) => isNotificationVisibleToRole(row, role))
+        .map((row) => toNotificationFeedItem(row, role))
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not load notifications." }, { status: getApiErrorStatus(err) });
   }
