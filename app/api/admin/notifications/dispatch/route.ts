@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { db } from "@/lib/db";
 
 const schema = z.object({
-  dispatchType: z.enum(["REMINDER_24H", "REMINDER_2H", "TOMORROW_PREP", "STOCK_ALERTS"]),
+  dispatchType: z.enum(["REMINDER_24H", "REMINDER_2H", "TOMORROW_PREP", "STOCK_ALERTS", "ADMIN_ATTENTION"]),
   force: z.boolean().optional(),
 });
 
@@ -39,11 +40,17 @@ export async function POST(req: NextRequest) {
         result = await dispatchTomorrowPrepSummaries(new Date(), {
           ignoreWindow: true,
           ignoreEnabled: true,
-          useNextAvailableDate: true,
+          useNextAvailableDate: false,
         });
         break;
       case "STOCK_ALERTS":
         result = await sendStockAlerts({
+          ignoreWindow: true,
+          ignoreEnabled: true,
+        });
+        break;
+      case "ADMIN_ATTENTION":
+        result = await sendAdminAttentionSummary({
           ignoreWindow: true,
           ignoreEnabled: true,
         });

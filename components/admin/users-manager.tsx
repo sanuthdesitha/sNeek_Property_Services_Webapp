@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
 type AccountRole = "ADMIN" | "OPS_MANAGER" | "CLEANER" | "CLIENT" | "LAUNDRY";
@@ -582,7 +583,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Phone (optional)</Label>
-                    <Input value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                    <Input
+                      type="tel"
+                      inputMode="tel"
+                      maxLength={16}
+                      placeholder="0451217210 or +61451217210"
+                      value={form.phone}
+                      onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    />
                   </div>
                 </div>
 
@@ -590,15 +598,19 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   <div className="space-y-1.5">
                     <Label>Contact number (optional)</Label>
                     <Input
+                      type="tel"
+                      inputMode="tel"
+                      maxLength={20}
+                      placeholder="0451217210 or +61451217210"
                       value={form.contactNumber}
                       onChange={(e) => setForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Address (optional)</Label>
-                    <Input
+                    <GoogleAddressInput
                       value={form.address}
-                      onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                      onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
                     />
                   </div>
                 </div>
@@ -614,7 +626,13 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                     </div>
                     <div className="space-y-1.5">
                       <Label>ABN (optional)</Label>
-                      <Input value={form.abn} onChange={(e) => setForm((prev) => ({ ...prev, abn: e.target.value }))} />
+                      <Input
+                        inputMode="numeric"
+                        maxLength={14}
+                        placeholder="11 digits"
+                        value={form.abn}
+                        onChange={(e) => setForm((prev) => ({ ...prev, abn: e.target.value }))}
+                      />
                     </div>
                   </div>
                 ) : null}
@@ -650,6 +668,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                       <div className="space-y-1.5">
                         <Label>BSB</Label>
                         <Input
+                          inputMode="numeric"
+                          maxLength={7}
+                          placeholder="123456"
                           value={form.bankDetails.bsb}
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -662,6 +683,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                       <div className="space-y-1.5">
                         <Label>Account number</Label>
                         <Input
+                          inputMode="numeric"
+                          maxLength={10}
+                          placeholder="6 to 10 digits"
                           value={form.bankDetails.accountNumber}
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -737,7 +761,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>Phone</Label>
-                  <Input value={accountForm.phone} onChange={(e) => setAccountForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                  <Input
+                    type="tel"
+                    inputMode="tel"
+                    maxLength={16}
+                    placeholder="0451217210 or +61451217210"
+                    value={accountForm.phone}
+                    onChange={(e) => setAccountForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Role</Label>
@@ -776,15 +807,19 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                 <div className="space-y-1.5">
                   <Label>Contact number (optional)</Label>
                   <Input
+                    type="tel"
+                    inputMode="tel"
+                    maxLength={20}
+                    placeholder="0451217210 or +61451217210"
                     value={accountForm.contactNumber}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Address (optional)</Label>
-                  <Input
+                  <GoogleAddressInput
                     value={accountForm.address}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, address: e.target.value }))}
+                    onChange={(value) => setAccountForm((prev) => ({ ...prev, address: value }))}
                   />
                 </div>
               </div>
@@ -800,6 +835,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   <div className="space-y-1.5">
                     <Label>ABN (optional)</Label>
                     <Input
+                      inputMode="numeric"
+                      maxLength={14}
+                      placeholder="11 digits"
                       value={accountForm.abn}
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, abn: e.target.value }))}
                     />
@@ -835,11 +873,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>BSB</Label>
-                      <Input
-                        value={accountForm.bankDetails.bsb}
-                        onChange={(e) =>
-                          setAccountForm((prev) => ({
+                        <Label>BSB</Label>
+                        <Input
+                          inputMode="numeric"
+                          maxLength={7}
+                          placeholder="123456"
+                          value={accountForm.bankDetails.bsb}
+                          onChange={(e) =>
+                            setAccountForm((prev) => ({
                             ...prev,
                             bankDetails: { ...prev.bankDetails, bsb: e.target.value },
                           }))
@@ -847,11 +888,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Account number</Label>
-                      <Input
-                        value={accountForm.bankDetails.accountNumber}
-                        onChange={(e) =>
-                          setAccountForm((prev) => ({
+                        <Label>Account number</Label>
+                        <Input
+                          inputMode="numeric"
+                          maxLength={10}
+                          placeholder="6 to 10 digits"
+                          value={accountForm.bankDetails.accountNumber}
+                          onChange={(e) =>
+                            setAccountForm((prev) => ({
                             ...prev,
                             bankDetails: { ...prev.bankDetails, accountNumber: e.target.value },
                           }))

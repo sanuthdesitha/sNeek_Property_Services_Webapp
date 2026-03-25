@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { assignJobSchema } from "@/lib/validations/job";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { Role, JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
@@ -198,20 +198,22 @@ export async function POST(
       }
 
       if (user.phone && /^\+\d{8,15}$/.test(user.phone)) {
-        const smsOk = await sendSms(user.phone, notificationTemplate.smsBody);
+        const smsResult = await sendSmsDetailed(user.phone, notificationTemplate.smsBody);
 
-        await db.notification.create({
-          data: {
-            userId,
-            jobId: job.id,
-            channel: NotificationChannel.SMS,
-            subject,
-            body: `Assignment SMS sent to ${user.phone}`,
-            status: smsOk ? NotificationStatus.SENT : NotificationStatus.FAILED,
-            sentAt: smsOk ? new Date() : undefined,
-            errorMsg: smsOk ? undefined : "SMS provider failed or is not configured.",
-          },
-        });
+        if (smsResult.status === "sent" || smsResult.status === "failed") {
+          await db.notification.create({
+            data: {
+              userId,
+              jobId: job.id,
+              channel: NotificationChannel.SMS,
+              subject,
+              body: `Assignment SMS sent to ${user.phone}`,
+              status: smsResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+              sentAt: smsResult.ok ? new Date() : undefined,
+              errorMsg: smsResult.ok ? undefined : smsResult.error ?? "SMS provider failed.",
+            },
+          });
+        }
       }
     }
 

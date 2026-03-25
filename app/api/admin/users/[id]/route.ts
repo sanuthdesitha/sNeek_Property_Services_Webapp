@@ -1,37 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getUserExtendedProfile, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
-
-const updateSchema = z.object({
-  name: z.string().trim().min(1).optional(),
-  email: z.string().trim().email().optional(),
-  phone: z.string().trim().nullable().optional(),
-  role: z.nativeEnum(Role).optional(),
-  isActive: z.boolean().optional(),
-  clientId: z.string().trim().nullable().optional(),
-  businessName: z.string().trim().max(200).optional().nullable(),
-  abn: z.string().trim().max(32).optional().nullable(),
-  address: z.string().trim().max(500).optional().nullable(),
-  contactNumber: z.string().trim().max(32).optional().nullable(),
-  bankDetails: z
-    .object({
-      accountName: z.string().trim().max(160).optional(),
-      bankName: z.string().trim().max(160).optional(),
-      bsb: z.string().trim().max(16).optional(),
-      accountNumber: z.string().trim().max(32).optional(),
-    })
-    .nullable()
-    .optional(),
-});
+import { updateUserByAdminSchema } from "@/lib/validations/user";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
+import {
+  normalizeClientEmail,
+  syncClientContactFromPrimaryUser,
+} from "@/lib/clients/contact-sync";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN]);
-    const body = updateSchema.parse(await req.json());
+    const body = updateUserByAdminSchema.parse(await req.json());
 
     const existing = await db.user.findUnique({
       where: { id: params.id },
@@ -51,7 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
-    const nextEmail = body.email?.toLowerCase();
+    const nextEmail = body.email !== undefined ? normalizeClientEmail(body.email) : undefined;
     if (nextEmail && nextEmail !== existing.email.toLowerCase()) {
       const conflict = await db.user.findUnique({ where: { email: nextEmail }, select: { id: true } });
       if (conflict && conflict.id !== existing.id) {
@@ -129,6 +112,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       });
 
+      if (
+        nextUser.role === Role.CLIENT &&
+        nextUser.clientId &&
+        (body.email !== undefined || body.phone !== undefined)
+      ) {
+        await syncClientContactFromPrimaryUser(tx, {
+          clientId: nextUser.clientId,
+          userId: nextUser.id,
+          email: body.email !== undefined ? nextUser.email : undefined,
+          phone: body.phone !== undefined ? (nextUser.phone ?? null) : undefined,
+        });
+      }
+
       if (body.isActive === false) {
         await tx.session.deleteMany({ where: { userId: params.id } });
       }
@@ -160,7 +156,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ ...updated, extendedProfile });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Update failed." }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Update failed.") }, { status });
   }
 }
 

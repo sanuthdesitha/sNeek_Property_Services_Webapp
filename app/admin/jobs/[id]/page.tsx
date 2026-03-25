@@ -19,7 +19,12 @@ import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { JobAttachmentsInput } from "@/components/admin/job-attachments-input";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { parseJobInternalNotes, summarizeJobRules, type JobTimingPreset } from "@/lib/jobs/meta";
+import {
+  parseJobInternalNotes,
+  summarizeJobRules,
+  type JobSpecialRequestTask,
+  type JobTimingPreset,
+} from "@/lib/jobs/meta";
 import { downloadFromApi } from "@/lib/client/download";
 
 const STATUS_COLORS: Record<string, any> = {
@@ -88,6 +93,20 @@ function formatDateTimeLabel(value: string | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return format(parsed, "dd MMM yyyy HH:mm");
+}
+
+function createSpecialRequestTask(): JobSpecialRequestTask {
+  const suffix =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return {
+    id: `admin-task-${suffix}`,
+    title: "",
+    description: "",
+    requiresPhoto: false,
+    requiresNote: false,
+  };
 }
 
 function renderFieldValue(field: any, submission: any) {
@@ -161,6 +180,7 @@ export default function JobDetailPage() {
     isDraft: false,
     tagsText: "",
     attachments: [] as any[],
+    specialRequestTasks: [] as JobSpecialRequestTask[],
     transportAllowances: {} as Record<string, string>,
     earlyCheckin: { enabled: false, preset: "none" as JobTimingPreset, time: "" },
     lateCheckout: { enabled: false, preset: "none" as JobTimingPreset, time: "" },
@@ -191,6 +211,7 @@ export default function JobDetailPage() {
             isDraft: meta.isDraft ?? false,
             tagsText: Array.isArray(meta.tags) ? meta.tags.join(", ") : "",
             attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
+            specialRequestTasks: Array.isArray(meta.specialRequestTasks) ? meta.specialRequestTasks : [],
             transportAllowances: Object.fromEntries(
               Object.entries(meta.transportAllowances ?? {}).map(([userId, amount]) => [userId, String(amount)])
             ),
@@ -439,6 +460,13 @@ export default function JobDetailPage() {
         isDraft: editForm.isDraft,
         tags: editForm.tagsText.split(",").map((value) => value.trim()).filter(Boolean),
         attachments: editForm.attachments,
+        specialRequestTasks: editForm.specialRequestTasks
+          .map((task) => ({
+            ...task,
+            title: task.title.trim(),
+            description: task.description?.trim() || undefined,
+          }))
+          .filter((task) => task.title.length > 0),
         transportAllowances: Object.entries(editForm.transportAllowances).reduce<Record<string, number>>(
           (acc, [userId, amountRaw]) => {
             const amount = Number(amountRaw);
@@ -877,6 +905,117 @@ export default function JobDetailPage() {
               onChange={(e) => setEditForm((prev) => ({ ...prev, internalNotes: e.target.value }))}
             />
           </div>
+          <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-sm">Admin requested tasks</Label>
+                <p className="text-xs text-muted-foreground">
+                  These appear only on this job as required high-priority cleaner tasks.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    specialRequestTasks: [...prev.specialRequestTasks, createSpecialRequestTask()],
+                  }))
+                }
+              >
+                Add task
+              </Button>
+            </div>
+            {editForm.specialRequestTasks.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No job-specific special request tasks added.</p>
+            ) : (
+              <div className="space-y-3">
+                {editForm.specialRequestTasks.map((task, index) => (
+                  <div key={task.id} className="space-y-3 rounded-md border bg-background p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Task {index + 1}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            specialRequestTasks: prev.specialRequestTasks.filter((row) => row.id !== task.id),
+                          }))
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Task title</Label>
+                      <Input
+                        value={task.title}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                              row.id === task.id ? { ...row, title: e.target.value } : row
+                            ),
+                          }))
+                        }
+                        placeholder="Example: Photograph inside oven after deep clean"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Instructions</Label>
+                      <Textarea
+                        value={task.description ?? ""}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                              row.id === task.id ? { ...row, description: e.target.value } : row
+                            ),
+                          }))
+                        }
+                        placeholder="Explain exactly what must be checked or completed"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={task.requiresPhoto}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                row.id === task.id ? { ...row, requiresPhoto: e.target.checked } : row
+                              ),
+                            }))
+                          }
+                        />
+                        Require image proof
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={task.requiresNote}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                row.id === task.id ? { ...row, requiresNote: e.target.checked } : row
+                              ),
+                            }))
+                          }
+                        />
+                        Require cleaner note
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="space-y-2 rounded-md border p-3">
             <div className="flex items-center justify-between">
               <Label className="text-sm">Transport allowance (optional)</Label>
@@ -1139,6 +1278,28 @@ export default function JobDetailPage() {
                   {jobMeta.tags?.map((tag: string) => (
                     <span key={tag} className="rounded-full border px-2 py-1 text-xs">{tag}</span>
                   ))}
+                </div>
+              ) : null}
+              {(jobMeta.specialRequestTasks?.length ?? 0) > 0 ? (
+                <div className="space-y-2 rounded-md border border-destructive/20 bg-destructive/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-destructive">
+                    Admin Requested Tasks
+                  </p>
+                  <div className="space-y-2">
+                    {jobMeta.specialRequestTasks?.map((task: JobSpecialRequestTask) => (
+                      <div key={task.id} className="rounded-md border bg-background px-3 py-2 text-sm">
+                        <p className="font-medium">{task.title}</p>
+                        {task.description ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant="destructive">Required</Badge>
+                          {task.requiresPhoto ? <Badge variant="outline">Image proof</Badge> : null}
+                          {task.requiresNote ? <Badge variant="outline">Cleaner note</Badge> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
               <MediaGallery

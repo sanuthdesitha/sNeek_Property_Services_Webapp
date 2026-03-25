@@ -1,4 +1,4 @@
-import { type Notification, Role } from "@prisma/client";
+import { NotificationChannel, type Notification, Role } from "@prisma/client";
 import { resolveAdminNotificationHref } from "@/lib/notifications/navigation";
 
 export type NotificationFeedItem = {
@@ -15,10 +15,10 @@ export type NotificationFeedItem = {
 };
 
 export function notificationWhereForRole(role: Role, userId: string) {
-  if (role === Role.ADMIN || role === Role.OPS_MANAGER) {
-    return {};
-  }
-  return { userId };
+  return {
+    userId,
+    channel: NotificationChannel.PUSH,
+  };
 }
 
 export function resolveNotificationHrefForRole(notification: Pick<Notification, "jobId" | "subject" | "body">, role: Role) {

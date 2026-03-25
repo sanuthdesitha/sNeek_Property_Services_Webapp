@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getProfilePolicyForUser } from "@/lib/settings";
 import { getUserNotificationPreferences } from "@/lib/notifications/preferences";
-
-const updateSchema = z.object({
-  name: z.string().trim().min(1).optional(),
-  phone: z.string().trim().optional(),
-  email: z.string().trim().email().optional(),
-  image: z.string().trim().max(4000).nullable().optional(),
-});
+import { profileUpdateSchema } from "@/lib/validations/user";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function GET() {
   try {
@@ -45,7 +39,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await requireSession();
-    const body = updateSchema.parse(await req.json());
+    const body = profileUpdateSchema.parse(await req.json());
     const current = await db.user.findUnique({
       where: { id: session.user.id },
       select: { id: true, role: true, email: true, name: true, phone: true, image: true },
@@ -102,6 +96,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json(updated);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update profile.") }, { status });
   }
 }

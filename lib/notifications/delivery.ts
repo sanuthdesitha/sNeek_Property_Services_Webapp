@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { type NotificationCategory } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { sendSmsDetailed } from "@/lib/notifications/sms";
 
 type Recipient = {
   id: string;
@@ -32,7 +32,15 @@ export async function deliverNotificationToRecipients(input: {
   email?: EmailPayload | ((recipient: Recipient) => EmailPayload | null | undefined) | null;
   sms?: string | ((recipient: Recipient) => string | null | undefined) | null;
 }) {
-  for (const recipient of input.recipients) {
+  const recipients = Array.from(
+    new Map(
+      input.recipients
+        .filter((recipient) => typeof recipient.id === "string" && recipient.id.trim().length > 0)
+        .map((recipient) => [recipient.id, recipient])
+    ).values()
+  );
+
+  for (const recipient of recipients) {
     const [allowWeb, allowEmail, allowSms] = await Promise.all([
       canDeliverNotification({
         userId: recipient.id,
@@ -96,19 +104,21 @@ export async function deliverNotificationToRecipients(input: {
     const smsBody =
       typeof input.sms === "function" ? input.sms(recipient) : input.sms ?? null;
     if (allowSms && recipient.phone && smsBody) {
-      const ok = await sendSms(recipient.phone, smsBody);
-      await db.notification.create({
-        data: {
-          userId: recipient.id,
-          jobId: input.jobId ?? null,
-          channel: NotificationChannel.SMS,
-          subject: input.web.subject,
-          body: smsBody,
-          status: ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
-          sentAt: ok ? new Date() : undefined,
-          errorMsg: ok ? undefined : "SMS delivery failed or is not configured.",
-        },
-      });
+      const result = await sendSmsDetailed(recipient.phone, smsBody);
+      if (result.status === "sent" || result.status === "failed") {
+        await db.notification.create({
+          data: {
+            userId: recipient.id,
+            jobId: input.jobId ?? null,
+            channel: NotificationChannel.SMS,
+            subject: input.web.subject,
+            body: smsBody,
+            status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+            sentAt: result.ok ? new Date() : undefined,
+            errorMsg: result.ok ? undefined : result.error ?? "SMS delivery failed.",
+          },
+        });
+      }
     }
   }
 }

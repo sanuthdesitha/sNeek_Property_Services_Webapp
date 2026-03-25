@@ -24,6 +24,7 @@ export default async function CleanerLayout({ children }: { children: React.Reac
       maxWidthClass="max-w-5xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
+      hideHeaderOnScroll
       navItems={[
         { href: "/cleaner", label: "Dashboard", exact: true },
         ...(visibility.showJobs ? [{ href: "/cleaner/jobs", label: "Jobs" }] : []),

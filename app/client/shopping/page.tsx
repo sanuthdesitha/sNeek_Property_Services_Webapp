@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Button } from "@/components/ui/button";
-import { ShoppingPlanner } from "@/components/inventory/shopping-planner";
+import { ShoppingRunLauncher } from "@/components/inventory/shopping-run-launcher";
 
 export default async function ClientShoppingPage({
   searchParams,
@@ -20,14 +20,14 @@ export default async function ClientShoppingPage({
           <Link href="/client/inventory">Back to Inventory</Link>
         </Button>
       </div>
-      <ShoppingPlanner
+      <ShoppingRunLauncher
         mode="client"
         apiPath="/api/client/inventory/shopping-plan"
         runsApiBase="/api/client/inventory/shopping-runs"
         workspaceBasePath="/client/shopping"
         initialPropertyId={searchParams?.propertyId}
-        title="Start Shopping"
-        description="Plan a restock run for your property inventory. Adjust quantities if you only want an emergency top-up."
+        title="Shopping"
+        description="Choose what needs to be purchased, start the run, then track receipts and payment details inside the run workspace."
       />
     </div>
   );

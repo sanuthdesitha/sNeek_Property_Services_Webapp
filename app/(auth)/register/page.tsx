@@ -220,6 +220,10 @@ export default function RegisterPage() {
                 <div className="space-y-1">
                   <Label>Phone (optional)</Label>
                   <Input
+                    type="tel"
+                    inputMode="tel"
+                    maxLength={16}
+                    placeholder="0451217210 or +61451217210"
                     value={form.phone}
                     onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
                   />

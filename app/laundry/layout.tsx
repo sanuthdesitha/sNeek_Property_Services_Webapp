@@ -19,6 +19,7 @@ export default async function LaundryLayout({ children }: { children: React.Reac
       maxWidthClass="max-w-6xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
+      hideHeaderOnScroll
       navItems={[
         { href: "/laundry", label: "Dashboard", exact: true },
         ...(visibility.showCalendar ? [{ href: "/laundry/calendar", label: "Calendar" }] : []),

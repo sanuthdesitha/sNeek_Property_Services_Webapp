@@ -790,7 +790,7 @@ export default function PropertyDetailPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Postcode</Label>
-                  <Input value={form.postcode} onChange={(e) => setForm((prev) => ({ ...prev, postcode: e.target.value }))} />
+                  <Input inputMode="numeric" maxLength={4} value={form.postcode} onChange={(e) => setForm((prev) => ({ ...prev, postcode: e.target.value }))} />
                 </div>
               </div>
               <div className="grid gap-3 md:grid-cols-3">

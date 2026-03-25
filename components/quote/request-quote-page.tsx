@@ -281,6 +281,8 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                     <Label>{field.label}</Label>
                     <Input
                       type={field.type}
+                      inputMode={field.id === "phone" ? "tel" : undefined}
+                      maxLength={field.id === "phone" ? 20 : undefined}
                       placeholder={field.placeholder}
                       className="mt-1"
                       value={(lead as any)[field.id]}

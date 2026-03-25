@@ -44,7 +44,7 @@ async function writeUploadedFileToPath(file: File, targetPath: string) {
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
-    const form = await req.formData();
+    const form = (await req.formData()) as globalThis.FormData;
 
     const file = form.get("file");
     const folderRaw = form.get("folder");

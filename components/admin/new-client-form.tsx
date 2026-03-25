@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
 export function NewClientForm() {
@@ -109,17 +110,20 @@ export function NewClientForm() {
               <Label htmlFor="phone">Phone</Label>
               <Input
                 id="phone"
+                type="tel"
+                inputMode="tel"
+                maxLength={16}
                 value={form.phone}
                 onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
-                placeholder="+61400000000"
+                placeholder="0451217210 or +61451217210"
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="address">Address</Label>
-              <Input
+              <GoogleAddressInput
                 id="address"
                 value={form.address}
-                onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
                 placeholder="1 Example St, Sydney NSW"
               />
             </div>

@@ -10,6 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function GET(req: NextRequest) {
   try {
@@ -160,6 +161,6 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create client.") }, { status });
   }
 }

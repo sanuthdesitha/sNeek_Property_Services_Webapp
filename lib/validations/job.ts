@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { JobType, JobStatus } from "@prisma/client";
+import {
+  optionalAddressSchema,
+  optionalAustralianPhoneSchema,
+  optionalAustralianStateSchema,
+  optionalInternationalPhoneSchema,
+  optionalPostcodeSchema,
+  requiredAddressSchema,
+  requiredSuburbSchema,
+} from "@/lib/validations/common";
 
 const timeRuleSchema = z.object({
   enabled: z.boolean().optional(),
@@ -15,6 +24,14 @@ const attachmentSchema = z.object({
   sizeBytes: z.number().nonnegative().optional(),
 });
 
+const specialRequestTaskSchema = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(2000).optional(),
+  requiresPhoto: z.boolean().optional(),
+  requiresNote: z.boolean().optional(),
+});
+
 const serviceContextSchema = z.object({
   scopeOfWork: z.string().max(4000).optional(),
   accessInstructions: z.string().max(4000).optional(),
@@ -22,7 +39,7 @@ const serviceContextSchema = z.object({
   hazardNotes: z.string().max(4000).optional(),
   equipmentNotes: z.string().max(4000).optional(),
   siteContactName: z.string().max(200).optional(),
-  siteContactPhone: z.string().max(80).optional(),
+  siteContactPhone: optionalAustralianPhoneSchema,
   serviceAreaSqm: z.number().positive().max(100000).optional(),
   floorCount: z.number().int().min(1).max(200).optional(),
 });
@@ -30,7 +47,7 @@ const serviceContextSchema = z.object({
 const reservationContextSchema = z.object({
   guestName: z.string().max(200).optional(),
   reservationCode: z.string().max(120).optional(),
-  guestPhone: z.string().max(80).optional(),
+  guestPhone: optionalInternationalPhoneSchema,
   guestEmail: z.string().email().max(200).optional(),
   guestProfileUrl: z.string().url().max(2000).optional(),
   adults: z.number().int().min(0).max(100).optional(),
@@ -46,11 +63,11 @@ const reservationContextSchema = z.object({
 });
 
 const serviceSiteSchema = z.object({
-  name: z.string().min(1),
-  address: z.string().min(1),
-  suburb: z.string().min(1),
-  state: z.string().max(80).optional(),
-  postcode: z.string().max(20).optional(),
+  name: z.string().trim().min(1, "Site name is required.").max(200),
+  address: requiredAddressSchema,
+  suburb: requiredSuburbSchema,
+  state: optionalAustralianStateSchema,
+  postcode: optionalPostcodeSchema,
   bedrooms: z.number().int().min(0).max(200).optional(),
   bathrooms: z.number().int().min(0).max(200).optional(),
   hasBalcony: z.boolean().optional(),
@@ -70,6 +87,7 @@ const baseCreateJobSchema = z.object({
   isDraft: z.boolean().optional(),
   tags: z.array(z.string().trim().min(1)).optional(),
   attachments: z.array(attachmentSchema).optional(),
+  specialRequestTasks: z.array(specialRequestTaskSchema).optional(),
   transportAllowances: z.record(z.string().min(1), z.number().nonnegative()).optional(),
   earlyCheckin: timeRuleSchema.optional(),
   lateCheckout: timeRuleSchema.optional(),
@@ -115,6 +133,12 @@ export const submitJobSchema = z.object({
   laundrySkipReasonCode: z.string().trim().max(120).optional(),
   laundrySkipReasonNote: z.string().trim().max(2000).optional(),
   bagLocation: z.string().optional(),
+  clockAdjustmentRequest: z
+    .object({
+      requestedDurationM: z.number().int().min(1).max(24 * 60),
+      reason: z.string().trim().max(4000).optional(),
+    })
+    .optional(),
   draftDamagePayload: z
     .object({
       title: z.string().trim().max(160).optional(),
@@ -134,4 +158,13 @@ export const submitJobSchema = z.object({
       title: z.string().trim().max(160).optional(),
     })
     .optional(),
+});
+
+export const cleanerLaundryStatusSchema = z.object({
+  laundryReady: z.boolean().optional(),
+  laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
+  laundrySkipReasonCode: z.string().trim().max(120).optional(),
+  laundrySkipReasonNote: z.string().trim().max(2000).optional(),
+  bagLocation: z.string().optional(),
+  laundryPhotoKey: z.string().trim().min(1).optional(),
 });

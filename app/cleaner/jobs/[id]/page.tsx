@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
+import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
+import { isTemplateNodeVisible } from "@/lib/forms/visibility";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -27,6 +29,13 @@ type Step = "overview" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
 type RenderableFormStep = Exclude<Step, "overview">;
 type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
+type SavedLaundryUpdate = {
+  outcome: LaundryOutcome;
+  submittedAt: string;
+  bagLocation?: string;
+  skipReasonCode?: string;
+  skipReasonNote?: string;
+};
 const LAUNDRY_SKIP_REASONS = [
   { value: "NO_LINEN_USED", label: "No linen used" },
   { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
@@ -59,12 +68,13 @@ function formatDuration(seconds: number) {
   return `${h}:${m}:${s}`;
 }
 
-function valuesEqual(left: unknown, right: unknown) {
-  if (typeof left === "boolean") return left === (right === true || right === "true");
-  if (typeof left === "number") return left === Number(right);
-  if (typeof right === "boolean") return (left === true || left === "true") === right;
-  if (typeof right === "number") return Number(left) === right;
-  return String(left ?? "") === String(right ?? "");
+function formatMinutesLabel(minutes: number) {
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  if (hours <= 0) return `${mins} min`;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
 }
 
 function normalizeFormPageSlot(value: unknown): FormPageSlot {
@@ -112,30 +122,24 @@ function inferLocationFromText(value: unknown): InventoryLocation | null {
   return null;
 }
 
-function isBalconyLikeField(field: any) {
-  const text = `${String(field?.id ?? "")} ${String(field?.label ?? "")}`.toLowerCase();
-  return text.includes("balcony");
+function isFieldVisible(field: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
+  return isTemplateNodeVisible(field, formData, property ?? {});
 }
 
-function isFieldVisible(field: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
-  if (property?.hasBalcony !== true && isBalconyLikeField(field)) {
-    return false;
-  }
+function isSectionVisible(section: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
+  return isTemplateNodeVisible(section, formData, property ?? {});
+}
 
-  const conditional = field?.conditional;
-  if (!conditional || typeof conditional !== "object") return true;
+function adminRequestedTaskDoneFieldId(taskId: string) {
+  return `__admin_requested_task_${taskId}_done`;
+}
 
-  if ("propertyField" in conditional) {
-    const current = property?.[conditional.propertyField];
-    return valuesEqual(current, conditional.value);
-  }
+function adminRequestedTaskNoteFieldId(taskId: string) {
+  return `__admin_requested_task_${taskId}_note`;
+}
 
-  if ("fieldId" in conditional) {
-    const current = formData[conditional.fieldId];
-    return valuesEqual(current, conditional.value);
-  }
-
-  return true;
+function adminRequestedTaskPhotoFieldId(taskId: string) {
+  return `__admin_requested_task_${taskId}_photo`;
 }
 
 function carryForwardPhotoFieldId(taskId: string) {
@@ -143,6 +147,88 @@ function carryForwardPhotoFieldId(taskId: string) {
 }
 
 const DAMAGE_UPLOAD_FIELD_ID = "__damage_report_photos";
+
+function formatLaundryOutcomeLabelValue(outcome: LaundryOutcome) {
+  switch (outcome) {
+    case "READY_FOR_PICKUP":
+      return "Ready for pickup";
+    case "NO_PICKUP_REQUIRED":
+      return "No pickup required";
+    default:
+      return "Not ready";
+  }
+}
+
+function getLaundrySkipReasonLabel(reasonCode: string | undefined) {
+  if (!reasonCode) return "";
+  return LAUNDRY_SKIP_REASONS.find((reason) => reason.value === reasonCode)?.label ?? reasonCode.replace(/_/g, " ");
+}
+
+function buildLaundryUpdateSummary(update: SavedLaundryUpdate | null) {
+  if (!update) return "";
+  if (update.outcome === "READY_FOR_PICKUP") {
+    return update.bagLocation?.trim()
+      ? `Sent: ${formatLaundryOutcomeLabelValue(update.outcome)} - ${update.bagLocation.trim()}`
+      : `Sent: ${formatLaundryOutcomeLabelValue(update.outcome)}`;
+  }
+  const reasonLabel = getLaundrySkipReasonLabel(update.skipReasonCode);
+  const reasonNote = update.skipReasonNote?.trim();
+  return [formatLaundryOutcomeLabelValue(update.outcome), reasonLabel, reasonNote]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function hasMeaningfulDraftValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulDraftValue(item));
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some((item) => hasMeaningfulDraftValue(item));
+  }
+  return false;
+}
+
+function hasServerProgress(body: any) {
+  const status = String(body?.job?.status ?? "");
+  if (
+    [
+      "IN_PROGRESS",
+      "PAUSED",
+      "WAITING_CONTINUATION_APPROVAL",
+      "SUBMITTED",
+      "QA_REVIEW",
+      "COMPLETED",
+      "INVOICED",
+    ].includes(status)
+  ) {
+    return true;
+  }
+  if (body?.timeState?.isRunning) return true;
+  if (Number(body?.timeState?.completedSeconds ?? 0) > 0) return true;
+  if (body?.laundryState) return true;
+  if (
+    body?.continuationProgressSnapshot &&
+    typeof body.continuationProgressSnapshot === "object" &&
+    Object.keys(body.continuationProgressSnapshot).length > 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function shouldDiscardLocalDraft(draft: Record<string, any> | null, body: any) {
+  if (!draft) return false;
+  if (hasServerProgress(body)) return false;
+  if (draft.step && draft.step !== "overview") return true;
+  if (hasMeaningfulDraftValue(draft.formData)) return true;
+  if (hasMeaningfulDraftValue(draft.uploads)) return true;
+  if (hasMeaningfulDraftValue(draft.savedLaundryUpdate)) return true;
+  if (draft.hasMissedTask || draft.extraPaymentRequired || draft.damageFound || draft.showRescheduleForm) {
+    return true;
+  }
+  return false;
+}
 
 export default function CleanerJobPage() {
   const params = useParams();
@@ -153,7 +239,7 @@ export default function CleanerJobPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [uploads, setUploads] = useState<Record<string, string[]>>({});
   const [uploadStates, setUploadStates] = useState<Record<string, UploadItemState[]>>({});
-  const [laundryOutcome, setLaundryOutcome] = useState<LaundryOutcome>("NOT_READY");
+  const [laundryOutcome, setLaundryOutcome] = useState<LaundryOutcome | null>(null);
   const [laundrySkipReasonCode, setLaundrySkipReasonCode] = useState("LINEN_STILL_WASHING");
   const [laundrySkipReasonNote, setLaundrySkipReasonNote] = useState("");
   const [bagLocationSelection, setBagLocationSelection] = useState<string>("__custom");
@@ -162,6 +248,15 @@ export default function CleanerJobPage() {
   const [elapsed, setElapsed] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [pendingSync, setPendingSync] = useState(false);
+  const [savingLaundryUpdate, setSavingLaundryUpdate] = useState(false);
+  const [lastLaundrySubmittedAt, setLastLaundrySubmittedAt] = useState<string | null>(null);
+  const [savedLaundryUpdate, setSavedLaundryUpdate] = useState<SavedLaundryUpdate | null>(null);
+  const [laundryUpdateCollapsed, setLaundryUpdateCollapsed] = useState(false);
+  const [clockReviewOpen, setClockReviewOpen] = useState(false);
+  const [requestClockAdjustment, setRequestClockAdjustment] = useState(false);
+  const [clockAdjustmentMinutes, setClockAdjustmentMinutes] = useState("");
+  const [clockAdjustmentReason, setClockAdjustmentReason] = useState("");
+  const [pendingSubmitPayload, setPendingSubmitPayload] = useState<Record<string, unknown> | null>(null);
   const [step, setStep] = useState<Step>("overview");
   const [verificationDate, setVerificationDate] = useState("");
   const [confirmOnSite, setConfirmOnSite] = useState(false);
@@ -190,8 +285,9 @@ export default function CleanerJobPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewSrc, setPreviewSrc] = useState("");
   const [previewLabel, setPreviewLabel] = useState("Image preview");
+  const [showJobNotes, setShowJobNotes] = useState(false);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hydratedRef = useRef(false);
   const carryoverNoticeShownRef = useRef(false);
   const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
@@ -203,7 +299,7 @@ export default function CleanerJobPage() {
     }
   }
 
-  function syncLaundryReadyFromOutcome(nextOutcome: LaundryOutcome) {
+  function syncLaundryReadyFromOutcome(nextOutcome: LaundryOutcome | null) {
     setLaundryOutcome(nextOutcome);
   }
 
@@ -298,6 +394,23 @@ function formatDateTimeLabel(value: string | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
+}
+
+function clockLimitSourceLabel(value: string | null | undefined) {
+  switch (value) {
+    case "ESTIMATED_HOURS":
+      return "the job's fixed / allocated pay hours";
+    case "MAX_JOB_LENGTH":
+      return "the maximum job length from admin settings";
+    case "DUE_TIME":
+      return "the job due time";
+    case "END_TIME":
+      return "the job end time";
+    case "MIDNIGHT":
+      return "the midnight fallback";
+    default:
+      return "the job timing rules";
+  }
 }
 
   async function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
@@ -569,19 +682,29 @@ function formatDateTimeLabel(value: string | undefined) {
     setPayload(body);
     const options = Array.isArray(body?.laundryBagLocationOptions) ? body.laundryBagLocationOptions : [];
     const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(body?.job?.status ?? "");
-    const draft = !finishedState ? readDraftState() : null;
+    let draft = !finishedState ? readDraftState() : null;
     const carryoverSnapshot =
       body?.continuationProgressSnapshot && typeof body.continuationProgressSnapshot === "object"
         ? (body.continuationProgressSnapshot as Record<string, any>)
         : null;
     setPendingSync(Boolean(readPendingSubmission()));
 
+    if (shouldDiscardLocalDraft(draft, body)) {
+      clearDraftState();
+      clearPendingSubmission();
+      draft = null;
+      showPopupNotification(
+        "Previous progress cleared",
+        "This job was reset or restarted, so the old local draft was removed."
+      );
+    }
+
     if (draft) {
       setFormData(draft.formData ?? {});
       setUploads(draft.uploads ?? {});
       syncLaundryReadyFromOutcome(
         (draft.laundryOutcome as LaundryOutcome | undefined) ??
-          (draft.laundryReady ? "READY_FOR_PICKUP" : "NOT_READY")
+          (draft.laundryReady === true ? "READY_FOR_PICKUP" : null)
       );
       setLaundrySkipReasonCode(
         typeof draft.laundrySkipReasonCode === "string" && draft.laundrySkipReasonCode
@@ -615,6 +738,21 @@ function formatDateTimeLabel(value: string | undefined) {
       setDamageTitle(typeof draft.damageTitle === "string" ? draft.damageTitle : "");
       setDamageDescription(typeof draft.damageDescription === "string" ? draft.damageDescription : "");
       setDamageEstimatedCost(typeof draft.damageEstimatedCost === "string" ? draft.damageEstimatedCost : "0");
+      const draftSavedLaundryUpdate =
+        draft.savedLaundryUpdate && typeof draft.savedLaundryUpdate === "object"
+          ? (draft.savedLaundryUpdate as SavedLaundryUpdate)
+          : null;
+      setSavedLaundryUpdate(draftSavedLaundryUpdate);
+      setLastLaundrySubmittedAt(
+        typeof draft.lastLaundrySubmittedAt === "string"
+          ? draft.lastLaundrySubmittedAt
+          : draftSavedLaundryUpdate?.submittedAt ?? null
+      );
+      setLaundryUpdateCollapsed(
+        typeof draft.laundryUpdateCollapsed === "boolean"
+          ? draft.laundryUpdateCollapsed
+          : Boolean(draftSavedLaundryUpdate)
+      );
       const draftNotes = Array.isArray(draft.missedTaskNotes)
         ? draft.missedTaskNotes
         : typeof draft.missedTaskNote === "string"
@@ -654,7 +792,7 @@ function formatDateTimeLabel(value: string | undefined) {
       setUploads(carryUploads);
       syncLaundryReadyFromOutcome(
         (carryoverSnapshot?.laundryOutcome as LaundryOutcome | undefined) ??
-          (carryoverSnapshot?.laundryReady === true ? "READY_FOR_PICKUP" : "NOT_READY")
+          (carryoverSnapshot?.laundryReady === true ? "READY_FOR_PICKUP" : null)
       );
       setLaundrySkipReasonCode(
         typeof carryoverSnapshot?.laundrySkipReasonCode === "string" && carryoverSnapshot.laundrySkipReasonCode
@@ -712,6 +850,9 @@ function formatDateTimeLabel(value: string | undefined) {
       setDamageEstimatedCost(
         typeof carryoverSnapshot?.damageEstimatedCost === "string" ? carryoverSnapshot.damageEstimatedCost : "0"
       );
+      setSavedLaundryUpdate(null);
+      setLastLaundrySubmittedAt(null);
+      setLaundryUpdateCollapsed(false);
       setMissedTaskNotes(carryNotes.length > 0 ? carryNotes : [""]);
       if (carryoverSnapshot && !carryoverNoticeShownRef.current) {
         carryoverNoticeShownRef.current = true;
@@ -720,6 +861,55 @@ function formatDateTimeLabel(value: string | undefined) {
           "Checklist and uploads from the previous cleaner were carried over."
         );
       }
+    }
+    if (!draft && !carryoverSnapshot && body?.laundryState) {
+      const persistedState = body.laundryState;
+      let persistedOutcome: LaundryOutcome | null = null;
+      if (persistedState.status === "CONFIRMED") {
+        persistedOutcome = "READY_FOR_PICKUP";
+      } else if (persistedState.status === "SKIPPED_PICKUP") {
+        persistedOutcome = "NO_PICKUP_REQUIRED";
+      } else if (persistedState.status === "FLAGGED") {
+        persistedOutcome = "NOT_READY";
+      }
+      syncLaundryReadyFromOutcome(persistedOutcome);
+      if (typeof persistedState.skipReasonCode === "string" && persistedState.skipReasonCode) {
+        setLaundrySkipReasonCode(persistedState.skipReasonCode);
+      }
+      if (typeof persistedState.skipReasonNote === "string") {
+        setLaundrySkipReasonNote(persistedState.skipReasonNote);
+      }
+      const persistedBagLocation = persistedState.latestConfirmation?.bagLocation;
+      if (typeof persistedBagLocation === "string" && persistedBagLocation.trim()) {
+        const trimmedLocation = persistedBagLocation.trim();
+        const matchedOption = options.includes(trimmedLocation) ? trimmedLocation : null;
+        setBagLocationSelection(matchedOption ?? "__custom");
+        setBagLocationCustom(matchedOption ? "" : trimmedLocation);
+      }
+      const persistedSubmittedAt =
+        body?.laundryState?.latestConfirmation?.createdAt ??
+        body?.laundryState?.updatedAt ??
+        null;
+      const persistedUpdate =
+        persistedOutcome && typeof persistedSubmittedAt === "string"
+          ? {
+              outcome: persistedOutcome,
+              submittedAt: persistedSubmittedAt,
+              bagLocation:
+                persistedOutcome === "READY_FOR_PICKUP" ? persistedState.latestConfirmation?.bagLocation ?? undefined : undefined,
+              skipReasonCode:
+                persistedOutcome !== "READY_FOR_PICKUP" ? persistedState.skipReasonCode ?? undefined : undefined,
+              skipReasonNote:
+                persistedOutcome !== "READY_FOR_PICKUP" ? persistedState.skipReasonNote ?? undefined : undefined,
+            }
+          : null;
+      setSavedLaundryUpdate(persistedUpdate);
+      setLaundryUpdateCollapsed(Boolean(persistedUpdate));
+      setLastLaundrySubmittedAt(persistedSubmittedAt);
+    } else if (!draft && !carryoverSnapshot) {
+      setSavedLaundryUpdate(null);
+      setLastLaundrySubmittedAt(null);
+      setLaundryUpdateCollapsed(false);
     }
     startTimerFromState(body?.timeState?.completedSeconds ?? 0, body?.timeState?.activeStartedAt ?? null);
     const continuationRes = await fetch(`/api/cleaner/jobs/${jobId}/reschedule-request`, { cache: "no-store" });
@@ -757,6 +947,9 @@ function formatDateTimeLabel(value: string | undefined) {
         laundryReady,
         laundrySkipReasonCode,
         laundrySkipReasonNote,
+        savedLaundryUpdate,
+        lastLaundrySubmittedAt,
+        laundryUpdateCollapsed,
         bagLocationSelection,
         bagLocationCustom,
         step,
@@ -802,6 +995,9 @@ function formatDateTimeLabel(value: string | undefined) {
     laundryOutcome,
     laundrySkipReasonCode,
     laundrySkipReasonNote,
+    savedLaundryUpdate,
+    lastLaundrySubmittedAt,
+    laundryUpdateCollapsed,
     missedTaskNotes,
     payload,
     resolvedCarryForwardIds,
@@ -879,6 +1075,17 @@ function formatDateTimeLabel(value: string | undefined) {
   const jobTimingHighlights: string[] = Array.isArray(payload?.jobTimingHighlights)
     ? payload.jobTimingHighlights.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const cleanerInstructionText =
+    typeof payload?.jobMeta?.internalNoteText === "string" ? payload.jobMeta.internalNoteText.trim() : "";
+  const cleanerTags: string[] = Array.isArray(payload?.jobMeta?.tags)
+    ? payload.jobMeta.tags.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const hasJobNotes = Boolean(typeof job?.notes === "string" && job.notes.trim().length > 0);
+  const specialRequestTasks: JobSpecialRequestTask[] = Array.isArray(payload?.jobMeta?.specialRequestTasks)
+    ? payload.jobMeta.specialRequestTasks
+        .filter((item: unknown): item is JobSpecialRequestTask => !!item && typeof item === "object")
+        .filter((task: JobSpecialRequestTask) => typeof task.title === "string" && task.title.trim().length > 0)
+    : [];
   const serviceContext = payload?.jobMeta?.serviceContext ?? {};
   const reservationContext = payload?.jobMeta?.reservationContext ?? {};
   const hasServiceContext =
@@ -939,15 +1146,17 @@ function formatDateTimeLabel(value: string | undefined) {
 
   const visibleSections = useMemo(
     () =>
-      sectionsWithAutoInventory.map((section) => ({
-        ...section,
-        fields: (section.fields ?? [])
-          .filter((field: any) => isFieldVisible(field, formData, property))
-          .map((field: any) => ({
-            ...field,
-            _resolvedStep: resolveFieldStep(field, section),
-          })),
-      })),
+      sectionsWithAutoInventory
+        .filter((section) => isSectionVisible(section, formData, property))
+        .map((section) => ({
+          ...section,
+          fields: (section.fields ?? [])
+            .filter((field: any) => isFieldVisible(field, formData, property))
+            .map((field: any) => ({
+              ...field,
+              _resolvedStep: resolveFieldStep(field, section),
+            })),
+        })),
     [sectionsWithAutoInventory, formData, property]
   );
 
@@ -1042,13 +1251,43 @@ function formatDateTimeLabel(value: string | undefined) {
   const progress = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
   const uploadedCount = Object.values(uploads).reduce((sum, keys) => sum + keys.length, 0);
   const bagLocation = bagLocationSelection === "__custom" ? bagLocationCustom : bagLocationSelection;
+  const laundryPhotoKey =
+    uploads.laundry_photo?.[0] ??
+    (laundryUploadField?.id ? uploads[laundryUploadField.id]?.[0] : undefined);
   const laundryReady = laundryOutcome === "READY_FOR_PICKUP";
-  const laundryOutcomeLabel =
-    laundryOutcome === "READY_FOR_PICKUP"
-      ? "Ready for pickup"
-      : laundryOutcome === "NO_PICKUP_REQUIRED"
-        ? "No pickup required"
-        : "Not ready";
+  const laundryOutcomeLabel = laundryOutcome ? formatLaundryOutcomeLabelValue(laundryOutcome) : "No update selected";
+  const savedLaundryUpdateSummary = buildLaundryUpdateSummary(savedLaundryUpdate);
+  const timeReview = useMemo(() => {
+    const maxAllowedTotalSecondsRaw = payload?.timeState?.maxAllowedTotalSeconds;
+    const maxAllowedTotalSeconds =
+      typeof maxAllowedTotalSecondsRaw === "number" && Number.isFinite(maxAllowedTotalSecondsRaw)
+        ? maxAllowedTotalSecondsRaw
+        : null;
+    const proposedTotalSeconds =
+      maxAllowedTotalSeconds != null ? Math.min(elapsed, maxAllowedTotalSeconds) : elapsed;
+    const currentMinutes = Math.max(1, Math.round(elapsed / 60));
+    const proposedMinutes = Math.max(1, Math.round(proposedTotalSeconds / 60));
+    return {
+      isRunning: Boolean(payload?.timeState?.isRunning),
+      activeTimeLogId:
+        typeof payload?.timeState?.activeTimeLogId === "string"
+          ? payload.timeState.activeTimeLogId
+          : null,
+      limitSource:
+        typeof payload?.timeState?.limitSource === "string"
+          ? payload.timeState.limitSource
+          : null,
+      suggestedStoppedAt:
+        typeof payload?.timeState?.suggestedStoppedAt === "string"
+          ? payload.timeState.suggestedStoppedAt
+          : null,
+      exceedsAllowedDuration: Boolean(payload?.timeState?.exceedsAllowedDuration),
+      currentMinutes,
+      proposedMinutes,
+      currentSeconds: elapsed,
+      proposedSeconds: proposedTotalSeconds,
+    };
+  }, [elapsed, payload]);
 
   function toggleResolvedTask(taskId: string, checked: boolean) {
     setResolvedCarryForwardIds((prev) => {
@@ -1093,6 +1332,14 @@ function formatDateTimeLabel(value: string | undefined) {
   function stopTimer() {
     setIsRunning(false);
     if (timerRef.current) clearInterval(timerRef.current);
+  }
+
+  function resetClockReviewState() {
+    setClockReviewOpen(false);
+    setRequestClockAdjustment(false);
+    setClockAdjustmentMinutes("");
+    setClockAdjustmentReason("");
+    setPendingSubmitPayload(null);
   }
 
   async function handleStart() {
@@ -1788,6 +2035,41 @@ function formatDateTimeLabel(value: string | undefined) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      const missingUploadFields = Array.isArray(body?.missingUploadFields)
+        ? body.missingUploadFields.filter((field: any) => field && typeof field === "object")
+        : [];
+      if (missingUploadFields.length > 0) {
+        const missingIds = new Set(
+          missingUploadFields
+            .map((field: any) => (typeof field.id === "string" ? field.id : ""))
+            .filter(Boolean)
+        );
+        const hasLaundryUploadMissing = laundryUploadFields.some((field: any) =>
+          missingIds.has(String(field.id))
+        );
+        setStep(hasLaundryUploadMissing ? "laundry" : "uploads");
+        const readableMissingUploads = missingUploadFields
+          .map((field: any) => {
+            const label =
+              typeof field.label === "string" && field.label.trim()
+                ? field.label.trim()
+                : typeof field.id === "string"
+                  ? field.id
+                  : "Required upload";
+            const sectionLabel =
+              typeof field.sectionLabel === "string" && field.sectionLabel.trim()
+                ? field.sectionLabel.trim()
+                : "";
+            return sectionLabel && sectionLabel !== label ? `${sectionLabel}: ${label}` : label;
+          })
+          .join(", ");
+        toast({
+          title: "Missing required uploads",
+          description: readableMissingUploads,
+          variant: "destructive",
+        });
+        return false;
+      }
       if (!fromQueue) {
         const offlineLike = !navigator.onLine || res.status >= 500;
         if (offlineLike) {
@@ -1814,26 +2096,14 @@ function formatDateTimeLabel(value: string | undefined) {
     return true;
   }
 
-  async function handleSubmit() {
-    if (hasPendingContinuationRequest) {
+  function validateLaundryState() {
+    if (!laundryOutcome) {
       toast({
-        title: "Submission blocked",
-        description: "A continuation request is pending admin decision for this job.",
+        title: "Select laundry outcome",
+        description: "Choose the laundry outcome before sending or submitting it.",
         variant: "destructive",
       });
-      return;
-    }
-    if (hasPendingUploads) {
-      toast({
-        title: "Uploads still in progress",
-        description: `Wait until all uploads finish before submitting.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!template) {
-      toast({ title: "No form template available", variant: "destructive" });
-      return;
+      return false;
     }
     if (
       (laundryOutcome === "NOT_READY" || laundryOutcome === "NO_PICKUP_REQUIRED") &&
@@ -1844,13 +2114,64 @@ function formatDateTimeLabel(value: string | undefined) {
         description: "Select why laundry is not ready or no pickup is required.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
+    if (laundryOutcome === "READY_FOR_PICKUP") {
+      if (!bagLocation.trim()) {
+        toast({
+          title: "Bag location required",
+          description: "Enter the bag location before sending a laundry-ready update.",
+          variant: "destructive",
+        });
+        return false;
+      }
+      if (!laundryPhotoKey) {
+        toast({
+          title: "Laundry photo required",
+          description: "Capture or upload the laundry photo before sending this update.",
+          variant: "destructive",
+        });
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function buildSubmissionPayload() {
+    if (hasPendingContinuationRequest) {
+      toast({
+        title: "Submission blocked",
+        description: "A continuation request is pending admin decision for this job.",
+        variant: "destructive",
+      });
+      return null;
+    }
+    if (hasPendingUploads) {
+      toast({
+        title: "Uploads still in progress",
+        description: `Wait until all uploads finish before submitting.`,
+        variant: "destructive",
+      });
+      return null;
+    }
+    if (!template) {
+      toast({ title: "No form template available", variant: "destructive" });
+      return null;
+    }
+    if (!laundryOutcome && !savedLaundryUpdate) {
+      toast({
+        title: "Laundry outcome required",
+        description: "Select and send a laundry outcome now or include one with the final submission.",
+        variant: "destructive",
+      });
+      return null;
+    }
+    if (laundryOutcome && !validateLaundryState()) return null;
     if (damageFound) {
       const damageMediaKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
       if (!damageTitle.trim()) {
         toast({ title: "Damage title is required", variant: "destructive" });
-        return;
+        return null;
       }
       if (damageMediaKeys.length === 0) {
         toast({
@@ -1858,30 +2179,62 @@ function formatDateTimeLabel(value: string | undefined) {
           description: "Upload at least one damage photo before submitting.",
           variant: "destructive",
         });
-        return;
+        return null;
       }
     }
     if (extraPaymentRequired) {
       if (!approvalTitle.trim()) {
         toast({ title: "Pay request title is required", variant: "destructive" });
-        return;
+        return null;
       }
       if (approvalType === "HOURLY") {
         const hours = Number(approvalHours || 0);
         const rate = Number(approvalRate || 0);
         if (!Number.isFinite(hours) || hours <= 0 || !Number.isFinite(rate) || rate <= 0) {
           toast({ title: "Enter valid hours and rate", variant: "destructive" });
-          return;
+          return null;
         }
       } else {
         const amount = Number(approvalAmount || 0);
         if (!Number.isFinite(amount) || amount <= 0) {
           toast({ title: "Enter a valid pay request amount", variant: "destructive" });
-          return;
+          return null;
         }
       }
     }
-    setSubmitting(true);
+    for (const task of specialRequestTasks) {
+      const doneFieldId = adminRequestedTaskDoneFieldId(task.id);
+      const noteFieldId = adminRequestedTaskNoteFieldId(task.id);
+      const photoFieldId = adminRequestedTaskPhotoFieldId(task.id);
+      const isCompleted = formData[doneFieldId] === true;
+      const cleanerNote = String(formData[noteFieldId] ?? "").trim();
+      const photoKeys = uploads[photoFieldId] ?? [];
+
+      if (!isCompleted) {
+        toast({
+          title: "Complete all admin requested tasks",
+          description: `"${task.title}" must be marked complete before submitting.`,
+          variant: "destructive",
+        });
+        return null;
+      }
+      if (task.requiresNote && !cleanerNote) {
+        toast({
+          title: "Cleaner note required",
+          description: `Add the requested note for "${task.title}".`,
+          variant: "destructive",
+        });
+        return null;
+      }
+      if (task.requiresPhoto && photoKeys.length === 0) {
+        toast({
+          title: "Image proof required",
+          description: `Upload image proof for "${task.title}" before submitting.`,
+          variant: "destructive",
+        });
+        return null;
+      }
+    }
     const carryForwardTaskPhotoKeys = Object.fromEntries(
       carryForwardTasks.map((task) => {
         const taskId = String(task.id);
@@ -1891,8 +2244,8 @@ function formatDateTimeLabel(value: string | undefined) {
     );
     const payloadToSubmit = {
       templateId: template.id,
-      laundryOutcome,
-      laundryReady,
+      laundryOutcome: laundryOutcome ?? undefined,
+      laundryReady: laundryOutcome ? laundryReady : undefined,
       laundrySkipReasonCode,
       laundrySkipReasonNote,
       bagLocation,
@@ -1921,6 +2274,21 @@ function formatDateTimeLabel(value: string | undefined) {
       data: {
         ...formData,
         uploads,
+        __adminRequestedTasks: specialRequestTasks.map((task) => {
+          const noteFieldId = adminRequestedTaskNoteFieldId(task.id);
+          const photoFieldId = adminRequestedTaskPhotoFieldId(task.id);
+          return {
+            id: task.id,
+            title: task.title,
+            description: task.description ?? "",
+            requiresPhoto: task.requiresPhoto === true,
+            requiresNote: task.requiresNote === true,
+            completed: formData[adminRequestedTaskDoneFieldId(task.id)] === true,
+            note: String(formData[noteFieldId] ?? "").trim(),
+            photoFieldId,
+            photoKeys: uploads[photoFieldId] ?? [],
+          };
+        }),
         carryForward: {
           resolvedTaskIds: resolvedCarryForwardIds,
           hasNew: hasMissedTask,
@@ -1929,6 +2297,125 @@ function formatDateTimeLabel(value: string | undefined) {
         },
       },
     };
+    return payloadToSubmit;
+  }
+
+  async function handleSendLaundryUpdateNow() {
+    if (!hasStartedJob) {
+      toast({
+        title: "Start the job first",
+        description: "Laundry updates can be sent after the job has started.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!laundryOutcome) {
+      toast({
+        title: "Select laundry outcome",
+        description: "Choose the laundry outcome before sending the update.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!validateLaundryState()) return;
+
+    setSavingLaundryUpdate(true);
+    const res = await fetch(`/api/cleaner/jobs/${params.id}/laundry-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        laundryOutcome,
+        laundryReady,
+        laundrySkipReasonCode,
+        laundrySkipReasonNote,
+        bagLocation,
+        laundryPhotoKey,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingLaundryUpdate(false);
+
+    if (!res.ok) {
+      toast({
+        title: "Laundry update failed",
+        description: body.error ?? "Could not send laundry status.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const submittedAt = typeof body.updatedAt === "string" ? body.updatedAt : new Date().toISOString();
+    setLastLaundrySubmittedAt(submittedAt);
+    setSavedLaundryUpdate({
+      outcome: laundryOutcome,
+      submittedAt,
+      bagLocation: laundryOutcome === "READY_FOR_PICKUP" ? bagLocation.trim() || undefined : undefined,
+      skipReasonCode:
+        laundryOutcome !== "READY_FOR_PICKUP" ? laundrySkipReasonCode || undefined : undefined,
+      skipReasonNote:
+        laundryOutcome !== "READY_FOR_PICKUP" ? laundrySkipReasonNote.trim() || undefined : undefined,
+    });
+    setLaundryUpdateCollapsed(true);
+    showPopupNotification(
+      body.duplicated ? "Laundry update already sent" : "Laundry update sent",
+      body.duplicated
+        ? "The latest laundry status is already saved."
+        : "Laundry team and admin now have the latest status."
+    );
+  }
+
+  async function confirmClockReviewAndSubmit() {
+    if (!pendingSubmitPayload) return;
+
+    let payloadToSubmit = pendingSubmitPayload;
+    if (requestClockAdjustment) {
+      const requestedDurationM = Number(clockAdjustmentMinutes || 0);
+      if (!Number.isFinite(requestedDurationM) || requestedDurationM <= 0) {
+        toast({
+          title: "Adjusted time required",
+          description: "Enter the requested final clock minutes.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!clockAdjustmentReason.trim()) {
+        toast({
+          title: "Adjustment reason required",
+          description: "Explain why the clock should be adjusted.",
+          variant: "destructive",
+        });
+        return;
+      }
+      payloadToSubmit = {
+        ...payloadToSubmit,
+        clockAdjustmentRequest: {
+          requestedDurationM,
+          reason: clockAdjustmentReason.trim(),
+        },
+      };
+    }
+
+    setClockReviewOpen(false);
+    setSubmitting(true);
+    await submitPayload(payloadToSubmit, false);
+    setSubmitting(false);
+    resetClockReviewState();
+  }
+
+  async function handleSubmit() {
+    const payloadToSubmit = buildSubmissionPayload();
+    if (!payloadToSubmit) return;
+
+    if (isRunning && timeReview.activeTimeLogId) {
+      setPendingSubmitPayload(payloadToSubmit);
+      setRequestClockAdjustment(false);
+      setClockAdjustmentMinutes(String(timeReview.currentMinutes));
+      setClockAdjustmentReason("");
+      setClockReviewOpen(true);
+      return;
+    }
+
+    setSubmitting(true);
     await submitPayload(payloadToSubmit, false);
     setSubmitting(false);
   }
@@ -2108,6 +2595,36 @@ function formatDateTimeLabel(value: string | undefined) {
         <Badge>{job?.status?.replace(/_/g, " ")}</Badge>
       </div>
 
+      {(cleanerTags.length > 0 || Boolean(cleanerInstructionText) || hasJobNotes) ? (
+        <div className="flex flex-wrap gap-2">
+          {cleanerTags.map((tag) => (
+            <Badge
+              key={`detail-tag-${tag}`}
+              variant="secondary"
+              className="border-sky-200 bg-sky-50 text-sky-800"
+            >
+              {tag}
+            </Badge>
+          ))}
+          {cleanerInstructionText ? (
+            <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+              Cleaner Notes
+            </Badge>
+          ) : null}
+          {hasJobNotes ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 rounded-full px-2 text-[11px]"
+              onClick={() => setShowJobNotes((prev) => !prev)}
+            >
+              {showJobNotes ? "Hide job notes" : "Show job notes"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {pendingSync ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           A previous submission is queued for sync. It will auto-submit when internet is available.
@@ -2130,6 +2647,20 @@ function formatDateTimeLabel(value: string | undefined) {
               </Badge>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {cleanerInstructionText ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-900">Cleaner Notes</p>
+          <p className="mt-2 text-sm text-blue-950">{cleanerInstructionText}</p>
+        </div>
+      ) : null}
+
+      {hasJobNotes && showJobNotes ? (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Job Notes</p>
+          <p className="mt-2 text-sm text-slate-950">{job.notes}</p>
         </div>
       ) : null}
 
@@ -2320,16 +2851,9 @@ function formatDateTimeLabel(value: string | undefined) {
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">{job?.jobType?.replace(/_/g, " ")}</p>
-            {jobTimingHighlights.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {jobTimingHighlights.map((line) => (
-                  <Badge key={`overview-${line}`} variant="warning">
-                    {line}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-            <p className="mt-1 text-sm">{job?.notes ?? "No notes."}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review timing, notes, and any admin-requested tasks above before starting.
+            </p>
 
             <div className="mt-4 space-y-3 rounded-md border p-3">
               <p className="text-sm font-medium">Start verification</p>
@@ -2387,6 +2911,106 @@ function formatDateTimeLabel(value: string | undefined) {
             </Button>
           )}
           <Progress value={progress} className="h-2" />
+          {specialRequestTasks.length > 0 ? (
+            <Card className="border-destructive bg-destructive/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-destructive">High Priority Admin Requested Tasks</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {specialRequestTasks.map((task) => {
+                  const doneFieldId = adminRequestedTaskDoneFieldId(task.id);
+                  const noteFieldId = adminRequestedTaskNoteFieldId(task.id);
+                  const photoFieldId = adminRequestedTaskPhotoFieldId(task.id);
+                  const completed = formData[doneFieldId] === true;
+                  const photoCount = uploads[photoFieldId]?.length ?? 0;
+                  return (
+                    <div key={task.id} className="space-y-3 rounded-md border bg-background p-3">
+                      <label className="flex items-start gap-3">
+                        <Checkbox
+                          checked={completed}
+                          onCheckedChange={(value) =>
+                            setFormData((prev) => ({ ...prev, [doneFieldId]: value === true }))
+                          }
+                        />
+                        <span className="min-w-0 text-sm">
+                          <span className="block font-medium">{task.title}</span>
+                          {task.description ? (
+                            <span className="mt-1 block text-xs text-muted-foreground">{task.description}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                      {(task.requiresPhoto || task.requiresNote) ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {task.requiresNote ? (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Cleaner note *</Label>
+                              <Textarea
+                                value={formData[noteFieldId] ?? ""}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({ ...prev, [noteFieldId]: e.target.value }))
+                                }
+                                placeholder="Add the requested proof note"
+                              />
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                              No note required for this task.
+                            </div>
+                          )}
+                          {task.requiresPhoto ? (
+                            <div className="space-y-2 rounded-md border border-dashed p-3">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Image proof * {photoCount > 0 ? `(${photoCount} uploaded)` : ""}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                                  <Camera className="h-3.5 w-3.5" />
+                                  Take photo
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      if (e.target.files?.length) handleUpload(photoFieldId, e.target.files, "camera");
+                                      e.currentTarget.value = "";
+                                    }}
+                                  />
+                                </label>
+                                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                                  Upload photo
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      if (e.target.files?.length) handleUpload(photoFieldId, e.target.files, "gallery");
+                                      e.currentTarget.value = "";
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              {renderUnifiedUploadList(photoFieldId)}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                              No image proof required for this task.
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="destructive">Required</Badge>
+                        {task.requiresPhoto ? <Badge variant="outline">Image proof</Badge> : null}
+                        {task.requiresNote ? <Badge variant="outline">Cleaner note</Badge> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ) : null}
           {carryForwardTasks.length > 0 && (
             <Card className="border-destructive/30 bg-destructive/5">
               <CardHeader className="pb-2">
@@ -2606,22 +3230,29 @@ function formatDateTimeLabel(value: string | undefined) {
       {step === "laundry" && (
         <div className="space-y-4">
           <h3 className="font-semibold">Laundry Confirmation</h3>
+          {!laundryUpdateCollapsed ? (
           <Card>
             <CardContent className="space-y-4 p-4">
               <div className="space-y-2">
                 <Label className="text-base">Laundry outcome</Label>
-                <Select value={laundryOutcome} onValueChange={(value) => syncLaundryReadyFromOutcome(value as LaundryOutcome)}>
+                <Select
+                  value={laundryOutcome ?? "__NONE__"}
+                  onValueChange={(value) =>
+                    syncLaundryReadyFromOutcome(value === "__NONE__" ? null : (value as LaundryOutcome))
+                  }
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select laundry outcome" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__NONE__">None selected</SelectItem>
                     <SelectItem value="READY_FOR_PICKUP">Ready for pickup</SelectItem>
                     <SelectItem value="NOT_READY">Not ready</SelectItem>
                     <SelectItem value="NO_PICKUP_REQUIRED">No pickup required</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              {laundryReady ? (
+              {laundryOutcome === "READY_FOR_PICKUP" ? (
                 <div className="space-y-3 border-t pt-2">
                   <div>
                     <Label className="text-sm">Bag location / notes</Label>
@@ -2701,7 +3332,7 @@ function formatDateTimeLabel(value: string | undefined) {
                     {renderUnifiedUploadList("laundry_photo")}
                   </div>
                 </div>
-              ) : (
+              ) : laundryOutcome ? (
                 <div className="space-y-3 border-t pt-3">
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
@@ -2738,10 +3369,15 @@ function formatDateTimeLabel(value: string | undefined) {
                     </span>
                   </div>
                 </div>
+              ) : (
+                <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
+                  No laundry update is selected yet. Nothing will be sent until you choose an outcome.
+                </div>
               )}
             </CardContent>
           </Card>
-          {laundryNonUploadFields.length > 0 ? (
+          ) : null}
+          {!laundryUpdateCollapsed && laundryNonUploadFields.length > 0 ? (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Additional Laundry Fields</CardTitle>
@@ -2753,7 +3389,7 @@ function formatDateTimeLabel(value: string | undefined) {
               </CardContent>
             </Card>
           ) : null}
-          {laundryUploadFields.length > 0 ? (
+          {!laundryUpdateCollapsed && laundryUploadFields.length > 0 ? (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Laundry Uploads</CardTitle>
@@ -2817,6 +3453,51 @@ function formatDateTimeLabel(value: string | undefined) {
               </CardContent>
             </Card>
           ) : null}
+          <Card className={laundryUpdateCollapsed ? "border-emerald-200 bg-emerald-50/70" : undefined}>
+            <CardContent className="space-y-3 p-4 text-sm">
+              {laundryUpdateCollapsed && savedLaundryUpdate ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-emerald-900">Laundry update sent</p>
+                    <p className="mt-1 text-xs text-emerald-900">{savedLaundryUpdateSummary}</p>
+                    <p className="mt-1 text-xs text-emerald-800">
+                      Sent at {formatDateTimeLabel(savedLaundryUpdate.submittedAt) ?? savedLaundryUpdate.submittedAt}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLaundryUpdateCollapsed(false)}
+                  >
+                    Edit update
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">Need to update laundry before the full form is done?</p>
+                    <p className="text-xs text-muted-foreground">
+                      Send the current laundry status now so the laundry team is not waiting.
+                    </p>
+                    {lastLaundrySubmittedAt ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Last sent: {formatDateTimeLabel(lastLaundrySubmittedAt) ?? lastLaundrySubmittedAt}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    className="bg-emerald-600 text-white shadow-[0_10px_24px_-12px_rgba(5,150,105,0.8)] hover:bg-emerald-700 hover:text-white"
+                    onClick={handleSendLaundryUpdateNow}
+                    disabled={savingLaundryUpdate || !hasStartedJob}
+                  >
+                    {savingLaundryUpdate ? "Sending..." : "Send laundry update now"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep("uploads")}>
               {"<- Back"}
@@ -3063,6 +3744,82 @@ function formatDateTimeLabel(value: string | undefined) {
                 className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md object-contain"
               />
             ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={clockReviewOpen} onOpenChange={(open) => (open ? setClockReviewOpen(true) : resetClockReviewState())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review final clock time</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <p>
+                Current recorded time: <strong>{formatMinutesLabel(timeReview.currentMinutes)}</strong>
+              </p>
+              <p>
+                System final time: <strong>{formatMinutesLabel(timeReview.proposedMinutes)}</strong>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The system will stop this clock based on {clockLimitSourceLabel(timeReview.limitSource)}.
+              </p>
+              {timeReview.exceedsAllowedDuration ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  The current running time is above the automatic limit. Submit now to use the capped time or request an adjustment for admin approval.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  If the current clock is still correct, submit without any adjustment.
+                </p>
+              )}
+            </div>
+
+            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+              <Checkbox
+                checked={requestClockAdjustment}
+                onCheckedChange={(checked) => setRequestClockAdjustment(checked === true)}
+              />
+              <span>
+                Request a clock adjustment for admin approval
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Use this if you forgot to pause the clock and need the final time changed.
+                </span>
+              </span>
+            </label>
+
+            {requestClockAdjustment ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Requested final total minutes</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24 * 60}
+                    value={clockAdjustmentMinutes}
+                    onChange={(e) => setClockAdjustmentMinutes(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Reason</Label>
+                  <Textarea
+                    rows={3}
+                    value={clockAdjustmentReason}
+                    onChange={(e) => setClockAdjustmentReason(e.target.value)}
+                    placeholder="Explain what happened and what the final clock time should be."
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={resetClockReviewState} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button onClick={confirmClockReviewAndSubmit} disabled={submitting}>
+                {submitting ? "Submitting..." : requestClockAdjustment ? "Submit and request approval" : "Submit with system time"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

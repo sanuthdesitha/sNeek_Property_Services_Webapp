@@ -44,12 +44,21 @@ export interface JobReservationContext {
   geoLng?: number;
 }
 
+export interface JobSpecialRequestTask {
+  id: string;
+  title: string;
+  description?: string;
+  requiresPhoto: boolean;
+  requiresNote: boolean;
+}
+
 export interface JobMeta {
   version: 1;
   internalNoteText: string;
   isDraft: boolean;
   tags: string[];
   attachments: JobReferenceAttachment[];
+  specialRequestTasks: JobSpecialRequestTask[];
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
   transportAllowances: Record<string, number>;
@@ -69,6 +78,7 @@ export function defaultJobMeta(): JobMeta {
     isDraft: false,
     tags: [],
     attachments: [],
+    specialRequestTasks: [],
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
     transportAllowances: {},
@@ -185,6 +195,28 @@ function normalizeReservationContext(input: unknown): JobReservationContext | un
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
+function normalizeSpecialRequestTasks(input: unknown): JobSpecialRequestTask[] {
+  if (!Array.isArray(input)) return [];
+
+  const tasks: JobSpecialRequestTask[] = [];
+  input
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .forEach((item, index) => {
+      const rawTitle = typeof item.title === "string" ? item.title.trim() : "";
+      if (!rawTitle) return;
+      const rawId = typeof item.id === "string" ? item.id.trim() : "";
+      const rawDescription = typeof item.description === "string" ? item.description.trim() : "";
+      tasks.push({
+        id: rawId || `admin-task-${index + 1}`,
+        title: rawTitle,
+        description: rawDescription || undefined,
+        requiresPhoto: item.requiresPhoto === true,
+        requiresNote: item.requiresNote === true,
+      });
+    });
+  return tasks;
+}
+
 export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
   const fallback = defaultJobMeta();
   if (!raw?.trim()) return fallback;
@@ -222,6 +254,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
             }))
             .filter((item) => item.key && item.url)
         : [],
+      specialRequestTasks: normalizeSpecialRequestTasks(parsed.specialRequestTasks),
       earlyCheckin: normalizeRule(parsed.earlyCheckin),
       lateCheckout: normalizeRule(parsed.lateCheckout),
       transportAllowances:
@@ -254,6 +287,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
       ? input.tags.map((tag) => tag.trim()).filter(Boolean)
       : [],
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
+    specialRequestTasks: normalizeSpecialRequestTasks(input.specialRequestTasks),
     earlyCheckin: normalizeRule(input.earlyCheckin),
     lateCheckout: normalizeRule(input.lateCheckout),
     transportAllowances:
@@ -277,6 +311,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.isDraft ||
     meta.tags.length > 0 ||
     meta.attachments.length > 0 ||
+    meta.specialRequestTasks.length > 0 ||
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
     Object.keys(meta.transportAllowances).length > 0 ||
@@ -293,6 +328,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     isDraft: meta.isDraft,
     tags: meta.tags,
     attachments: meta.attachments,
+    specialRequestTasks: meta.specialRequestTasks,
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
     transportAllowances: meta.transportAllowances,
@@ -313,6 +349,46 @@ export function getJobTimingHighlights(meta: Pick<JobMeta, "earlyCheckin" | "lat
   const late = resolveRuleTime(meta.lateCheckout);
   if (late) items.push(`Late checkout: start after ${late}`);
   if (early) items.push(`Early check-in: complete before ${early}`);
+  return items;
+}
+
+function normalizeHighlightKey(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "";
+
+  const timeMatch = normalized.match(/\b(\d{1,2}[:.]\d{2})\b/);
+  const normalizedTime = timeMatch ? timeMatch[1].replace(".", ":") : "";
+
+  if (/early check-?in/.test(normalized)) {
+    return `early-checkin:${normalizedTime}`;
+  }
+  if (/late checkout/.test(normalized)) {
+    return `late-checkout:${normalizedTime}`;
+  }
+  if (/same-day check-?in/.test(normalized)) {
+    return `same-day-checkin:${normalizedTime}`;
+  }
+  if (/no same-day check-?in urgency/.test(normalized)) {
+    return "no-same-day-checkin-urgency";
+  }
+
+  return normalized;
+}
+
+export function mergeUniqueJobHighlights(...groups: Array<Array<string | null | undefined> | undefined>) {
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const group of groups) {
+    for (const raw of group ?? []) {
+      if (typeof raw !== "string") continue;
+      const value = raw.trim();
+      if (!value) continue;
+      const key = normalizeHighlightKey(value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(value);
+    }
+  }
   return items;
 }
 

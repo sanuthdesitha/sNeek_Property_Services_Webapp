@@ -69,6 +69,12 @@ function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+function formatRunStatus(status: ShoppingRun["status"]) {
+  if (status === "IN_PROGRESS") return "Active";
+  if (status === "COMPLETED") return "Submitted";
+  return "Draft";
+}
+
 export default function AdminShoppingRunsPage() {
   const [runs, setRuns] = useState<ShoppingRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -320,7 +326,7 @@ export default function AdminShoppingRunsPage() {
                 >
                   {runs.map((run) => (
                     <option key={run.id} value={run.id}>
-                      {run.name} [{run.status}] ({run.ownerScope})
+                      {run.name} [{formatRunStatus(run.status)}] ({run.ownerScope})
                     </option>
                   ))}
                 </select>
@@ -362,7 +368,7 @@ export default function AdminShoppingRunsPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Client reimbursement email</label>
+                <label className="text-xs text-muted-foreground">Current client contact email</label>
                 <Input
                   type="email"
                   value={reimbursementEmail}

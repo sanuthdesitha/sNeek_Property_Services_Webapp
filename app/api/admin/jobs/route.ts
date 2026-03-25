@@ -7,6 +7,7 @@ import { applyJobTimingRules, serializeJobInternalNotes } from "@/lib/jobs/meta"
 import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 function normalizeRule(
   rule:
@@ -96,6 +97,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create job.") }, { status });
   }
 }

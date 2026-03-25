@@ -1,0 +1,16 @@
+node_modules
+.expo
+dist
+web-build
+android
+ios
+.gradle-home
+g
+*.apk
+android-build*.log
+autolink-resolve.json
+autolink-resolve.err
+*.jks
+*.p8
+*.mobileprovision
+*.orig.*

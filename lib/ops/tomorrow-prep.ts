@@ -10,7 +10,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { extractLaundryTeamUserIds } from "@/lib/laundry/teams";
 import { logger } from "@/lib/logger";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispatch";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -199,6 +199,13 @@ function buildInventorySummaryParts(rows: CriticalStockRow[]) {
   };
 }
 
+function buildNoJobsSummaryParts() {
+  return {
+    html: "<p>No jobs are scheduled for tomorrow.</p><p>Please still check your schedule in case anything changes.</p>",
+    text: "No jobs scheduled for tomorrow. Please still check your schedule in case anything changes.",
+  };
+}
+
 async function logPushNotification(userId: string, subject: string, body: string) {
   await db.notification.create({
     data: {
@@ -226,16 +233,22 @@ async function logEmailNotification(userId: string, subject: string, body: strin
   });
 }
 
-async function logSmsNotification(userId: string, subject: string, body: string, ok: boolean) {
+async function logSmsNotification(
+  userId: string,
+  subject: string,
+  body: string,
+  result: { ok: boolean; status: "sent" | "disabled" | "not_configured" | "failed"; error?: string }
+) {
+  if (result.status !== "sent" && result.status !== "failed") return;
   await db.notification.create({
     data: {
       userId,
       channel: NotificationChannel.SMS,
       subject,
       body,
-      status: ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
-      sentAt: ok ? new Date() : undefined,
-      errorMsg: ok ? undefined : "SMS delivery failed or is not configured.",
+      status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+      sentAt: result.ok ? new Date() : undefined,
+      errorMsg: result.ok ? undefined : result.error ?? "SMS delivery failed.",
     },
   });
 }
@@ -260,8 +273,8 @@ async function sendDirectSummaryNotification(input: {
   }
 
   if (input.recipient.phone) {
-    const ok = await sendSms(input.recipient.phone, input.smsBody);
-    await logSmsNotification(input.recipient.id, input.webSubject, input.smsBody, ok);
+    const result = await sendSmsDetailed(input.recipient.phone, input.smsBody);
+    await logSmsNotification(input.recipient.id, input.webSubject, input.smsBody, result);
   }
 }
 
@@ -332,26 +345,7 @@ export async function dispatchTomorrowPrepSummaries(
       orderBy: { scheduledDate: "asc" },
     })) as JobRow[];
 
-  let jobs = await loadJobsForRange(targetRange.startUtc, targetRange.endUtc);
-
-  if (jobs.length === 0 && options.ignoreWindow && options.useNextAvailableDate !== false) {
-    const nextJob = await db.job.findFirst({
-      where: {
-        scheduledDate: { gte: targetRange.startUtc },
-        status: {
-          in: [JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL],
-        },
-      },
-      select: { scheduledDate: true },
-      orderBy: { scheduledDate: "asc" },
-    });
-
-    if (nextJob?.scheduledDate) {
-      targetRange = buildUtcDayRange(nextJob.scheduledDate, timezone);
-      targetLocal = targetRange.localDate;
-      jobs = await loadJobsForRange(targetRange.startUtc, targetRange.endUtc);
-    }
-  }
+  const jobs = await loadJobsForRange(targetRange.startUtc, targetRange.endUtc);
 
   const dateLabel = format(targetLocal, "EEEE, dd MMMM yyyy");
 
@@ -383,12 +377,24 @@ export async function dispatchTomorrowPrepSummaries(
     }));
 
   const cleanerBuckets = new Map<string, { recipient: Recipient; jobs: JobRow[] }>();
+  const allCleaners = await db.user.findMany({
+    where: { role: Role.CLEANER, isActive: true },
+    select: { id: true, name: true, email: true, phone: true, role: true },
+    orderBy: { name: "asc" },
+  });
+  for (const recipient of allCleaners as Recipient[]) {
+    cleanerBuckets.set(recipient.id, { recipient, jobs: [] });
+  }
+
   const laundryBuckets = new Map<string, { recipient: Recipient; jobs: JobRow[] }>();
   const allLaundryUsers = await db.user.findMany({
     where: { role: Role.LAUNDRY, isActive: true },
     select: { id: true, name: true, email: true, phone: true, role: true },
     orderBy: { name: "asc" },
   });
+  for (const recipient of allLaundryUsers as Recipient[]) {
+    laundryBuckets.set(recipient.id, { recipient, jobs: [] });
+  }
   const laundryUserById = new Map(allLaundryUsers.map((user) => [user.id, user]));
 
   for (const job of sortedJobs) {
@@ -423,7 +429,8 @@ export async function dispatchTomorrowPrepSummaries(
 
   for (const bucket of Array.from(cleanerBuckets.values())) {
     const jobsForRecipient = [...bucket.jobs].sort(compareJobsByPriority);
-    const summary = buildJobSummaryParts(jobsForRecipient);
+    const summary =
+      jobsForRecipient.length > 0 ? buildJobSummaryParts(jobsForRecipient) : buildNoJobsSummaryParts();
     const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowJobsSummary", {
       recipientName: bucket.recipient.name ?? "Cleaner",
       roleLabel: "Cleaner",
@@ -488,7 +495,8 @@ export async function dispatchTomorrowPrepSummaries(
 
   for (const bucket of Array.from(laundryBuckets.values())) {
     const jobsForRecipient = [...bucket.jobs].sort(compareJobsByPriority);
-    const summary = buildJobSummaryParts(jobsForRecipient);
+    const summary =
+      jobsForRecipient.length > 0 ? buildJobSummaryParts(jobsForRecipient) : buildNoJobsSummaryParts();
     const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowJobsSummary", {
       recipientName: bucket.recipient.name ?? "Laundry team",
       roleLabel: "Laundry team",

@@ -6,6 +6,7 @@ import { Role } from "@prisma/client";
 import { applyDefaultStockToProperty, ensureDefaultInventoryItems } from "@/lib/inventory/default-items";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { normalizeInventoryLocation } from "@/lib/inventory/locations";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function GET(req: NextRequest) {
   try {
@@ -87,6 +88,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(property, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create property.") }, { status });
   }
 }

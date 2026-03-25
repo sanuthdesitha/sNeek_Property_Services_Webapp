@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { Button } from "@/components/ui/button";
-import { ShoppingPlanner } from "@/components/inventory/shopping-planner";
+import { ShoppingRunLauncher } from "@/components/inventory/shopping-run-launcher";
 
 export default async function CleanerShoppingPage({
   searchParams,
@@ -20,14 +20,14 @@ export default async function CleanerShoppingPage({
           <Link href="/cleaner">Back to Dashboard</Link>
         </Button>
       </div>
-      <ShoppingPlanner
+      <ShoppingRunLauncher
         mode="cleaner"
         apiPath="/api/cleaner/inventory/shopping-plan"
         runsApiBase="/api/cleaner/inventory/shopping-runs"
         workspaceBasePath="/cleaner/shopping"
         initialPropertyId={searchParams?.propertyId}
-        title="Shopping Run Planner"
-        description="Review low-stock items across properties, combine items, and prioritize emergency top-ups when space is limited."
+        title="Shopping"
+        description="Choose what needs to be bought, start the run, then track receipts, payment method, and shopping time inside the run workspace."
       />
     </div>
   );

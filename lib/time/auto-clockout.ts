@@ -1,20 +1,11 @@
-import { addMinutes, endOfDay } from "date-fns";
-import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { NotificationChannel, NotificationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-
-function localCutoffUtc(scheduledDate: Date, timeValue: string, timezone: string) {
-  const scheduledLocal = toZonedTime(scheduledDate, timezone);
-  const datePart = scheduledLocal.toISOString().slice(0, 10);
-  return fromZonedTime(`${datePart}T${timeValue}:00`, timezone);
-}
+import { resolveClockRuleForLog } from "@/lib/time/clock-rules";
 
 export async function autoClockOutStaleTimeLogsForUser(userId: string) {
   const settings = await getAppSettings();
   if (!settings.autoClockOut.enabled) return 0;
-
-  const timezone = settings.timezone || "Australia/Sydney";
   const openLogs = await db.timeLog.findMany({
     where: { userId, stoppedAt: null },
     include: {
@@ -26,6 +17,7 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
           scheduledDate: true,
           dueTime: true,
           endTime: true,
+          estimatedHours: true,
         },
       },
     },
@@ -35,22 +27,33 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
   const now = new Date();
 
   for (const log of openLogs) {
-    const baseCutoff = log.job.dueTime
-      ? localCutoffUtc(log.job.scheduledDate, log.job.dueTime, timezone)
-      : log.job.endTime
-        ? localCutoffUtc(log.job.scheduledDate, log.job.endTime, timezone)
-        : settings.autoClockOut.fallbackAtMidnight
-          ? fromZonedTime(endOfDay(toZonedTime(log.job.scheduledDate, timezone)), timezone)
-          : null;
-
-    if (!baseCutoff) continue;
-    const cutoff = log.job.dueTime || log.job.endTime
-      ? addMinutes(baseCutoff, settings.autoClockOut.graceMinutes)
-      : baseCutoff;
+    const priorTime = await db.timeLog.aggregate({
+      where: {
+        jobId: log.jobId,
+        userId,
+        id: { not: log.id },
+        stoppedAt: { not: null },
+      },
+      _sum: { durationM: true },
+    });
+    const completedDurationMinutes = Math.max(0, priorTime._sum.durationM ?? 0);
+    const clockRule = resolveClockRuleForLog({
+      job: {
+        scheduledDate: log.job.scheduledDate,
+        dueTime: log.job.dueTime,
+        endTime: log.job.endTime,
+        estimatedHours: log.job.estimatedHours,
+      },
+      startedAt: log.startedAt,
+      settings,
+      completedDurationMinutes,
+    });
+    const cutoff = clockRule.cutoffAt;
+    if (!cutoff) continue;
     if (now < cutoff) continue;
 
     const stoppedAt = cutoff > log.startedAt ? cutoff : now;
-    const durationM = Math.max(1, Math.round((stoppedAt.getTime() - log.startedAt.getTime()) / 60000));
+    const durationM = Math.max(0, Math.round((stoppedAt.getTime() - log.startedAt.getTime()) / 60000));
 
     await db.$transaction([
       db.timeLog.update({

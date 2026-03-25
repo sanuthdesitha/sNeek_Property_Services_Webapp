@@ -4,6 +4,11 @@ import { db } from "@/lib/db";
 import { updateClientSchema } from "@/lib/validations/client";
 import { Role } from "@prisma/client";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
+import {
+  normalizeClientEmail,
+  syncPrimaryClientUserFromClient,
+} from "@/lib/clients/contact-sync";
 
 export async function GET(
   _req: NextRequest,
@@ -32,11 +37,43 @@ export async function PATCH(
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateClientSchema.parse(await req.json());
-    const client = await db.client.update({ where: { id: params.id }, data: body });
+    const client = await db.$transaction(async (tx) => {
+      const existing = await tx.client.findUnique({
+        where: { id: params.id },
+        select: { id: true, name: true, email: true, phone: true },
+      });
+      if (!existing) {
+        throw new Error("NOT_FOUND");
+      }
+
+      const data = {
+        ...body,
+        email:
+          body.email !== undefined ? normalizeClientEmail(body.email) : body.email,
+      };
+
+      const nextClient = await tx.client.update({ where: { id: params.id }, data });
+      await syncPrimaryClientUserFromClient(tx, {
+        clientId: nextClient.id,
+        name: data.name ?? existing.name,
+        email: data.email !== undefined ? data.email : existing.email,
+        phone: data.phone !== undefined ? data.phone : existing.phone,
+      });
+      return nextClient;
+    });
     return NextResponse.json(client);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "NOT_FOUND"
+            ? 404
+            : err.message === "CLIENT_CONTACT_EMAIL_IN_USE"
+              ? 409
+              : 400;
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update client.") }, { status });
   }
 }
 

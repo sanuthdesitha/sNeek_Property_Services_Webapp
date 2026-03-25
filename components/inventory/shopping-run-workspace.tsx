@@ -112,6 +112,12 @@ type CustomDraft = {
   note: string;
 };
 
+function formatRunStatus(status: RunStatus) {
+  if (status === "IN_PROGRESS") return "Shopping in progress";
+  if (status === "COMPLETED") return "Submitted for admin review";
+  return "Draft planning";
+}
+
 function derivePaidByScope(
   method: PaymentMethod,
   ownerScope: "CLIENT" | "CLEANER"
@@ -489,7 +495,7 @@ export function ShoppingRunWorkspace({
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Status</p><p className="text-xl font-semibold">{run.status.replace(/_/g, " ")}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Status</p><p className="text-xl font-semibold">{formatRunStatus(run.status)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Lines</p><p className="text-xl font-semibold">{summary.lines}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Planned units</p><p className="text-xl font-semibold">{summary.planned}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Purchased units</p><p className="text-xl font-semibold">{summary.purchased}</p></CardContent></Card>
@@ -501,9 +507,9 @@ export function ShoppingRunWorkspace({
         <CardHeader><CardTitle className="text-base">Run controls</CardTitle></CardHeader>
         <CardContent className="grid gap-3 xl:grid-cols-[1.2fr_180px_auto_auto_auto]">
           <Input value={run.name} onChange={(event) => setRun((prev) => prev ? { ...prev, name: event.target.value } : prev)} />
-          <Input value={`Started ${timeLabel(run.startedAt)} · Completed ${timeLabel(run.completedAt)}`} disabled />
-          <Button variant="outline" onClick={() => void save("IN_PROGRESS")} disabled={saving || run.status === "COMPLETED"}><Play className="mr-2 h-4 w-4" />Start</Button>
-          <Button variant="outline" onClick={() => void save()} disabled={saving}><Save className="mr-2 h-4 w-4" />{saving ? "Saving..." : "Save"}</Button>
+          <Input value={`Started ${timeLabel(run.startedAt)} · Submitted ${timeLabel(run.completedAt)}`} disabled />
+          <Button variant="outline" onClick={() => void save("IN_PROGRESS")} disabled={saving || run.status === "COMPLETED"}><Play className="mr-2 h-4 w-4" />Mark active</Button>
+          <Button variant="outline" onClick={() => void save()} disabled={saving}><Save className="mr-2 h-4 w-4" />{saving ? "Saving..." : "Save draft"}</Button>
           <Button onClick={() => void save("COMPLETED")} disabled={saving || run.status === "COMPLETED"}><ShoppingBag className="mr-2 h-4 w-4" />{run.status === "COMPLETED" ? "Submitted" : "Submit run"}</Button>
         </CardContent>
       </Card>

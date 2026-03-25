@@ -13,6 +13,7 @@ export type AppNotificationTemplateKey =
   | "shoppingRunSubmitted"
   | "stockRunRequested"
   | "stockRunSubmitted"
+  | "adminAttentionSummary"
   | "tomorrowJobsSummary"
   | "criticalInventoryTomorrow";
 
@@ -63,6 +64,7 @@ export const NOTIFICATION_TEMPLATE_KEYS: AppNotificationTemplateKey[] = [
   "shoppingRunSubmitted",
   "stockRunRequested",
   "stockRunSubmitted",
+  "adminAttentionSummary",
   "tomorrowJobsSummary",
   "criticalInventoryTomorrow",
 ];
@@ -122,6 +124,27 @@ const NOTIFICATION_TEMPLATE_DEFINITIONS_BASE: Record<
   stockRunSubmitted: {
     label: "Stock Run Submitted",
     variables: ["propertyName", "submittedBy", "runTitle", "lineCount"],
+  },
+  adminAttentionSummary: {
+    label: "Admin Attention Summary",
+    variables: [
+      "recipientName",
+      "dateLabel",
+      "attentionCount",
+      "approvalCount",
+      "pendingPayRequests",
+      "pendingTimeAdjustments",
+      "pendingContinuations",
+      "pendingClientApprovals",
+      "pendingLaundryRescheduleDraft",
+      "unassignedJobCount",
+      "openCaseCount",
+      "overdueCaseCount",
+      "highCaseCount",
+      "newCaseCount",
+      "flaggedLaundryCount",
+      "breakdownText",
+    ],
   },
   tomorrowJobsSummary: {
     label: "Tomorrow Jobs Summary",
@@ -213,6 +236,11 @@ export function getDefaultNotificationTemplates(): AppNotificationTemplates {
       webSubject: "Stock count submitted",
       webBody: "{propertyName}: {submittedBy} submitted {runTitle} ({lineCount} lines).",
       smsBody: "{propertyName}: {submittedBy} submitted {runTitle} ({lineCount} lines).",
+    },
+    adminAttentionSummary: {
+      webSubject: "Admin attention summary - {dateLabel}",
+      webBody: "{attentionCount} admin items need attention. {breakdownText}",
+      smsBody: "Admin summary: {attentionCount} items. Approvals {approvalCount}; Unassigned {unassignedJobCount}; Open cases {openCaseCount}; Laundry {flaggedLaundryCount}.",
     },
     tomorrowJobsSummary: {
       webSubject: "Tomorrow jobs for {roleLabel} - {dateLabel}",

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LogOut, Settings2 } from "lucide-react";
@@ -23,6 +24,7 @@ interface PortalShellProps {
   maxWidthClass?: string;
   currentUserName?: string | null;
   currentUserImage?: string | null;
+  hideHeaderOnScroll?: boolean;
 }
 
 function initialsFromName(name: string): string {
@@ -45,9 +47,11 @@ export function PortalShell({
   maxWidthClass = "max-w-6xl",
   currentUserName,
   currentUserImage,
+  hideHeaderOnScroll = false,
 }: PortalShellProps) {
   const pathname = usePathname();
   const initials = initialsFromName(companyName) || "SP";
+  const [headerHidden, setHeaderHidden] = useState(false);
 
   function handleSignOut() {
     if (typeof window === "undefined") return;
@@ -55,11 +59,47 @@ export function PortalShell({
     window.location.assign(`/api/auth/local-signout?callbackUrl=${encodeURIComponent(callbackUrl)}`);
   }
 
+  useEffect(() => {
+    setHeaderHidden(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!hideHeaderOnScroll || typeof window === "undefined") {
+      setHeaderHidden(false);
+      return;
+    }
+
+    let lastScrollY = window.scrollY;
+
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      const delta = currentScrollY - lastScrollY;
+
+      if (currentScrollY <= 24) {
+        setHeaderHidden(false);
+      } else if (delta > 8) {
+        setHeaderHidden(true);
+      } else if (delta < -8) {
+        setHeaderHidden(false);
+      }
+
+      lastScrollY = currentScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [hideHeaderOnScroll]);
+
   return (
     <div className="relative min-h-screen bg-background">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_96%_0%,rgba(39,153,163,0.18),transparent_24%),radial-gradient(circle_at_4%_16%,rgba(255,174,87,0.16),transparent_28%)]" />
 
-      <header className="sticky top-0 z-40 border-b border-white/60 bg-white/80 px-3 py-3 shadow-sm backdrop-blur-xl sm:px-4 lg:px-6">
+      <header
+        className={cn(
+          "sticky top-0 z-40 border-b border-white/60 bg-white/80 px-3 py-3 shadow-sm backdrop-blur-xl transition-transform duration-300 sm:px-4 lg:px-6",
+          hideHeaderOnScroll && headerHidden ? "-translate-y-full" : "translate-y-0"
+        )}
+      >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">

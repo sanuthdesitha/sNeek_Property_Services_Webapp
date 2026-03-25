@@ -7,7 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import {
+  getJobTimingHighlights,
+  mergeUniqueJobHighlights,
+  parseJobInternalNotes,
+} from "@/lib/jobs/meta";
 import { compareJobsByPriority } from "@/lib/jobs/priority";
 
 const TZ = "Australia/Sydney";
@@ -92,6 +96,7 @@ export default async function CleanerJobsPage({
       jobNumber: true,
       jobType: true,
       status: true,
+      notes: true,
       scheduledDate: true,
       startTime: true,
       dueTime: true,
@@ -238,10 +243,14 @@ export default async function CleanerJobsPage({
           ) : (
             <div className="divide-y">
               {sortedJobs.map((job) => {
-                const timingHighlights = [
-                  ...getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)),
-                  ...(job.priorityReason ? [job.priorityReason] : []),
-                ];
+                const jobMeta = parseJobInternalNotes(job.internalNotes);
+                const timingHighlights = mergeUniqueJobHighlights(
+                  getJobTimingHighlights(jobMeta),
+                  [job.priorityReason]
+                );
+                const hasCleanerNotes = Boolean(
+                  jobMeta.internalNoteText && jobMeta.internalNoteText.trim()
+                );
                 return (
                   <div key={job.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
@@ -273,6 +282,24 @@ export default async function CleanerJobsPage({
                               {line}
                             </Badge>
                           ))}
+                        </div>
+                      ) : null}
+                      {(jobMeta.tags?.length ?? 0) > 0 || hasCleanerNotes ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {jobMeta.tags?.map((tag) => (
+                            <Badge
+                              key={`${job.id}-tag-${tag}`}
+                              variant="secondary"
+                              className="border-sky-200 bg-sky-50 text-sky-800"
+                            >
+                              {tag}
+                            </Badge>
+                          ))}
+                          {hasCleanerNotes ? (
+                            <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                              Cleaner Notes
+                            </Badge>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

@@ -14,10 +14,9 @@ import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getAppSettings } from "@/lib/settings";
 import { getJobReference } from "@/lib/jobs/job-number";
-import { resolveAppUrl } from "@/lib/app-url";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
-import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 
@@ -152,6 +151,7 @@ export async function PATCH(
       body.isDraft !== undefined ||
       body.tags !== undefined ||
       body.attachments !== undefined ||
+      body.specialRequestTasks !== undefined ||
       body.transportAllowances !== undefined ||
       body.earlyCheckin !== undefined ||
       body.lateCheckout !== undefined ||
@@ -164,6 +164,14 @@ export async function PATCH(
         isDraft: body.isDraft ?? currentMeta.isDraft,
         tags: body.tags ?? currentMeta.tags,
         attachments: body.attachments ?? currentMeta.attachments,
+        specialRequestTasks:
+          body.specialRequestTasks?.map((task, index) => ({
+            id: task.id?.trim() || `admin-task-${index + 1}`,
+            title: task.title.trim(),
+            description: task.description?.trim() || undefined,
+            requiresPhoto: task.requiresPhoto === true,
+            requiresNote: task.requiresNote === true,
+          })) ?? currentMeta.specialRequestTasks,
         transportAllowances: body.transportAllowances ?? currentMeta.transportAllowances,
         earlyCheckin: nextEarlyCheckin,
         lateCheckout: nextLateCheckout,
@@ -191,6 +199,7 @@ export async function PATCH(
     delete data.isDraft;
     delete data.tags;
     delete data.attachments;
+    delete data.specialRequestTasks;
     delete data.transportAllowances;
     delete data.earlyCheckin;
     delete data.lateCheckout;
@@ -313,28 +322,13 @@ export async function PATCH(
           });
         }
 
-        const laundryRecipients = await getAssignedLaundryUsersForProperty(current.propertyId);
-        if (laundryRecipients.length > 0) {
-          await deliverNotificationToRecipients({
-            recipients: laundryRecipients,
-            category: "laundry",
-            jobId: refreshed.id,
-            web: { subject: webSubject, body: webBody },
-            email: {
-              subject: webSubject,
-              html: emailHtml,
-              logBody: webBody,
-            },
-            sms: smsBody,
-          });
-        }
       }
     }
 
     return NextResponse.json(job);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update job.") }, { status });
   }
 }
 

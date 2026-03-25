@@ -2,11 +2,29 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { addDays, differenceInCalendarDays, startOfDay } from "date-fns";
 import { LaundryFlag, LaundryStatus, Prisma } from "@prisma/client";
+import { toZonedTime } from "date-fns-tz";
 import { getAppSettings, type LaundryOperationsSettings } from "@/lib/settings";
+import {
+  replacePendingLaundrySyncDraftForProperty,
+  type LaundrySyncDraftItem,
+} from "@/lib/laundry/sync-draft";
 
 type PlannerJob = Prisma.JobGetPayload<{
   include: {
     property: true;
+  };
+}>;
+
+type PlannerJobWithLaundry = Prisma.JobGetPayload<{
+  include: {
+    property: true;
+    laundryTask: {
+      include: {
+        confirmations: {
+          orderBy: { createdAt: "asc" };
+        };
+      };
+    };
   };
 }>;
 
@@ -31,6 +49,11 @@ function normalizeDate(value: Date) {
   return startOfDay(value);
 }
 
+export function todaySydneyDateOnlyForLaundryPlanner() {
+  const sydney = toZonedTime(new Date(), "Australia/Sydney");
+  return new Date(Date.UTC(sydney.getFullYear(), sydney.getMonth(), sydney.getDate()));
+}
+
 function serializeDate(value: Date) {
   return normalizeDate(value).toISOString();
 }
@@ -53,6 +76,19 @@ async function getNextTurnoverCleanDate(job: PlannerJob) {
     orderBy: { scheduledDate: "asc" },
   });
   return nextJob ? normalizeDate(nextJob.scheduledDate) : null;
+}
+
+function isLaundryTaskCompleted(task: NonNullable<PlannerJobWithLaundry["laundryTask"]>) {
+  return (
+    task.status === LaundryStatus.PICKED_UP ||
+    task.status === LaundryStatus.DROPPED ||
+    Boolean(task.pickedUpAt) ||
+    Boolean(task.droppedAt)
+  );
+}
+
+function canPlannerOverrideStatus(task: NonNullable<PlannerJobWithLaundry["laundryTask"]>) {
+  return task.status === LaundryStatus.PENDING || task.status === LaundryStatus.FLAGGED;
 }
 
 async function computeDraftItem(
@@ -157,6 +193,28 @@ async function getPlannerJobs(weekStart?: Date) {
   });
 }
 
+async function getSyncPlannerJobs(options: { propertyId: string; fromDate: Date }) {
+  return db.job.findMany({
+    where: {
+      propertyId: options.propertyId,
+      jobType: "AIRBNB_TURNOVER",
+      scheduledDate: { gte: normalizeDate(options.fromDate) },
+      status: { not: "INVOICED" },
+    },
+    include: {
+      property: true,
+      laundryTask: {
+        include: {
+          confirmations: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
+    },
+    orderBy: [{ scheduledDate: "asc" }, { propertyId: "asc" }],
+  });
+}
+
 export async function buildLaundryPlanDraft(weekStart?: Date): Promise<LaundryPlanDraftItem[]> {
   const settings = await getAppSettings();
   const jobs = await getPlannerJobs(weekStart);
@@ -170,6 +228,100 @@ export async function buildLaundryPlanDraft(weekStart?: Date): Promise<LaundryPl
     if (bySuburb !== 0) return bySuburb;
     return a.propertyName.localeCompare(b.propertyName);
   });
+}
+
+export async function buildLaundrySyncDraft(options: {
+  propertyId: string;
+  fromDate?: Date;
+}): Promise<LaundrySyncDraftItem[]> {
+  const settings = await getAppSettings();
+  const jobs = await getSyncPlannerJobs({
+    propertyId: options.propertyId,
+    fromDate: options.fromDate ?? todaySydneyDateOnlyForLaundryPlanner(),
+  });
+
+  const items: LaundrySyncDraftItem[] = [];
+  for (const job of jobs) {
+    const desired = await computeDraftItem(job, settings.laundryOperations);
+    const currentTask = job.laundryTask;
+
+    if (!currentTask) {
+      items.push({
+        ...desired,
+        operation: "CREATE",
+        taskId: null,
+        currentPickupDate: null,
+        currentDropoffDate: null,
+        currentStatus: null,
+        currentFlagReason: null,
+        currentFlagNotes: null,
+        generatedAt: new Date().toISOString(),
+        sourcePropertyId: job.propertyId,
+      });
+      continue;
+    }
+
+    if (isLaundryTaskCompleted(currentTask)) {
+      continue;
+    }
+
+    const nextStatus = canPlannerOverrideStatus(currentTask) ? desired.status : currentTask.status;
+    const nextFlagReason = canPlannerOverrideStatus(currentTask) ? desired.flagReason : currentTask.flagReason;
+    const nextFlagNotes = canPlannerOverrideStatus(currentTask) ? desired.flagNotes : currentTask.flagNotes;
+
+    const currentPickupDate = serializeDate(currentTask.pickupDate);
+    const currentDropoffDate = serializeDate(currentTask.dropoffDate);
+    const hasChanged =
+      currentPickupDate !== desired.pickupDate ||
+      currentDropoffDate !== desired.dropoffDate ||
+      currentTask.status !== nextStatus ||
+      (currentTask.flagReason ?? null) !== (nextFlagReason ?? null) ||
+      (currentTask.flagNotes ?? null) !== (nextFlagNotes ?? null);
+
+    if (!hasChanged) {
+      continue;
+    }
+
+    items.push({
+      ...desired,
+      status: nextStatus,
+      flagReason: nextFlagReason,
+      flagNotes: nextFlagNotes,
+      operation: "UPDATE",
+      taskId: currentTask.id,
+      currentPickupDate,
+      currentDropoffDate,
+      currentStatus: currentTask.status,
+      currentFlagReason: currentTask.flagReason,
+      currentFlagNotes: currentTask.flagNotes,
+      generatedAt: new Date().toISOString(),
+      sourcePropertyId: job.propertyId,
+    });
+  }
+
+  return items.sort((a, b) => {
+    const byPickup = new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime();
+    if (byPickup !== 0) return byPickup;
+    const bySuburb = a.suburb.localeCompare(b.suburb);
+    if (bySuburb !== 0) return bySuburb;
+    return a.propertyName.localeCompare(b.propertyName);
+  });
+}
+
+export async function refreshLaundrySyncDraftForProperty(options: {
+  propertyId: string;
+  fromDate?: Date;
+}) {
+  const items = await buildLaundrySyncDraft(options);
+  const store = await replacePendingLaundrySyncDraftForProperty({
+    propertyId: options.propertyId,
+    items,
+  });
+  logger.info(
+    { propertyId: options.propertyId, count: items.length },
+    "Laundry sync draft refreshed for property"
+  );
+  return store;
 }
 
 export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {

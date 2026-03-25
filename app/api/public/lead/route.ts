@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { leadSchema } from "@/lib/validations/quote";
 import { db } from "@/lib/db";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,6 +9,6 @@ export async function POST(req: NextRequest) {
     const lead = await db.quoteLead.create({ data: body });
     return NextResponse.json(lead, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not submit quote request.") }, { status: 400 });
   }
 }

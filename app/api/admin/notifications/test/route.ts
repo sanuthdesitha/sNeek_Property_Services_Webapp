@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { getSmsProviderState, sendSmsDetailed } from "@/lib/notifications/sms";
 import { db } from "@/lib/db";
 import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { z } from "zod";
@@ -32,16 +32,21 @@ export async function POST(req: NextRequest) {
       ok = emailResult.ok;
       if (!ok) errorMsg = emailResult.error ?? "Email provider failed to send.";
     } else if (channel === NotificationChannel.SMS) {
-      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new Error("TWILIO_NOT_CONFIGURED");
+      const providerState = await getSmsProviderState();
+      if (providerState.provider === "none") {
+        throw new Error("SMS_DISABLED");
+      }
+      if (!providerState.configured) {
+        throw new Error("SMS_PROVIDER_NOT_CONFIGURED");
       }
       z
         .string()
         .regex(/^\+\d{8,15}$/, "SMS recipient must be in E.164 format, e.g. +61400000000")
         .parse(to);
 
-      ok = await sendSms(to, "sNeek Property Services: This is a test SMS notification.");
-      if (!ok) errorMsg = "SMS provider failed to send.";
+      const smsResult = await sendSmsDetailed(to, "sNeek Property Services: This is a test SMS notification.");
+      ok = smsResult.ok;
+      if (!ok) errorMsg = smsResult.error ?? "SMS provider failed to send.";
     }
 
     await db.notification.create({

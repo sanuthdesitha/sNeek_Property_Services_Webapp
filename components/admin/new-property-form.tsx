@@ -356,12 +356,14 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="state">State</Label>
-              <Input id="state" value={form.state} onChange={(e) => setForm((prev) => ({ ...prev, state: e.target.value }))} />
+              <Input id="state" maxLength={3} value={form.state} onChange={(e) => setForm((prev) => ({ ...prev, state: e.target.value.toUpperCase() }))} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="postcode">Postcode</Label>
               <Input
                 id="postcode"
+                inputMode="numeric"
+                maxLength={4}
                 value={form.postcode}
                 onChange={(e) => setForm((prev) => ({ ...prev, postcode: e.target.value }))}
               />

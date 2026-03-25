@@ -58,7 +58,8 @@ export default async function Icon() {
       <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
         <rect width="64" height="64" rx="16" ry="16" fill="#ffffff" />
         <rect x="5" y="5" width="54" height="54" rx="13" ry="13" fill="#ffffff" stroke="#d7e0ea" />
-        <image href="${logoDataUrl}" x="7" y="7" width="50" height="50" preserveAspectRatio="xMidYMid contain" />
+        <circle cx="32" cy="32" r="21" fill="#ffffff" stroke="#d7e0ea" />
+        <image href="${logoDataUrl}" x="18" y="18" width="28" height="28" preserveAspectRatio="xMidYMid meet" />
       </svg>
     `
     : `

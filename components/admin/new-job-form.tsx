@@ -575,8 +575,8 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                       </div>
                       <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5"><Label>Suburb</Label><Input value={form.siteSuburb} onChange={(e) => setForm((prev) => ({ ...prev, siteSuburb: e.target.value }))} /></div>
-                        <div className="space-y-1.5"><Label>State</Label><Input value={form.siteState} onChange={(e) => setForm((prev) => ({ ...prev, siteState: e.target.value }))} /></div>
-                        <div className="space-y-1.5"><Label>Postcode</Label><Input value={form.sitePostcode} onChange={(e) => setForm((prev) => ({ ...prev, sitePostcode: e.target.value }))} /></div>
+                        <div className="space-y-1.5"><Label>State</Label><Input maxLength={3} value={form.siteState} onChange={(e) => setForm((prev) => ({ ...prev, siteState: e.target.value.toUpperCase() }))} /></div>
+                        <div className="space-y-1.5"><Label>Postcode</Label><Input inputMode="numeric" maxLength={4} value={form.sitePostcode} onChange={(e) => setForm((prev) => ({ ...prev, sitePostcode: e.target.value }))} /></div>
                       </div>
                       <div className="grid gap-4 md:grid-cols-4">
                         <div className="space-y-1.5"><Label>Bedrooms</Label><Input type="number" min="0" value={form.siteBedrooms} onChange={(e) => setForm((prev) => ({ ...prev, siteBedrooms: e.target.value }))} placeholder="0" /></div>
@@ -597,7 +597,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 <div className="space-y-4 rounded-lg border border-border/70 p-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-1.5"><Label>On-site Contact Name</Label><Input value={form.siteContactName} onChange={(e) => setForm((prev) => ({ ...prev, siteContactName: e.target.value }))} placeholder="Building manager / owner / tenant" /></div>
-                    <div className="space-y-1.5"><Label>On-site Contact Phone</Label><Input value={form.siteContactPhone} onChange={(e) => setForm((prev) => ({ ...prev, siteContactPhone: e.target.value }))} placeholder="0412 345 678" /></div>
+                    <div className="space-y-1.5"><Label>On-site Contact Phone</Label><Input type="tel" inputMode="tel" maxLength={20} value={form.siteContactPhone} onChange={(e) => setForm((prev) => ({ ...prev, siteContactPhone: e.target.value }))} placeholder="0412 345 678" /></div>
                   </div>
                   <div className="space-y-1.5"><Label>Scope of Work</Label><Textarea value={form.scopeOfWork} onChange={(e) => setForm((prev) => ({ ...prev, scopeOfWork: e.target.value }))} placeholder="Rooms, surfaces, add-ons, completion standard, keys to collect, or commercial scope notes." /></div>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -632,7 +632,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                   <div className="space-y-1.5"><Label>Infants</Label><Input type="number" min="0" value={form.guestInfants} onChange={(e) => setForm((prev) => ({ ...prev, guestInfants: e.target.value }))} placeholder="0" /></div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-1.5"><Label>Guest phone</Label><Input value={form.guestPhone} onChange={(e) => setForm((prev) => ({ ...prev, guestPhone: e.target.value }))} placeholder="+61..." /></div>
+                  <div className="space-y-1.5"><Label>Guest phone</Label><Input type="tel" inputMode="tel" maxLength={20} value={form.guestPhone} onChange={(e) => setForm((prev) => ({ ...prev, guestPhone: e.target.value }))} placeholder="+61..." /></div>
                   <div className="space-y-1.5"><Label>Guest email</Label><Input type="email" value={form.guestEmail} onChange={(e) => setForm((prev) => ({ ...prev, guestEmail: e.target.value }))} placeholder="guest@example.com" /></div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">

@@ -8,6 +8,7 @@ import { getAppSettings, setProfileOverrideForUser } from "@/lib/settings";
 import { z } from "zod";
 import { getUserExtendedProfiles, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 const overrideSchema = z.object({
   userId: z.string().cuid(),
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
     );
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create account.") }, { status });
   }
 }
 

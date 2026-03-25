@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getUserExtendedProfile, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
@@ -10,24 +9,8 @@ import {
   upsertAuthUserState,
 } from "@/lib/auth/account-state";
 import { notifyAdminsOfNewProfile } from "@/lib/notifications/profile-created";
-
-const patchSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(),
-  phone: z.string().trim().max(32).optional(),
-  businessName: z.string().trim().max(200).optional(),
-  abn: z.string().trim().max(32).optional(),
-  address: z.string().trim().max(500).optional(),
-  contactNumber: z.string().trim().max(32).optional(),
-  bankDetails: z
-    .object({
-      accountName: z.string().trim().max(160).optional(),
-      bankName: z.string().trim().max(160).optional(),
-      bsb: z.string().trim().max(16).optional(),
-      accountNumber: z.string().trim().max(32).optional(),
-    })
-    .optional(),
-  tutorialSeen: z.boolean().optional(),
-});
+import { onboardingProfileSchema } from "@/lib/validations/user";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function GET() {
   try {
@@ -67,7 +50,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await requireSession();
-    const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const body = onboardingProfileSchema.parse(await req.json().catch(() => ({})));
 
     const user = await db.user.findUnique({
       where: { id: session.user.id },
@@ -145,6 +128,6 @@ export async function PATCH(req: NextRequest) {
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not save onboarding.") }, { status });
   }
 }

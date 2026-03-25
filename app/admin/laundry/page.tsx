@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { addDays, format, startOfWeek } from "date-fns";
-import { AlertTriangle, Check, Download, Mail, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Download, Mail, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -161,6 +161,15 @@ export default function LaundryPage() {
   const [draftPlan, setDraftPlan] = useState<any[]>([]);
   const [draftOpen, setDraftOpen] = useState(false);
   const [approvingPlan, setApprovingPlan] = useState(false);
+  const [draftSource, setDraftSource] = useState<"MANUAL" | "SYNC_PENDING">("MANUAL");
+  const [pendingSyncDraft, setPendingSyncDraft] = useState<{
+    updatedAt: string | null;
+    itemCount: number;
+    propertyCount: number;
+    createCount: number;
+    updateCount: number;
+    items: any[];
+  } | null>(null);
   const [reportPeriod, setReportPeriod] = useState<"daily" | "weekly" | "monthly" | "annual" | "custom">("weekly");
   const [reportAnchorDate, setReportAnchorDate] = useState(() => dateInputValue(new Date()));
   const [reportStartDate, setReportStartDate] = useState(() => dateInputValue(weekStart));
@@ -175,6 +184,7 @@ export default function LaundryPage() {
   const [reportTargetTask, setReportTargetTask] = useState<any | null>(null);
   const [reportHistory, setReportHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [reportHistoryOpen, setReportHistoryOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     pickupDate: "",
     dropoffDate: "",
@@ -213,6 +223,27 @@ export default function LaundryPage() {
       .then((r) => r.json())
       .then((body) => setReportHistory(Array.isArray(body) ? body : []))
       .finally(() => setHistoryLoading(false));
+  }
+
+  function fetchPendingSyncDraft() {
+    fetch("/api/admin/laundry/generate-week")
+      .then((r) => r.json())
+      .then((body) => {
+        const pending = body?.pendingSyncDraft;
+        if (!pending || typeof pending !== "object") {
+          setPendingSyncDraft(null);
+          return;
+        }
+        setPendingSyncDraft({
+          updatedAt: typeof pending.updatedAt === "string" ? pending.updatedAt : null,
+          itemCount: Number(pending.itemCount ?? 0),
+          propertyCount: Number(pending.propertyCount ?? 0),
+          createCount: Number(pending.createCount ?? 0),
+          updateCount: Number(pending.updateCount ?? 0),
+          items: Array.isArray(pending.items) ? pending.items : [],
+        });
+      })
+      .catch(() => setPendingSyncDraft(null));
   }
 
   function updateDraftItem(index: number, patch: Record<string, any>) {
@@ -335,6 +366,7 @@ export default function LaundryPage() {
     fetchTasks();
     fetchReportHistory();
     fetchClients();
+    fetchPendingSyncDraft();
   }, [weekStart]);
 
   function handleRecipientChange(value: string) {
@@ -375,6 +407,7 @@ export default function LaundryPage() {
     }
     const body = await res.json().catch(() => ({}));
     const draft = Array.isArray(body?.draft) ? body.draft : [];
+    setDraftSource("MANUAL");
     setDraftPlan(draft);
     if (draft.length === 0) {
       toast({ title: "No new plan items", description: "There are no new turnover jobs to schedule for this week." });
@@ -394,7 +427,13 @@ export default function LaundryPage() {
     const res = await fetch("/api/admin/laundry/generate-week", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weekStart: weekStart.toISOString(), approve: true, items: draftPlan }),
+      body: JSON.stringify({
+        weekStart: weekStart.toISOString(),
+        approve: true,
+        items: draftPlan,
+        clearPendingSyncDraft: draftSource === "SYNC_PENDING",
+        notifyLaundryAfterApproval: draftSource === "SYNC_PENDING",
+      }),
     });
     const body = await res.json().catch(() => ({}));
     setApprovingPlan(false);
@@ -406,11 +445,23 @@ export default function LaundryPage() {
 
     setDraftOpen(false);
     setDraftPlan([]);
+    setDraftSource("MANUAL");
     toast({
-      title: "Laundry plan approved",
+      title: draftSource === "SYNC_PENDING" ? "Laundry reschedule approved" : "Laundry plan approved",
       description: `${body.appliedCount ?? draftPlan.length} task${(body.appliedCount ?? draftPlan.length) === 1 ? "" : "s"} added to the calendar.`,
     });
     fetchTasks();
+    fetchPendingSyncDraft();
+  }
+
+  function reviewPendingSyncDraft() {
+    if (!pendingSyncDraft || pendingSyncDraft.itemCount === 0) {
+      toast({ title: "No pending sync draft", description: "There are no saved schedule changes to review." });
+      return;
+    }
+    setDraftSource("SYNC_PENDING");
+    setDraftPlan(pendingSyncDraft.items);
+    setDraftOpen(true);
   }
 
   async function saveTaskChanges() {
@@ -602,6 +653,39 @@ export default function LaundryPage() {
         </Card>
       )}
 
+      {pendingSyncDraft && pendingSyncDraft.itemCount > 0 ? (
+        <Card className="border-amber-300 bg-amber-50/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+              <AlertTriangle className="h-4 w-4" />
+              Laundry reschedule draft pending approval
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-amber-950/90">
+              iCal sync created {pendingSyncDraft.itemCount} proposed laundry schedule change
+              {pendingSyncDraft.itemCount === 1 ? "" : "s"} across {pendingSyncDraft.propertyCount} propert
+              {pendingSyncDraft.propertyCount === 1 ? "y" : "ies"} from today onward. Existing completed laundry tasks were left untouched.
+            </p>
+            <div className="flex flex-wrap gap-3 text-xs text-amber-900/80">
+              <span>{pendingSyncDraft.createCount} new</span>
+              <span>{pendingSyncDraft.updateCount} updated</span>
+              {pendingSyncDraft.updatedAt ? (
+                <span>Saved {format(new Date(pendingSyncDraft.updatedAt), "dd MMM yyyy HH:mm")}</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={reviewPendingSyncDraft}>
+                Review draft
+              </Button>
+              <Button variant="ghost" onClick={fetchPendingSyncDraft}>
+                Refresh status
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Laundry Reports</CardTitle>
@@ -689,74 +773,96 @@ export default function LaundryPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="text-base">Saved Report History</CardTitle>
-          <Button variant="outline" size="sm" onClick={fetchReportHistory} disabled={historyLoading}>
-            {historyLoading ? "Refreshing..." : "Refresh"}
-          </Button>
+          <div className="min-w-0">
+            <CardTitle className="text-base">Saved Report History</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {reportHistory.length} saved entr{reportHistory.length === 1 ? "y" : "ies"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchReportHistory} disabled={historyLoading}>
+              {historyLoading ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setReportHistoryOpen((prev) => !prev)}>
+              {reportHistoryOpen ? (
+                <>
+                  <ChevronUp className="mr-1 h-4 w-4" />
+                  Hide
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="mr-1 h-4 w-4" />
+                  Show
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
-          {reportHistory.length === 0 ? (
+        {reportHistoryOpen ? (
+          <CardContent>
+            {reportHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No laundry reports have been logged yet.
             </p>
-          ) : (
-            <div className="space-y-2">
-              {reportHistory.map((entry) => {
-                const details = entry?.details && typeof entry.details === "object" ? entry.details : {};
-                const actionLabel = String(entry.action ?? "")
-                  .replace(/^LAUNDRY_REPORT_/, "")
-                  .replace(/_/g, " ");
-                const modeLabel = details?.mode === "single_task" ? "Single task" : "Batch";
-                const recipient = typeof details?.recipient === "string" ? details.recipient : "";
-                return (
-                  <div key={entry.id} className="rounded-md border p-3 text-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">
-                          {actionLabel} - {modeLabel}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(entry.createdAt), "dd MMM yyyy HH:mm")} by{" "}
-                          {entry.user?.name || entry.user?.email || "Unknown user"}
-                          {entry.user?.role ? ` (${entry.user.role})` : ""}
-                        </p>
+            ) : (
+              <div className="space-y-2">
+                {reportHistory.map((entry) => {
+                  const details = entry?.details && typeof entry.details === "object" ? entry.details : {};
+                  const actionLabel = String(entry.action ?? "")
+                    .replace(/^LAUNDRY_REPORT_/, "")
+                    .replace(/_/g, " ");
+                  const modeLabel = details?.mode === "single_task" ? "Single task" : "Batch";
+                  const recipient = typeof details?.recipient === "string" ? details.recipient : "";
+                  return (
+                    <div key={entry.id} className="rounded-md border p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {actionLabel} - {modeLabel}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(entry.createdAt), "dd MMM yyyy HH:mm")} by{" "}
+                            {entry.user?.name || entry.user?.email || "Unknown user"}
+                            {entry.user?.role ? ` (${entry.user.role})` : ""}
+                          </p>
+                        </div>
+                        <Badge variant={actionLabel === "EMAIL" ? "success" : "secondary"}>
+                          {actionLabel}
+                        </Badge>
                       </div>
-                      <Badge variant={actionLabel === "EMAIL" ? "success" : "secondary"}>
-                        {actionLabel}
-                      </Badge>
+                      <div className="mt-2 grid gap-2 md:grid-cols-4">
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <p className="text-xs text-muted-foreground">Scope</p>
+                          <p>
+                            {details?.period ? String(details.period).replace(/_/g, " ") : "Custom"}{" "}
+                            {details?.propertyName ? `- ${details.propertyName}` : ""}
+                          </p>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <p className="text-xs text-muted-foreground">Range</p>
+                          <p>
+                            {details?.startDate ? format(new Date(details.startDate), "dd MMM yyyy") : "-"} {"->"}{" "}
+                            {details?.endDate ? format(new Date(details.endDate), "dd MMM yyyy") : "-"}
+                          </p>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <p className="text-xs text-muted-foreground">Rows / Total</p>
+                          <p>
+                            {Number(details?.rowCount ?? 0)} row(s) | ${Number(details?.totalAmount ?? 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <p className="text-xs text-muted-foreground">Recipient</p>
+                          <p>{recipient || "-"}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-2 grid gap-2 md:grid-cols-4">
-                      <div className="rounded-md bg-muted/40 p-2">
-                        <p className="text-xs text-muted-foreground">Scope</p>
-                        <p>
-                          {details?.period ? String(details.period).replace(/_/g, " ") : "Custom"}{" "}
-                          {details?.propertyName ? `- ${details.propertyName}` : ""}
-                        </p>
-                      </div>
-                      <div className="rounded-md bg-muted/40 p-2">
-                        <p className="text-xs text-muted-foreground">Range</p>
-                        <p>
-                          {details?.startDate ? format(new Date(details.startDate), "dd MMM yyyy") : "-"} {"->"}{" "}
-                          {details?.endDate ? format(new Date(details.endDate), "dd MMM yyyy") : "-"}
-                        </p>
-                      </div>
-                      <div className="rounded-md bg-muted/40 p-2">
-                        <p className="text-xs text-muted-foreground">Rows / Total</p>
-                        <p>
-                          {Number(details?.rowCount ?? 0)} row(s) | ${Number(details?.totalAmount ?? 0).toFixed(2)}
-                        </p>
-                      </div>
-                      <div className="rounded-md bg-muted/40 p-2">
-                        <p className="text-xs text-muted-foreground">Recipient</p>
-                        <p>{recipient || "-"}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        ) : null}
       </Card>
 
       <Card>
@@ -1160,13 +1266,15 @@ export default function LaundryPage() {
       <Dialog open={draftOpen} onOpenChange={(open) => !open && setDraftOpen(false)}>
         <DialogContent className="flex max-h-[85vh] max-w-5xl flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Review Laundry Plan</DialogTitle>
+            <DialogTitle>{draftSource === "SYNC_PENDING" ? "Review iCal Laundry Reschedule" : "Review Laundry Plan"}</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              <p className="font-medium">The plan is still a draft.</p>
+              <p className="font-medium">{draftSource === "SYNC_PENDING" ? "The sync-driven schedule changes are still a draft." : "The plan is still a draft."}</p>
               <p className="mt-1 text-muted-foreground">
-                It will not appear in the live calendar until you approve it. Laundry-ready notifications still wait for the cleaner to submit and confirm bag placement.
+                {draftSource === "SYNC_PENDING"
+                  ? "It will not change the live laundry calendar until you approve it. Approval applies the new dates and then notifies the relevant laundry team."
+                  : "It will not appear in the live calendar until you approve it. Laundry-ready notifications still wait for the cleaner to submit and confirm bag placement."}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
                 Rule summary: pickup is always the day after the clean date, never on the same day as cleaning. If a next clean date is known, drop-off is set to the day before that clean (or earliest valid 24h drop when the gap is tight). If no next clean is known yet, the batch is returned quickly (next day) so linen is ready for late bookings.
@@ -1188,11 +1296,24 @@ export default function LaundryPage() {
                           Clean day {format(new Date(item.cleanDate), "EEE dd MMM yyyy")} | Scenario {item.scenario.replace(/_/g, " ")}
                           {item.linenBufferSets > 0 ? ` | ${item.linenBufferSets} buffer set${item.linenBufferSets > 1 ? "s" : ""}` : ""}
                         </p>
+                        {item.operation ? (
+                          <p className="mt-1 text-xs font-medium text-amber-700">
+                            {item.operation === "CREATE" ? "New schedule entry" : "Existing task will be updated"}
+                          </p>
+                        ) : null}
                       </div>
                       <Button variant="ghost" size="icon" onClick={() => removeDraftItem(index)} aria-label="Remove draft item">
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
+
+                    {item.operation === "UPDATE" ? (
+                      <div className="mt-3 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+                        Current: pickup {item.currentPickupDate ? format(new Date(item.currentPickupDate), "EEE dd MMM") : "-"} | drop-off{" "}
+                        {item.currentDropoffDate ? format(new Date(item.currentDropoffDate), "EEE dd MMM") : "-"} | status{" "}
+                        {item.currentStatus ? String(item.currentStatus).replace(/_/g, " ") : "-"}
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 grid gap-3 md:grid-cols-4">
                       <div className="space-y-1.5">

@@ -6,6 +6,7 @@ import {
   ShoppingRunStatus as PrismaShoppingRunStatus,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { resolveClientContactEmail } from "@/lib/clients/contact-sync";
 
 const SHOPPING_RUNS_KEY = "inventory_shopping_runs_v1";
 
@@ -1254,7 +1255,19 @@ async function loadShoppingRunsFromDb(where?: Record<string, unknown>) {
     where: where as any,
     include: {
       owner: { select: { id: true, name: true, email: true, role: true } },
-      client: { select: { id: true, name: true, email: true } },
+      client: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          users: {
+            where: { role: Role.CLIENT, isActive: true },
+            select: { email: true },
+            orderBy: [{ createdAt: "asc" }],
+            take: 1,
+          },
+        },
+      },
       lines: {
         include: {
           property: {
@@ -1262,7 +1275,19 @@ async function loadShoppingRunsFromDb(where?: Record<string, unknown>) {
               id: true,
               name: true,
               suburb: true,
-              client: { select: { id: true, name: true, email: true } },
+              client: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  users: {
+                    where: { role: Role.CLIENT, isActive: true },
+                    select: { email: true },
+                    orderBy: [{ createdAt: "asc" }],
+                    take: 1,
+                  },
+                },
+              },
             },
           },
           item: { select: { id: true, name: true, category: true, supplier: true, unit: true } },
@@ -1333,14 +1358,15 @@ export async function listShoppingRunsForAdminDetailed(): Promise<ShoppingRunAdm
     const allocations = new Map<string, ShoppingRunClientAllocation>();
     for (const row of run.rows) {
       const property = dbRun.lines.find((line: any) => line.propertyId === row.propertyId)?.property;
-      const clientId = property?.client?.id ?? run.clientId ?? null;
-      const clientName = property?.client?.name ?? "Unassigned client";
+      const sourceClient = property?.client ?? dbRun.client ?? null;
+      const clientId = sourceClient?.id ?? run.clientId ?? null;
+      const clientName = sourceClient?.name ?? "Unassigned client";
       const key = clientId ?? `unassigned:${row.propertyId}`;
       if (!allocations.has(key)) {
         allocations.set(key, {
           clientId,
           clientName,
-          clientEmail: property?.client?.email ?? null,
+          clientEmail: resolveClientContactEmail(sourceClient),
           propertyIds: [],
           propertyNames: [],
           lineCount: 0,

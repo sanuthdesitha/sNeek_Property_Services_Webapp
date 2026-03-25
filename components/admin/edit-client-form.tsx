@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
 interface EditClientFormProps {
@@ -169,14 +170,22 @@ export function EditClientForm({ client }: EditClientFormProps) {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="phone">Phone</Label>
-              <Input id="phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+              <Input
+                id="phone"
+                type="tel"
+                inputMode="tel"
+                maxLength={16}
+                placeholder="0451217210 or +61451217210"
+                value={form.phone}
+                onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="address">Address</Label>
-              <Input
+              <GoogleAddressInput
                 id="address"
                 value={form.address}
-                onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
               />
             </div>
           </div>

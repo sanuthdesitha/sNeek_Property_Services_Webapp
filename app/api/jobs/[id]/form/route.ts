@@ -9,6 +9,7 @@ import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
+import { buildClockReview } from "@/lib/time/clock-rules";
 
 export async function GET(
   _req: NextRequest,
@@ -35,6 +36,14 @@ export async function GET(
           },
         },
         assignments: { select: { userId: true } },
+        laundryTask: {
+          include: {
+            confirmations: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
+          },
+        },
       },
     });
     if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -135,6 +144,20 @@ export async function GET(
     const completedSeconds = cleanerTimeLogs
       .filter((log) => log.stoppedAt)
       .reduce((sum, log) => sum + ((log.durationM ?? 0) * 60), 0);
+    const clockReview =
+      activeTimeLog
+        ? buildClockReview({
+            job: {
+              scheduledDate: job.scheduledDate,
+              dueTime: job.dueTime,
+              endTime: job.endTime,
+              estimatedHours: job.estimatedHours,
+            },
+            startedAt: activeTimeLog.startedAt,
+            completedDurationMinutes: Math.round(completedSeconds / 60),
+            settings,
+          })
+        : null;
     const unresolvedCarryForwardTasks = await db.issueTicket.findMany({
       where: {
         status: { not: "RESOLVED" },
@@ -192,7 +215,38 @@ export async function GET(
         completedSeconds,
         isRunning: Boolean(activeTimeLog),
         activeStartedAt: activeTimeLog?.startedAt ?? null,
+        activeTimeLogId: activeTimeLog?.id ?? null,
+        maxAllowedTotalSeconds:
+          clockReview?.allowedDurationMinutes != null
+            ? (Math.round(completedSeconds / 60) + clockReview.allowedDurationMinutes) * 60
+            : null,
+        maxAllowedActiveSeconds:
+          clockReview?.allowedDurationMinutes != null
+            ? clockReview.allowedDurationMinutes * 60
+            : null,
+        suggestedStoppedAt: clockReview?.suggestedStoppedAt?.toISOString() ?? null,
+        limitSource: clockReview?.source ?? null,
+        exceedsAllowedDuration: clockReview?.exceedsAllowedDuration ?? false,
       },
+      laundryState: job.laundryTask
+        ? {
+            status: job.laundryTask.status,
+            noPickupRequired: job.laundryTask.noPickupRequired,
+            skipReasonCode: job.laundryTask.skipReasonCode,
+            skipReasonNote: job.laundryTask.skipReasonNote,
+            adminOverrideNote: job.laundryTask.adminOverrideNote,
+            updatedAt: job.laundryTask.updatedAt,
+            latestConfirmation: job.laundryTask.confirmations[0]
+              ? {
+                  laundryReady: job.laundryTask.confirmations[0].laundryReady,
+                  bagLocation: job.laundryTask.confirmations[0].bagLocation,
+                  photoUrl: job.laundryTask.confirmations[0].photoUrl,
+                  notes: job.laundryTask.confirmations[0].notes,
+                  createdAt: job.laundryTask.confirmations[0].createdAt,
+                }
+              : null,
+          }
+        : null,
       laundryBagLocationOptions: settings.laundryBagLocationOptions,
     });
   } catch (err: any) {

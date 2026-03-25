@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
 import type { ShoppingRunRecord } from "@/lib/inventory/shopping-runs";
@@ -66,19 +66,21 @@ async function notifyAdmins(input: {
       }
 
     if (allowSms && admin.phone && input.smsBody) {
-      const ok = await sendSms(admin.phone, input.smsBody);
-      await db.notification.create({
-        data: {
-          userId: admin.id,
-          jobId: input.jobId ?? undefined,
-          channel: NotificationChannel.SMS,
-          subject: input.webSubject,
-          body: input.smsBody,
-          status: ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
-          sentAt: ok ? new Date() : undefined,
-          errorMsg: ok ? undefined : "SMS delivery failed or is not configured.",
-        },
-      });
+      const result = await sendSmsDetailed(admin.phone, input.smsBody);
+      if (result.status === "sent" || result.status === "failed") {
+        await db.notification.create({
+          data: {
+            userId: admin.id,
+            jobId: input.jobId ?? undefined,
+            channel: NotificationChannel.SMS,
+            subject: input.webSubject,
+            body: input.smsBody,
+            status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+            sentAt: result.ok ? new Date() : undefined,
+            errorMsg: result.ok ? undefined : result.error ?? "SMS delivery failed.",
+          },
+        });
+      }
     }
   }
 }

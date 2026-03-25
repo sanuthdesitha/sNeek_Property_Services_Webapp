@@ -104,6 +104,12 @@ enum PayAdjustmentStatus {
   REJECTED
 }
 
+enum TimeAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum LeadStatus {
   NEW
   CONTACTED
@@ -236,6 +242,8 @@ model User {
   notificationPreference UserNotificationPreference?
   payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
   payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
+  timeAdjustmentRequests TimeLogAdjustmentRequest[] @relation("TimeAdjustmentRequestedBy")
+  timeAdjustmentReviews  TimeLogAdjustmentRequest[] @relation("TimeAdjustmentReviewedBy")
   icalSyncRunsTriggered IcalSyncRun[] @relation("IcalSyncTriggeredBy")
   icalSyncRunsReverted  IcalSyncRun[] @relation("IcalSyncRevertedBy")
   assignedCases  IssueTicket[] @relation("IssueTicketAssignedTo")
@@ -421,6 +429,7 @@ model Job {
   report          Report?
   issueTickets    IssueTicket[]
   payAdjustments  CleanerPayAdjustment[]
+  timeAdjustmentRequests TimeLogAdjustmentRequest[]
   auditLogs       AuditLog[]      @relation("AuditJob")
   invoiceLines    ClientInvoiceLine[]
 }
@@ -477,6 +486,34 @@ model TimeLog {
 
   job       Job  @relation(fields: [jobId], references: [id])
   user      User @relation(fields: [userId], references: [id])
+  adjustmentRequests TimeLogAdjustmentRequest[]
+}
+
+model TimeLogAdjustmentRequest {
+  id                String               @id @default(cuid())
+  timeLogId         String
+  jobId             String
+  cleanerId         String
+  requestedDurationM Int
+  requestedStoppedAt DateTime?
+  originalDurationM Int
+  originalStoppedAt DateTime?
+  reason            String?              @db.Text
+  status            TimeAdjustmentStatus @default(PENDING)
+  reviewedById      String?
+  reviewedAt        DateTime?
+  adminNote         String?              @db.Text
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  timeLog           TimeLog              @relation(fields: [timeLogId], references: [id], onDelete: Cascade)
+  job               Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  cleaner           User                 @relation("TimeAdjustmentRequestedBy", fields: [cleanerId], references: [id], onDelete: Cascade)
+  reviewedBy        User?                @relation("TimeAdjustmentReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([jobId, status])
+  @@index([cleanerId, status])
 }
 
 // ─────────────────────────────────────────────

@@ -332,6 +332,10 @@ export function ProfileSettings() {
           <div className="space-y-1.5">
             <Label>Phone</Label>
             <Input
+              type="tel"
+              inputMode="tel"
+              maxLength={16}
+              placeholder="0451217210 or +61451217210"
               value={profileForm.phone}
               onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
               disabled={!policy.canEditPhone}

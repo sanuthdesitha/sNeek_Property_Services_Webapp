@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 
 type OnboardingResponse = {
   user: {
@@ -230,13 +231,20 @@ export default function OnboardingPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+              <Input
+                type="tel"
+                inputMode="tel"
+                maxLength={16}
+                placeholder="0451217210 or +61451217210"
+                value={form.phone}
+                onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Address</Label>
-              <Input
+              <GoogleAddressInput
                 value={form.address}
-                onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
               />
             </div>
           </div>
@@ -254,7 +262,13 @@ export default function OnboardingPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>ABN</Label>
-                  <Input value={form.abn} onChange={(e) => setForm((prev) => ({ ...prev, abn: e.target.value }))} />
+                  <Input
+                    inputMode="numeric"
+                    maxLength={14}
+                    placeholder="11 digits"
+                    value={form.abn}
+                    onChange={(e) => setForm((prev) => ({ ...prev, abn: e.target.value }))}
+                  />
                 </div>
               </div>
             </>
@@ -280,11 +294,20 @@ export default function OnboardingPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>BSB</Label>
-                  <Input value={form.bsb} onChange={(e) => setForm((prev) => ({ ...prev, bsb: e.target.value }))} />
+                  <Input
+                    inputMode="numeric"
+                    maxLength={7}
+                    placeholder="123456"
+                    value={form.bsb}
+                    onChange={(e) => setForm((prev) => ({ ...prev, bsb: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Account number</Label>
                   <Input
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="6 to 10 digits"
                     value={form.accountNumber}
                     onChange={(e) => setForm((prev) => ({ ...prev, accountNumber: e.target.value }))}
                   />

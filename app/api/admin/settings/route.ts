@@ -84,12 +84,15 @@ const scheduledNotificationsSchema = z.object({
   tomorrowPrepTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   stockAlertsEnabled: z.boolean().optional(),
   stockAlertsTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  adminAttentionSummaryEnabled: z.boolean().optional(),
+  adminAttentionSummaryTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
 const autoClockOutSchema = z.object({
   enabled: z.boolean().optional(),
   graceMinutes: z.number().int().min(0).max(240).optional(),
   fallbackAtMidnight: z.boolean().optional(),
+  maxJobLengthHours: z.number().int().min(1).max(24).optional(),
 });
 
 const laundryOperationsSchema = z.object({
@@ -141,6 +144,7 @@ const updateSchema = z.object({
   logoUrl: z.string().trim().optional(),
   accountsEmail: z.string().trim().email().optional(),
   timezone: z.string().trim().min(1).optional(),
+  smsProvider: z.enum(["none", "twilio", "cellcast"]).optional(),
   reminder24hHours: z.number().int().min(1).max(168).optional(),
   reminder2hHours: z.number().int().min(1).max(48).optional(),
   cleanerStartRequireDateMatch: z.boolean().optional(),

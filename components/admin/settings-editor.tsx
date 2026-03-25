@@ -888,6 +888,36 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
+            <Label>SMS provider</Label>
+            <Select
+              value={settings.smsProvider}
+              onValueChange={(value) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  smsProvider: value as AppSettings["smsProvider"],
+                }))
+              }
+              disabled={readOnly}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select SMS provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="twilio">Twilio</SelectItem>
+                <SelectItem value="cellcast">Cellcast</SelectItem>
+                <SelectItem value="none">Disabled</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Credentials still come from environment variables. Use `TWILIO_*` for Twilio or `CELLCAST_APPKEY`
+              for Cellcast. Optional Cellcast overrides: `CELLCAST_API_URL`, `CELLCAST_FROM`. Leave
+              `CELLCAST_FROM` empty unless you have a valid short sender ID approved for Cellcast.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
             <Label>Reminder: 24h (hours before)</Label>
             <Input
               type="number"
@@ -2023,6 +2053,47 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                 />
               </div>
             </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Daily admin attention summary</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Sends admins a daily email and SMS summary of approvals, unassigned jobs, cases, and flagged work.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.adminAttentionSummaryEnabled}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        adminAttentionSummaryEnabled: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Admin summary send time</Label>
+                <Input
+                  type="time"
+                  value={settings.scheduledNotifications.adminAttentionSummaryTime}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        adminAttentionSummaryTime: e.target.value || "08:00",
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             These controls affect the worker-driven timed notification jobs. Manual dispatch remains available in the Notifications tab.
@@ -2069,6 +2140,30 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                   }
                   disabled={readOnly}
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Maximum job length (hours)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={settings.autoClockOut.maxJobLengthHours}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      autoClockOut: {
+                        ...prev.autoClockOut,
+                        maxJobLengthHours: Number(
+                          e.target.value || prev.autoClockOut.maxJobLengthHours
+                        ),
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used when a job does not have fixed / allocated pay hours set.
+                </p>
               </div>
               <div className="flex items-center justify-between rounded border p-2">
                 <Label className="text-xs">Fallback auto clock-out at midnight</Label>

@@ -1,8 +1,10 @@
 import { db } from "@/lib/db";
+import { renderEmailTemplate } from "@/lib/email-templates";
+import { getJobReference } from "@/lib/jobs/job-number";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/lib/notifications/email";
-import { sendSms } from "@/lib/notifications/sms";
+import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { getAppSettings } from "@/lib/settings";
 
 export interface DispatchJobRemindersOptions {
@@ -102,20 +104,26 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
       summary.longCandidates = effectiveJobsLong.length;
 
       for (const job of effectiveJobsLong) {
-        const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
-        const timingHtml = timingText ? `<p><strong>Timing:</strong> ${timingText}</p>` : "";
+        const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ") || "No special timing notes";
         let delivered = false;
         for (const assignment of job.assignments) {
           if (!assignment.user.email) continue;
+          const emailTemplate = renderEmailTemplate(settings, "jobReminder24h", {
+            userName: assignment.user.name ?? assignment.user.email ?? "Team member",
+            jobType: job.jobType.replace(/_/g, " "),
+            propertyName: job.property.name,
+            propertyAddress: job.property.address,
+            when: job.startTime ?? "Time TBD",
+            timingFlags: timingText,
+            jobNumber: getJobReference(job),
+            jobUrl: "/cleaner/jobs",
+            actionUrl: "/cleaner/jobs",
+            actionLabel: "Open jobs",
+          });
           const ok = await sendEmail({
             to: assignment.user.email,
-            subject: `Reminder: Cleaning job soon - ${job.property.name}`,
-            html: `<p>Hi ${assignment.user.name},</p><p>You have a ${job.jobType.replace(
-              /_/g,
-              " "
-            )} job coming up at <strong>${job.property.name}</strong>, ${job.property.address}.</p><p>Start time: ${
-              job.startTime ?? "TBD"
-            }</p>${timingHtml}`,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
           });
           delivered = delivered || ok;
         }
@@ -185,13 +193,13 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
         let delivered = false;
         for (const assignment of job.assignments) {
           if (!assignment.user.phone) continue;
-          const ok = await sendSms(
+          const result = await sendSmsDetailed(
             assignment.user.phone,
             `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${
               job.property.address
             }.${timingSuffix}`
           );
-          delivered = delivered || ok;
+          delivered = delivered || result.ok;
         }
         if (delivered) {
           summary.shortSent += 1;

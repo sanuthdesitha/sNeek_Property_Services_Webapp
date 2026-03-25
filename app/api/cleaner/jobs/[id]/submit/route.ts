@@ -5,27 +5,20 @@ import { submitJobSchema } from "@/lib/validations/job";
 import { deductStockFromSubmission } from "@/lib/inventory/stock";
 import { generateJobReport } from "@/lib/reports/generator";
 import { publicUrl } from "@/lib/s3";
-import { ensureLaundryTaskForJob } from "@/lib/laundry/planner";
 import { resolveAppUrl } from "@/lib/app-url";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
-import { getAppSettings } from "@/lib/settings";
-import { renderEmailTemplate } from "@/lib/email-templates";
-import { renderNotificationTemplate } from "@/lib/notification-templates";
-import { getJobReference } from "@/lib/jobs/job-number";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { createCase } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
-import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
-import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { getAppSettings } from "@/lib/settings";
+import { applyCleanerLaundryStatusUpdate } from "@/lib/laundry/cleaner-status";
+import { buildClockReview } from "@/lib/time/clock-rules";
+import { collectRequiredUploadFields } from "@/lib/forms/visibility";
 import {
   JobStatus,
-  LaundryStatus,
   MediaType,
-  NotificationChannel,
-  NotificationStatus,
   Role,
 } from "@prisma/client";
-import { format } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 
 function extractUploads(data: Record<string, unknown>): Record<string, string[]> {
   const uploads = (data as { uploads?: unknown }).uploads;
@@ -56,190 +49,6 @@ function inferMediaType(fieldId: string, key: string): MediaType {
   return MediaType.PHOTO;
 }
 
-function valuesEqual(left: unknown, right: unknown) {
-  if (typeof left === "boolean") return left === (right === true || right === "true");
-  if (typeof left === "number") return left === Number(right);
-  if (typeof right === "boolean") return (left === true || left === "true") === right;
-  if (typeof right === "number") return Number(left) === right;
-  return String(left ?? "") === String(right ?? "");
-}
-
-function isConditionMet(
-  conditional: any,
-  answers: Record<string, unknown>,
-  property: Record<string, unknown>,
-  laundryReady?: boolean
-) {
-  if (!conditional || typeof conditional !== "object") return true;
-
-  if ("propertyField" in conditional) {
-    return valuesEqual(property[conditional.propertyField], conditional.value);
-  }
-
-  if ("fieldId" in conditional) {
-    const answerValue = answers[conditional.fieldId];
-    if (answerValue === undefined && /laundry/i.test(String(conditional.fieldId))) {
-      return valuesEqual(laundryReady, conditional.value);
-    }
-    return valuesEqual(answerValue, conditional.value);
-  }
-
-  return true;
-}
-
-function requiredUploadFieldIds(
-  templateSchema: any,
-  answers: Record<string, unknown>,
-  property: Record<string, unknown>,
-  laundryReady?: boolean
-): string[] {
-  const sections = Array.isArray(templateSchema?.sections) ? templateSchema.sections : [];
-  const ids: string[] = [];
-
-  for (const section of sections) {
-    const fields = Array.isArray(section?.fields) ? section.fields : [];
-    for (const field of fields) {
-      if (field?.type !== "upload" || !field?.required || !field?.id) continue;
-
-      const conditional = field?.conditional;
-      if (!isConditionMet(conditional, answers, property, laundryReady)) continue;
-
-      ids.push(String(field.id));
-    }
-  }
-
-  return ids;
-}
-
-async function notifyLaundryPartners(params: {
-  propertyId: string;
-  propertyName: string;
-  jobId: string;
-  jobNumber: string;
-  cleanDate: Date;
-  pickupDate: Date;
-  bagLocation: string;
-  laundryPhotoUrl: string;
-  portalUrl: string;
-}) {
-  const settings = await getAppSettings();
-  const laundryUsers = await getAssignedLaundryUsersForProperty(params.propertyId);
-  const cleanDateLabel = format(
-    toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
-    "EEEE, dd MMMM yyyy"
-  );
-  const pickupDateLabel = format(
-    toZonedTime(params.pickupDate, settings.timezone || "Australia/Sydney"),
-    "EEEE, dd MMMM yyyy"
-  );
-  const emailTemplate = renderEmailTemplate(settings, "laundryReady", {
-    propertyName: params.propertyName,
-    jobNumber: params.jobNumber,
-    cleanDate: cleanDateLabel,
-    scheduledPickupDate: pickupDateLabel,
-    bagLocation: params.bagLocation,
-    laundryPhotoUrl: params.laundryPhotoUrl,
-    portalUrl: params.portalUrl,
-    actionUrl: params.portalUrl,
-    actionLabel: "Open laundry portal",
-  });
-  const notificationTemplate = renderNotificationTemplate(settings, "laundryReady", {
-    jobNumber: params.jobNumber,
-    propertyName: params.propertyName,
-    cleanDate: cleanDateLabel,
-    scheduledPickupDate: pickupDateLabel,
-    bagLocation: params.bagLocation,
-  });
-
-  await deliverNotificationToRecipients({
-    recipients: laundryUsers,
-    category: "laundry",
-    jobId: params.jobId,
-    web: {
-      subject: notificationTemplate.webSubject,
-      body: notificationTemplate.webBody,
-    },
-    email: {
-      subject: emailTemplate.subject,
-      html: emailTemplate.html,
-      logBody: notificationTemplate.webBody,
-    },
-    sms: notificationTemplate.smsBody,
-  });
-}
-
-async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, jobNumber: string) {
-  const adminUsers = await db.user.findMany({
-    where: { role: Role.ADMIN, isActive: true },
-    select: { id: true },
-  });
-
-  for (const admin of adminUsers) {
-    await db.notification.create({
-      data: {
-        userId: admin.id,
-        jobId,
-        channel: NotificationChannel.EMAIL,
-        subject: `Laundry not ready - ${jobNumber}`,
-        body: `${jobNumber}: Cleaner submitted job for ${propertyName} with laundry_ready=NO. Laundry partner was not notified.`,
-        status: NotificationStatus.PENDING,
-      },
-    });
-  }
-}
-
-async function notifyLaundrySkipRequested(params: {
-  propertyId: string;
-  jobId: string;
-  propertyName: string;
-  jobNumber: string;
-  cleanDate: Date;
-  laundryOutcome: "NOT_READY" | "NO_PICKUP_REQUIRED";
-  reasonCode: string;
-  reasonNote: string;
-}) {
-  const settings = await getAppSettings();
-  const laundryUsers = await getAssignedLaundryUsersForProperty(params.propertyId);
-  const cleanDateLabel = format(
-    toZonedTime(params.cleanDate, settings.timezone || "Australia/Sydney"),
-    "EEEE, dd MMMM yyyy"
-  );
-  const template = renderEmailTemplate(settings, "laundrySkipRequested", {
-    propertyName: params.propertyName,
-    jobNumber: params.jobNumber,
-    cleanDate: cleanDateLabel,
-    laundryOutcome: params.laundryOutcome.replace(/_/g, " "),
-    reasonCode: params.reasonCode.replace(/_/g, " "),
-    reasonNote: params.reasonNote,
-    actionUrl: resolveAppUrl("/laundry"),
-    actionLabel: "Open laundry portal",
-  });
-  const notificationTemplate = renderNotificationTemplate(settings, "laundrySkipRequested", {
-    jobNumber: params.jobNumber,
-    propertyName: params.propertyName,
-    cleanDate: cleanDateLabel,
-    laundryOutcome: params.laundryOutcome.replace(/_/g, " "),
-    reasonCode: params.reasonCode.replace(/_/g, " "),
-    reasonNote: params.reasonNote ? ` - ${params.reasonNote}` : "",
-  });
-  const message = notificationTemplate.webBody;
-  await deliverNotificationToRecipients({
-    recipients: laundryUsers,
-    category: "laundry",
-    jobId: params.jobId,
-    web: {
-      subject: notificationTemplate.webSubject,
-      body: message,
-    },
-    email: {
-      subject: template.subject,
-      html: template.html,
-      logBody: message,
-    },
-    sms: notificationTemplate.smsBody,
-  });
-}
-
 function normalizeLaundrySubmission(body: {
   laundryReady?: boolean;
   laundryOutcome?: "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
@@ -253,6 +62,53 @@ function normalizeLaundrySubmission(body: {
         : undefined);
   const legacyReady = outcome === "READY_FOR_PICKUP";
   return { outcome, legacyReady };
+}
+
+function sanitizeAdminRequestedTasks(
+  data: Record<string, unknown>,
+  uploads: Record<string, string[]>,
+  configuredTasks: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    requiresPhoto?: boolean;
+    requiresNote?: boolean;
+  }>
+) {
+  const raw = (data as { __adminRequestedTasks?: unknown }).__adminRequestedTasks;
+  const submittedById = Array.isArray(raw)
+    ? raw.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    : [];
+  const submittedByTaskId = new Map<string, Record<string, unknown>>();
+  for (const item of submittedById) {
+    const taskId = typeof item.id === "string" ? item.id.trim() : "";
+    if (!taskId) continue;
+    submittedByTaskId.set(taskId, item);
+  }
+
+  return configuredTasks.map((task) => {
+    const item = submittedByTaskId.get(task.id) ?? {};
+    const photoFieldId =
+      typeof item.photoFieldId === "string" && item.photoFieldId.trim()
+        ? item.photoFieldId.trim()
+        : `__admin_requested_task_${task.id}_photo`;
+    const note = typeof item.note === "string" ? item.note.trim() : "";
+    const completed =
+      item.completed === true ||
+      data[`__admin_requested_task_${task.id}_done`] === true;
+    const photoKeys = Array.isArray(uploads[photoFieldId]) ? uploads[photoFieldId] : [];
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description?.trim() || "",
+      requiresPhoto: task.requiresPhoto === true,
+      requiresNote: task.requiresNote === true,
+      completed,
+      note,
+      photoFieldId,
+      photoKeys,
+    };
+  });
 }
 
 export async function POST(
@@ -312,6 +168,39 @@ export async function POST(
       );
     }
 
+    const openLog = await db.timeLog.findFirst({
+      where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
+    });
+    const priorTime = openLog
+      ? await db.timeLog.aggregate({
+          where: {
+            jobId: params.id,
+            userId: session.user.id,
+            id: { not: openLog.id },
+            stoppedAt: { not: null },
+          },
+          _sum: { durationM: true },
+        })
+      : null;
+    const completedDurationMinutes = Math.max(0, priorTime?._sum.durationM ?? 0);
+    if (body.clockAdjustmentRequest) {
+      if (!openLog) {
+        return NextResponse.json(
+          { error: "There is no active clock running for this job." },
+          { status: 400 }
+        );
+      }
+      if (body.clockAdjustmentRequest.requestedDurationM <= completedDurationMinutes) {
+        return NextResponse.json(
+          {
+            error:
+              "Requested adjusted time must be greater than the time already recorded before this final clock segment.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const template = await db.formTemplate.findUnique({
       where: { id: body.templateId },
       select: { id: true, schema: true, isActive: true },
@@ -321,17 +210,56 @@ export async function POST(
     }
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
-    const missingRequiredUploads = requiredUploadFieldIds(
+    const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const adminRequestedTasks = sanitizeAdminRequestedTasks(
+      answers,
+      uploads,
+      jobMeta.specialRequestTasks ?? []
+    );
+    const missingRequiredUploads = collectRequiredUploadFields(
       template.schema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
       legacyReady
     ).filter(
-      (fieldId) => !uploads[fieldId] || uploads[fieldId].length === 0
+      (field) => !uploads[field.id] || uploads[field.id].length === 0
     );
     if (missingRequiredUploads.length > 0) {
+      const missingUploadSummary = missingRequiredUploads
+        .map((field) =>
+          field.sectionLabel && field.sectionLabel !== field.label
+            ? `${field.sectionLabel}: ${field.label}`
+            : field.label
+        )
+        .join(", ");
       return NextResponse.json(
-        { error: `Missing required uploads: ${missingRequiredUploads.join(", ")}` },
+        {
+          error: `Missing required uploads: ${missingUploadSummary}`,
+          missingUploadFields: missingRequiredUploads,
+        },
+        { status: 400 }
+      );
+    }
+    const incompleteAdminTask = adminRequestedTasks.find((task) => !task.completed);
+    if (incompleteAdminTask) {
+      return NextResponse.json(
+        { error: `Admin requested task not completed: ${incompleteAdminTask.title}` },
+        { status: 400 }
+      );
+    }
+    const adminTaskMissingNote = adminRequestedTasks.find((task) => task.requiresNote && !task.note);
+    if (adminTaskMissingNote) {
+      return NextResponse.json(
+        { error: `Cleaner note required for admin requested task: ${adminTaskMissingNote.title}` },
+        { status: 400 }
+      );
+    }
+    const adminTaskMissingPhoto = adminRequestedTasks.find(
+      (task) => task.requiresPhoto && task.photoKeys.length === 0
+    );
+    if (adminTaskMissingPhoto) {
+      return NextResponse.json(
+        { error: `Image proof required for admin requested task: ${adminTaskMissingPhoto.title}` },
         { status: 400 }
       );
     }
@@ -371,6 +299,7 @@ export async function POST(
           ...(body.data as Record<string, unknown>),
           __templateSchema: template.schema,
           __templateVersion: template.id,
+          __adminRequestedTasks: adminRequestedTasks,
         } as any,
         laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
         laundryOutcome,
@@ -431,110 +360,17 @@ export async function POST(
     }
 
     if (laundryOutcome !== undefined) {
-      let laundryTask = await db.laundryTask.findUnique({
-        where: { jobId: params.id },
+      await applyCleanerLaundryStatusUpdate({
+        jobId: job.id,
+        cleanerId: session.user.id,
+        laundryOutcome,
+        bagLocation,
+        laundryPhotoKey,
+        laundrySkipReasonCode,
+        laundrySkipReasonNote,
+        source: "FINAL_SUBMISSION",
+        portalUrl: resolveAppUrl("/laundry", req),
       });
-      if (!laundryTask) {
-        laundryTask = await ensureLaundryTaskForJob(params.id);
-      }
-      if (!laundryTask) {
-        const pickupDate = new Date(job.scheduledDate.getTime() + 24 * 60 * 60 * 1000);
-        const dropoffDate = new Date(job.scheduledDate.getTime() + 48 * 60 * 60 * 1000);
-        laundryTask = await db.laundryTask.create({
-          data: {
-            jobId: job.id,
-            propertyId: job.propertyId,
-            pickupDate,
-            dropoffDate,
-            status: LaundryStatus.PENDING,
-          },
-        });
-      }
-
-      if (laundryTask) {
-        if (laundryOutcome === "READY_FOR_PICKUP") {
-          const laundryPhotoUrl = publicUrl(laundryPhotoKey!);
-
-          await db.laundryTask.update({
-            where: { id: laundryTask.id },
-            data: {
-              status: LaundryStatus.CONFIRMED,
-              notifyLaundry: true,
-              noPickupRequired: false,
-              skipReasonCode: null,
-              skipReasonNote: null,
-              adminOverrideNote: null,
-              adminOverrideById: null,
-              adminOverrideAt: null,
-              confirmedAt: new Date(),
-            },
-          });
-
-          await db.laundryConfirmation.create({
-            data: {
-              laundryTaskId: laundryTask.id,
-              confirmedById: session.user.id,
-              laundryReady: true,
-              bagLocation,
-              photoUrl: laundryPhotoUrl,
-            },
-          });
-
-          await notifyLaundryPartners({
-            propertyId: job.propertyId,
-            propertyName: job.property.name,
-            jobId: job.id,
-            jobNumber: getJobReference(job),
-            cleanDate: job.scheduledDate,
-            pickupDate: laundryTask.pickupDate,
-            bagLocation: bagLocation!,
-            laundryPhotoUrl,
-            portalUrl: resolveAppUrl("/laundry", req),
-          });
-        } else {
-          const noPickupRequired = laundryOutcome === "NO_PICKUP_REQUIRED";
-          await db.laundryTask.update({
-            where: { id: laundryTask.id },
-            data: {
-              notifyLaundry: false,
-              status: noPickupRequired ? LaundryStatus.SKIPPED_PICKUP : LaundryStatus.FLAGGED,
-              noPickupRequired,
-              skipReasonCode: laundrySkipReasonCode || null,
-              skipReasonNote: laundrySkipReasonNote || null,
-            },
-          });
-
-          await db.laundryConfirmation.create({
-            data: {
-              laundryTaskId: laundryTask.id,
-              confirmedById: session.user.id,
-              laundryReady: false,
-              bagLocation,
-              notes: [
-                laundryOutcome.replace(/_/g, " "),
-                laundrySkipReasonCode ? `Reason: ${laundrySkipReasonCode.replace(/_/g, " ")}` : "",
-                laundrySkipReasonNote || "",
-              ]
-                .filter(Boolean)
-                .join(" | "),
-            },
-          });
-
-          await Promise.all([
-            alertAdminsLaundryNotReady(job.id, job.property.name, getJobReference(job)),
-            notifyLaundrySkipRequested({
-              propertyId: job.propertyId,
-              jobId: job.id,
-              propertyName: job.property.name,
-              jobNumber: getJobReference(job),
-              cleanDate: job.scheduledDate,
-              laundryOutcome,
-              reasonCode: laundrySkipReasonCode || "OTHER",
-              reasonNote: laundrySkipReasonNote || "",
-            }),
-          ]);
-        }
-      }
     }
 
     if (body.draftDamagePayload?.title?.trim()) {
@@ -603,18 +439,71 @@ export async function POST(
       data: { status: JobStatus.SUBMITTED },
     });
 
-    const openLog = await db.timeLog.findFirst({
-      where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
-    });
     if (openLog) {
-      const now = new Date();
+      const settings = await getAppSettings();
+      const review = buildClockReview({
+        job: {
+          scheduledDate: job.scheduledDate,
+          dueTime: job.dueTime,
+          endTime: job.endTime,
+          estimatedHours: job.estimatedHours,
+        },
+        startedAt: openLog.startedAt,
+        completedDurationMinutes,
+        settings,
+      });
+      const stoppedAt = review.suggestedStoppedAt;
+      const durationM = review.cappedRunningDurationMinutes;
+
       await db.timeLog.update({
         where: { id: openLog.id },
         data: {
-          stoppedAt: now,
-          durationM: Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000),
+          stoppedAt,
+          durationM,
         },
       });
+
+      if (body.clockAdjustmentRequest) {
+        const requestedDurationM = Number(body.clockAdjustmentRequest.requestedDurationM);
+        if (Number.isFinite(requestedDurationM) && requestedDurationM > 0) {
+          const requestedCurrentSegmentMinutes = Math.max(
+            0,
+            requestedDurationM - completedDurationMinutes
+          );
+          await db.timeLogAdjustmentRequest.create({
+            data: {
+              timeLogId: openLog.id,
+              jobId: job.id,
+              cleanerId: session.user.id,
+              requestedDurationM,
+              requestedStoppedAt: new Date(
+                openLog.startedAt.getTime() + requestedCurrentSegmentMinutes * 60_000
+              ),
+              originalDurationM: durationM,
+              originalStoppedAt: stoppedAt,
+              reason: body.clockAdjustmentRequest.reason?.trim() || null,
+            },
+          });
+
+          const adminUsers = await db.user.findMany({
+            where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
+            select: { id: true },
+          });
+          if (adminUsers.length > 0) {
+            await db.notification.createMany({
+              data: adminUsers.map((admin) => ({
+                userId: admin.id,
+                jobId: job.id,
+                channel: "PUSH",
+                subject: "Clock adjustment approval needed",
+                body: `${job.property.name}: ${session.user.name ?? session.user.email ?? "Cleaner"} requested a clock adjustment review.`,
+                status: "SENT",
+                sentAt: new Date(),
+              })),
+            });
+          }
+        }
+      }
     }
 
     generateJobReport(params.id).catch(console.error);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicQuoteSchema } from "@/lib/validations/quote";
 import { calculateQuote } from "@/lib/pricing/calculator";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,6 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not calculate quote.") }, { status: 400 });
   }
 }

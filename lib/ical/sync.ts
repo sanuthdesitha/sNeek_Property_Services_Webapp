@@ -8,6 +8,7 @@ import { SyncStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
+import { refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -954,6 +955,25 @@ export async function syncPropertyIcal(
       snapshot,
       syncOptions,
     });
+
+    try {
+      const pendingLaundryDraft = await refreshLaundrySyncDraftForProperty({
+        propertyId: integration.propertyId,
+        fromDate: todaySydneyDateOnlyForLaundryPlanner(),
+      });
+      const pendingCount = pendingLaundryDraft.items.filter((item) => item.sourcePropertyId === integration.propertyId).length;
+      if (pendingCount > 0) {
+        summary.warnings.push(
+          `Laundry reschedule draft saved for admin review (${pendingCount} change${pendingCount === 1 ? "" : "s"}).`
+        );
+      }
+    } catch (laundryDraftError: any) {
+      logger.error(
+        { err: laundryDraftError, integrationId, propertyId: integration.propertyId, runId: run.id },
+        "Laundry sync draft refresh failed after iCal sync"
+      );
+      summary.warnings.push("Laundry reschedule draft could not be refreshed automatically.");
+    }
 
     await finalizeRun({
       runId: run.id,

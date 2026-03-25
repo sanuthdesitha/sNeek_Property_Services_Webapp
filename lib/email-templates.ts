@@ -6,6 +6,7 @@ export type AppEmailTemplateKey =
   | "welcomeAccount"
   | "accountInvite"
   | "newProfileCreated"
+  | "jobReminder24h"
   | "jobAssigned"
   | "jobRemoved"
   | "laundryReady"
@@ -24,6 +25,7 @@ export type AppEmailTemplateKey =
   | "shoppingReimbursementToClient"
   | "stockRunRequested"
   | "stockRunSubmitted"
+  | "adminAttentionSummary"
   | "tomorrowJobsSummary"
   | "criticalInventoryTomorrow"
   | "quoteApprovalRequest"
@@ -69,6 +71,7 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "welcomeAccount",
   "accountInvite",
   "newProfileCreated",
+  "jobReminder24h",
   "jobAssigned",
   "jobRemoved",
   "laundryReady",
@@ -87,6 +90,7 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "shoppingReimbursementToClient",
   "stockRunRequested",
   "stockRunSubmitted",
+  "adminAttentionSummary",
   "tomorrowJobsSummary",
   "criticalInventoryTomorrow",
   "quoteApprovalRequest",
@@ -120,6 +124,19 @@ const EMAIL_TEMPLATE_DEFINITIONS_BASE: Record<
   newProfileCreated: {
     label: "New Profile Created",
     variables: ["userName", "role", "email", "createdVia", "createdAt"],
+  },
+  jobReminder24h: {
+    label: "24h Job Reminder",
+    variables: [
+      "userName",
+      "jobType",
+      "propertyName",
+      "propertyAddress",
+      "when",
+      "timingFlags",
+      "jobNumber",
+      "jobUrl",
+    ],
   },
   jobAssigned: {
     label: "Job Assigned",
@@ -259,6 +276,28 @@ const EMAIL_TEMPLATE_DEFINITIONS_BASE: Record<
       "propertyName",
       "submittedBy",
       "lineCount",
+    ],
+  },
+  adminAttentionSummary: {
+    label: "Admin Attention Summary",
+    variables: [
+      "recipientName",
+      "dateLabel",
+      "attentionCount",
+      "approvalCount",
+      "pendingPayRequests",
+      "pendingTimeAdjustments",
+      "pendingContinuations",
+      "pendingClientApprovals",
+      "pendingLaundryRescheduleDraft",
+      "unassignedJobCount",
+      "openCaseCount",
+      "overdueCaseCount",
+      "highCaseCount",
+      "newCaseCount",
+      "flaggedLaundryCount",
+      "breakdownHtml",
+      "breakdownText",
     ],
   },
   tomorrowJobsSummary: {
@@ -427,6 +466,23 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
           <p style="margin:0 0 6px;"><strong>Created via:</strong> {createdVia}</p>
           <p style="margin:0;"><strong>Created at:</strong> {createdAt}</p>
         </div>
+      `,
+    },
+    jobReminder24h: {
+      subject: "Tomorrow's job reminder - {jobNumber} - {propertyName}",
+      html: `
+        <h2 style="margin:0 0 12px;">Upcoming job reminder</h2>
+        <p>Hello {userName},</p>
+        <p>This is your scheduled reminder for tomorrow's job. Please review the details below and prepare before arrival.</p>
+        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
+          <p style="margin:0 0 6px;"><strong>Service:</strong> {jobType}</p>
+          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
+          <p style="margin:0 0 6px;"><strong>Address:</strong> {propertyAddress}</p>
+          <p style="margin:0;"><strong>Schedule:</strong> {when}</p>
+        </div>
+        <p><strong>Timing notes:</strong> {timingFlags}</p>
+        <p>Please check access instructions, equipment needs, stock expectations, and any special notes before attending the property.</p>
       `,
     },
     jobAssigned: {
@@ -648,6 +704,17 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p>A stock count run was submitted for <strong>{propertyName}</strong>.</p>
         <p><strong>Submitted by:</strong> {submittedBy}</p>
         <p><strong>Lines counted:</strong> {lineCount}</p>
+      `,
+    },
+    adminAttentionSummary: {
+      subject: "{companyName}: Admin attention summary - {dateLabel}",
+      html: `
+        <h2 style="margin:0 0 12px;">Admin attention summary</h2>
+        <p>Hello {recipientName},</p>
+        <p>There are <strong>{attentionCount}</strong> admin items requiring attention today.</p>
+        <p><strong>Approvals / review items:</strong> {approvalCount}</p>
+        {breakdownHtml}
+        <p>Please review the admin dashboard and clear the highest-priority items first.</p>
       `,
     },
     tomorrowJobsSummary: {

@@ -2,6 +2,7 @@ import { JobStatus, PayAdjustmentStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { summarizePendingLaundrySyncDraft, getPendingLaundrySyncDraft } from "@/lib/laundry/sync-draft";
 import { listDisputes } from "@/lib/phase4/disputes";
 import { parseCaseDescription } from "@/lib/issues/case-utils";
 import type { ClientPortalVisibility } from "@/lib/settings";
@@ -55,14 +56,34 @@ async function safeCount<T>(query: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-export async function getAdminImmediateAttention(): Promise<ImmediateAttentionItem[]> {
-  const [pendingPayRequests, flaggedLaundry, unassignedJobs, highCases, newCases, pendingContinuations, pendingClientApprovals, openCases] =
+export interface AdminAttentionSummary {
+  pendingPayRequests: number;
+  pendingTimeAdjustments: number;
+  flaggedLaundry: number;
+  pendingLaundryRescheduleDraft: number;
+  unassignedJobs: number;
+  highCases: number;
+  newCases: number;
+  pendingContinuations: number;
+  pendingClientApprovals: number;
+  openCases: number;
+  overdueCases: number;
+  attentionCount: number;
+}
+
+export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary> {
+  const [pendingPayRequests, pendingTimeAdjustments, flaggedLaundry, pendingLaundryRescheduleDraft, unassignedJobs, highCases, newCases, pendingContinuations, pendingClientApprovals, openCases] =
     await Promise.all([
       safeCount(
         db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
         0
       ),
+      safeCount(
+        db.timeLogAdjustmentRequest.count({ where: { status: "PENDING" } }),
+        0
+      ),
       db.laundryTask.count({ where: { status: "FLAGGED" } }),
+      getPendingLaundrySyncDraft().then((store) => summarizePendingLaundrySyncDraft(store).itemCount),
       db.job.count({ where: { status: JobStatus.UNASSIGNED } }),
       db.issueTicket.count({
         where: {
@@ -94,12 +115,41 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
     return due.getTime() < now;
   }).length;
 
+  const attentionCount =
+    pendingPayRequests +
+    pendingTimeAdjustments +
+    flaggedLaundry +
+    pendingLaundryRescheduleDraft +
+    unassignedJobs +
+    openCases.length +
+    pendingContinuations +
+    pendingClientApprovals;
+
+  return {
+    pendingPayRequests,
+    pendingTimeAdjustments,
+    flaggedLaundry,
+    pendingLaundryRescheduleDraft,
+    unassignedJobs,
+    highCases,
+    newCases,
+    pendingContinuations,
+    pendingClientApprovals,
+    openCases: openCases.length,
+    overdueCases,
+    attentionCount,
+  };
+}
+
+export async function getAdminImmediateAttention(): Promise<ImmediateAttentionItem[]> {
+  const summary = await getAdminAttentionSummary();
+
   return nonZero([
     {
       id: "admin-overdue-cases",
       title: "Overdue cases",
       description: "Case SLA targets have passed and need immediate follow-up.",
-      count: overdueCases,
+      count: summary.overdueCases,
       href: "/admin/cases",
       actionLabel: "Review cases",
       tone: "critical",
@@ -108,7 +158,7 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       id: "admin-high-cases",
       title: "High-priority open cases",
       description: "Damage/lost-found cases marked high or critical.",
-      count: highCases,
+      count: summary.highCases,
       href: "/admin/cases",
       actionLabel: "Open cases",
       tone: "critical",
@@ -117,7 +167,7 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       id: "admin-new-cases",
       title: "New cases in 24h",
       description: "Recently opened cases waiting triage and ownership.",
-      count: newCases,
+      count: summary.newCases,
       href: "/admin/cases",
       actionLabel: "Triage now",
       tone: "warning",
@@ -126,7 +176,7 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       id: "admin-continuations",
       title: "Pause/continue approvals pending",
       description: "Cleaner continuation requests require an admin decision.",
-      count: pendingContinuations,
+      count: summary.pendingContinuations,
       href: "/admin/jobs",
       actionLabel: "Open jobs",
       tone: "warning",
@@ -135,16 +185,25 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       id: "admin-pay-requests",
       title: "Cleaner pay requests pending",
       description: "Extra payment requests are waiting admin review.",
-      count: pendingPayRequests,
+      count: summary.pendingPayRequests,
       href: "/admin/pay-adjustments",
       actionLabel: "Review pay",
+      tone: "warning",
+    },
+    {
+      id: "admin-time-adjustments",
+      title: "Clock adjustments pending",
+      description: "Cleaner time-change requests are waiting admin approval.",
+      count: summary.pendingTimeAdjustments,
+      href: "/admin/time-adjustments",
+      actionLabel: "Review time",
       tone: "warning",
     },
     {
       id: "admin-client-approvals",
       title: "Client approvals awaiting response",
       description: "Submitted approval items still pending with clients.",
-      count: pendingClientApprovals,
+      count: summary.pendingClientApprovals,
       href: "/admin/approvals",
       actionLabel: "Track approvals",
       tone: "warning",
@@ -153,16 +212,25 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       id: "admin-flagged-laundry",
       title: "Flagged laundry tasks",
       description: "Laundry windows or buffer conditions need manual intervention.",
-      count: flaggedLaundry,
+      count: summary.flaggedLaundry,
       href: "/admin/laundry",
       actionLabel: "Resolve laundry",
       tone: "critical",
     },
     {
+      id: "admin-laundry-sync-draft",
+      title: "Laundry reschedule draft pending",
+      description: "iCal changes created laundry schedule updates waiting admin approval.",
+      count: summary.pendingLaundryRescheduleDraft,
+      href: "/admin/laundry",
+      actionLabel: "Review draft",
+      tone: "warning",
+    },
+    {
       id: "admin-unassigned-jobs",
       title: "Unassigned jobs",
       description: "Jobs have no cleaner assigned yet.",
-      count: unassignedJobs,
+      count: summary.unassignedJobs,
       href: "/admin/jobs",
       actionLabel: "Assign jobs",
       tone: "info",

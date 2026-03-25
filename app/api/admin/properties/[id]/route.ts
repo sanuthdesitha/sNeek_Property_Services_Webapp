@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { updatePropertySchema } from "@/lib/validations/client";
 import { Role } from "@prisma/client";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function GET(
   _req: NextRequest,
@@ -49,7 +50,7 @@ export async function PATCH(
     return NextResponse.json(property);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update property.") }, { status });
   }
 }
 

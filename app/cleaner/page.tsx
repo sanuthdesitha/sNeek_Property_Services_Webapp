@@ -17,7 +17,11 @@ import {
   HandCoins,
   MapPin,
 } from "lucide-react";
-import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import {
+  getJobTimingHighlights,
+  mergeUniqueJobHighlights,
+  parseJobInternalNotes,
+} from "@/lib/jobs/meta";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
@@ -87,6 +91,7 @@ export default async function CleanerDashboard() {
       id: true,
       jobType: true,
       status: true,
+      notes: true,
       scheduledDate: true,
       startTime: true,
       dueTime: true,
@@ -112,6 +117,7 @@ export default async function CleanerDashboard() {
       id: true,
       jobType: true,
       status: true,
+      notes: true,
       scheduledDate: true,
       startTime: true,
       dueTime: true,
@@ -183,24 +189,27 @@ export default async function CleanerDashboard() {
   const todayJobs = jobs.filter((job) => isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
   const upcomingJobs = jobs.filter((job) => !isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
   const nextJob = todayJobs[0] ?? upcomingJobs[0] ?? null;
+  const nextJobMeta = nextJob ? parseJobInternalNotes(nextJob.internalNotes) : null;
   const nextJobTimingHighlights = nextJob
-    ? [
-        ...getJobTimingHighlights(parseJobInternalNotes(nextJob.internalNotes)),
-        ...(nextJob.priorityReason ? [nextJob.priorityReason] : []),
-      ]
+    ? mergeUniqueJobHighlights(
+        getJobTimingHighlights(nextJobMeta ?? parseJobInternalNotes(nextJob.internalNotes)),
+        [nextJob.priorityReason]
+      )
     : [];
+  const ongoingJobMeta = ongoingJob ? parseJobInternalNotes(ongoingJob.internalNotes) : null;
   const ongoingJobTimingHighlights = ongoingJob
-    ? [
-        ...getJobTimingHighlights(parseJobInternalNotes(ongoingJob.internalNotes)),
-        ...(ongoingJob.priorityReason ? [ongoingJob.priorityReason] : []),
-      ]
+    ? mergeUniqueJobHighlights(
+        getJobTimingHighlights(ongoingJobMeta ?? parseJobInternalNotes(ongoingJob.internalNotes)),
+        [ongoingJob.priorityReason]
+      )
     : [];
 
   function JobCard({ job }: { job: (typeof jobs)[0] }) {
-    const timingHighlights = [
-      ...getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)),
-      ...(job.priorityReason ? [job.priorityReason] : []),
-    ];
+    const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const timingHighlights = mergeUniqueJobHighlights(getJobTimingHighlights(jobMeta), [job.priorityReason]);
+    const hasCleanerNotes = Boolean(
+      jobMeta.internalNoteText && jobMeta.internalNoteText.trim()
+    );
     return (
       <Link href={`/cleaner/jobs/${job.id}`} className="block">
         <Card className="transition-all hover:border-primary/35 hover:shadow-sm">
@@ -242,6 +251,24 @@ export default async function CleanerDashboard() {
                         {line}
                       </Badge>
                     ))}
+                  </div>
+                ) : null}
+                {(jobMeta.tags?.length ?? 0) > 0 || hasCleanerNotes ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {jobMeta.tags?.map((tag) => (
+                      <Badge
+                        key={`${job.id}-tag-${tag}`}
+                        variant="secondary"
+                        className="border-sky-200 bg-sky-50 text-sky-800"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                    {hasCleanerNotes ? (
+                      <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                        Notes
+                      </Badge>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -324,6 +351,29 @@ export default async function CleanerDashboard() {
                         ))}
                       </div>
                     ) : null}
+                    {(nextJobMeta?.tags?.length ?? 0) > 0 ||
+                    Boolean(
+                      nextJobMeta?.internalNoteText && nextJobMeta.internalNoteText.trim()
+                    ) ? (
+                      <div className="flex flex-wrap gap-2">
+                        {nextJobMeta?.tags?.map((tag) => (
+                          <Badge
+                            key={`next-tag-${tag}`}
+                            variant="secondary"
+                            className="border-sky-200 bg-sky-50 text-sky-800"
+                          >
+                            {tag}
+                          </Badge>
+                        ))}
+                        {Boolean(
+                          nextJobMeta?.internalNoteText && nextJobMeta.internalNoteText.trim()
+                        ) ? (
+                          <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                            Cleaner Notes
+                          </Badge>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </Link>
               ) : visibility.showJobs ? (
@@ -361,6 +411,29 @@ export default async function CleanerDashboard() {
                         {line}
                       </Badge>
                     ))}
+                  </div>
+                ) : null}
+                {(ongoingJobMeta?.tags?.length ?? 0) > 0 ||
+                Boolean(
+                  ongoingJobMeta?.internalNoteText && ongoingJobMeta.internalNoteText.trim()
+                ) ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {ongoingJobMeta?.tags?.map((tag) => (
+                      <Badge
+                        key={`ongoing-tag-${tag}`}
+                        variant="secondary"
+                        className="border-sky-200 bg-sky-50 text-sky-800"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                    {Boolean(
+                      ongoingJobMeta?.internalNoteText && ongoingJobMeta.internalNoteText.trim()
+                    ) ? (
+                      <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                        Cleaner Notes
+                      </Badge>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

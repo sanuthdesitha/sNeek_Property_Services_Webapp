@@ -10,6 +10,7 @@ import { syncAllIcal } from "@/lib/ical/sync";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { logger } from "@/lib/logger";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
+import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
 import { generateRecurringJobs } from "@/lib/ops/recurring";
 import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
@@ -54,6 +55,13 @@ async function main() {
   await boss.schedule("stock-alerts", "*/15 * * * *", {});
   await boss.work("stock-alerts", async () => {
     await sendStockAlerts();
+  });
+
+  await boss.schedule("admin-attention-summary", "*/15 * * * *", {});
+  await boss.work("admin-attention-summary", async () => {
+    const result = await sendAdminAttentionSummary({ now: new Date() });
+    if (result.skipped?.length) return;
+    logger.info({ ...result }, "Admin attention summary sent");
   });
 
   await boss.schedule("tomorrow-prep-dispatch", "*/15 * * * *", {});

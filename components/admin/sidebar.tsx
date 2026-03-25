@@ -30,6 +30,7 @@ import {
   RefreshCw,
   ClipboardList,
   Wallet,
+  Clock3,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ const navItems = [
   { label: "Stock Counts", href: "/admin/stock-runs", icon: ClipboardList },
   { label: "Laundry", href: "/admin/laundry", icon: Shirt },
   { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
+  { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
   { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
   { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
   { label: "Delivery", href: "/admin/delivery-profiles", icon: SendToBack },

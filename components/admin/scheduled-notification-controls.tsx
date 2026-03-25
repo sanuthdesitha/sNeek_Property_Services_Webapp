@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import type { ScheduledNotificationSettings } from "@/lib/settings";
 
-type DispatchType = "REMINDER_24H" | "REMINDER_2H" | "TOMORROW_PREP" | "STOCK_ALERTS";
+type DispatchType = "REMINDER_24H" | "REMINDER_2H" | "TOMORROW_PREP" | "STOCK_ALERTS" | "ADMIN_ATTENTION";
 
 interface ScheduledNotificationControlsProps {
   settings: ScheduledNotificationSettings;
@@ -37,6 +37,11 @@ const DISPATCH_ROWS: Array<{
     type: "STOCK_ALERTS",
     title: "Critical stock alerts",
     description: "Send the daily low-stock alert to admin and ops contacts now.",
+  },
+  {
+    type: "ADMIN_ATTENTION",
+    title: "Admin attention summary",
+    description: "Send the daily admin summary with approvals, unassigned jobs, cases, and flagged tasks now.",
   },
 ];
 
@@ -68,6 +73,9 @@ export function ScheduledNotificationControls({ settings }: ScheduledNotificatio
     }
     if (dispatchType === "STOCK_ALERTS") {
       return `Low stock items: ${result.lowStocks ?? 0}. Admin recipients: ${result.admins ?? 0}. Emails sent: ${result.sent ?? 0}.`;
+    }
+    if (dispatchType === "ADMIN_ATTENTION") {
+      return `Admins: ${result.admins ?? 0}. Emails sent: ${result.sentEmails ?? 0}. SMS sent: ${result.sentSms ?? 0}. Attention items: ${result.attentionCount ?? 0}.`;
     }
 
     return "Dispatch finished.";
@@ -112,14 +120,18 @@ export function ScheduledNotificationControls({ settings }: ScheduledNotificatio
               ? settings.reminder24hEnabled
               : row.type === "REMINDER_2H"
                 ? settings.reminder2hEnabled
-                : row.type === "TOMORROW_PREP"
-                  ? settings.tomorrowPrepEnabled
-                  : settings.stockAlertsEnabled;
+                  : row.type === "TOMORROW_PREP"
+                    ? settings.tomorrowPrepEnabled
+                    : row.type === "STOCK_ALERTS"
+                      ? settings.stockAlertsEnabled
+                      : settings.adminAttentionSummaryEnabled;
           const timeLabel =
             row.type === "TOMORROW_PREP"
               ? settings.tomorrowPrepTime
               : row.type === "STOCK_ALERTS"
                 ? settings.stockAlertsTime
+                : row.type === "ADMIN_ATTENTION"
+                  ? settings.adminAttentionSummaryTime
                 : null;
 
           return (

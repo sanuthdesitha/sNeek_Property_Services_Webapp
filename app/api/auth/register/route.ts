@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { registerSchema } from "@/lib/validations/user";
 import { issueSignupOtp } from "@/lib/auth/registration-otp";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 export async function POST(req: NextRequest) {
   try {
@@ -89,6 +90,6 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Registration failed.") }, { status: 400 });
   }
 }

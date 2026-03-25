@@ -131,6 +131,78 @@ function renderFieldMediaHtml(mediaRows: any[]): string {
   return `<div style="display:flex;flex-wrap:wrap;align-items:flex-start;">${items}</div>`;
 }
 
+function buildAdminRequestedTasksHtml(submission: any): { html: string; usedMediaIds: Set<string> } {
+  const usedMediaIds = new Set<string>();
+  const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
+  const tasks = Array.isArray(answers.__adminRequestedTasks)
+    ? answers.__adminRequestedTasks.filter((item: any) => item && typeof item === "object")
+    : [];
+  if (tasks.length === 0) {
+    return { html: "", usedMediaIds };
+  }
+
+  const rows = tasks
+    .map((task: any) => {
+      const photoFieldId = typeof task.photoFieldId === "string" ? task.photoFieldId : "";
+      const mediaForTask = photoFieldId
+        ? (submission?.media ?? []).filter((media: any) => media.fieldId === photoFieldId)
+        : [];
+      mediaForTask.forEach((media: any) => {
+        if (media?.id) usedMediaIds.add(String(media.id));
+      });
+      const note = typeof task.note === "string" ? task.note.trim() : "";
+      return `
+        <tr>
+          <td style="padding:10px;border-bottom:1px solid #fecaca;vertical-align:top;">
+            <strong>${escapeHtml(task.title ?? "Admin requested task")}</strong>
+            ${
+              task.description
+                ? `<div style="margin-top:4px;font-size:12px;color:#7f1d1d;">${escapeHtml(task.description)}</div>`
+                : ""
+            }
+          </td>
+          <td style="padding:10px;border-bottom:1px solid #fecaca;vertical-align:top;">
+            <span style="display:inline-block;padding:4px 10px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:12px;font-weight:600;">
+              ${task.completed ? "Completed" : "Incomplete"}
+            </span>
+            ${
+              note
+                ? `<div style="margin-top:8px;font-size:12px;color:#111827;"><strong>Cleaner note:</strong> ${escapeHtml(note)}</div>`
+                : ""
+            }
+            <div style="margin-top:8px;font-size:11px;color:#7f1d1d;">
+              ${task.requiresPhoto ? "Image proof required" : "No image proof required"}
+              ${task.requiresNote ? " · Cleaner note required" : ""}
+            </div>
+          </td>
+          <td style="padding:10px;border-bottom:1px solid #fecaca;vertical-align:top;">
+            ${renderFieldMediaHtml(mediaForTask)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return {
+    html: `
+      <div class="section" style="border:1px solid #fecaca;border-radius:14px;background:#fff1f2;padding:18px;">
+        <h3 style="margin:0 0 10px;color:#b91c1c;">Admin Requested Tasks</h3>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border-bottom:2px solid #fca5a5;text-align:left;">Task</th>
+              <th style="padding:8px;border-bottom:2px solid #fca5a5;text-align:left;">Submission</th>
+              <th style="padding:8px;border-bottom:2px solid #fca5a5;text-align:left;">Proof</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `,
+    usedMediaIds,
+  };
+}
+
 function buildChecklistHtml(job: any, submission: any): { html: string; usedMediaIds: Set<string> } {
   const templateSchema =
     submission?.data &&
@@ -317,8 +389,15 @@ export async function generateJobReport(jobId: string): Promise<void> {
 
 function buildReportHtml({ job, submission, qa, localDate, settings }: any): string {
   const checklist = submission ? buildChecklistHtml(job, submission) : { html: "", usedMediaIds: new Set<string>() };
+  const adminRequestedTasks = submission
+    ? buildAdminRequestedTasksHtml(submission)
+    : { html: "", usedMediaIds: new Set<string>() };
   const checklistHtml = checklist.html;
-  const remainingMedia = (submission?.media ?? []).filter((m: any) => !checklist.usedMediaIds.has(String(m.id)));
+  const remainingMedia = (submission?.media ?? []).filter(
+    (m: any) =>
+      !checklist.usedMediaIds.has(String(m.id)) &&
+      !adminRequestedTasks.usedMediaIds.has(String(m.id))
+  );
   const remainingMediaHtml = renderFieldMediaHtml(remainingMedia);
   const companyName = settings?.companyName || "sNeek Property Services";
   const logoUrl = settings?.logoUrl?.trim() || "";
@@ -373,6 +452,7 @@ ${
 </div>`
     : ""
 }
+${adminRequestedTasks.html}
 ${checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>"}
 ${
   remainingMedia.length > 0

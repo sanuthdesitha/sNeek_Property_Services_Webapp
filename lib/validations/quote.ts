@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { JobType, QuoteStatus } from "@prisma/client";
+import {
+  optionalAddressSchema,
+  optionalAustralianPhoneSchema,
+  optionalSuburbSchema,
+  requiredEmailSchema,
+  requiredNameSchema,
+} from "@/lib/validations/common";
 
 export const publicQuoteSchema = z.object({
   serviceType: z.nativeEnum(JobType),
@@ -19,15 +26,15 @@ export const publicQuoteSchema = z.object({
 
 export const leadSchema = z.object({
   serviceType: z.nativeEnum(JobType),
-  name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  suburb: z.string().optional(),
+  name: requiredNameSchema,
+  email: requiredEmailSchema,
+  phone: optionalAustralianPhoneSchema,
+  address: optionalAddressSchema,
+  suburb: optionalSuburbSchema,
   bedrooms: z.number().int().min(0).optional(),
   bathrooms: z.number().int().min(0).optional(),
   hasBalcony: z.boolean().default(false),
-  notes: z.string().optional(),
+  notes: z.string().trim().max(4000).optional(),
   estimateMin: z.number().optional(),
   estimateMax: z.number().optional(),
 });

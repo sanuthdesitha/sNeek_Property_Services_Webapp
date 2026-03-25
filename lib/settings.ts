@@ -11,6 +11,8 @@ import {
   type AppNotificationTemplates,
 } from "@/lib/notification-templates";
 
+export type SmsProvider = "none" | "twilio" | "cellcast";
+
 export interface ProfileEditPolicy {
   canEditName: boolean;
   canEditPhone: boolean;
@@ -89,12 +91,15 @@ export interface ScheduledNotificationSettings {
   tomorrowPrepTime: string;
   stockAlertsEnabled: boolean;
   stockAlertsTime: string;
+  adminAttentionSummaryEnabled: boolean;
+  adminAttentionSummaryTime: string;
 }
 
 export interface AutoClockOutSettings {
   enabled: boolean;
   graceMinutes: number;
   fallbackAtMidnight: boolean;
+  maxJobLengthHours: number;
 }
 
 export interface LaundryOperationsSettings {
@@ -148,6 +153,7 @@ export interface AppSettings {
   logoUrl: string;
   accountsEmail: string;
   timezone: string;
+  smsProvider: SmsProvider;
   reminder24hHours: number;
   reminder2hHours: number;
   cleanerStartRequireDateMatch: boolean;
@@ -208,6 +214,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   logoUrl: "",
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
+  smsProvider: "twilio",
   reminder24hHours: 24,
   reminder2hHours: 2,
   cleanerStartRequireDateMatch: true,
@@ -290,11 +297,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
     tomorrowPrepTime: "17:00",
     stockAlertsEnabled: true,
     stockAlertsTime: "07:00",
+    adminAttentionSummaryEnabled: true,
+    adminAttentionSummaryTime: "08:00",
   },
   autoClockOut: {
     enabled: true,
     graceMinutes: 30,
     fallbackAtMidnight: true,
+    maxJobLengthHours: 8,
   },
   laundryOperations: {
     pickupCutoffTime: "10:00",
@@ -539,6 +549,14 @@ function sanitizeScheduledNotifications(
       typeof row.stockAlertsTime === "string" && timePattern.test(row.stockAlertsTime)
         ? row.stockAlertsTime
         : fallback.stockAlertsTime,
+    adminAttentionSummaryEnabled:
+      typeof row.adminAttentionSummaryEnabled === "boolean"
+        ? row.adminAttentionSummaryEnabled
+        : fallback.adminAttentionSummaryEnabled,
+    adminAttentionSummaryTime:
+      typeof row.adminAttentionSummaryTime === "string" && timePattern.test(row.adminAttentionSummaryTime)
+        ? row.adminAttentionSummaryTime
+        : fallback.adminAttentionSummaryTime,
   };
 }
 
@@ -555,6 +573,11 @@ function sanitizeAutoClockOut(
       typeof row.fallbackAtMidnight === "boolean"
         ? row.fallbackAtMidnight
         : fallback.fallbackAtMidnight,
+    maxJobLengthHours: clamp(
+      Number(row.maxJobLengthHours ?? fallback.maxJobLengthHours),
+      1,
+      24
+    ),
   };
 }
 
@@ -776,6 +799,10 @@ function sanitizeSettings(input: unknown): AppSettings {
     timezone: typeof parsed.timezone === "string" && parsed.timezone.trim()
       ? parsed.timezone.trim()
       : DEFAULT_SETTINGS.timezone,
+    smsProvider:
+      parsed.smsProvider === "none" || parsed.smsProvider === "twilio" || parsed.smsProvider === "cellcast"
+        ? parsed.smsProvider
+        : DEFAULT_SETTINGS.smsProvider,
     reminder24hHours: clamp(Number(parsed.reminder24hHours ?? DEFAULT_SETTINGS.reminder24hHours), 1, 168),
     reminder2hHours: clamp(Number(parsed.reminder2hHours ?? DEFAULT_SETTINGS.reminder2hHours), 1, 48),
     cleanerStartRequireDateMatch:
@@ -869,6 +896,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
   const merged = sanitizeSettings({
     ...current,
     ...input,
+    smsProvider: input.smsProvider ?? current.smsProvider,
     profileEditPolicy: input.profileEditPolicy ?? current.profileEditPolicy,
     profileEditOverrides: input.profileEditOverrides ?? current.profileEditOverrides,
     sla: input.sla ?? current.sla,

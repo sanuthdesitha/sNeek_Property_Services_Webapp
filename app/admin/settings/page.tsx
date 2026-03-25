@@ -55,7 +55,16 @@ export default async function SettingsPage() {
     : [];
 
   const emailConfigured = Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
-  const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+  const twilioConfigured = Boolean(
+    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER
+  );
+  const cellcastConfigured = Boolean(process.env.CELLCAST_APPKEY);
+  const activeSmsProviderConfigured =
+    appSettings.smsProvider === "none"
+      ? true
+      : appSettings.smsProvider === "twilio"
+        ? twilioConfigured
+        : cellcastConfigured;
   const configuredAppUrl = process.env.APP_BASE_URL?.trim() || process.env.APP_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || "";
 
   const permissionRows = (Object.keys(PERMISSIONS) as Array<keyof typeof PERMISSIONS>).map((permission) => ({
@@ -120,7 +129,7 @@ export default async function SettingsPage() {
                 <p className="mb-2 text-xs font-medium text-muted-foreground">Tech stack (fixed)</p>
                 <p className="text-sm">
                   Next.js 14+ (App Router) + TypeScript, PostgreSQL, Prisma ORM, NextAuth, Tailwind + shadcn/ui,
-                  TanStack Table, FullCalendar, S3-compatible storage, pg-boss, Playwright PDF, Resend, Twilio,
+                  TanStack Table, FullCalendar, S3-compatible storage, pg-boss, Playwright PDF, Resend, Twilio/Cellcast,
                   Zod, and pino.
                 </p>
               </div>
@@ -178,8 +187,19 @@ export default async function SettingsPage() {
                   {appSettings.scheduledNotifications.stockAlertsEnabled ? "Active" : "Disabled"}
                 </Badge>
               </div>
+              <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                <div>
+                  <p className="font-medium">Admin attention summary</p>
+                  <p className="text-xs text-muted-foreground">
+                    Daily admin email and SMS summary sent at {appSettings.scheduledNotifications.adminAttentionSummaryTime}
+                  </p>
+                </div>
+                <Badge variant={appSettings.scheduledNotifications.adminAttentionSummaryEnabled ? "success" : "secondary"}>
+                  {appSettings.scheduledNotifications.adminAttentionSummaryEnabled ? "Active" : "Disabled"}
+                </Badge>
+              </div>
               <p className="pt-2 text-xs text-muted-foreground">
-                Reminder jobs are checked by the pg-boss worker every 5 minutes. Daily summary and stock jobs are checked every 15 minutes and only send after their configured local time.
+                Reminder jobs are checked by the pg-boss worker every 5 minutes. Daily summary, admin digest, and stock jobs are checked every 15 minutes and only send after their configured local time.
               </p>
             </CardContent>
           </Card>
@@ -276,8 +296,27 @@ export default async function SettingsPage() {
                   <Badge variant={emailConfigured ? "success" : "destructive"}>
                     Email provider: {emailConfigured ? "Configured" : "Missing config"}
                   </Badge>
-                  <Badge variant={smsConfigured ? "success" : "secondary"}>
-                    SMS provider: {smsConfigured ? "Configured" : "Not configured"}
+                  <Badge
+                    variant={
+                      appSettings.smsProvider === "none"
+                        ? "secondary"
+                        : activeSmsProviderConfigured
+                          ? "success"
+                          : "destructive"
+                    }
+                  >
+                    SMS active:{" "}
+                    {appSettings.smsProvider === "none"
+                      ? "Disabled"
+                      : `${appSettings.smsProvider === "twilio" ? "Twilio" : "Cellcast"}${
+                          activeSmsProviderConfigured ? "" : " (missing config)"
+                        }`}
+                  </Badge>
+                  <Badge variant={twilioConfigured ? "success" : "secondary"}>
+                    Twilio: {twilioConfigured ? "Configured" : "Not configured"}
+                  </Badge>
+                  <Badge variant={cellcastConfigured ? "success" : "secondary"}>
+                    Cellcast: {cellcastConfigured ? "Configured" : "Not configured"}
                   </Badge>
                   {isAdmin && (
                     <Link href="/admin/notifications" className="text-primary underline">

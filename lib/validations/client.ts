@@ -1,4 +1,14 @@
 import { z } from "zod";
+import {
+  optionalAddressSchema,
+  optionalEmailSchema,
+  optionalAustralianMobileSchema,
+  optionalNoteSchema,
+  optionalPostcodeSchema,
+  requiredAddressSchema,
+  requiredAustralianStateSchema,
+  requiredSuburbSchema,
+} from "@/lib/validations/common";
 
 const accessAttachmentSchema = z.object({
   name: z.string().min(1),
@@ -22,11 +32,11 @@ const accessInfoSchema = z.object({
 const inventoryLocationSchema = z.enum(["BATHROOM", "KITCHEN", "CLEANERS_CUPBOARD"]);
 
 export const createClientSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email().optional().or(z.literal("")),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1, "Client name is required.").max(200, "Client name is too long."),
+  email: optionalEmailSchema,
+  phone: optionalAustralianMobileSchema,
+  address: optionalAddressSchema,
+  notes: optionalNoteSchema(4000),
   sendPortalInvite: z.boolean().optional(),
   welcomeNote: z.string().max(4000).optional(),
 });
@@ -35,12 +45,12 @@ export const updateClientSchema = createClientSchema.partial();
 
 export const createPropertySchema = z.object({
   clientId: z.string().min(1),
-  name: z.string().min(1),
-  address: z.string().min(1),
-  suburb: z.string().min(1),
-  state: z.string().default("NSW"),
-  postcode: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1, "Property name is required.").max(200, "Property name is too long."),
+  address: requiredAddressSchema,
+  suburb: requiredSuburbSchema,
+  state: requiredAustralianStateSchema.default("NSW"),
+  postcode: optionalPostcodeSchema,
+  notes: optionalNoteSchema(4000),
   accessInfo: accessInfoSchema.optional(),
   linenBufferSets: z.number().int().min(0).default(0),
   inventoryEnabled: z.boolean().default(false),
