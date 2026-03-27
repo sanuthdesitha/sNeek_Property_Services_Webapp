@@ -325,6 +325,15 @@ export default function JobsPage() {
     return acc;
   }, {} as Record<string, any[]>);
 
+  function getAssignmentNames(job: any) {
+    const names = Array.isArray(job?.assignments)
+      ? job.assignments
+          .map((assignment: any) => assignment?.user?.name?.trim() || assignment?.user?.email?.trim() || "")
+          .filter(Boolean)
+      : [];
+    return Array.from(new Set(names));
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -597,6 +606,9 @@ export default function JobsPage() {
             <CardContent className="p-0">
               <div className="divide-y">
                 {jobs.map((job) => (
+                  (() => {
+                    const assignmentNames = getAssignmentNames(job);
+                    return (
                   <div
                     key={job.id}
                     className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${
@@ -624,8 +636,10 @@ export default function JobsPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {job.assignments?.[0] ? (
-                        <span className="hidden text-xs text-muted-foreground sm:block">{job.assignments[0].user.name}</span>
+                      {assignmentNames.length > 0 ? (
+                        <span className="hidden text-xs text-muted-foreground sm:block">
+                          {assignmentNames.join(", ")}
+                        </span>
                       ) : null}
                       {pendingContinuationJobIds.has(job.id) ? (
                         <Badge variant="destructive">
@@ -660,6 +674,8 @@ export default function JobsPage() {
                       </Button>
                     </div>
                   </div>
+                    );
+                  })()
                 ))}
                 {jobs.length === 0 ? (
                   <p className="px-6 py-10 text-center text-sm text-muted-foreground">No jobs match filters.</p>
@@ -678,6 +694,9 @@ export default function JobsPage() {
               </div>
               <div className="space-y-2">
                 {groupedByStatus[status]?.map((job) => (
+                  (() => {
+                    const assignmentNames = getAssignmentNames(job);
+                    return (
                   <Card
                     key={job.id}
                     className={`transition-colors hover:border-primary/50 ${
@@ -706,8 +725,8 @@ export default function JobsPage() {
                           Continuation pending
                         </Badge>
                       ) : null}
-                      {job.assignments?.[0] ? (
-                        <p className="mt-1 text-xs text-muted-foreground">- {job.assignments[0].user.name}</p>
+                      {assignmentNames.length > 0 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">- {assignmentNames.join(", ")}</p>
                       ) : null}
                       <div className="mt-3 flex gap-2">
                         {status === "UNASSIGNED" ? (
@@ -738,6 +757,8 @@ export default function JobsPage() {
                       </div>
                     </CardContent>
                   </Card>
+                    );
+                  })()
                 ))}
                 {groupedByStatus[status]?.length === 0 ? (
                   <div className="rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
