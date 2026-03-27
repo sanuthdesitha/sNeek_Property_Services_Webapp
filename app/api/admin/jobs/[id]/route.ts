@@ -19,6 +19,12 @@ import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
+const FINISHED_JOB_STATUSES = new Set<JobStatus>([
+  JobStatus.SUBMITTED,
+  JobStatus.QA_REVIEW,
+  JobStatus.COMPLETED,
+  JobStatus.INVOICED,
+]);
 
 function normalizeRule(
   rule:
@@ -277,7 +283,10 @@ export async function PATCH(
         changes.push("Job notes updated");
       }
 
-      if (changes.length > 0) {
+      const suppressFinishedJobNotifications =
+        FINISHED_JOB_STATUSES.has(current.status) || FINISHED_JOB_STATUSES.has(refreshed.status);
+
+      if (changes.length > 0 && !suppressFinishedJobNotifications) {
         const settings = await getAppSettings();
         const companyName = settings.companyName || "sNeek Property Services";
         const jobReference = getJobReference(refreshed);
