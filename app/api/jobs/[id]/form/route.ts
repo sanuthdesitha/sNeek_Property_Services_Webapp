@@ -10,6 +10,7 @@ import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { buildClockReview } from "@/lib/time/clock-rules";
+import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 
 export async function GET(
   _req: NextRequest,
@@ -141,9 +142,9 @@ export async function GET(
       cleanerTimeLogs.length > 0
         ? [...cleanerTimeLogs].reverse().find((log) => !log.stoppedAt) ?? null
         : null;
-    const completedSeconds = cleanerTimeLogs
-      .filter((log) => log.stoppedAt)
-      .reduce((sum, log) => sum + ((log.durationM ?? 0) * 60), 0);
+    const completedSeconds = sumRecordedTimeLogSeconds(
+      cleanerTimeLogs.filter((log) => log.stoppedAt)
+    );
     const clockReview =
       activeTimeLog
         ? buildClockReview({

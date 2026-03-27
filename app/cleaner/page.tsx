@@ -22,6 +22,7 @@ import {
   mergeUniqueJobHighlights,
   parseJobInternalNotes,
 } from "@/lib/jobs/meta";
+import { compareCleanerJobsBySchedule } from "@/lib/jobs/schedule-order";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
@@ -189,9 +190,11 @@ export default async function CleanerDashboard() {
     0
   );
 
-  const todayJobs = jobs.filter((job) => isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
-  const upcomingJobs = jobs.filter((job) => !isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
-  const nextJob = todayJobs[0] ?? upcomingJobs[0] ?? null;
+  const orderedJobs = [...jobs].sort(compareCleanerJobsBySchedule);
+  const todayJobs = orderedJobs.filter((job) => isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
+  const upcomingJobs = orderedJobs.filter((job) => !isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
+  const nextJobCandidates = orderedJobs.filter((job) => job.id !== ongoingJob?.id);
+  const nextJob = nextJobCandidates[0] ?? null;
   const nextJobMeta = nextJob ? parseJobInternalNotes(nextJob.internalNotes) : null;
   const nextJobTimingHighlights = nextJob
     ? mergeUniqueJobHighlights(

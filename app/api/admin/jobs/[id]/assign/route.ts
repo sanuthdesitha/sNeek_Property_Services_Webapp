@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { assignJobSchema } from "@/lib/validations/job";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
-import { Role, JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
+import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
@@ -19,7 +19,7 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const { userIds, primaryUserId, confirmCompletedReset } = assignJobSchema.parse(await req.json());
+    const { userIds, primaryUserId } = assignJobSchema.parse(await req.json());
     const job = await db.job.findUnique({
       where: { id: params.id },
       select: {
@@ -54,17 +54,6 @@ export async function POST(
     if (primaryUserId && !cleanerIds.has(primaryUserId)) {
       return NextResponse.json({ error: "Primary cleaner must be in assignment list." }, { status: 400 });
     }
-    if (
-      userIds.length === 0 &&
-      (job.status === JobStatus.COMPLETED || job.status === JobStatus.INVOICED) &&
-      !confirmCompletedReset
-    ) {
-      return NextResponse.json(
-        { error: "CONFIRM_COMPLETED_RESET_REQUIRED", message: "Confirm moving a completed job back to unassigned." },
-        { status: 409 }
-      );
-    }
-
     const settings = await getAppSettings();
 
     // Remove assignments not in new list
@@ -91,12 +80,6 @@ export async function POST(
       });
     }
 
-    // Advance job status to ASSIGNED
-    await db.job.update({
-      where: { id: params.id },
-      data: { status: userIds.length > 0 ? JobStatus.ASSIGNED : JobStatus.UNASSIGNED },
-    });
-
     await db.auditLog.create({
       data: {
         userId: session.user.id,
@@ -104,7 +87,7 @@ export async function POST(
         action: "ASSIGN_JOB",
         entity: "Job",
         entityId: params.id,
-        after: { userIds, primaryUserId, confirmCompletedReset: !!confirmCompletedReset } as any,
+        after: { userIds, primaryUserId } as any,
       },
     });
 
@@ -221,7 +204,7 @@ export async function POST(
       event: "JOB_ASSIGNED",
       payload: {
         jobId: job.id,
-        status: userIds.length > 0 ? "ASSIGNED" : "UNASSIGNED",
+        status: job.status,
         jobType: job.jobType,
       },
     });

@@ -13,6 +13,7 @@ import { notifyCaseCreated } from "@/lib/cases/notifications";
 import { getAppSettings } from "@/lib/settings";
 import { applyCleanerLaundryStatusUpdate } from "@/lib/laundry/cleaner-status";
 import { buildClockReview } from "@/lib/time/clock-rules";
+import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
 import {
@@ -172,18 +173,22 @@ export async function POST(
     const openLog = await db.timeLog.findFirst({
       where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
     });
-    const priorTime = openLog
-      ? await db.timeLog.aggregate({
+    const priorTimeLogs = openLog
+      ? await db.timeLog.findMany({
           where: {
             jobId: params.id,
             userId: session.user.id,
             id: { not: openLog.id },
             stoppedAt: { not: null },
           },
-          _sum: { durationM: true },
+          select: {
+            startedAt: true,
+            stoppedAt: true,
+            durationM: true,
+          },
         })
-      : null;
-    const completedDurationMinutes = Math.max(0, priorTime?._sum.durationM ?? 0);
+      : [];
+    const completedDurationMinutes = sumRecordedTimeLogMinutes(priorTimeLogs);
     if (body.clockAdjustmentRequest) {
       if (!openLog) {
         return NextResponse.json(

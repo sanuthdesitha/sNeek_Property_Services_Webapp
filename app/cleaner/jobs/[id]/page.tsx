@@ -25,6 +25,7 @@ import {
   normalizeInventoryLocation,
   type InventoryLocation,
 } from "@/lib/inventory/locations";
+import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
 
 type Step = "overview" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
@@ -2908,6 +2909,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const hasPendingContinuationRequest = rescheduleRequests.some((row) => row.status === "PENDING");
   const latestEarlyCheckoutRequest = earlyCheckoutRequests[0] ?? null;
   const pendingEarlyCheckoutRequest = earlyCheckoutRequests.find((row) => row.status === "PENDING") ?? null;
+  const mapsUrl = buildGoogleMapsDirectionsUrl({
+    address: job?.property?.address,
+    suburb: job?.property?.suburb,
+    name: job?.property?.name,
+  });
 
   return (
     <div className="space-y-4">
@@ -2924,6 +2930,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             {job?.property?.address}
           </p>
         </div>
+        {mapsUrl ? (
+          <Button size="sm" variant="outline" asChild>
+            <a href={mapsUrl} target="_blank" rel="noreferrer">
+              <MapPin className="mr-2 h-4 w-4" />
+              Open in Maps
+            </a>
+          </Button>
+        ) : null}
         <Badge>{job?.status?.replace(/_/g, " ")}</Badge>
       </div>
 

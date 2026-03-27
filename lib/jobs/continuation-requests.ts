@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { getRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
@@ -246,7 +247,7 @@ async function buildSnapshot(jobId: string) {
 
   const minutesByUser = new Map<string, number>();
   for (const log of job.timeLogs) {
-    const mins = Number(log.durationM ?? 0);
+    const mins = getRecordedTimeLogMinutes(log);
     if (mins <= 0) continue;
     minutesByUser.set(log.userId, (minutesByUser.get(log.userId) ?? 0) + mins);
   }

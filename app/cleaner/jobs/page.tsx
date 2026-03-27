@@ -12,7 +12,10 @@ import {
   mergeUniqueJobHighlights,
   parseJobInternalNotes,
 } from "@/lib/jobs/meta";
-import { compareJobsByPriority } from "@/lib/jobs/priority";
+import {
+  buildGoogleMapsDirectionsUrl,
+  compareCleanerJobsBySchedule,
+} from "@/lib/jobs/schedule-order";
 
 const TZ = "Australia/Sydney";
 
@@ -140,7 +143,7 @@ export default async function CleanerJobsPage({
     }
 
     if (leftIsUpcoming) {
-      return compareJobsByPriority(left, right);
+      return compareCleanerJobsBySchedule(left, right);
     }
 
     return rightTime - leftTime;
@@ -248,6 +251,11 @@ export default async function CleanerJobsPage({
                   getJobTimingHighlights(jobMeta),
                   [job.priorityReason]
                 );
+                const mapsUrl = buildGoogleMapsDirectionsUrl({
+                  address: job.property.address,
+                  suburb: job.property.suburb,
+                  name: job.property.name,
+                });
                 const hasCleanerNotes = Boolean(
                   jobMeta.internalNoteText && jobMeta.internalNoteText.trim()
                 );
@@ -307,6 +315,13 @@ export default async function CleanerJobsPage({
                       <Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
                         {job.status.replace(/_/g, " ")}
                       </Badge>
+                      {mapsUrl ? (
+                        <Button size="sm" variant="outline" asChild>
+                          <a href={mapsUrl} target="_blank" rel="noreferrer">
+                            Maps
+                          </a>
+                        </Button>
+                      ) : null}
                       {job.report ? (
                         <Button size="sm" variant="outline" asChild>
                           <a href={`/api/reports/${job.id}/download`}>Report PDF</a>
