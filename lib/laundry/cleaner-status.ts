@@ -35,6 +35,7 @@ async function notifyLaundryPartners(params: {
   jobNumber: string;
   cleanDate: Date;
   pickupDate: Date;
+  dropoffDate: Date;
   bagLocation: string;
   laundryPhotoUrl: string;
   portalUrl: string;
@@ -49,11 +50,16 @@ async function notifyLaundryPartners(params: {
     toZonedTime(params.pickupDate, settings.timezone || "Australia/Sydney"),
     "EEEE, dd MMMM yyyy"
   );
+  const dropoffDateLabel = format(
+    toZonedTime(params.dropoffDate, settings.timezone || "Australia/Sydney"),
+    "EEEE, dd MMMM yyyy"
+  );
   const emailTemplate = renderEmailTemplate(settings, "laundryReady", {
     propertyName: params.propertyName,
     jobNumber: params.jobNumber,
     cleanDate: cleanDateLabel,
     scheduledPickupDate: pickupDateLabel,
+    scheduledDropoffDate: dropoffDateLabel,
     bagLocation: params.bagLocation,
     laundryPhotoUrl: params.laundryPhotoUrl,
     portalUrl: params.portalUrl,
@@ -65,6 +71,7 @@ async function notifyLaundryPartners(params: {
     propertyName: params.propertyName,
     cleanDate: cleanDateLabel,
     scheduledPickupDate: pickupDateLabel,
+    scheduledDropoffDate: dropoffDateLabel,
     bagLocation: params.bagLocation,
   });
 
@@ -285,6 +292,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       jobNumber,
       cleanDate: job.scheduledDate,
       pickupDate: laundryTask.pickupDate,
+      dropoffDate: laundryTask.dropoffDate,
       bagLocation: params.bagLocation ?? "",
       laundryPhotoUrl,
       portalUrl: params.portalUrl,

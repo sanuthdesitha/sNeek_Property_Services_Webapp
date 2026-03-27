@@ -91,6 +91,7 @@ export default withAuth(
           pathname === "/register" ||
           pathname === "/unauthorized" ||
           pathname === "/" ||
+          pathname.startsWith("/apply/") ||
           pathname === "/icon" ||
           pathname === "/manifest.json"
         ) {

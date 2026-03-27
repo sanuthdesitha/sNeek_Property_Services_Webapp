@@ -21,6 +21,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       where: { id: params.id },
       include: {
         cleaner: { select: { id: true, name: true, email: true } },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            suburb: true,
+          },
+        },
         job: {
           select: {
             id: true,
@@ -74,6 +81,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       include: {
         cleaner: { select: { id: true, name: true, email: true } },
         reviewedBy: { select: { id: true, name: true, email: true } },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            suburb: true,
+          },
+        },
         job: {
           select: {
             id: true,
@@ -84,17 +98,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     });
 
-    const subject = `Extra payment request ${updated.status.toLowerCase()} - ${updated.job.property.name}`;
+    const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
+    const subject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
     const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
     await db.notification.create({
       data: {
         userId: updated.cleaner.id,
+        jobId: updated.job?.id ?? undefined,
         channel: NotificationChannel.PUSH,
         subject,
         body:
           updated.status === PayAdjustmentStatus.APPROVED
-            ? `Approved $${Number(updated.approvedAmount ?? 0).toFixed(2)} for ${updated.job.property.name}.${note}`
-            : `Rejected extra payment request for ${updated.job.property.name}.${note}`,
+            ? `Approved $${Number(updated.approvedAmount ?? 0).toFixed(2)} for ${propertyName}.${note}`
+            : `Rejected extra payment request for ${propertyName}.${note}`,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },
@@ -106,7 +122,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       subject: `${settings.companyName} - Extra Payment Request ${updated.status}`,
       html: `
         <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
-        <p>Your extra payment request for <strong>${updated.job.property.name}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>
+        <p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>
         ${
           updated.status === PayAdjustmentStatus.APPROVED
             ? `<p><strong>Approved amount:</strong> $${Number(updated.approvedAmount ?? 0).toFixed(2)}</p>`
@@ -119,7 +135,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     await db.auditLog.create({
       data: {
         userId: session.user.id,
-        jobId: updated.job.id,
+        jobId: updated.job?.id ?? undefined,
         action: "REVIEW_PAY_ADJUSTMENT",
         entity: "CleanerPayAdjustment",
         entityId: updated.id,

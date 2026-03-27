@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, startOfDay, startOfWeek } from "date-fns";
-import { AlertTriangle, Camera, CheckCircle2, FilePenLine, History, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, Copy, FilePenLine, History, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 
 type ActionType =
   | "PICKED_UP"
@@ -26,7 +27,7 @@ type ActionType =
   | "EDIT_COMPLETED"
   | "FAILED_PICKUP";
 type FailedPickupMode = "RESCHEDULE" | "REQUEST_SKIP" | "REQUEST_DELETE";
-type RangeMode = "day" | "week" | "month";
+type RangeMode = "day" | "week" | "month" | "all";
 type ReadyFilter = "all" | "today" | "tomorrow";
 type SortMode = "pickup_asc" | "pickup_desc" | "updated_desc" | "property_asc";
 type UploadSource = "camera" | "gallery";
@@ -252,6 +253,7 @@ export default function LaundryPortal() {
   const [rangeMode, setRangeMode] = useState<RangeMode>("week");
   const [readyFilter, setReadyFilter] = useState<ReadyFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("pickup_asc");
+  const [completedExpanded, setCompletedExpanded] = useState(false);
 
   const [actionTask, setActionTask] = useState<any | null>(null);
   const [actionType, setActionType] = useState<ActionType | null>(null);
@@ -275,6 +277,7 @@ export default function LaundryPortal() {
   const [companyName, setCompanyName] = useState("sNeek Property Services");
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
   const [appTimezone, setAppTimezone] = useState("Australia/Sydney");
+  const [teamPosts, setTeamPosts] = useState<any[]>([]);
   const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
 
   function resetActionState() {
@@ -349,9 +352,10 @@ export default function LaundryPortal() {
   }
 
   function load() {
-    const days = rangeMode === "day" ? 1 : rangeMode === "month" ? 31 : 7;
+    const days = rangeMode === "day" ? 1 : rangeMode === "month" ? 31 : rangeMode === "all" ? 366 : 7;
     fetch(`/api/laundry/week?start=${weekStart.toISOString()}&days=${days}`).then((r) => r.json()).then((data) => setTasks(Array.isArray(data) ? data : []));
     fetch(`/api/laundry/history`).then((r) => r.json()).then((data) => setHistoryTasks(Array.isArray(data) ? data : []));
+    fetch(`/api/me/workforce`).then((r) => r.json()).then((data) => setTeamPosts(Array.isArray(data?.posts) ? data.posts.slice(0, 3) : []));
     fetch(`/api/laundry/options`).then((r) => r.json()).then((data) => {
       const options = Array.isArray(data?.dropoffLocationOptions) ? data.dropoffLocationOptions : [];
       setDropoffOptions(options);
@@ -858,7 +862,7 @@ export default function LaundryPortal() {
   const tomorrowKey = toDayKey(addDays(new Date(), 1));
 
   const readyQueue = sortedTasks
-    .filter((task) => ["CONFIRMED", "PICKED_UP", "DROPPED"].includes(task.status))
+    .filter((task) => ["CONFIRMED", "PICKED_UP"].includes(task.status))
     .filter((task) => {
       if (readyFilter === "all") return true;
       const pickupKey = toDayKey(task.pickupDate);
@@ -868,6 +872,8 @@ export default function LaundryPortal() {
     });
   const skippedTasks = sortedTasks.filter((task) => task.status === "SKIPPED_PICKUP");
   const allTasks = sortedTasks.filter((task) => !["FLAGGED", "SKIPPED_PICKUP"].includes(task.status));
+  const scheduleActiveTasks = allTasks.filter((task) => task.status !== "DROPPED");
+  const completedScheduleTasks = allTasks.filter((task) => task.status === "DROPPED");
   const pickedUpCount = allTasks.filter((task) => task.status === "PICKED_UP").length;
   const returnedCount = allTasks.filter((task) => task.status === "DROPPED").length;
   const trackedReturnCost = allTasks
@@ -972,6 +978,19 @@ export default function LaundryPortal() {
     ];
   }, [skippedTasks.length, sortedTasks]);
 
+  const scheduleSummaryText = useMemo(() => {
+    const visibleTasks = [...scheduleActiveTasks, ...completedScheduleTasks];
+    if (visibleTasks.length === 0) {
+      return "No laundry schedule items in the selected range.";
+    }
+    return visibleTasks
+      .map((task) => {
+        const statusLabel = String(task.status).replace(/_/g, " ");
+        return `${format(new Date(task.pickupDate), "EEE dd MMM yyyy")} - ${task.property.name}${task.property.suburb ? ` (${task.property.suburb})` : ""} | Pickup ${format(new Date(task.pickupDate), "dd MMM")} | Drop ${format(new Date(task.dropoffDate), "dd MMM")} | ${statusLabel}`;
+      })
+      .join("\n");
+  }, [completedScheduleTasks, scheduleActiveTasks]);
+
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden border-primary/20">
@@ -981,16 +1000,16 @@ export default function LaundryPortal() {
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 Laundry Overview
               </p>
-              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Laundry Weekly Planner</h1>
+              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Laundry Planner</h1>
               <p className="mt-2 text-sm text-muted-foreground sm:text-base">
                 {format(weekStart, "d MMM")} -{" "}
-                {format(addDays(weekStart, rangeMode === "day" ? 0 : rangeMode === "month" ? 30 : 6), "d MMM yyyy")}
+                {format(addDays(weekStart, rangeMode === "day" ? 0 : rangeMode === "month" ? 30 : rangeMode === "all" ? 365 : 6), "d MMM yyyy")}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
                 Pickup cutoff {laundryConfig.pickupCutoffTime} | Default pickup {laundryConfig.defaultPickupTime} | Default drop-off {laundryConfig.defaultDropoffTime} | Fallback outside {laundryConfig.maxOutdoorDays} day{laundryConfig.maxOutdoorDays === 1 ? "" : "s"} (manual jobs only)
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                You are viewing the {rangeMode === "day" ? "day" : rangeMode === "month" ? "month" : "week"} schedule. Use Previous and Next to move through the planner, then switch tabs to confirm pickups, returns, and history.
+                You are viewing the {rangeMode === "day" ? "day" : rangeMode === "month" ? "month" : rangeMode === "all" ? "all upcoming" : "week"} schedule. Use Previous and Next to move through the planner, then switch tabs to confirm pickups, returns, and history.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
@@ -998,7 +1017,7 @@ export default function LaundryPortal() {
                   variant="outline"
                   onClick={() =>
                     setWeekStart((w) =>
-                      addDays(w, rangeMode === "day" ? -1 : rangeMode === "month" ? -31 : -7)
+                      addDays(w, rangeMode === "day" ? -1 : rangeMode === "month" ? -31 : rangeMode === "all" ? -366 : -7)
                     )
                   }
                 >
@@ -1009,7 +1028,7 @@ export default function LaundryPortal() {
                   variant="outline"
                   onClick={() =>
                     setWeekStart((w) =>
-                      addDays(w, rangeMode === "day" ? 1 : rangeMode === "month" ? 31 : 7)
+                      addDays(w, rangeMode === "day" ? 1 : rangeMode === "month" ? 31 : rangeMode === "all" ? 366 : 7)
                     )
                   }
                 >
@@ -1042,6 +1061,8 @@ export default function LaundryPortal() {
         items={urgentItems}
       />
 
+      <WorkforceDashboardPosts title="Team Updates" posts={teamPosts} />
+
       <Card>
         <CardContent className="grid gap-3 p-4 text-sm text-muted-foreground md:grid-cols-3">
           <div>
@@ -1050,7 +1071,7 @@ export default function LaundryPortal() {
           </div>
           <div>
             <p className="font-semibold text-foreground">2. Move through the planner</p>
-            <p className="mt-1">Use Previous and Next to change weeks, or switch the range filter to day or month when planning ahead.</p>
+            <p className="mt-1">Use Previous and Next to change the viewed range, or switch the range filter to day, week, month, or all upcoming.</p>
           </div>
           <div>
             <p className="font-semibold text-foreground">3. Confirm pickup and return</p>
@@ -1147,6 +1168,7 @@ export default function LaundryPortal() {
                 <SelectItem value="day">Day</SelectItem>
                 <SelectItem value="week">Week</SelectItem>
                 <SelectItem value="month">Month</SelectItem>
+                <SelectItem value="all">All Upcoming</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1186,7 +1208,7 @@ export default function LaundryPortal() {
             Ready Queue ({readyQueue.length})
           </TabsTrigger>
           <TabsTrigger value="schedule" className="flex-1">
-            Week Schedule ({allTasks.length})
+            Schedule ({allTasks.length})
           </TabsTrigger>
           {laundryConfig.showHistoryTab && (
             <TabsTrigger value="history" className="flex-1">
@@ -1316,7 +1338,11 @@ export default function LaundryPortal() {
 
                     <div className="mt-3 flex flex-wrap gap-2">
                       {task.status === "CONFIRMED" && (
-                        <Button size="sm" className="flex-1" onClick={() => openAction(task, "PICKED_UP")}>
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                          onClick={() => openAction(task, "PICKED_UP")}
+                        >
                           <Truck className="mr-1 h-4 w-4" />
                           Mark Picked Up
                         </Button>
@@ -1371,9 +1397,38 @@ export default function LaundryPortal() {
         </TabsContent>
 
         <TabsContent value="schedule" className="space-y-3">
-          {allTasks.map((task, idx) => {
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">Schedule Summary</CardTitle>
+                  <CardDescription>Copy this list into notes or messages when planning the route.</CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(scheduleSummaryText);
+                      toast({ title: "Schedule summary copied" });
+                    } catch {
+                      toast({ title: "Copy failed", variant: "destructive" });
+                    }
+                  }}
+                >
+                  <Copy className="mr-1 h-4 w-4" />
+                  Copy Summary
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Textarea value={scheduleSummaryText} readOnly rows={Math.min(12, Math.max(4, scheduleSummaryText.split("\n").length))} />
+            </CardContent>
+          </Card>
+
+          {scheduleActiveTasks.map((task, idx) => {
             const showGroupHeader =
-              idx === 0 || toDayKey(allTasks[idx - 1].pickupDate) !== toDayKey(task.pickupDate);
+              idx === 0 || toDayKey(scheduleActiveTasks[idx - 1].pickupDate) !== toDayKey(task.pickupDate);
             const droppedConfirmation = getEventConfirmation(task, "DROPPED");
             const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
             const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
@@ -1421,7 +1476,59 @@ export default function LaundryPortal() {
               </div>
             );
           })}
-          {allTasks.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No tasks this week.</p>}
+          {scheduleActiveTasks.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No active laundry tasks in this range.</p>}
+
+          <Card>
+            <CardHeader className="pb-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-left"
+                onClick={() => setCompletedExpanded((prev) => !prev)}
+              >
+                <div>
+                  <CardTitle className="text-base">Completed</CardTitle>
+                  <CardDescription>Returned loads stay here so the next upcoming work remains at the top.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>{completedScheduleTasks.length}</span>
+                  {completedExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </div>
+              </button>
+            </CardHeader>
+            {completedExpanded ? (
+              <CardContent className="space-y-2">
+                {completedScheduleTasks.map((task) => {
+                  const droppedConfirmation = getEventConfirmation(task, "DROPPED");
+                  const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
+                  const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
+                  return (
+                    <Card key={task.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-sm">{task.property.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Pickup {format(new Date(task.pickupDate), "dd MMM")} {"->"} Drop {format(new Date(task.dropoffDate), "dd MMM")}
+                            </p>
+                            {droppedEarly ? (
+                              <p className="mt-1 text-xs text-amber-700">
+                                Early return: planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
+                                {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
+                              </p>
+                            ) : null}
+                          </div>
+                          <Badge variant="success">Returned</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {completedScheduleTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No completed laundry tasks in this range.</p>
+                ) : null}
+              </CardContent>
+            ) : null}
+          </Card>
         </TabsContent>
 
         {laundryConfig.showHistoryTab && <TabsContent value="history" className="space-y-2">

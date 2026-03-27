@@ -69,6 +69,12 @@ export function PortalShell({
       return;
     }
 
+    const mobileMedia = window.matchMedia("(max-width: 767px)");
+    if (!mobileMedia.matches) {
+      setHeaderHidden(false);
+      return;
+    }
+
     let lastScrollY = window.scrollY;
 
     const handleScroll = () => {
@@ -96,8 +102,8 @@ export function PortalShell({
 
       <header
         className={cn(
-          "sticky top-0 z-40 border-b border-white/60 bg-white/80 px-3 py-3 shadow-sm backdrop-blur-xl transition-transform duration-300 sm:px-4 lg:px-6",
-          hideHeaderOnScroll && headerHidden ? "-translate-y-full" : "translate-y-0"
+        "sticky top-0 z-40 border-b border-white/60 bg-white/80 px-3 py-3 shadow-sm backdrop-blur-xl transition-transform duration-300 sm:px-4 lg:px-6",
+          hideHeaderOnScroll && headerHidden ? "-translate-y-full md:translate-y-0" : "translate-y-0"
         )}
       >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">

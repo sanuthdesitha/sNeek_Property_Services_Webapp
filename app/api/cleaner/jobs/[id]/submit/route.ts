@@ -13,7 +13,8 @@ import { notifyCaseCreated } from "@/lib/cases/notifications";
 import { getAppSettings } from "@/lib/settings";
 import { applyCleanerLaundryStatusUpdate } from "@/lib/laundry/cleaner-status";
 import { buildClockReview } from "@/lib/time/clock-rules";
-import { collectRequiredUploadFields } from "@/lib/forms/visibility";
+import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
+import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
 import {
   JobStatus,
   MediaType,
@@ -240,6 +241,31 @@ export async function POST(
         { status: 400 }
       );
     }
+    const missingRequiredSignatures = collectRequiredAnswerFields(
+      template.schema,
+      answers,
+      (job.property ?? {}) as Record<string, unknown>,
+      {
+        laundryReady: legacyReady,
+        fieldTypes: ["signature"],
+      }
+    );
+    if (missingRequiredSignatures.length > 0) {
+      const missingSignatureSummary = missingRequiredSignatures
+        .map((field) =>
+          field.sectionLabel && field.sectionLabel !== field.label
+            ? `${field.sectionLabel}: ${field.label}`
+            : field.label
+        )
+        .join(", ");
+      return NextResponse.json(
+        {
+          error: `Missing required signatures: ${missingSignatureSummary}`,
+          missingRequiredFields: missingRequiredSignatures,
+        },
+        { status: 400 }
+      );
+    }
     const incompleteAdminTask = adminRequestedTasks.find((task) => !task.completed);
     if (incompleteAdminTask) {
       return NextResponse.json(
@@ -415,7 +441,10 @@ export async function POST(
       await db.cleanerPayAdjustment.create({
         data: {
           jobId: job.id,
+          propertyId: job.propertyId,
           cleanerId: session.user.id,
+          scope: "JOB",
+          title: body.draftPayRequestPayload.title?.trim() || "Extra payment request",
           type: body.draftPayRequestPayload.type === "HOURLY" ? "HOURLY" : "FIXED",
           requestedHours:
             body.draftPayRequestPayload.requestedHours != null
@@ -430,6 +459,10 @@ export async function POST(
             body.draftPayRequestPayload.cleanerNote?.trim() ||
             body.draftPayRequestPayload.title?.trim() ||
             null,
+          attachmentKeys:
+            body.draftPayRequestPayload.mediaKeys && body.draftPayRequestPayload.mediaKeys.length > 0
+              ? (body.draftPayRequestPayload.mediaKeys as any)
+              : undefined,
         },
       });
     }
@@ -507,6 +540,7 @@ export async function POST(
     }
 
     generateJobReport(params.id).catch(console.error);
+    await clearSharedCleanerJobDraft(params.id);
 
     return NextResponse.json({ ok: true, submissionId: submission.id });
   } catch (err: any) {

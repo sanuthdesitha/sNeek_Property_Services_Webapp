@@ -14,6 +14,10 @@ export type RequiredUploadFieldMeta = {
   sectionLabel?: string;
 };
 
+export type RequiredAnswerFieldMeta = RequiredUploadFieldMeta & {
+  type?: string;
+};
+
 export function templateValuesEqual(left: unknown, right: unknown) {
   if (typeof left === "boolean") return left === (right === true || right === "true");
   if (typeof left === "number") return left === Number(right);
@@ -98,4 +102,58 @@ export function collectRequiredUploadFields(
   }
 
   return uploads;
+}
+
+export function collectRequiredAnswerFields(
+  templateSchema: any,
+  answers: Record<string, unknown>,
+  property: Record<string, unknown>,
+  options?: {
+    laundryReady?: boolean;
+    fieldTypes?: string[];
+  }
+): RequiredAnswerFieldMeta[] {
+  const sections = Array.isArray(templateSchema?.sections) ? templateSchema.sections : [];
+  const required: RequiredAnswerFieldMeta[] = [];
+  const allowedTypes = options?.fieldTypes?.length
+    ? new Set(options.fieldTypes.map((value) => value.trim().toLowerCase()))
+    : null;
+
+  for (const section of sections) {
+    if (!isTemplateNodeVisible(section, answers, property, options?.laundryReady)) continue;
+
+    const fields = Array.isArray(section?.fields) ? section.fields : [];
+    for (const field of fields) {
+      if (!field?.required || !field?.id) continue;
+      if (!isTemplateNodeVisible(field, answers, property, options?.laundryReady)) continue;
+      const fieldType = typeof field.type === "string" ? field.type.trim().toLowerCase() : "";
+      if (allowedTypes && !allowedTypes.has(fieldType)) continue;
+
+      const value = answers[String(field.id)];
+      const missing =
+        value == null ||
+        (typeof value === "string" && value.trim().length === 0) ||
+        (Array.isArray(value) && value.length === 0);
+      if (!missing) continue;
+
+      required.push({
+        id: String(field.id),
+        type: fieldType || undefined,
+        label:
+          typeof field.label === "string" && field.label.trim()
+            ? field.label.trim()
+            : String(field.id),
+        sectionId:
+          typeof section?.id === "string" && section.id.trim() ? section.id.trim() : undefined,
+        sectionLabel:
+          typeof section?.label === "string" && section.label.trim()
+            ? section.label.trim()
+            : typeof section?.id === "string" && section.id.trim()
+              ? section.id.trim()
+              : undefined,
+      });
+    }
+  }
+
+  return required;
 }

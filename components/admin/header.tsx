@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Bell, CalendarDays } from "lucide-react";
+import { Bell, CalendarDays, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { NOTIFICATION_EVENT } from "@/components/shared/live-notifications";
+import { AdminNavLinks } from "@/components/admin/sidebar";
 
 interface AdminHeaderProps {
   title?: string;
@@ -27,11 +29,14 @@ function initialsFromName(name: string): string {
 
 export function AdminHeader({ title, companyName = "sNeek Property Services", logoUrl = "" }: AdminHeaderProps) {
   const { data: session } = useSession();
+  const pathname = usePathname();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [clearingNotifications, setClearingNotifications] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
   const realtimeRefreshLockRef = useRef(false);
   const initials = initialsFromName(companyName) || "SP";
 
@@ -117,11 +122,55 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationsOpen]);
 
+  useEffect(() => {
+    setHeaderHidden(false);
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mobileMedia = window.matchMedia("(max-width: 767px)");
+    if (!mobileMedia.matches) {
+      setHeaderHidden(false);
+      return;
+    }
+
+    let lastScrollY = window.scrollY;
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      const delta = currentScrollY - lastScrollY;
+      if (currentScrollY <= 24) {
+        setHeaderHidden(false);
+      } else if (delta > 8) {
+        setHeaderHidden(true);
+      } else if (delta < -8) {
+        setHeaderHidden(false);
+      }
+      lastScrollY = currentScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   return (
     <>
-      <header className="sticky top-0 z-40 shrink-0 border-b border-white/60 bg-white/75 px-3 py-3 backdrop-blur-md sm:px-4 md:px-6">
+      <header
+        className={`sticky top-0 z-40 shrink-0 border-b border-white/60 bg-white/75 px-3 py-3 backdrop-blur-md transition-transform duration-300 sm:px-4 md:px-6 ${
+          headerHidden ? "-translate-y-full md:translate-y-0" : "translate-y-0"
+        }`}
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0 md:hidden"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open admin menu"
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
             {logoUrl ? (
               <img src={logoUrl} alt={`${companyName} logo`} className="h-9 w-9 rounded-md bg-white p-0.5 object-cover shadow-sm" />
             ) : (
@@ -216,6 +265,42 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
                 </Button>
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <DialogContent className="flex max-h-[85vh] max-w-sm flex-col overflow-hidden p-0">
+          <DialogHeader className="border-b border-border/70 px-5 py-4">
+            <DialogTitle>Admin Menu</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-5">
+            <AdminNavLinks onNavigate={() => setMobileMenuOpen(false)} />
+          </div>
+          <div className="border-t border-border/70 px-3 py-3">
+            <div className="mb-3 flex items-center gap-3 rounded-xl border border-border/70 bg-white/70 px-3 py-3">
+              {session?.user?.image ? (
+                <img src={session.user.image} alt={session.user.name ?? "Admin"} className="h-9 w-9 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                  <span className="text-xs font-semibold text-primary">{session?.user?.name?.[0]?.toUpperCase() ?? "A"}</span>
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{session?.user?.name ?? "Admin"}</p>
+                <p className="truncate text-xs text-muted-foreground">{session?.user?.email ?? "Signed in"}</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => {
+                const callbackUrl = `${window.location.origin}/login`;
+                window.location.assign(`/api/auth/local-signout?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+              }}
+            >
+              Sign out
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

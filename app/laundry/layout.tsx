@@ -22,6 +22,7 @@ export default async function LaundryLayout({ children }: { children: React.Reac
       hideHeaderOnScroll
       navItems={[
         { href: "/laundry", label: "Dashboard", exact: true },
+        { href: "/laundry/hub", label: "Team Hub" },
         ...(visibility.showCalendar ? [{ href: "/laundry/calendar", label: "Calendar" }] : []),
         ...(visibility.showInvoices ? [{ href: "/laundry/invoices", label: "Invoices" }] : []),
       ]}

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const startParam = searchParams.get("start");
     const daysParam = Number(searchParams.get("days") ?? 7);
     const rangeDays = Number.isFinite(daysParam)
-      ? Math.min(62, Math.max(1, Math.round(daysParam)))
+      ? Math.min(366, Math.max(1, Math.round(daysParam)))
       : 7;
     const weekStart = startParam ? new Date(startParam) : new Date();
     const weekEnd = addDays(weekStart, rangeDays);

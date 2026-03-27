@@ -196,7 +196,9 @@ export function CleanerDashboardTools({ jobs }: DashboardToolsProps) {
     }
 
     const payload: Record<string, unknown> = {
+      scope: "JOB",
       jobId: payJobId,
+      title: payNote.trim().slice(0, 160) || "Extra payment request",
       type: payType,
       cleanerNote: payNote.trim() || undefined,
     };

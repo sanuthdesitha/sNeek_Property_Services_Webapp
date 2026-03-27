@@ -16,10 +16,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         logoUrl={settings.logoUrl}
         userName={session.user.name}
         userImage={session.user.image}
+        className="hidden md:flex"
       />
       <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden">
         <AdminHeader companyName={settings.companyName} logoUrl={settings.logoUrl} />
-        <main className="page-fade flex-1 overflow-y-auto px-5 py-5 md:px-6 md:py-6">{children}</main>
+        <main className="page-fade flex-1 overflow-y-auto px-3 py-4 sm:px-4 md:px-6 md:py-6">{children}</main>
       </div>
     </div>
   );

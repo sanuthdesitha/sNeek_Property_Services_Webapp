@@ -27,6 +27,7 @@ export type AppEmailTemplateKey =
   | "stockRunSubmitted"
   | "adminAttentionSummary"
   | "tomorrowJobsSummary"
+  | "tomorrowLaundrySummary"
   | "criticalInventoryTomorrow"
   | "quoteApprovalRequest"
   | "quoteSentToClient";
@@ -92,6 +93,7 @@ export const EMAIL_TEMPLATE_KEYS: AppEmailTemplateKey[] = [
   "stockRunSubmitted",
   "adminAttentionSummary",
   "tomorrowJobsSummary",
+  "tomorrowLaundrySummary",
   "criticalInventoryTomorrow",
   "quoteApprovalRequest",
   "quoteSentToClient",
@@ -153,6 +155,7 @@ const EMAIL_TEMPLATE_DEFINITIONS_BASE: Record<
       "jobNumber",
       "cleanDate",
       "scheduledPickupDate",
+      "scheduledDropoffDate",
       "bagLocation",
       "laundryPhotoUrl",
     ],
@@ -307,6 +310,16 @@ const EMAIL_TEMPLATE_DEFINITIONS_BASE: Record<
       "roleLabel",
       "dateLabel",
       "jobCount",
+      "summaryHtml",
+      "summaryText",
+    ],
+  },
+  tomorrowLaundrySummary: {
+    label: "Tomorrow Laundry Summary",
+    variables: [
+      "recipientName",
+      "dateLabel",
+      "taskCount",
       "summaryHtml",
       "summaryText",
     ],
@@ -517,6 +530,7 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
           <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
           <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
           <p style="margin:0 0 6px;"><strong>Scheduled pickup date:</strong> {scheduledPickupDate}</p>
+          <p style="margin:0 0 6px;"><strong>Scheduled drop-off date:</strong> {scheduledDropoffDate}</p>
           <p style="margin:0;"><strong>Bag location:</strong> {bagLocation}</p>
         </div>
         <p><a href="{laundryPhotoUrl}" target="_blank" rel="noopener noreferrer">View laundry photo</a></p>
@@ -724,6 +738,16 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
         <p>Hello {recipientName},</p>
         <p>Here is your ordered summary for <strong>{dateLabel}</strong>.</p>
         <p><strong>Total jobs:</strong> {jobCount}</p>
+        {summaryHtml}
+      `,
+    },
+    tomorrowLaundrySummary: {
+      subject: "{companyName}: Tomorrow's laundry schedule - {dateLabel}",
+      html: `
+        <h2 style="margin:0 0 12px;">Tomorrow's laundry schedule</h2>
+        <p>Hello {recipientName},</p>
+        <p>Here is your laundry pickup and drop-off summary for <strong>{dateLabel}</strong>.</p>
+        <p><strong>Total tasks:</strong> {taskCount}</p>
         {summaryHtml}
       `,
     },

@@ -1,6 +1,6 @@
 import { addDays, format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
-import { JobStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { JobStatus, LaundryStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
@@ -54,6 +54,19 @@ type CriticalStockRow = {
   onHand: number;
   reorderThreshold: number;
   unit: string;
+};
+
+type LaundryTaskRow = {
+  id: string;
+  status: LaundryStatus;
+  pickupDate: Date;
+  dropoffDate: Date;
+  property: {
+    id: string;
+    name: string;
+    suburb: string | null;
+    accessInfo: unknown;
+  };
 };
 
 interface DispatchState {
@@ -206,6 +219,47 @@ function buildNoJobsSummaryParts() {
   };
 }
 
+function buildLaundrySummaryParts(tasks: LaundryTaskRow[], targetDate: Date, timezone: string) {
+  const htmlParts: string[] = [];
+  const smsLines: string[] = [];
+  const targetKey = format(toZonedTime(targetDate, timezone), "yyyy-MM-dd");
+
+  tasks.forEach((task, index) => {
+    const pickupKey = format(toZonedTime(task.pickupDate, timezone), "yyyy-MM-dd");
+    const dropoffKey = format(toZonedTime(task.dropoffDate, timezone), "yyyy-MM-dd");
+    const actions: string[] = [];
+    if (pickupKey === targetKey) actions.push("Pickup");
+    if (dropoffKey === targetKey) actions.push("Drop-off");
+    const actionLabel = actions.join(" + ") || "Task";
+    const propertyLabel = `${task.property.name}${task.property.suburb ? ` (${task.property.suburb})` : ""}`;
+    const timing = `Pickup ${format(toZonedTime(task.pickupDate, timezone), "dd MMM")} · Drop ${format(
+      toZonedTime(task.dropoffDate, timezone),
+      "dd MMM"
+    )}`;
+
+    htmlParts.push(`
+      <li style="margin:0 0 14px 0;">
+        <strong>${actionLabel} · ${propertyLabel}</strong><br/>
+        ${timing}<br/>
+        <span><strong>Status:</strong> ${String(task.status).replace(/_/g, " ")}</span>
+      </li>
+    `);
+    smsLines.push(`${index + 1}) ${actionLabel} ${task.property.name}. ${timing}. ${String(task.status).replace(/_/g, " ")}`);
+  });
+
+  return {
+    html: `<ol style="padding-left:20px;margin:14px 0 0 0;">${htmlParts.join("")}</ol>`,
+    text: smsLines.join(" "),
+  };
+}
+
+function buildNoLaundrySummaryParts() {
+  return {
+    html: "<p>No laundry pickups or drop-offs are scheduled for tomorrow.</p><p>Please still check your laundry schedule in case anything changes.</p>",
+    text: "No laundry pickups or drop-offs scheduled for tomorrow. Please still check your schedule in case anything changes.",
+  };
+}
+
 async function logPushNotification(userId: string, subject: string, body: string) {
   await db.notification.create({
     data: {
@@ -346,6 +400,32 @@ export async function dispatchTomorrowPrepSummaries(
     })) as JobRow[];
 
   const jobs = await loadJobsForRange(targetRange.startUtc, targetRange.endUtc);
+  const laundryTasks = (await db.laundryTask.findMany({
+    where: {
+      OR: [
+        { pickupDate: { gte: targetRange.startUtc, lt: targetRange.endUtc } },
+        { dropoffDate: { gte: targetRange.startUtc, lt: targetRange.endUtc } },
+      ],
+      status: {
+        notIn: [LaundryStatus.DROPPED, LaundryStatus.SKIPPED_PICKUP],
+      },
+    },
+    select: {
+      id: true,
+      status: true,
+      pickupDate: true,
+      dropoffDate: true,
+      property: {
+        select: {
+          id: true,
+          name: true,
+          suburb: true,
+          accessInfo: true,
+        },
+      },
+    },
+    orderBy: [{ pickupDate: "asc" }, { dropoffDate: "asc" }],
+  })) as LaundryTaskRow[];
 
   const dateLabel = format(targetLocal, "EEEE, dd MMMM yyyy");
 
@@ -386,14 +466,14 @@ export async function dispatchTomorrowPrepSummaries(
     cleanerBuckets.set(recipient.id, { recipient, jobs: [] });
   }
 
-  const laundryBuckets = new Map<string, { recipient: Recipient; jobs: JobRow[] }>();
+  const laundryBuckets = new Map<string, { recipient: Recipient; tasks: LaundryTaskRow[] }>();
   const allLaundryUsers = await db.user.findMany({
     where: { role: Role.LAUNDRY, isActive: true },
     select: { id: true, name: true, email: true, phone: true, role: true },
     orderBy: { name: "asc" },
   });
   for (const recipient of allLaundryUsers as Recipient[]) {
-    laundryBuckets.set(recipient.id, { recipient, jobs: [] });
+    laundryBuckets.set(recipient.id, { recipient, tasks: [] });
   }
   const laundryUserById = new Map(allLaundryUsers.map((user) => [user.id, user]));
 
@@ -405,8 +485,10 @@ export async function dispatchTomorrowPrepSummaries(
       bucket.jobs.push(job);
       cleanerBuckets.set(recipient.id, bucket);
     }
+  }
 
-    const explicitLaundryIds = extractLaundryTeamUserIds(job.property.accessInfo);
+  for (const task of laundryTasks) {
+    const explicitLaundryIds = extractLaundryTeamUserIds(task.property.accessInfo);
     const recipients: Recipient[] =
       explicitLaundryIds.length > 0
         ? explicitLaundryIds
@@ -415,8 +497,8 @@ export async function dispatchTomorrowPrepSummaries(
         : (allLaundryUsers as Recipient[]);
 
     for (const recipient of recipients) {
-      const bucket = laundryBuckets.get(recipient.id) ?? { recipient, jobs: [] as JobRow[] };
-      bucket.jobs.push(job);
+      const bucket = laundryBuckets.get(recipient.id) ?? { recipient, tasks: [] as LaundryTaskRow[] };
+      bucket.tasks.push(task);
       laundryBuckets.set(recipient.id, bucket);
     }
   }
@@ -494,24 +576,28 @@ export async function dispatchTomorrowPrepSummaries(
   }
 
   for (const bucket of Array.from(laundryBuckets.values())) {
-    const jobsForRecipient = [...bucket.jobs].sort(compareJobsByPriority);
+    const tasksForRecipient = [...bucket.tasks].sort(
+      (left, right) =>
+        new Date(left.pickupDate).getTime() - new Date(right.pickupDate).getTime() ||
+        new Date(left.dropoffDate).getTime() - new Date(right.dropoffDate).getTime()
+    );
     const summary =
-      jobsForRecipient.length > 0 ? buildJobSummaryParts(jobsForRecipient) : buildNoJobsSummaryParts();
-    const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowJobsSummary", {
+      tasksForRecipient.length > 0
+        ? buildLaundrySummaryParts(tasksForRecipient, targetLocal, timezone)
+        : buildNoLaundrySummaryParts();
+    const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowLaundrySummary", {
       recipientName: bucket.recipient.name ?? "Laundry team",
-      roleLabel: "Laundry team",
       dateLabel,
-      jobCount: String(jobsForRecipient.length),
+      taskCount: String(tasksForRecipient.length),
       summaryHtml: summary.html,
       summaryText: summary.text,
       actionUrl: resolveAppUrl("/laundry"),
       actionLabel: "Open laundry portal",
     });
-    const notificationTemplate = renderNotificationTemplate(settings, "tomorrowJobsSummary", {
+    const notificationTemplate = renderNotificationTemplate(settings, "tomorrowLaundrySummary", {
       recipientName: bucket.recipient.name ?? "Laundry team",
-      roleLabel: "Laundry team",
       dateLabel,
-      jobCount: String(jobsForRecipient.length),
+      taskCount: String(tasksForRecipient.length),
       summaryText: summary.text,
     });
 
@@ -523,40 +609,6 @@ export async function dispatchTomorrowPrepSummaries(
       emailHtml: emailTemplate.html,
       smsBody: notificationTemplate.smsBody,
     });
-
-    const recipientStocks = criticalStocks.filter((row) =>
-      jobsForRecipient.some((job) => job.property.id === row.propertyId)
-    );
-    if (recipientStocks.length > 0) {
-      const inventory = buildInventorySummaryParts(recipientStocks);
-      const inventoryEmail = renderEmailTemplate(summaryTemplateSettings, "criticalInventoryTomorrow", {
-        recipientName: bucket.recipient.name ?? "Laundry team",
-        roleLabel: "Laundry team",
-        dateLabel,
-        propertyCount: String(new Set(recipientStocks.map((row) => row.propertyId)).size),
-        itemCount: String(recipientStocks.length),
-        inventoryHtml: inventory.html,
-        inventoryText: inventory.text,
-        actionUrl: resolveAppUrl("/laundry"),
-        actionLabel: "Open laundry portal",
-      });
-      const inventoryNotification = renderNotificationTemplate(settings, "criticalInventoryTomorrow", {
-        recipientName: bucket.recipient.name ?? "Laundry team",
-        roleLabel: "Laundry team",
-        dateLabel,
-        propertyCount: String(new Set(recipientStocks.map((row) => row.propertyId)).size),
-        itemCount: String(recipientStocks.length),
-        inventoryText: inventory.text,
-      });
-      await sendDirectSummaryNotification({
-        recipient: bucket.recipient,
-        webSubject: inventoryNotification.webSubject,
-        webBody: inventoryNotification.webBody,
-        emailSubject: inventoryEmail.subject,
-        emailHtml: inventoryEmail.html,
-        smsBody: inventoryNotification.smsBody,
-      });
-    }
   }
 
   if (criticalStocks.length > 0) {

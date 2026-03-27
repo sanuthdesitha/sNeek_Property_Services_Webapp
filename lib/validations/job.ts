@@ -156,6 +156,7 @@ export const submitJobSchema = z.object({
       requestedAmount: z.number().min(0).optional().nullable(),
       cleanerNote: z.string().trim().max(4000).optional(),
       title: z.string().trim().max(160).optional(),
+      mediaKeys: z.array(z.string().trim().min(1).max(300)).max(8).optional(),
     })
     .optional(),
 });

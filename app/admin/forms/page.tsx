@@ -30,7 +30,7 @@ const JOB_TYPES = [
   "COMMERCIAL_RECURRING",
 ];
 
-const FIELD_TYPES = ["checkbox", "text", "textarea", "number", "upload", "inventory"];
+const FIELD_TYPES = ["checkbox", "text", "textarea", "number", "upload", "inventory", "signature"];
 const PROPERTY_CONDITION_FIELDS = ["hasBalcony", "inventoryEnabled", "bedrooms", "bathrooms"];
 const PAGE_SLOTS = ["auto", "checklist", "uploads", "laundry", "submit"] as const;
 type PageSlot = (typeof PAGE_SLOTS)[number];

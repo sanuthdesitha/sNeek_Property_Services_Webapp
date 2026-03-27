@@ -24,6 +24,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       where: { id: params.id },
       include: {
         cleaner: { select: { id: true, name: true, email: true } },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            clientId: true,
+            client: { select: { email: true } },
+          },
+        },
         job: {
           select: {
             id: true,
@@ -44,6 +52,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Pay request not found." }, { status: 404 });
     }
 
+    const sourceProperty = payAdjustment.job?.property ?? payAdjustment.property;
+    const sourcePropertyId = payAdjustment.job?.propertyId ?? payAdjustment.property?.id ?? null;
+    const sourceClientId = sourceProperty?.clientId ?? null;
+    if (!sourceProperty || !sourcePropertyId || !sourceClientId) {
+      return NextResponse.json(
+        { error: "A client-linked property is required before this pay request can be sent to a client." },
+        { status: 409 }
+      );
+    }
+
     const linkedApprovals = (await listClientApprovals()).filter((approval) => {
       const metadata = approval.metadata as Record<string, unknown> | null;
       return metadata?.source === "pay_adjustment" && metadata?.payAdjustmentId === payAdjustment.id;
@@ -58,13 +76,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const primaryRecipients = await db.user.findMany({
       where: {
         role: Role.CLIENT,
-        clientId: payAdjustment.job.property.clientId,
+        clientId: sourceClientId,
         isActive: true,
       },
       select: { id: true, email: true },
     });
 
-    const fallbackEmail = payAdjustment.job.property.client?.email?.trim().toLowerCase() || null;
+    const fallbackEmail = sourceProperty.client?.email?.trim().toLowerCase() || null;
     const fallbackRecipients =
       primaryRecipients.length === 0 && fallbackEmail
         ? await db.user.findMany({
@@ -102,9 +120,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const created = await createClientApproval({
-      clientId: payAdjustment.job.property.clientId,
-      propertyId: payAdjustment.job.propertyId,
-      jobId: payAdjustment.job.id,
+      clientId: sourceClientId,
+      propertyId: sourcePropertyId,
+      jobId: payAdjustment.job?.id ?? null,
       title: body.title,
       description: body.description ?? "",
       amount: Number(body.amount),
@@ -118,7 +136,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         cleanerRequestedAmount: payAdjustment.requestedAmount,
         recipientUserIds: recipients.map((row) => row.id),
         recipientEmails: Array.from(recipientEmails),
-        sourceClientId: payAdjustment.job.property.clientId,
+        sourceClientId,
       },
     });
 
@@ -126,10 +144,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
-          jobId: payAdjustment.job.id,
+          jobId: payAdjustment.job?.id ?? undefined,
           channel: NotificationChannel.PUSH,
           subject: "Approval required",
-          body: `${payAdjustment.job.property.name}: ${created.title}`,
+          body: `${sourceProperty.name}: ${created.title}`,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),
@@ -143,7 +161,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         to: Array.from(recipientEmails),
         subject: `${settings.companyName} - Approval required`,
         html: `
-          <p>An approval is required for <strong>${payAdjustment.job.property.name}</strong>.</p>
+          <p>An approval is required for <strong>${sourceProperty.name}</strong>.</p>
           <p><strong>${created.title}</strong></p>
           <p>Amount: ${created.currency} ${created.amount.toFixed(2)}</p>
           ${created.description ? `<p>${created.description.replace(/</g, "&lt;")}</p>` : ""}
@@ -156,7 +174,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: [
         {
           userId: session.user.id,
-          jobId: payAdjustment.job.id,
+          jobId: payAdjustment.job?.id ?? undefined,
           channel: NotificationChannel.PUSH,
           subject: "Pay request sent to client",
           body: `Sent ${created.currency} ${created.amount.toFixed(2)} for client approval.`,
@@ -165,10 +183,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
         {
           userId: payAdjustment.cleanerId,
-          jobId: payAdjustment.job.id,
+          jobId: payAdjustment.job?.id ?? undefined,
           channel: NotificationChannel.PUSH,
           subject: "Pay request shared with client",
-          body: `Admin sent a client approval request for ${payAdjustment.job.property.name}.`,
+          body: `Admin sent a client approval request for ${sourceProperty.name}.`,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -178,7 +196,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await db.auditLog.create({
       data: {
         userId: session.user.id,
-        jobId: payAdjustment.job.id,
+        jobId: payAdjustment.job?.id ?? undefined,
         action: "PAY_ADJUSTMENT_SENT_TO_CLIENT",
         entity: "CleanerPayAdjustment",
         entityId: payAdjustment.id,

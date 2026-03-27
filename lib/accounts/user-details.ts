@@ -15,6 +15,9 @@ export interface UserExtendedProfile {
   abn: string | null;
   address: string | null;
   contactNumber: string | null;
+  jobTitle: string | null;
+  department: string | null;
+  baseLocation: string | null;
   bankDetails: BankDetails | null;
   adminPinHash: string | null;
   adminPinUpdatedAt: string | null;
@@ -71,6 +74,9 @@ function sanitizeProfile(value: unknown): UserExtendedProfile | null {
     abn: sanitizeABN(row.abn),
     address: sanitizeText(row.address, 500) || null,
     contactNumber: sanitizePhone(row.contactNumber),
+    jobTitle: sanitizeText(row.jobTitle, 160) || null,
+    department: sanitizeText(row.department, 160) || null,
+    baseLocation: sanitizeText(row.baseLocation, 160) || null,
     bankDetails: sanitizeBankDetails(row.bankDetails),
     adminPinHash: sanitizeText(row.adminPinHash, 255) || null,
     adminPinUpdatedAt: sanitizeText(row.adminPinUpdatedAt, 40) || null,
@@ -134,6 +140,12 @@ export async function upsertUserExtendedProfile(
       patch.contactNumber !== undefined
         ? sanitizePhone(patch.contactNumber)
         : current?.contactNumber ?? null,
+    jobTitle:
+      patch.jobTitle !== undefined ? sanitizeText(patch.jobTitle, 160) || null : current?.jobTitle ?? null,
+    department:
+      patch.department !== undefined ? sanitizeText(patch.department, 160) || null : current?.department ?? null,
+    baseLocation:
+      patch.baseLocation !== undefined ? sanitizeText(patch.baseLocation, 160) || null : current?.baseLocation ?? null,
     bankDetails:
       patch.bankDetails !== undefined
         ? sanitizeBankDetails(patch.bankDetails)

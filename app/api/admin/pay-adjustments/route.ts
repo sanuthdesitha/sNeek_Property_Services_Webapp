@@ -3,6 +3,7 @@ import { PayAdjustmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
+import { publicUrl } from "@/lib/s3";
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,6 +25,15 @@ export async function GET(req: NextRequest) {
             jobType: true,
             scheduledDate: true,
             property: { select: { id: true, name: true, suburb: true } },
+          },
+        },
+        property: {
+          select: {
+            id: true,
+            name: true,
+            suburb: true,
+            clientId: true,
+            client: { select: { email: true } },
           },
         },
       },
@@ -50,6 +60,11 @@ export async function GET(req: NextRequest) {
       rows.map((row) => ({
         ...row,
         clientApproval: approvalByAdjustmentId.get(row.id) ?? null,
+        attachmentUrls: Array.isArray(row.attachmentKeys)
+          ? row.attachmentKeys
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .map((key) => ({ key, url: publicUrl(key) }))
+          : [],
       }))
     );
   } catch (err: any) {

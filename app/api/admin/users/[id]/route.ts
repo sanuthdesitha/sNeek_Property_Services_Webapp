@@ -10,6 +10,7 @@ import {
   normalizeClientEmail,
   syncClientContactFromPrimaryUser,
 } from "@/lib/clients/contact-sync";
+import { autoAssignCleanerLearning, ensureDefaultLearningPaths } from "@/lib/workforce/service";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -75,6 +76,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       body.contactNumber !== undefined
         ? body.contactNumber?.trim() || null
         : existingExtended?.contactNumber ?? null;
+    const nextJobTitle =
+      body.jobTitle !== undefined ? body.jobTitle?.trim() || null : existingExtended?.jobTitle ?? null;
+    const nextDepartment =
+      body.department !== undefined ? body.department?.trim() || null : existingExtended?.department ?? null;
+    const nextBaseLocation =
+      body.baseLocation !== undefined
+        ? body.baseLocation?.trim() || null
+        : existingExtended?.baseLocation ?? null;
     const nextBankDetails =
       body.bankDetails !== undefined
         ? body.bankDetails
@@ -137,8 +146,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       abn: nextAbn,
       address: nextAddress,
       contactNumber: nextContactNumber,
+      jobTitle: nextJobTitle,
+      department: nextDepartment,
+      baseLocation: nextBaseLocation,
       bankDetails: nextBankDetails,
     });
+    if (updated.role === Role.CLEANER) {
+      await ensureDefaultLearningPaths(session.user.id);
+      await autoAssignCleanerLearning(updated.id, session.user.id);
+    }
 
     const extendedProfile = await getUserExtendedProfile(updated.id);
 

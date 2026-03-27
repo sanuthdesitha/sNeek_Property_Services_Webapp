@@ -156,6 +156,14 @@ export default function JobDetailPage() {
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [continuationRows, setContinuationRows] = useState<any[]>([]);
   const [continuationLoading, setContinuationLoading] = useState(false);
+  const [earlyCheckoutRows, setEarlyCheckoutRows] = useState<any[]>([]);
+  const [earlyCheckoutLoading, setEarlyCheckoutLoading] = useState(false);
+  const [earlyCheckoutDialogOpen, setEarlyCheckoutDialogOpen] = useState(false);
+  const [earlyCheckoutSubmitting, setEarlyCheckoutSubmitting] = useState(false);
+  const [earlyCheckoutForm, setEarlyCheckoutForm] = useState({
+    requestedStartTime: "",
+    note: "",
+  });
   const [continuationDialog, setContinuationDialog] = useState<{ request: any; decision: "APPROVE" | "REJECT" } | null>(null);
   const [continuationSubmitting, setContinuationSubmitting] = useState(false);
   const [continuationForm, setContinuationForm] = useState({
@@ -269,10 +277,27 @@ export default function JobDetailPage() {
     setContinuationLoading(false);
   }
 
+  async function loadEarlyCheckoutRequests() {
+    setEarlyCheckoutLoading(true);
+    const res = await fetch(`/api/admin/job-early-checkouts?jobId=${params.id}`, { cache: "no-store" });
+    const body = await res.json().catch(() => []);
+    if (res.ok) {
+      setEarlyCheckoutRows(Array.isArray(body) ? body : []);
+    } else {
+      toast({
+        title: "Could not load early checkout requests",
+        description: body.error ?? "Please retry.",
+        variant: "destructive",
+      });
+    }
+    setEarlyCheckoutLoading(false);
+  }
+
   useEffect(() => {
     load();
     loadTimeline();
     loadContinuations();
+    loadEarlyCheckoutRequests();
     fetch(`/api/admin/users?role=CLEANER&includeInactive=1&t=${Date.now()}`, { cache: "no-store" }).then((r) => r.json()).then(setCleaners).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
@@ -618,6 +643,54 @@ export default function JobDetailPage() {
     load();
   }
 
+  async function submitEarlyCheckoutRequest() {
+    if (!earlyCheckoutForm.requestedStartTime) {
+      toast({ title: "Requested start time is required.", variant: "destructive" });
+      return;
+    }
+    setEarlyCheckoutSubmitting(true);
+    const res = await fetch("/api/admin/job-early-checkouts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jobId: params.id,
+        requestedStartTime: earlyCheckoutForm.requestedStartTime,
+        note: earlyCheckoutForm.note || undefined,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setEarlyCheckoutSubmitting(false);
+    if (!res.ok) {
+      toast({
+        title: "Request failed",
+        description: body.error ?? "Could not notify cleaners.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "Early checkout update sent to assigned cleaners" });
+    setEarlyCheckoutDialogOpen(false);
+    setEarlyCheckoutForm({ requestedStartTime: job?.startTime ?? "", note: "" });
+    await loadEarlyCheckoutRequests();
+  }
+
+  async function cancelEarlyCheckoutRequest(requestId: string) {
+    const res = await fetch(`/api/admin/job-early-checkouts/${requestId}`, {
+      method: "PATCH",
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast({
+        title: "Could not cancel request",
+        description: body.error ?? "Please retry.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "Early checkout update cancelled" });
+    await loadEarlyCheckoutRequests();
+  }
+
   async function deleteJob(credentials?: { pin?: string; password?: string }) {
     setDeletingJob(true);
     try {
@@ -714,6 +787,16 @@ export default function JobDetailPage() {
         <Button size="sm" variant="outline" onClick={openAssignDialog}>
           <UserPlus className="mr-2 h-4 w-4" /> Assign Cleaners
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setEarlyCheckoutForm({ requestedStartTime: editForm.startTime || job.startTime || "", note: "" });
+            setEarlyCheckoutDialogOpen(true);
+          }}
+        >
+          Request Early Checkout Update
+        </Button>
         {job.status === "SUBMITTED" && (
           <Button size="sm" variant="outline" onClick={() => setQaOpen(true)}>
             <Star className="mr-2 h-4 w-4" /> QA Review
@@ -740,6 +823,55 @@ export default function JobDetailPage() {
           </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Early Checkout Requests</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {earlyCheckoutLoading ? (
+            <p className="text-sm text-muted-foreground">Loading requests...</p>
+          ) : earlyCheckoutRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No early checkout updates sent for this job.</p>
+          ) : (
+            <div className="space-y-2">
+              {earlyCheckoutRows.map((row) => (
+                <div key={row.id} className="rounded-md border p-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        Requested {row.requestedStartTime || "earlier start"} on{" "}
+                        {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
+                      </p>
+                      {row.note ? <p className="mt-1 text-xs text-muted-foreground">{row.note}</p> : null}
+                      {row.acknowledgedAt ? (
+                        <p className="mt-1 text-xs text-emerald-700">
+                          Acknowledged {format(new Date(row.acknowledgedAt), "dd MMM yyyy HH:mm")}
+                        </p>
+                      ) : null}
+                      {row.cancelledAt ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Cancelled {format(new Date(row.cancelledAt), "dd MMM yyyy HH:mm")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={row.status === "PENDING" ? ("warning" as any) : row.status === "ACKNOWLEDGED" ? "success" : "secondary"}>
+                        {row.status}
+                      </Badge>
+                      {row.status === "PENDING" ? (
+                        <Button size="sm" variant="ghost" onClick={() => cancelEarlyCheckoutRequest(row.id)}>
+                          Cancel
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {hasServiceContext ? (
         <Card>
@@ -1631,6 +1763,35 @@ export default function JobDetailPage() {
             </div>
             <Button className="w-full" onClick={submitQa}>
               Submit QA
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={earlyCheckoutDialogOpen} onOpenChange={setEarlyCheckoutDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Early Checkout Update</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Requested earlier start time</Label>
+              <Input
+                type="time"
+                value={earlyCheckoutForm.requestedStartTime}
+                onChange={(e) => setEarlyCheckoutForm((prev) => ({ ...prev, requestedStartTime: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Cleaner note</Label>
+              <Textarea
+                value={earlyCheckoutForm.note}
+                onChange={(e) => setEarlyCheckoutForm((prev) => ({ ...prev, note: e.target.value }))}
+                placeholder="Explain the late change or access update for the assigned cleaner."
+              />
+            </div>
+            <Button className="w-full" onClick={submitEarlyCheckoutRequest} disabled={earlyCheckoutSubmitting}>
+              {earlyCheckoutSubmitting ? "Sending..." : "Send to Assigned Cleaners"}
             </Button>
           </div>
         </DialogContent>

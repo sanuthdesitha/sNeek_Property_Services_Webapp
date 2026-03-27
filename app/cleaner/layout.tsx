@@ -27,6 +27,7 @@ export default async function CleanerLayout({ children }: { children: React.Reac
       hideHeaderOnScroll
       navItems={[
         { href: "/cleaner", label: "Dashboard", exact: true },
+        { href: "/cleaner/hub", label: "Team Hub" },
         ...(visibility.showJobs ? [{ href: "/cleaner/jobs", label: "Jobs" }] : []),
         ...(visibility.showCalendar ? [{ href: "/cleaner/calendar", label: "Calendar" }] : []),
         ...(visibility.showShopping ? [{ href: "/cleaner/shopping", label: "Shopping" }] : []),

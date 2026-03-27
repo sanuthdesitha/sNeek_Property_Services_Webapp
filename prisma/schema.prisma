@@ -104,6 +104,12 @@ enum PayAdjustmentStatus {
   REJECTED
 }
 
+enum PayAdjustmentScope {
+  JOB
+  PROPERTY
+  STANDALONE
+}
+
 enum TimeAdjustmentStatus {
   PENDING
   APPROVED
@@ -240,9 +246,9 @@ model User {
   auditLogs     AuditLog[]        @relation("AuditUser")
   notifications Notification[]
   notificationPreference UserNotificationPreference?
-  pushDevices    UserPushDevice[]
-  payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
-  payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
+    pushDevices    UserPushDevice[]
+    payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
+    payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
   timeAdjustmentRequests TimeLogAdjustmentRequest[] @relation("TimeAdjustmentRequestedBy")
   timeAdjustmentReviews  TimeLogAdjustmentRequest[] @relation("TimeAdjustmentReviewedBy")
   icalSyncRunsTriggered IcalSyncRun[] @relation("IcalSyncTriggeredBy")
@@ -255,10 +261,24 @@ model User {
   shoppingReceipts ShoppingReceipt[] @relation("ShoppingReceiptUploadedBy")
   shoppingSettlementsPaid ShoppingSettlement[] @relation("ShoppingSettlementPaidBy")
   reportVisibilityUpdates Report[] @relation("ReportVisibilityUpdatedBy")
-  // Client link (optional)
-  clientId      String?
-  client        Client?   @relation(fields: [clientId], references: [id])
-}
+    // Client link (optional)
+    clientId      String?
+    client        Client?   @relation(fields: [clientId], references: [id])
+    createdTeamGroups TeamGroup[] @relation("TeamGroupCreatedBy")
+    teamGroupMemberships TeamGroupMember[] @relation("TeamGroupMembershipUser")
+    createdWorkforcePosts WorkforcePost[] @relation("WorkforcePostCreatedBy")
+    createdChatChannels ChatChannel[] @relation("ChatChannelCreatedBy")
+    sentChatMessages ChatMessage[] @relation("ChatMessageSender")
+    learningPathsCreated LearningPath[] @relation("LearningPathCreatedBy")
+    learningAssignments LearningAssignment[] @relation("LearningAssignmentUser")
+    staffDocuments StaffDocument[] @relation("StaffDocumentOwner")
+    uploadedStaffDocuments StaffDocument[] @relation("StaffDocumentUploadedBy")
+    verifiedStaffDocuments StaffDocument[] @relation("StaffDocumentVerifiedBy")
+    sentRecognitions StaffRecognition[] @relation("RecognitionSentBy")
+    receivedRecognitions StaffRecognition[] @relation("RecognitionReceivedBy")
+    createdHiringPositions HiringPosition[] @relation("HiringPositionCreatedBy")
+    reviewedHiringApplications HiringApplication[] @relation("HiringApplicationReviewedBy")
+  }
 
 // ─────────────────────────────────────────────
 // Clients + Properties
@@ -316,6 +336,7 @@ model Property {
   stockRuns           StockRun[]
   shoppingRunLines    ShoppingRunLine[]
   clientRates         PropertyClientRate[]
+  payAdjustments      CleanerPayAdjustment[]
 }
 
 model Integration {
@@ -437,8 +458,11 @@ model Job {
 
 model CleanerPayAdjustment {
   id              String              @id @default(cuid())
-  jobId           String
+  jobId           String?
+  propertyId      String?
   cleanerId       String
+  scope           PayAdjustmentScope  @default(JOB)
+  title           String?
   type            PayAdjustmentType
   requestedHours  Float?
   requestedRate   Float?
@@ -446,6 +470,7 @@ model CleanerPayAdjustment {
   approvedAmount  Float?
   status          PayAdjustmentStatus @default(PENDING)
   cleanerNote     String?             @db.Text
+  attachmentKeys  Json?
   adminNote       String?             @db.Text
   requestedAt     DateTime            @default(now())
   reviewedById    String?
@@ -453,12 +478,14 @@ model CleanerPayAdjustment {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  job             Job                 @relation(fields: [jobId], references: [id])
+  job             Job?                @relation(fields: [jobId], references: [id])
+  property        Property?           @relation(fields: [propertyId], references: [id])
   cleaner         User                @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
   reviewedBy      User?               @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
 
   @@index([cleanerId, status])
   @@index([jobId, status])
+  @@index([propertyId, status])
 }
 
 model JobAssignment {
@@ -1057,6 +1084,196 @@ model AuditLog {
 
   user        User @relation("AuditUser", fields: [userId], references: [id])
   job         Job? @relation("AuditJob", fields: [jobId], references: [id])
+}
+
+model TeamGroup {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+  category       String   @default("CUSTOM")
+  membershipMode String   @default("MANUAL")
+  smartRules     Json?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdBy      User     @relation("TeamGroupCreatedBy", fields: [createdById], references: [id])
+  members        TeamGroupMember[]
+  chatChannels   ChatChannel[]
+}
+
+model TeamGroupMember {
+  id         String   @id @default(cuid())
+  groupId    String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  group      TeamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User      @relation("TeamGroupMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model WorkforcePost {
+  id            String   @id @default(cuid())
+  type          String   @default("ANNOUNCEMENT")
+  title         String
+  body          String   @db.Text
+  coverImageUrl String?
+  attachments   Json?
+  audience      Json?
+  pinned        Boolean  @default(false)
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdBy     User     @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
+}
+
+model ChatChannel {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?  @db.Text
+  kind          String   @default("GROUP")
+  groupId       String?
+  memberUserIds Json?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  group         TeamGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy     User       @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
+  messages      ChatMessage[]
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  channelId   String
+  senderId    String
+  body        String   @db.Text
+  attachments Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender      User        @relation("ChatMessageSender", fields: [senderId], references: [id])
+}
+
+model LearningPath {
+  id            String   @id @default(cuid())
+  title         String
+  slug          String   @unique
+  type          String   @default("COURSE")
+  description   String?  @db.Text
+  coverImageUrl String?
+  audience      Json?
+  schema        Json
+  isPublished   Boolean  @default(false)
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdBy     User     @relation("LearningPathCreatedBy", fields: [createdById], references: [id])
+  assignments   LearningAssignment[]
+}
+
+model LearningAssignment {
+  id           String   @id @default(cuid())
+  pathId       String
+  userId       String
+  assignedById String?
+  status       String   @default("ASSIGNED")
+  score        Float?
+  starRating   Float?
+  answers      Json?
+  evaluation   Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  path         LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
+  user         User         @relation("LearningAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pathId, userId])
+}
+
+model StaffDocument {
+  id           String   @id @default(cuid())
+  userId       String
+  uploadedById String
+  verifiedById String?
+  category     String
+  title        String
+  fileName     String
+  url          String   @db.Text
+  s3Key        String
+  mimeType     String?
+  notes        String?  @db.Text
+  status       String   @default("PENDING")
+  expiresAt    DateTime?
+  verifiedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation("StaffDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
+  verifiedBy   User?    @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
+}
+
+model StaffRecognition {
+  id               String   @id @default(cuid())
+  userId           String
+  sentById         String
+  title            String
+  message          String?  @db.Text
+  badgeKey         String
+  celebrationStyle String   @default("SPOTLIGHT")
+  isPublic         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  user             User     @relation("RecognitionReceivedBy", fields: [userId], references: [id], onDelete: Cascade)
+  sentBy           User     @relation("RecognitionSentBy", fields: [sentById], references: [id])
+}
+
+model HiringPosition {
+  id                String   @id @default(cuid())
+  title             String
+  slug              String   @unique
+  description       String   @db.Text
+  department        String?
+  location          String?
+  employmentType    String?
+  applicationSchema Json
+  screeningSchema   Json?
+  isPublished       Boolean  @default(false)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  createdBy         User     @relation("HiringPositionCreatedBy", fields: [createdById], references: [id])
+  applications      HiringApplication[]
+}
+
+model HiringApplication {
+  id             String   @id @default(cuid())
+  positionId     String
+  fullName       String
+  email          String
+  phone          String?
+  status         String   @default("NEW")
+  answers        Json?
+  screeningScore Float?
+  evaluation     Json?
+  resumeUrl      String?  @db.Text
+  resumeKey      String?
+  coverLetter    String?  @db.Text
+  reviewedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  position       HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  reviewedBy     User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
 }
 
 model AppSetting {

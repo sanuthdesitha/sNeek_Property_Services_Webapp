@@ -19,6 +19,7 @@ export default async function ClientLayout({ children }: { children: React.React
       maxWidthClass="max-w-6xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
+      hideHeaderOnScroll
       navItems={[
         { href: "/client", label: "Dashboard", exact: true },
         ...(visibility.showCalendar ? [{ href: "/client/calendar", label: "Calendar" }] : []),

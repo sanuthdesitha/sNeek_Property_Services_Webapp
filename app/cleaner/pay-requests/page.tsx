@@ -11,20 +11,32 @@ const TZ = "Australia/Sydney";
 export default async function CleanerPayRequestsRoutePage() {
   await ensureCleanerModuleAccess("payRequests");
   const session = await requireRole([Role.CLEANER]);
-  const jobs = await db.job.findMany({
-    where: {
-      assignments: { some: { userId: session.user.id } },
-      status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
-    },
-    include: { property: { select: { name: true } } },
-    orderBy: { scheduledDate: "desc" },
-    take: 200,
-  });
+  const [jobs, properties] = await Promise.all([
+    db.job.findMany({
+      where: {
+        assignments: { some: { userId: session.user.id } },
+        status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
+      },
+      include: { property: { select: { name: true } } },
+      orderBy: { scheduledDate: "desc" },
+      take: 200,
+    }),
+    db.property.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, suburb: true },
+      orderBy: [{ name: "asc" }],
+    }),
+  ]);
 
   const jobOptions = jobs.map((job) => ({
     id: job.id,
     label: `${job.property.name} - ${format(toZonedTime(job.scheduledDate, TZ), "dd MMM yyyy")}`,
   }));
 
-  return <CleanerPayRequestsPage jobs={jobOptions} />;
+  const propertyOptions = properties.map((property) => ({
+    id: property.id,
+    label: property.suburb ? `${property.name} (${property.suburb})` : property.name,
+  }));
+
+  return <CleanerPayRequestsPage jobs={jobOptions} properties={propertyOptions} />;
 }

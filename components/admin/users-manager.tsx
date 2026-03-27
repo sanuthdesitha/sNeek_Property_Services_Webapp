@@ -45,6 +45,9 @@ interface UserItem {
     abn: string | null;
     address: string | null;
     contactNumber: string | null;
+    jobTitle: string | null;
+    department: string | null;
+    baseLocation: string | null;
     bankDetails: BankDetails | null;
   } | null;
 }
@@ -82,6 +85,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     abn: "",
     address: "",
     contactNumber: "",
+    jobTitle: "",
+    department: "",
+    baseLocation: "",
     bankDetails: {
       accountName: "",
       bankName: "",
@@ -108,6 +114,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     abn: "",
     address: "",
     contactNumber: "",
+    jobTitle: "",
+    department: "",
+    baseLocation: "",
     bankDetails: {
       accountName: "",
       bankName: "",
@@ -183,6 +192,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
         abn: form.abn.trim() || undefined,
         address: form.address.trim() || undefined,
         contactNumber: form.contactNumber.trim() || undefined,
+        jobTitle: form.jobTitle.trim() || undefined,
+        department: form.department.trim() || undefined,
+        baseLocation: form.baseLocation.trim() || undefined,
         bankDetails:
           form.role === "CLEANER" || form.role === "LAUNDRY"
             ? {
@@ -220,6 +232,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
         abn: "",
         address: "",
         contactNumber: "",
+        jobTitle: "",
+        department: "",
+        baseLocation: "",
         bankDetails: {
           accountName: "",
           bankName: "",
@@ -269,6 +284,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       abn: user.extendedProfile?.abn ?? "",
       address: user.extendedProfile?.address ?? "",
       contactNumber: user.extendedProfile?.contactNumber ?? user.phone ?? "",
+      jobTitle: user.extendedProfile?.jobTitle ?? "",
+      department: user.extendedProfile?.department ?? "",
+      baseLocation: user.extendedProfile?.baseLocation ?? "",
       bankDetails: {
         accountName: user.extendedProfile?.bankDetails?.accountName ?? "",
         bankName: user.extendedProfile?.bankDetails?.bankName ?? "",
@@ -310,6 +328,9 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           abn: accountForm.abn.trim() || null,
           address: accountForm.address.trim() || null,
           contactNumber: accountForm.contactNumber.trim() || null,
+          jobTitle: accountForm.jobTitle.trim() || null,
+          department: accountForm.department.trim() || null,
+          baseLocation: accountForm.baseLocation.trim() || null,
           bankDetails:
             accountForm.role === "CLEANER" || accountForm.role === "LAUNDRY"
               ? {
@@ -497,6 +518,15 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                         {user.extendedProfile?.businessName ? (
                           <p className="text-xs text-muted-foreground">Business: {user.extendedProfile.businessName}</p>
                         ) : null}
+                        {user.extendedProfile?.jobTitle ? (
+                          <p className="text-xs text-muted-foreground">Title: {user.extendedProfile.jobTitle}</p>
+                        ) : null}
+                        {user.extendedProfile?.department ? (
+                          <p className="text-xs text-muted-foreground">Department: {user.extendedProfile.department}</p>
+                        ) : null}
+                        {user.extendedProfile?.baseLocation ? (
+                          <p className="text-xs text-muted-foreground">Base: {user.extendedProfile.baseLocation}</p>
+                        ) : null}
                         {user.extendedProfile?.abn ? (
                           <p className="text-xs text-muted-foreground">ABN: {user.extendedProfile.abn}</p>
                         ) : null}
@@ -611,6 +641,29 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                     <GoogleAddressInput
                       value={form.address}
                       onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label>Job title (optional)</Label>
+                    <Input
+                      value={form.jobTitle}
+                      onChange={(e) => setForm((prev) => ({ ...prev, jobTitle: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Department (optional)</Label>
+                    <Input
+                      value={form.department}
+                      onChange={(e) => setForm((prev) => ({ ...prev, department: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Base location (optional)</Label>
+                    <Input
+                      value={form.baseLocation}
+                      onChange={(e) => setForm((prev) => ({ ...prev, baseLocation: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -820,6 +873,29 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   <GoogleAddressInput
                     value={accountForm.address}
                     onChange={(value) => setAccountForm((prev) => ({ ...prev, address: value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Job title (optional)</Label>
+                  <Input
+                    value={accountForm.jobTitle}
+                    onChange={(e) => setAccountForm((prev) => ({ ...prev, jobTitle: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Department (optional)</Label>
+                  <Input
+                    value={accountForm.department}
+                    onChange={(e) => setAccountForm((prev) => ({ ...prev, department: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Base location (optional)</Label>
+                  <Input
+                    value={accountForm.baseLocation}
+                    onChange={(e) => setAccountForm((prev) => ({ ...prev, baseLocation: e.target.value }))}
                   />
                 </div>
               </div>

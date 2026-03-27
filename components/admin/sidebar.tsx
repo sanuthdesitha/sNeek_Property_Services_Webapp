@@ -36,9 +36,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const navItems = [
+export const ADMIN_NAV_ITEMS = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Accounts", href: "/admin/users", icon: Users },
+  { label: "Workforce", href: "/admin/workforce", icon: Users },
   { label: "Clients", href: "/admin/clients", icon: Users },
   { label: "Properties", href: "/admin/properties", icon: Building2 },
   { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
@@ -69,6 +70,7 @@ interface AdminSidebarProps {
   logoUrl?: string;
   userName?: string | null;
   userImage?: string | null;
+  className?: string;
 }
 
 function initialsFromName(name: string): string {
@@ -85,8 +87,8 @@ export function AdminSidebar({
   logoUrl,
   userName,
   userImage,
+  className,
 }: AdminSidebarProps) {
-  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const initials = initialsFromName(companyName) || "SP";
 
@@ -94,7 +96,8 @@ export function AdminSidebar({
     <aside
       className={cn(
         "relative z-20 flex h-screen flex-col border-r border-white/60 bg-white/75 backdrop-blur-md transition-all duration-300",
-        collapsed ? "w-16" : "w-60"
+        collapsed ? "w-16" : "w-60",
+        className
       )}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_20%_12%,rgba(255,174,87,0.21),transparent_65%),radial-gradient(circle_at_90%_4%,rgba(39,153,163,0.2),transparent_52%)]" />
@@ -120,27 +123,7 @@ export function AdminSidebar({
 
       {/* Nav */}
       <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-1 px-2">
-          {navItems.map((item) => {
-            const active = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-                  active
-                    ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]"
-                    : "text-muted-foreground hover:bg-white/75 hover:text-foreground"
-                )}
-                title={collapsed ? item.label : undefined}
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
-        </nav>
+        <AdminNavLinks collapsed={collapsed} />
       </ScrollArea>
 
       {/* Footer */}
@@ -182,5 +165,40 @@ export function AdminSidebar({
         </Button>
       </div>
     </aside>
+  );
+}
+
+export function AdminNavLinks({
+  collapsed = false,
+  onNavigate,
+}: {
+  collapsed?: boolean;
+  onNavigate?: () => void;
+}) {
+  const pathname = usePathname();
+
+  return (
+    <nav className="space-y-1 px-2">
+      {ADMIN_NAV_ITEMS.map((item) => {
+        const active = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+              active
+                ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]"
+                : "text-muted-foreground hover:bg-white/75 hover:text-foreground"
+            )}
+            title={collapsed ? item.label : undefined}
+          >
+            <item.icon className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>{item.label}</span>}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

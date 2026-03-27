@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
+import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
-import { isTemplateNodeVisible } from "@/lib/forms/visibility";
+import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -35,6 +36,13 @@ type SavedLaundryUpdate = {
   bagLocation?: string;
   skipReasonCode?: string;
   skipReasonNote?: string;
+};
+type SharedCleanerDraftEnvelope = {
+  updatedAt: string;
+  updatedByUserId: string;
+  updatedByName: string;
+  editorSessionId: string;
+  state: Record<string, any>;
 };
 const LAUNDRY_SKIP_REASONS = [
   { value: "NO_LINEN_USED", label: "No linen used" },
@@ -147,6 +155,7 @@ function carryForwardPhotoFieldId(taskId: string) {
 }
 
 const DAMAGE_UPLOAD_FIELD_ID = "__damage_report_photos";
+const PAY_REQUEST_UPLOAD_FIELD_ID = "__pay_request_photos";
 
 function formatLaundryOutcomeLabelValue(outcome: LaundryOutcome) {
   switch (outcome) {
@@ -230,6 +239,10 @@ function shouldDiscardLocalDraft(draft: Record<string, any> | null, body: any) {
   return false;
 }
 
+function createEditorSessionId() {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function CleanerJobPage() {
   const params = useParams();
   const router = useRouter();
@@ -280,6 +293,7 @@ export default function CleanerJobPage() {
   const [rescheduleRemainingHours, setRescheduleRemainingHours] = useState("");
   const [showRescheduleForm, setShowRescheduleForm] = useState(false);
   const [rescheduleRequests, setRescheduleRequests] = useState<any[]>([]);
+  const [earlyCheckoutRequests, setEarlyCheckoutRequests] = useState<any[]>([]);
   const [submittingReschedule, setSubmittingReschedule] = useState(false);
   const [uploadPreviewUrls, setUploadPreviewUrls] = useState<Record<string, string>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -291,6 +305,9 @@ export default function CleanerJobPage() {
   const hydratedRef = useRef(false);
   const carryoverNoticeShownRef = useRef(false);
   const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
+  const editorSessionIdRef = useRef(createEditorSessionId());
+  const lastKnownSharedDraftAtRef = useRef<string | null>(null);
+  const suppressDraftSyncUntilRef = useRef(0);
 
   function stopTicking() {
     if (timerRef.current) {
@@ -358,6 +375,145 @@ export default function CleanerJobPage() {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(`cleaner-job-pending-submit:${jobId}`);
     setPendingSync(false);
+  }
+
+  function suppressDraftSync(ms = 1200) {
+    suppressDraftSyncUntilRef.current = Date.now() + ms;
+  }
+
+  function buildDraftSnapshot(updatedAt = new Date().toISOString()) {
+    return {
+      updatedAt,
+      formData,
+      uploads,
+      laundryOutcome,
+      laundryReady,
+      laundrySkipReasonCode,
+      laundrySkipReasonNote,
+      savedLaundryUpdate,
+      lastLaundrySubmittedAt,
+      laundryUpdateCollapsed,
+      bagLocationSelection,
+      bagLocationCustom,
+      step,
+      verificationDate,
+      confirmOnSite,
+      confirmChecklist,
+      resolvedCarryForwardIds,
+      hasMissedTask,
+      extraPaymentRequired,
+      damageFound,
+      approvalTitle,
+      approvalDescription,
+      approvalType,
+      approvalHours,
+      approvalRate,
+      approvalAmount,
+      damageTitle,
+      damageDescription,
+      damageEstimatedCost,
+      showRescheduleForm,
+      missedTaskNotes,
+    };
+  }
+
+  function applyDraftSnapshot(
+    draft: Record<string, any>,
+    options: {
+      bagLocationOptions: string[];
+      fallbackStep: Step;
+      expectedDate?: string;
+    }
+  ) {
+    suppressDraftSync();
+    setFormData(draft.formData ?? {});
+    setUploads(draft.uploads ?? {});
+    syncLaundryReadyFromOutcome(
+      (draft.laundryOutcome as LaundryOutcome | undefined) ??
+        (draft.laundryReady === true ? "READY_FOR_PICKUP" : null)
+    );
+    setLaundrySkipReasonCode(
+      typeof draft.laundrySkipReasonCode === "string" && draft.laundrySkipReasonCode
+        ? draft.laundrySkipReasonCode
+        : "LINEN_STILL_WASHING"
+    );
+    setLaundrySkipReasonNote(typeof draft.laundrySkipReasonNote === "string" ? draft.laundrySkipReasonNote : "");
+    setBagLocationSelection(
+      typeof draft.bagLocationSelection === "string"
+        ? draft.bagLocationSelection
+        : options.bagLocationOptions[0] ?? "__custom"
+    );
+    setBagLocationCustom(draft.bagLocationCustom ?? "");
+    setStep((draft.step as Step) ?? options.fallbackStep);
+    setVerificationDate(draft.verificationDate ?? options.expectedDate ?? "");
+    setConfirmOnSite(Boolean(draft.confirmOnSite));
+    setConfirmChecklist(Boolean(draft.confirmChecklist));
+    setResolvedCarryForwardIds(Array.isArray(draft.resolvedCarryForwardIds) ? draft.resolvedCarryForwardIds : []);
+    setHasMissedTask(Boolean(draft.hasMissedTask));
+    setShowRescheduleForm(Boolean(draft.showRescheduleForm));
+    setExtraPaymentRequired(Boolean(draft.extraPaymentRequired));
+    setDamageFound(Boolean(draft.damageFound));
+    setApprovalTitle(typeof draft.approvalTitle === "string" ? draft.approvalTitle : "");
+    setApprovalDescription(typeof draft.approvalDescription === "string" ? draft.approvalDescription : "");
+    setApprovalType(draft.approvalType === "HOURLY" ? "HOURLY" : "FIXED");
+    setApprovalHours(typeof draft.approvalHours === "string" ? draft.approvalHours : "1");
+    setApprovalRate(typeof draft.approvalRate === "string" ? draft.approvalRate : "");
+    setApprovalAmount(typeof draft.approvalAmount === "string" ? draft.approvalAmount : "0");
+    setDamageTitle(typeof draft.damageTitle === "string" ? draft.damageTitle : "");
+    setDamageDescription(typeof draft.damageDescription === "string" ? draft.damageDescription : "");
+    setDamageEstimatedCost(typeof draft.damageEstimatedCost === "string" ? draft.damageEstimatedCost : "0");
+    const draftSavedLaundryUpdate =
+      draft.savedLaundryUpdate && typeof draft.savedLaundryUpdate === "object"
+        ? (draft.savedLaundryUpdate as SavedLaundryUpdate)
+        : null;
+    setSavedLaundryUpdate(draftSavedLaundryUpdate);
+    setLastLaundrySubmittedAt(
+      typeof draft.lastLaundrySubmittedAt === "string"
+        ? draft.lastLaundrySubmittedAt
+        : draftSavedLaundryUpdate?.submittedAt ?? null
+    );
+    setLaundryUpdateCollapsed(
+      typeof draft.laundryUpdateCollapsed === "boolean"
+        ? draft.laundryUpdateCollapsed
+        : Boolean(draftSavedLaundryUpdate)
+    );
+    const draftNotes = Array.isArray(draft.missedTaskNotes)
+      ? draft.missedTaskNotes
+      : typeof draft.missedTaskNote === "string"
+        ? [draft.missedTaskNote]
+        : [];
+    setMissedTaskNotes(draftNotes.length > 0 ? draftNotes : [""]);
+    lastKnownSharedDraftAtRef.current =
+      typeof draft.updatedAt === "string" && draft.updatedAt ? draft.updatedAt : lastKnownSharedDraftAtRef.current;
+  }
+
+  async function fetchSharedDraftState() {
+    const res = await fetch(`/api/cleaner/jobs/${jobId}/draft`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = await res.json().catch(() => ({}));
+    return body?.draft && typeof body.draft === "object"
+      ? (body.draft as SharedCleanerDraftEnvelope)
+      : null;
+  }
+
+  async function persistSharedDraftState(snapshot: Record<string, any>) {
+    const res = await fetch(`/api/cleaner/jobs/${jobId}/draft`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        editorSessionId: editorSessionIdRef.current,
+        state: snapshot,
+      }),
+    });
+    if (!res.ok) return;
+    const body = await res.json().catch(() => ({}));
+    lastKnownSharedDraftAtRef.current =
+      typeof body.updatedAt === "string" && body.updatedAt ? body.updatedAt : snapshot.updatedAt;
+  }
+
+  async function clearSharedDraftState() {
+    lastKnownSharedDraftAtRef.current = null;
+    await fetch(`/api/cleaner/jobs/${jobId}/draft`, { method: "DELETE" }).catch(() => {});
   }
 
   function isImageFileName(value: string) {
@@ -692,6 +848,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     if (shouldDiscardLocalDraft(draft, body)) {
       clearDraftState();
       clearPendingSubmission();
+      void clearSharedDraftState();
       draft = null;
       showPopupNotification(
         "Previous progress cleared",
@@ -700,65 +857,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
 
     if (draft) {
-      setFormData(draft.formData ?? {});
-      setUploads(draft.uploads ?? {});
-      syncLaundryReadyFromOutcome(
-        (draft.laundryOutcome as LaundryOutcome | undefined) ??
-          (draft.laundryReady === true ? "READY_FOR_PICKUP" : null)
-      );
-      setLaundrySkipReasonCode(
-        typeof draft.laundrySkipReasonCode === "string" && draft.laundrySkipReasonCode
-          ? draft.laundrySkipReasonCode
-          : "LINEN_STILL_WASHING"
-      );
-      setLaundrySkipReasonNote(
-        typeof draft.laundrySkipReasonNote === "string" ? draft.laundrySkipReasonNote : ""
-      );
-      setBagLocationSelection(
-        typeof draft.bagLocationSelection === "string"
-          ? draft.bagLocationSelection
-          : options[0] ?? "__custom"
-      );
-      setBagLocationCustom(draft.bagLocationCustom ?? "");
-      setStep((draft.step as Step) ?? (body?.timeState?.isRunning ? "checklist" : "overview"));
-      setVerificationDate(draft.verificationDate ?? body?.startVerification?.expectedDate ?? "");
-      setConfirmOnSite(Boolean(draft.confirmOnSite));
-      setConfirmChecklist(Boolean(draft.confirmChecklist));
-      setResolvedCarryForwardIds(Array.isArray(draft.resolvedCarryForwardIds) ? draft.resolvedCarryForwardIds : []);
-      setHasMissedTask(Boolean(draft.hasMissedTask));
-      setShowRescheduleForm(Boolean(draft.showRescheduleForm));
-      setExtraPaymentRequired(Boolean(draft.extraPaymentRequired));
-      setDamageFound(Boolean(draft.damageFound));
-      setApprovalTitle(typeof draft.approvalTitle === "string" ? draft.approvalTitle : "");
-      setApprovalDescription(typeof draft.approvalDescription === "string" ? draft.approvalDescription : "");
-      setApprovalType(draft.approvalType === "HOURLY" ? "HOURLY" : "FIXED");
-      setApprovalHours(typeof draft.approvalHours === "string" ? draft.approvalHours : "1");
-      setApprovalRate(typeof draft.approvalRate === "string" ? draft.approvalRate : "");
-      setApprovalAmount(typeof draft.approvalAmount === "string" ? draft.approvalAmount : "0");
-      setDamageTitle(typeof draft.damageTitle === "string" ? draft.damageTitle : "");
-      setDamageDescription(typeof draft.damageDescription === "string" ? draft.damageDescription : "");
-      setDamageEstimatedCost(typeof draft.damageEstimatedCost === "string" ? draft.damageEstimatedCost : "0");
-      const draftSavedLaundryUpdate =
-        draft.savedLaundryUpdate && typeof draft.savedLaundryUpdate === "object"
-          ? (draft.savedLaundryUpdate as SavedLaundryUpdate)
-          : null;
-      setSavedLaundryUpdate(draftSavedLaundryUpdate);
-      setLastLaundrySubmittedAt(
-        typeof draft.lastLaundrySubmittedAt === "string"
-          ? draft.lastLaundrySubmittedAt
-          : draftSavedLaundryUpdate?.submittedAt ?? null
-      );
-      setLaundryUpdateCollapsed(
-        typeof draft.laundryUpdateCollapsed === "boolean"
-          ? draft.laundryUpdateCollapsed
-          : Boolean(draftSavedLaundryUpdate)
-      );
-      const draftNotes = Array.isArray(draft.missedTaskNotes)
-        ? draft.missedTaskNotes
-        : typeof draft.missedTaskNote === "string"
-          ? [draft.missedTaskNote]
-          : [];
-      setMissedTaskNotes(draftNotes.length > 0 ? draftNotes : [""]);
+      applyDraftSnapshot(draft, {
+        bagLocationOptions: options,
+        fallbackStep: body?.timeState?.isRunning ? "checklist" : "overview",
+        expectedDate: body?.startVerification?.expectedDate ?? "",
+      });
     } else {
       const carryFormData =
         carryoverSnapshot?.formData && typeof carryoverSnapshot.formData === "object"
@@ -911,15 +1014,68 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       setLastLaundrySubmittedAt(null);
       setLaundryUpdateCollapsed(false);
     }
+    if (!finishedState) {
+      const sharedDraft = await fetchSharedDraftState().catch(() => null);
+      const localDraftUpdatedAt = typeof draft?.updatedAt === "string" ? draft.updatedAt : null;
+      if (sharedDraft && sharedDraft.editorSessionId !== editorSessionIdRef.current) {
+        if (shouldDiscardLocalDraft(sharedDraft.state, body)) {
+          void clearSharedDraftState();
+        } else if (!localDraftUpdatedAt || sharedDraft.updatedAt > localDraftUpdatedAt) {
+          applyDraftSnapshot(
+            {
+              ...sharedDraft.state,
+              updatedAt: sharedDraft.updatedAt,
+            },
+            {
+              bagLocationOptions: options,
+              fallbackStep: body?.timeState?.isRunning ? "checklist" : "overview",
+              expectedDate: body?.startVerification?.expectedDate ?? "",
+            }
+          );
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(
+              `cleaner-job-draft:${jobId}`,
+              JSON.stringify({
+                ...sharedDraft.state,
+                updatedAt: sharedDraft.updatedAt,
+              })
+            );
+          }
+        }
+      }
+    }
     startTimerFromState(body?.timeState?.completedSeconds ?? 0, body?.timeState?.activeStartedAt ?? null);
     const continuationRes = await fetch(`/api/cleaner/jobs/${jobId}/reschedule-request`, { cache: "no-store" });
     const continuationBody = await continuationRes.json().catch(() => []);
     if (continuationRes.ok) {
       setRescheduleRequests(Array.isArray(continuationBody) ? continuationBody : []);
     }
+    const earlyCheckoutRes = await fetch(`/api/cleaner/jobs/${jobId}/early-checkout-requests`, { cache: "no-store" });
+    const earlyCheckoutBody = await earlyCheckoutRes.json().catch(() => []);
+    if (earlyCheckoutRes.ok) {
+      setEarlyCheckoutRequests(Array.isArray(earlyCheckoutBody) ? earlyCheckoutBody : []);
+    }
     if (finishedState) clearDraftState();
     if (finishedState) clearPendingSubmission();
+    if (finishedState) void clearSharedDraftState();
     hydratedRef.current = true;
+  }
+
+  async function acknowledgeEarlyCheckout(requestId: string) {
+    const res = await fetch(`/api/cleaner/job-early-checkouts/${requestId}`, {
+      method: "PATCH",
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast({
+        title: "Could not acknowledge update",
+        description: body.error ?? "Please retry.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "Early checkout update acknowledged" });
+    await load();
   }
 
   useEffect(() => {
@@ -932,46 +1088,18 @@ function clockLimitSourceLabel(value: string | null | undefined) {
 
   useEffect(() => {
     if (!hydratedRef.current || !payload?.job) return;
+    if (Date.now() < suppressDraftSyncUntilRef.current) return;
     const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(payload.job.status ?? "");
     if (finishedState) {
       clearDraftState();
+      void clearSharedDraftState();
       return;
     }
     if (typeof window === "undefined") return;
+    const snapshot = buildDraftSnapshot();
     window.localStorage.setItem(
       `cleaner-job-draft:${jobId}`,
-      JSON.stringify({
-        formData,
-        uploads,
-        laundryOutcome,
-        laundryReady,
-        laundrySkipReasonCode,
-        laundrySkipReasonNote,
-        savedLaundryUpdate,
-        lastLaundrySubmittedAt,
-        laundryUpdateCollapsed,
-        bagLocationSelection,
-        bagLocationCustom,
-        step,
-        verificationDate,
-        confirmOnSite,
-        confirmChecklist,
-        resolvedCarryForwardIds,
-        hasMissedTask,
-        extraPaymentRequired,
-        damageFound,
-        approvalTitle,
-        approvalDescription,
-        approvalType,
-        approvalHours,
-        approvalRate,
-        approvalAmount,
-        damageTitle,
-        damageDescription,
-        damageEstimatedCost,
-        showRescheduleForm,
-        missedTaskNotes,
-      })
+      JSON.stringify(snapshot)
     );
   }, [
     bagLocationCustom,
@@ -1006,6 +1134,111 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     uploads,
     verificationDate,
   ]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || !payload?.job) return;
+    if (Date.now() < suppressDraftSyncUntilRef.current) return;
+    const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(payload.job.status ?? "");
+    if (finishedState) return;
+
+    const timer = window.setTimeout(() => {
+      const snapshot = buildDraftSnapshot();
+      void persistSharedDraftState(snapshot);
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    approvalAmount,
+    approvalDescription,
+    approvalHours,
+    approvalRate,
+    approvalTitle,
+    approvalType,
+    bagLocationCustom,
+    bagLocationSelection,
+    confirmChecklist,
+    confirmOnSite,
+    damageDescription,
+    damageEstimatedCost,
+    damageFound,
+    damageTitle,
+    extraPaymentRequired,
+    formData,
+    hasMissedTask,
+    jobId,
+    lastLaundrySubmittedAt,
+    laundryOutcome,
+    laundrySkipReasonCode,
+    laundrySkipReasonNote,
+    laundryUpdateCollapsed,
+    missedTaskNotes,
+    payload?.job?.status,
+    resolvedCarryForwardIds,
+    savedLaundryUpdate,
+    showRescheduleForm,
+    step,
+    uploads,
+    verificationDate,
+  ]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || !payload?.job) return;
+    const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(payload.job.status ?? "");
+    if (finishedState) return;
+
+    let cancelled = false;
+
+    async function pollSharedDraft() {
+      const draft = await fetchSharedDraftState();
+      if (cancelled || !draft) return;
+      if (draft.editorSessionId === editorSessionIdRef.current) {
+        if (draft.updatedAt) lastKnownSharedDraftAtRef.current = draft.updatedAt;
+        return;
+      }
+      if (lastKnownSharedDraftAtRef.current && draft.updatedAt <= lastKnownSharedDraftAtRef.current) return;
+      if (shouldDiscardLocalDraft(draft.state, payload)) {
+        void clearSharedDraftState();
+        return;
+      }
+
+      applyDraftSnapshot(
+        {
+          ...draft.state,
+          updatedAt: draft.updatedAt,
+        },
+        {
+          bagLocationOptions: Array.isArray(payload?.laundryBagLocationOptions) ? payload.laundryBagLocationOptions : [],
+          fallbackStep: payload?.timeState?.isRunning ? "checklist" : "overview",
+          expectedDate: payload?.startVerification?.expectedDate ?? "",
+        }
+      );
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          `cleaner-job-draft:${jobId}`,
+          JSON.stringify({
+            ...draft.state,
+            updatedAt: draft.updatedAt,
+          })
+        );
+      }
+
+      showPopupNotification(
+        "Form updated live",
+        `${draft.updatedByName || "Another cleaner"} updated this form.`
+      );
+    }
+
+    void pollSharedDraft();
+    const interval = window.setInterval(() => {
+      void pollSharedDraft();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [jobId, payload]);
 
   useEffect(() => {
     async function syncPending() {
@@ -2015,6 +2248,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return <div>{renderInventoryField(field, section)}</div>;
     }
 
+    if (field.type === "signature") {
+      return (
+        <SignaturePad
+          label={field.label}
+          value={typeof formData[field.id] === "string" ? formData[field.id] : ""}
+          required={Boolean(field.required)}
+          onChange={(value) => setFormData((prev) => ({ ...prev, [field.id]: value }))}
+        />
+      );
+    }
+
     return (
       <div className="space-y-1">
         <Label className="text-xs text-muted-foreground">{field.label}</Label>
@@ -2037,6 +2281,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     if (!res.ok) {
       const missingUploadFields = Array.isArray(body?.missingUploadFields)
         ? body.missingUploadFields.filter((field: any) => field && typeof field === "object")
+        : [];
+      const missingRequiredFields = Array.isArray(body?.missingRequiredFields)
+        ? body.missingRequiredFields.filter((field: any) => field && typeof field === "object")
         : [];
       if (missingUploadFields.length > 0) {
         const missingIds = new Set(
@@ -2070,6 +2317,37 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         });
         return false;
       }
+      if (missingRequiredFields.length > 0) {
+        const firstMissingId =
+          typeof missingRequiredFields[0]?.id === "string" ? missingRequiredFields[0].id : "";
+        const matchingField = visibleSections
+          .flatMap((section: any) => section.fields ?? [])
+          .find((field: any) => field?.id === firstMissingId);
+        const targetStep = matchingField?._resolvedStep;
+        if (targetStep === "checklist" || targetStep === "uploads" || targetStep === "laundry" || targetStep === "submit") {
+          setStep(targetStep);
+        }
+        toast({
+          title: "Missing required fields",
+          description: missingRequiredFields
+            .map((field: any) => {
+              const label =
+                typeof field.label === "string" && field.label.trim()
+                  ? field.label.trim()
+                  : typeof field.id === "string"
+                    ? field.id
+                    : "Required field";
+              const sectionLabel =
+                typeof field.sectionLabel === "string" && field.sectionLabel.trim()
+                  ? field.sectionLabel.trim()
+                  : "";
+              return sectionLabel && sectionLabel !== label ? `${sectionLabel}: ${label}` : label;
+            })
+            .join(", "),
+          variant: "destructive",
+        });
+        return false;
+      }
       if (!fromQueue) {
         const offlineLike = !navigator.onLine || res.status >= 500;
         if (offlineLike) {
@@ -2091,6 +2369,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       fromQueue ? "Offline submission is now synced." : "Submission sent to admin."
     );
     clearDraftState();
+    void clearSharedDraftState();
     stopTicking();
     router.push("/cleaner");
     return true;
@@ -2167,6 +2446,34 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return null;
     }
     if (laundryOutcome && !validateLaundryState()) return null;
+    const missingRequiredSignatures = collectRequiredAnswerFields(
+      template.schema,
+      formData,
+      (job?.property ?? {}) as Record<string, unknown>,
+      {
+        laundryReady,
+        fieldTypes: ["signature"],
+      }
+    );
+    if (missingRequiredSignatures.length > 0) {
+      const firstMissingField = visibleSections
+        .flatMap((section: any) => section.fields ?? [])
+        .find((field: any) => field?.id === missingRequiredSignatures[0]?.id);
+      const targetStep = firstMissingField?._resolvedStep;
+      if (targetStep === "checklist" || targetStep === "uploads" || targetStep === "laundry" || targetStep === "submit") {
+        setStep(targetStep);
+      }
+      toast({
+        title: "Signature required",
+        description: missingRequiredSignatures
+          .map((field) =>
+            field.sectionLabel && field.sectionLabel !== field.label ? `${field.sectionLabel}: ${field.label}` : field.label
+          )
+          .join(", "),
+        variant: "destructive",
+      });
+      return null;
+    }
     if (damageFound) {
       const damageMediaKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
       if (!damageTitle.trim()) {
@@ -2183,6 +2490,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       }
     }
     if (extraPaymentRequired) {
+      const pendingPayUploads = (uploadStates[PAY_REQUEST_UPLOAD_FIELD_ID] ?? []).some(
+        (item) => item.status === "queued" || item.status === "uploading"
+      );
+      if (pendingPayUploads) {
+        toast({
+          title: "Pay request uploads in progress",
+          description: "Wait until pay request evidence uploads finish.",
+          variant: "destructive",
+        });
+        return null;
+      }
       if (!approvalTitle.trim()) {
         toast({ title: "Pay request title is required", variant: "destructive" });
         return null;
@@ -2269,6 +2587,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               approvalType === "HOURLY"
                 ? Number(approvalHours || 0) * Number(approvalRate || 0)
                 : Number(approvalAmount || 0),
+            mediaKeys: uploads[PAY_REQUEST_UPLOAD_FIELD_ID] ?? [],
           }
         : undefined,
       data: {
@@ -2425,6 +2744,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       toast({ title: "Select extra payment required first.", variant: "destructive" });
       return;
     }
+    const pendingPayUploads = (uploadStates[PAY_REQUEST_UPLOAD_FIELD_ID] ?? []).some(
+      (item) => item.status === "queued" || item.status === "uploading"
+    );
+    if (pendingPayUploads) {
+      toast({
+        title: "Pay request uploads in progress",
+        description: "Wait until pay request evidence uploads finish.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!approvalTitle.trim()) {
       toast({ title: "Request title is required", variant: "destructive" });
       return;
@@ -2576,6 +2906,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     .filter((item) => item.status === "queued" || item.status === "uploading").length;
   const hasPendingUploads = pendingUploadCount > 0;
   const hasPendingContinuationRequest = rescheduleRequests.some((row) => row.status === "PENDING");
+  const latestEarlyCheckoutRequest = earlyCheckoutRequests[0] ?? null;
+  const pendingEarlyCheckoutRequest = earlyCheckoutRequests.find((row) => row.status === "PENDING") ?? null;
 
   return (
     <div className="space-y-4">
@@ -2634,6 +2966,32 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       {hasContinuationCarryover ? (
         <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
           Continuation mode: progress from the previous cleaner has been prefilled for this job.
+        </div>
+      ) : null}
+
+      {latestEarlyCheckoutRequest ? (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Early Checkout Update</p>
+              <p className="mt-2 text-sm text-rose-950">
+                {pendingEarlyCheckoutRequest ? "Admin requested an earlier start/update for this job." : "This job had an early checkout update."}
+              </p>
+              {latestEarlyCheckoutRequest.requestedStartTime ? (
+                <p className="mt-1 text-xs text-rose-900">Requested earlier start: {latestEarlyCheckoutRequest.requestedStartTime}</p>
+              ) : null}
+              {latestEarlyCheckoutRequest.note ? (
+                <p className="mt-1 text-xs text-rose-900">Admin note: {latestEarlyCheckoutRequest.note}</p>
+              ) : null}
+            </div>
+            {pendingEarlyCheckoutRequest ? (
+              <Button size="sm" variant="outline" onClick={() => acknowledgeEarlyCheckout(pendingEarlyCheckoutRequest.id)}>
+                Acknowledge
+              </Button>
+            ) : (
+              <Badge variant="success">Acknowledged</Badge>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -3572,6 +3930,39 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                     value={approvalDescription}
                     onChange={(e) => setApprovalDescription(e.target.value)}
                   />
+                  <div className="space-y-2 rounded-md border p-2">
+                    <p className="text-xs font-medium text-muted-foreground">Pay request evidence images (optional)</p>
+                    <div className="flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                        Take photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "camera");
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                        Upload photos
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "gallery");
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {renderUnifiedUploadList(PAY_REQUEST_UPLOAD_FIELD_ID)}
+                  </div>
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">Request type</p>
                     <Select value={approvalType} onValueChange={(value) => setApprovalType(value as "HOURLY" | "FIXED")}>

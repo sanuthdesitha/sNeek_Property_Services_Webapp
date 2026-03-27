@@ -146,6 +146,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const extrasByJob = new Map<string, number>();
   const extraNotesByJob = new Map<string, string[]>();
   for (const row of approvedAdjustments) {
+    if (!row.jobId) continue;
     const amount = Number(row.approvedAmount ?? row.requestedAmount ?? 0);
     extrasByJob.set(row.jobId, (extrasByJob.get(row.jobId) ?? 0) + amount);
     const note = row.cleanerNote?.trim();

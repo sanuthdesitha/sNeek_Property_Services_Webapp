@@ -14,6 +14,8 @@ import { toast } from "@/hooks/use-toast";
 
 type PayAdjustmentRow = {
   id: string;
+  scope: "JOB" | "PROPERTY" | "STANDALONE";
+  title: string | null;
   status: "PENDING" | "APPROVED" | "REJECTED";
   type: "HOURLY" | "FIXED";
   requestedHours: number | null;
@@ -29,7 +31,14 @@ type PayAdjustmentRow = {
     jobType: string;
     scheduledDate: string;
     property: { id: string; name: string; suburb: string };
-  };
+  } | null;
+  property?: {
+    id: string;
+    name: string;
+    suburb: string | null;
+    clientId: string | null;
+  } | null;
+  attachmentUrls?: Array<{ key: string; url: string }>;
   clientApproval?: {
     id: string;
     status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED";
@@ -92,7 +101,7 @@ export default function AdminPayAdjustmentsPage() {
   function openSendToClient(row: PayAdjustmentRow) {
     setSendToClientFor(row);
     setSendClientAmount(String(Number(row.requestedAmount ?? 0).toFixed(2)));
-    setSendClientTitle(`Additional charge approval - ${row.job.property.name}`);
+    setSendClientTitle(`Additional charge approval - ${row.job?.property.name ?? row.property?.name ?? "Request"}`);
     setSendClientDescription(
       row.cleanerNote?.trim()
         ? `Cleaner requested additional payment. Note: ${row.cleanerNote}`
@@ -199,14 +208,17 @@ export default function AdminPayAdjustmentsPage() {
                     <div key={row.id} className="flex flex-wrap items-start justify-between gap-4 px-4 py-3">
                     <div className="space-y-1">
                         <p className="text-sm font-medium">
-                          {row.job.property.name} - {row.job.jobType.replace(/_/g, " ")}
+                          {row.title || row.job?.property.name || row.property?.name || "Pay request"}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Cleaner: {row.cleaner.name ?? row.cleaner.email} ({row.cleaner.email})
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Date: {format(new Date(row.job.scheduledDate), "dd MMM yyyy")} | Requested: {formatMoney(row.requestedAmount)}
-                          {row.type === "HOURLY" ? ` (${row.requestedHours ?? 0}h x ${formatMoney(row.requestedRate)})` : ""}
+                          {row.scope === "JOB" && row.job
+                            ? `Date: ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")} | `
+                            : ""}
+                          {row.job?.property?.name || row.property?.name || "No property linked"} | Requested: {formatMoney(row.requestedAmount)}
+                          {row.type === "HOURLY" ? ` (${row.requestedHours ?? 0}h x ${formatMoney(row.requestedRate)})` : ""} | {row.scope}
                         </p>
                         {row.cleanerNote ? <p className="text-xs">Cleaner note: {row.cleanerNote}</p> : null}
                         {row.adminNote ? <p className="text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
@@ -220,6 +232,9 @@ export default function AdminPayAdjustmentsPage() {
                         {row.status === "APPROVED" ? (
                           <p className="text-xs font-medium text-emerald-600">Approved: {formatMoney(row.approvedAmount)}</p>
                         ) : null}
+                        {row.attachmentUrls?.length ? (
+                          <p className="text-xs text-muted-foreground">Images attached: {row.attachmentUrls.length}</p>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -232,7 +247,7 @@ export default function AdminPayAdjustmentsPage() {
                               size="sm"
                               variant="outline"
                               onClick={() => openSendToClient(row)}
-                              disabled={row.clientApproval?.status === "PENDING"}
+                              disabled={row.clientApproval?.status === "PENDING" || !(row.job?.property?.id || row.property?.id)}
                             >
                               {row.clientApproval?.status === "PENDING" ? "Client Pending" : "Send to Client"}
                             </Button>

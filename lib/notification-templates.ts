@@ -15,6 +15,7 @@ export type AppNotificationTemplateKey =
   | "stockRunSubmitted"
   | "adminAttentionSummary"
   | "tomorrowJobsSummary"
+  | "tomorrowLaundrySummary"
   | "criticalInventoryTomorrow";
 
 export interface NotificationTemplateConfig {
@@ -66,6 +67,7 @@ export const NOTIFICATION_TEMPLATE_KEYS: AppNotificationTemplateKey[] = [
   "stockRunSubmitted",
   "adminAttentionSummary",
   "tomorrowJobsSummary",
+  "tomorrowLaundrySummary",
   "criticalInventoryTomorrow",
 ];
 
@@ -95,7 +97,7 @@ const NOTIFICATION_TEMPLATE_DEFINITIONS_BASE: Record<
   },
   laundryReady: {
     label: "Laundry Ready",
-    variables: ["jobNumber", "propertyName", "cleanDate", "scheduledPickupDate", "bagLocation"],
+    variables: ["jobNumber", "propertyName", "cleanDate", "scheduledPickupDate", "scheduledDropoffDate", "bagLocation"],
   },
   laundrySkipRequested: {
     label: "Laundry Skip Requested",
@@ -150,6 +152,10 @@ const NOTIFICATION_TEMPLATE_DEFINITIONS_BASE: Record<
     label: "Tomorrow Jobs Summary",
     variables: ["recipientName", "roleLabel", "dateLabel", "jobCount", "summaryText"],
   },
+  tomorrowLaundrySummary: {
+    label: "Tomorrow Laundry Summary",
+    variables: ["recipientName", "dateLabel", "taskCount", "summaryText"],
+  },
   criticalInventoryTomorrow: {
     label: "Critical Inventory Tomorrow",
     variables: ["recipientName", "roleLabel", "dateLabel", "propertyCount", "itemCount", "inventoryText"],
@@ -194,9 +200,9 @@ export function getDefaultNotificationTemplates(): AppNotificationTemplates {
     laundryReady: {
       webSubject: "Laundry ready - {jobNumber}",
       webBody:
-        "{jobNumber} ready for pickup at {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Location: {bagLocation}",
+        "{jobNumber} ready for pickup at {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Drop-off {scheduledDropoffDate}. Location: {bagLocation}",
       smsBody:
-        "{jobNumber}: Laundry ready for {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Location: {bagLocation}.",
+        "{jobNumber}: Laundry ready for {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Drop-off {scheduledDropoffDate}. Location: {bagLocation}.",
     },
     laundrySkipRequested: {
       webSubject: "Laundry update - {jobNumber}",
@@ -246,6 +252,11 @@ export function getDefaultNotificationTemplates(): AppNotificationTemplates {
       webSubject: "Tomorrow jobs for {roleLabel} - {dateLabel}",
       webBody: "{jobCount} jobs scheduled for {dateLabel}. {summaryText}",
       smsBody: "Tomorrow jobs ({jobCount}) - {summaryText}",
+    },
+    tomorrowLaundrySummary: {
+      webSubject: "Tomorrow laundry schedule - {dateLabel}",
+      webBody: "{taskCount} laundry tasks scheduled for {dateLabel}. {summaryText}",
+      smsBody: "Tomorrow laundry ({taskCount}) - {summaryText}",
     },
     criticalInventoryTomorrow: {
       webSubject: "Critical inventory alert for {dateLabel}",

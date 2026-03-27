@@ -24,6 +24,8 @@ const bankDetailsSchema = z
   })
   .optional();
 
+const optionalProfileLabelSchema = z.string().trim().max(160).optional();
+
 export const createUserByAdminSchema = z
   .object({
     name: requiredNameSchema,
@@ -39,6 +41,9 @@ export const createUserByAdminSchema = z
     abn: optionalAbnSchema,
     address: optionalAddressSchema,
     contactNumber: optionalAustralianPhoneSchema,
+    jobTitle: optionalProfileLabelSchema,
+    department: optionalProfileLabelSchema,
+    baseLocation: optionalProfileLabelSchema,
     bankDetails: bankDetailsSchema,
   });
 
@@ -73,6 +78,9 @@ export const updateUserByAdminSchema = z.object({
   abn: optionalAbnSchema.nullable().optional(),
   address: optionalAddressSchema.nullable().optional(),
   contactNumber: optionalAustralianPhoneSchema.nullable().optional(),
+  jobTitle: optionalProfileLabelSchema.nullable().optional(),
+  department: optionalProfileLabelSchema.nullable().optional(),
+  baseLocation: optionalProfileLabelSchema.nullable().optional(),
   bankDetails: bankDetailsSchema.nullable().optional(),
 });
 

@@ -105,6 +105,13 @@ function buildFieldValue(field: any, context: { answers: Record<string, unknown>
       .join(", ");
   }
 
+  if (field.type === "signature") {
+    const value = answers[field.id];
+    return typeof value === "string" && value.trim().startsWith("data:image/")
+      ? value.trim()
+      : "-";
+  }
+
   const value = answers[field.id];
   if (value === undefined || value === null || value === "") return "-";
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -242,12 +249,14 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
               )}`
             : escapeHtml(field.label ?? field.id ?? "-");
           const mediaHtml = renderFieldMediaHtml(mediaForField);
+          const valueHtml =
+            field?.type === "signature" && typeof value === "string" && value !== "-"
+              ? `<img src="${value}" alt="${escapeHtml(field.label ?? field.id ?? "Signature")}" style="width:220px;height:90px;object-fit:contain;border:1px solid #e5e7eb;border-radius:8px;background:#ffffff;padding:6px;" />`
+              : escapeHtml(value);
           return `
             <tr>
               <td style="padding:8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${labelHtml}</td>
-              <td style="padding:8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${isCheckbox ? "&nbsp;" : escapeHtml(
-                  value
-                )}</td>
+              <td style="padding:8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${isCheckbox ? "&nbsp;" : valueHtml}</td>
               <td style="padding:8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${mediaHtml}</td>
             </tr>
           `;

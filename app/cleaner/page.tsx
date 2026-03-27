@@ -25,6 +25,8 @@ import {
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
+import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
+import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 
 const TZ = "Australia/Sydney";
 
@@ -179,6 +181,7 @@ export default async function CleanerDashboard() {
     ),
   ]);
   const urgentItems = await getCleanerImmediateAttention(session.user.id);
+  const teamPosts = await getWorkforceDashboardPosts(session.user.id, 3);
 
   const totalHoursMonth = monthLogs.reduce((sum, row) => sum + (row.durationM ?? 0) / 60, 0);
   const approvedExtrasMonth = approvedExtraRows.reduce(
@@ -453,6 +456,8 @@ export default async function CleanerDashboard() {
         description="Items that need action before moving to the next task."
         items={urgentItems}
       />
+
+      <WorkforceDashboardPosts posts={teamPosts} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>

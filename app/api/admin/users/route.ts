@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getUserExtendedProfiles, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { autoAssignCleanerLearning, ensureDefaultLearningPaths } from "@/lib/workforce/service";
 
 const overrideSchema = z.object({
   userId: z.string().cuid(),
@@ -145,6 +146,9 @@ export async function POST(req: NextRequest) {
       abn: payload.abn ?? null,
       address: payload.address ?? payload.clientAddress ?? null,
       contactNumber: payload.contactNumber ?? payload.phone ?? null,
+      jobTitle: payload.jobTitle ?? null,
+      department: payload.department ?? null,
+      baseLocation: payload.baseLocation ?? null,
       bankDetails: payload.bankDetails
         ? {
             accountName: payload.bankDetails.accountName ?? "",
@@ -160,6 +164,10 @@ export async function POST(req: NextRequest) {
       requiresPasswordReset: false,
       welcomeEmailSent: true,
     });
+    if (created.role === "CLEANER") {
+      await ensureDefaultLearningPaths(session.user.id);
+      await autoAssignCleanerLearning(created.id, session.user.id);
+    }
 
     await db.auditLog.create({
       data: {
