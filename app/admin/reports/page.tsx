@@ -197,6 +197,7 @@ export default function ReportsPage() {
         onOpenChange={(open) => !open && setReportToDelete(null)}
         title="Delete report"
         description="This removes the generated report file and metadata for this job."
+        actionKey="deleteReport"
         confirmLabel="Delete report"
         loading={deletingReport}
         onConfirm={deleteReport}

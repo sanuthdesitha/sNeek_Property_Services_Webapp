@@ -16,6 +16,7 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
+import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import {
   JobStatus,
   MediaType,
@@ -111,6 +112,10 @@ function sanitizeAdminRequestedTasks(
       photoKeys,
     };
   });
+}
+
+function unifiedJobTaskProofFieldId(taskId: string) {
+  return `__job_task_${taskId}_proof`;
 }
 
 export async function POST(
@@ -217,11 +222,32 @@ export async function POST(
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
     const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const unifiedJobTasks = await listCleanerJobTasks(job.id);
+    const hasUnifiedAdminTasks = unifiedJobTasks.some((task) => task.source === "ADMIN");
+    const hasUnifiedCarryForwardTasks = unifiedJobTasks.some((task) => task.source === "CARRY_FORWARD");
     const adminRequestedTasks = sanitizeAdminRequestedTasks(
       answers,
       uploads,
-      jobMeta.specialRequestTasks ?? []
+      hasUnifiedAdminTasks ? [] : jobMeta.specialRequestTasks ?? []
     );
+    const submittedUnifiedTaskUpdates = Array.isArray(body.jobTasks) ? body.jobTasks : [];
+    const unifiedTaskUpdatesById = new Map(submittedUnifiedTaskUpdates.map((task) => [task.id, task]));
+    const unifiedTaskSnapshot = unifiedJobTasks.map((task) => {
+      const update = unifiedTaskUpdatesById.get(task.id);
+      return {
+        id: task.id,
+        title: task.title,
+        description: task.description ?? "",
+        source: task.source,
+        approvalStatus: task.approvalStatus,
+        decision: update?.decision ?? "OPEN",
+        note: update?.note?.trim() || "",
+        requiresPhoto: task.requiresPhoto === true,
+        requiresNote: task.requiresNote === true,
+        proofFieldId: unifiedJobTaskProofFieldId(String(task.id)),
+        proofKeys: Array.isArray(update?.proofKeys) ? update.proofKeys : [],
+      };
+    });
     const missingRequiredUploads = collectRequiredUploadFields(
       template.schema,
       answers,
@@ -295,6 +321,39 @@ export async function POST(
       );
     }
 
+    for (const task of unifiedJobTasks) {
+      const update = unifiedTaskUpdatesById.get(task.id);
+      if (!update) {
+        return NextResponse.json(
+          { error: `Complete or mark not completed for task: ${task.title}` },
+          { status: 400 }
+        );
+      }
+      const note = update.note?.trim() || "";
+      const proofKeys = Array.isArray(update.proofKeys)
+        ? update.proofKeys.filter((key) => typeof key === "string" && key.trim().length > 0)
+        : [];
+      if (update.decision === "COMPLETED") {
+        if (task.requiresNote && !note) {
+          return NextResponse.json(
+            { error: `Cleaner note required for task: ${task.title}` },
+            { status: 400 }
+          );
+        }
+        if (task.requiresPhoto && proofKeys.length === 0) {
+          return NextResponse.json(
+            { error: `Image proof required for task: ${task.title}` },
+            { status: 400 }
+          );
+        }
+      } else if (!note) {
+        return NextResponse.json(
+          { error: `Reason required when task is not completed: ${task.title}` },
+          { status: 400 }
+        );
+      }
+    }
+
     if (laundryOutcome === "READY_FOR_PICKUP") {
       if (!bagLocation) {
         return NextResponse.json(
@@ -331,6 +390,7 @@ export async function POST(
           __templateSchema: template.schema,
           __templateVersion: template.id,
           __adminRequestedTasks: adminRequestedTasks,
+          __jobTasks: unifiedTaskSnapshot,
         } as any,
         laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
         laundryOutcome,
@@ -361,7 +421,7 @@ export async function POST(
       await deductStockFromSubmission(job.propertyId, submission.id, inventoryUsage);
     }
 
-    if (carryForward) {
+    if (carryForward && !hasUnifiedCarryForwardTasks) {
       if (carryForward.resolvedTaskIds.length > 0) {
         await db.issueTicket.updateMany({
           where: {
@@ -469,6 +529,22 @@ export async function POST(
               ? (body.draftPayRequestPayload.mediaKeys as any)
               : undefined,
         },
+      });
+    }
+
+    if (unifiedJobTasks.length > 0) {
+      await applyCleanerJobTaskUpdates({
+        jobId: job.id,
+        propertyId: job.propertyId,
+        clientId: job.property.clientId,
+        cleanerId: session.user.id,
+        taskUpdates: submittedUnifiedTaskUpdates.map((task) => ({
+          id: task.id,
+          decision: task.decision,
+          note: task.note,
+          proofKeys: task.proofKeys ?? [],
+        })),
+        baseUrl: req,
       });
     }
 

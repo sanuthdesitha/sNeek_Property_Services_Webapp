@@ -789,7 +789,7 @@ export default function FormsPage() {
         onOpenChange={setDeleteOpen}
         title="Delete form template"
         description="This template will be deactivated and unavailable for future jobs."
-        confirmPhrase="DELETE"
+        actionKey="deactivateFormTemplate"
         confirmLabel="Delete template"
         requireSecurityVerification
         loading={deletingTemplate}

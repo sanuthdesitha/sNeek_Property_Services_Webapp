@@ -186,6 +186,27 @@ enum ClientInvoiceStatus {
   VOID
 }
 
+enum JobTaskSource {
+  ADMIN
+  CLIENT
+  CARRY_FORWARD
+}
+
+enum JobTaskApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
+}
+
+enum JobTaskExecutionStatus {
+  OPEN
+  COMPLETED
+  NOT_COMPLETED
+  CARRIED_FORWARD
+  CANCELLED
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -278,6 +299,10 @@ model User {
     receivedRecognitions StaffRecognition[] @relation("RecognitionReceivedBy")
     createdHiringPositions HiringPosition[] @relation("HiringPositionCreatedBy")
     reviewedHiringApplications HiringApplication[] @relation("HiringApplicationReviewedBy")
+    requestedJobTasks JobTask[] @relation("JobTaskRequestedBy")
+    approvedJobTasks JobTask[] @relation("JobTaskApprovedBy")
+    uploadedJobTaskAttachments JobTaskAttachment[] @relation("JobTaskAttachmentUploadedBy")
+    jobTaskEvents JobTaskEvent[] @relation("JobTaskEventActor")
   }
 
 // ─────────────────────────────────────────────
@@ -291,6 +316,7 @@ model Client {
   phone       String?
   address     String?
   notes       String?  @db.Text
+  portalVisibilityOverrides Json?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -298,6 +324,7 @@ model Client {
   properties  Property[]
   users       User[]
   quotes      Quote[]
+  jobTasks    JobTask[]
   leads       QuoteLead[]
   cases       IssueTicket[]
   shoppingRuns ShoppingRun[]
@@ -337,6 +364,7 @@ model Property {
   shoppingRunLines    ShoppingRunLine[]
   clientRates         PropertyClientRate[]
   payAdjustments      CleanerPayAdjustment[]
+  jobTasks            JobTask[]
 }
 
 model Integration {
@@ -454,6 +482,7 @@ model Job {
   timeAdjustmentRequests TimeLogAdjustmentRequest[]
   auditLogs       AuditLog[]      @relation("AuditJob")
   invoiceLines    ClientInvoiceLine[]
+  jobTasks        JobTask[]
 }
 
 model CleanerPayAdjustment {
@@ -641,6 +670,76 @@ model IssueTicket {
   assignedTo  User? @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
   comments    CaseComment[]
   attachments CaseAttachment[]
+}
+
+model JobTask {
+  id                String                 @id @default(cuid())
+  jobId             String?
+  propertyId        String
+  clientId          String?
+  source            JobTaskSource
+  approvalStatus    JobTaskApprovalStatus  @default(APPROVED)
+  executionStatus   JobTaskExecutionStatus @default(OPEN)
+  title             String
+  description       String?                @db.Text
+  requiresPhoto     Boolean                @default(false)
+  requiresNote      Boolean                @default(false)
+  visibleToCleaner  Boolean                @default(false)
+  requestedByUserId String?
+  approvedByUserId  String?
+  parentTaskId      String?
+  autoApproveAt     DateTime?
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  job               Job?                   @relation(fields: [jobId], references: [id])
+  property          Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  client            Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  requestedBy       User?                  @relation("JobTaskRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approvedBy        User?                  @relation("JobTaskApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  parentTask        JobTask?               @relation("JobTaskParent", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks        JobTask[]              @relation("JobTaskParent")
+  attachments       JobTaskAttachment[]
+  events            JobTaskEvent[]
+
+  @@index([jobId, approvalStatus, executionStatus])
+  @@index([propertyId, approvalStatus, executionStatus])
+  @@index([clientId, approvalStatus, executionStatus])
+  @@index([autoApproveAt, approvalStatus])
+}
+
+model JobTaskAttachment {
+  id               String   @id @default(cuid())
+  taskId           String
+  uploadedByUserId String?
+  mediaType        MediaType @default(PHOTO)
+  kind             String
+  url              String   @db.Text
+  s3Key            String
+  label            String?
+  createdAt        DateTime @default(now())
+
+  task             JobTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy       User?    @relation("JobTaskAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, kind])
+}
+
+model JobTaskEvent {
+  id          String   @id @default(cuid())
+  taskId       String
+  actorUserId  String?
+  action       String
+  note         String?  @db.Text
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  task         JobTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor        User?    @relation("JobTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
 }
 
 // ─────────────────────────────────────────────

@@ -31,12 +31,41 @@ const accessInfoSchema = z.object({
 
 const inventoryLocationSchema = z.enum(["BATHROOM", "KITCHEN", "CLEANERS_CUPBOARD"]);
 
+const clientPortalVisibilityOverrideSchema = z
+  .object({
+    showProperties: z.boolean().optional(),
+    showJobs: z.boolean().optional(),
+    showCalendar: z.boolean().optional(),
+    showReports: z.boolean().optional(),
+    showInventory: z.boolean().optional(),
+    showShopping: z.boolean().optional(),
+    showStockRuns: z.boolean().optional(),
+    showFinanceDetails: z.boolean().optional(),
+    showOngoingJobs: z.boolean().optional(),
+    showCases: z.boolean().optional(),
+    showExtraPayRequests: z.boolean().optional(),
+    showCleanerNames: z.boolean().optional(),
+    showLaundryUpdates: z.boolean().optional(),
+    showLaundryImages: z.boolean().optional(),
+    showLaundryCosts: z.boolean().optional(),
+    showChecklistPreview: z.boolean().optional(),
+    showClientTaskRequests: z.boolean().optional(),
+    showQuoteRequests: z.boolean().optional(),
+    showApprovals: z.boolean().optional(),
+    showReportDownloads: z.boolean().optional(),
+    allowInventoryThresholdEdits: z.boolean().optional(),
+    allowStockRuns: z.boolean().optional(),
+    allowCaseReplies: z.boolean().optional(),
+  })
+  .optional();
+
 export const createClientSchema = z.object({
   name: z.string().trim().min(1, "Client name is required.").max(200, "Client name is too long."),
   email: optionalEmailSchema,
   phone: optionalAustralianMobileSchema,
   address: optionalAddressSchema,
   notes: optionalNoteSchema(4000),
+  portalVisibilityOverrides: clientPortalVisibilityOverrideSchema,
   sendPortalInvite: z.boolean().optional(),
   welcomeNote: z.string().max(4000).optional(),
 });

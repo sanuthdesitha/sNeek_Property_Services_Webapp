@@ -210,6 +210,87 @@ function buildAdminRequestedTasksHtml(submission: any): { html: string; usedMedi
   };
 }
 
+function buildUnifiedJobTasksHtml(submission: any): { html: string; usedMediaIds: Set<string> } {
+  const usedMediaIds = new Set<string>();
+  const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
+  const tasks = Array.isArray(answers.__jobTasks)
+    ? answers.__jobTasks.filter((item: any) => item && typeof item === "object")
+    : [];
+  if (tasks.length === 0) {
+    return { html: "", usedMediaIds };
+  }
+
+  const rows = tasks
+    .map((task: any) => {
+      const proofFieldId = typeof task.proofFieldId === "string" ? task.proofFieldId : "";
+      const mediaForTask = proofFieldId
+        ? (submission?.media ?? []).filter((media: any) => media.fieldId === proofFieldId)
+        : [];
+      mediaForTask.forEach((media: any) => {
+        if (media?.id) usedMediaIds.add(String(media.id));
+      });
+      const note = typeof task.note === "string" ? task.note.trim() : "";
+      const decision = String(task.decision ?? "OPEN");
+      const decisionLabel =
+        decision === "NOT_COMPLETED"
+          ? "Not completed"
+          : decision === "COMPLETED"
+            ? "Completed"
+            : decision.replace(/_/g, " ");
+      return `
+        <tr>
+          <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
+            <strong>${escapeHtml(task.title ?? "Job task")}</strong>
+            ${
+              task.description
+                ? `<div style="margin-top:4px;font-size:12px;color:#334155;">${escapeHtml(task.description)}</div>`
+                : ""
+            }
+            <div style="margin-top:8px;font-size:11px;color:#475569;">
+              Source: ${escapeHtml(String(task.source ?? "ADMIN").replace(/_/g, " "))}
+              ${task.approvalStatus ? ` • ${escapeHtml(String(task.approvalStatus).replace(/_/g, " "))}` : ""}
+            </div>
+          </td>
+          <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
+            <span style="display:inline-block;padding:4px 10px;border-radius:9999px;background:${
+              decision === "NOT_COMPLETED" ? "#fee2e2" : "#dcfce7"
+            };color:${decision === "NOT_COMPLETED" ? "#991b1b" : "#166534"};font-size:12px;font-weight:600;">
+              ${escapeHtml(decisionLabel)}
+            </span>
+            ${
+              note
+                ? `<div style="margin-top:8px;font-size:12px;color:#111827;"><strong>${decision === "NOT_COMPLETED" ? "Reason" : "Cleaner note"}:</strong> ${escapeHtml(note)}</div>`
+                : ""
+            }
+          </td>
+          <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
+            ${renderFieldMediaHtml(mediaForTask)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return {
+    html: `
+      <div class="section" style="border:1px solid #bfdbfe;border-radius:14px;background:#eff6ff;padding:18px;">
+        <h3 style="margin:0 0 10px;color:#1d4ed8;">Priority Job Tasks</h3>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border-bottom:2px solid #93c5fd;text-align:left;">Task</th>
+              <th style="padding:8px;border-bottom:2px solid #93c5fd;text-align:left;">Outcome</th>
+              <th style="padding:8px;border-bottom:2px solid #93c5fd;text-align:left;">Proof</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `,
+    usedMediaIds,
+  };
+}
+
 function buildChecklistHtml(job: any, submission: any): { html: string; usedMediaIds: Set<string> } {
   const templateSchema =
     submission?.data &&
@@ -401,11 +482,15 @@ function buildReportHtml({ job, submission, qa, localDate, settings }: any): str
   const adminRequestedTasks = submission
     ? buildAdminRequestedTasksHtml(submission)
     : { html: "", usedMediaIds: new Set<string>() };
+  const unifiedJobTasks = submission
+    ? buildUnifiedJobTasksHtml(submission)
+    : { html: "", usedMediaIds: new Set<string>() };
   const checklistHtml = checklist.html;
   const remainingMedia = (submission?.media ?? []).filter(
     (m: any) =>
       !checklist.usedMediaIds.has(String(m.id)) &&
-      !adminRequestedTasks.usedMediaIds.has(String(m.id))
+      !adminRequestedTasks.usedMediaIds.has(String(m.id)) &&
+      !unifiedJobTasks.usedMediaIds.has(String(m.id))
   );
   const remainingMediaHtml = renderFieldMediaHtml(remainingMedia);
   const companyName = settings?.companyName || "sNeek Property Services";
@@ -462,6 +547,7 @@ ${
     : ""
 }
 ${adminRequestedTasks.html}
+${unifiedJobTasks.html}
 ${checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>"}
 ${
   remainingMedia.length > 0

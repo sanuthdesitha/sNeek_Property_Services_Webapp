@@ -7,6 +7,7 @@ import PgBoss from "pg-boss";
 import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { syncAllIcal } from "@/lib/ical/sync";
+import { autoApprovePendingClientJobTasks } from "@/lib/job-tasks/service";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { logger } from "@/lib/logger";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
@@ -38,6 +39,11 @@ async function main() {
   await boss.schedule("reminder-dispatch", "*/5 * * * *", {});
   await boss.work<{ jobId?: string }>("reminder-dispatch", async () => {
     await dispatchJobReminders({ reminderType: "ALL" });
+  });
+
+  await boss.schedule("job-task-auto-approve", "*/5 * * * *", {});
+  await boss.work("job-task-auto-approve", async () => {
+    await autoApprovePendingClientJobTasks(new Date());
   });
 
   await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});

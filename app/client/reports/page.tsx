@@ -10,6 +10,7 @@ import { FileText } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
+import { getClientPortalContext } from "@/lib/client/portal";
 
 const TZ = "Australia/Sydney";
 
@@ -34,21 +35,38 @@ function startDateForRange(range: RangeType) {
 export default async function ClientReportsPage({
   searchParams,
 }: {
-  searchParams?: { range?: string };
+  searchParams?: { range?: string; propertyId?: string };
 }) {
   await ensureClientModuleAccess("reports");
   const session = await requireRole([Role.CLIENT]);
   const appSettings = await getAppSettings();
+  const portal = await getClientPortalContext(session.user.id, appSettings);
   const range = (searchParams?.range as RangeType) || "monthly";
   const rangeType: RangeType = ["weekly", "monthly", "annual"].includes(range) ? range : "monthly";
-  const visibility = appSettings.clientPortalVisibility;
+  const visibility = portal.visibility;
 
   const user = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { clientId: true },
+    select: {
+      clientId: true,
+      client: {
+        select: {
+          properties: {
+            where: { isActive: true },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          },
+        },
+      },
+    },
   });
 
   const fromDate = startDateForRange(rangeType);
+  const allowedPropertyIds = new Set((user?.client?.properties ?? []).map((property) => property.id));
+  const selectedPropertyId =
+    searchParams?.propertyId && allowedPropertyIds.has(searchParams.propertyId)
+      ? searchParams.propertyId
+      : undefined;
 
   const reports = user?.clientId
     ? await db.report.findMany({
@@ -56,7 +74,7 @@ export default async function ClientReportsPage({
           createdAt: { gte: fromDate },
           clientVisible: true,
           job: {
-            property: { clientId: user.clientId },
+            property: { clientId: user.clientId, ...(selectedPropertyId ? { id: selectedPropertyId } : {}) },
             status: { in: ["COMPLETED", "INVOICED"] },
           },
         },
@@ -101,6 +119,22 @@ export default async function ClientReportsPage({
         <Button asChild variant={rangeType === "annual" ? "default" : "outline"} size="sm">
           <Link href="/client/reports?range=annual">Annual</Link>
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant={!selectedPropertyId ? "default" : "outline"} size="sm">
+          <Link href={`/client/reports?range=${rangeType}`}>All properties</Link>
+        </Button>
+        {(user?.client?.properties ?? []).map((property) => (
+          <Button
+            key={property.id}
+            asChild
+            variant={selectedPropertyId === property.id ? "default" : "outline"}
+            size="sm"
+          >
+            <Link href={`/client/reports?range=${rangeType}&propertyId=${property.id}`}>{property.name}</Link>
+          </Button>
+        ))}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

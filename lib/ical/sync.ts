@@ -9,6 +9,8 @@ import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
 import { refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
+import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
+import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -67,7 +69,7 @@ type ParsedFeedEvent = {
   checkoutAtLocal: Date | null;
 };
 
-type IcalSyncSnapshot = {
+export type IcalSyncSnapshot = {
   reservations: Array<{
     id: string;
     uid: string;
@@ -84,7 +86,7 @@ type IcalSyncSnapshot = {
   }>;
 };
 
-type IcalSyncSummary = {
+export type IcalSyncSummary = {
   feedEvents: number;
   duplicateFeedEvents: number;
   ignoredPastEvents: number;
@@ -109,6 +111,8 @@ export interface UndoIcalSyncOptions {
   runId: string;
   revertedById?: string | null;
 }
+
+const AUTO_SYNC_INTERVAL_MS = 40 * 60_000;
 
 function icalDateToUtcDateOnly(value: ICAL.Time): Date {
   return new Date(Date.UTC(value.year, value.month - 1, value.day));
@@ -685,6 +689,12 @@ async function syncTurnoverJobsForReservations(params: {
           sameDayCheckinTime: priority.sameDayCheckinTime,
         },
       });
+      await attachPendingCarryForwardTasksToJob({
+        jobId: created.id,
+        propertyId: created.propertyId,
+        scheduledDate: created.scheduledDate,
+        startTime: created.startTime,
+      });
       const after = jobState(created);
       if (after) {
         params.snapshot.jobs.push({
@@ -984,6 +994,29 @@ export async function syncPropertyIcal(
       lastModified,
     });
 
+    if ((options.mode ?? "MANUAL") === "AUTO") {
+      try {
+        await notifyAutoSyncChanges({
+          propertyId: integration.propertyId,
+          propertyName: integration.property.name,
+          propertySuburb: integration.property.suburb,
+          runId: run.id,
+          summary,
+          snapshot,
+        });
+      } catch (notificationError: any) {
+        logger.error(
+          {
+            err: notificationError,
+            integrationId,
+            propertyId: integration.propertyId,
+            runId: run.id,
+          },
+          "Automatic iCal sync change alert failed"
+        );
+      }
+    }
+
     logger.info(
       {
         integrationId,
@@ -1171,13 +1204,63 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
   return result;
 }
 
-/** Sync all enabled integrations. Called by pg-boss worker. */
 export async function syncAllIcal(): Promise<void> {
   const integrations = await db.integration.findMany({
     where: { isEnabled: true, icalUrl: { not: null } },
+    select: { id: true, propertyId: true },
   });
 
   for (const intg of integrations) {
-    await syncPropertyIcal(intg.id, { mode: "AUTO" });
+    try {
+      await syncPropertyIcal(intg.id, { mode: "AUTO" });
+    } catch (err: any) {
+      logger.error(
+        { err, integrationId: intg.id, propertyId: intg.propertyId },
+        "Automatic iCal sync failed for one integration"
+      );
+    }
   }
+}
+
+export async function syncAllIcalIfDue(now = new Date()) {
+  const dueBefore = new Date(now.getTime() - AUTO_SYNC_INTERVAL_MS);
+  const integrations = await db.integration.findMany({
+    where: {
+      isEnabled: true,
+      icalUrl: { not: null },
+      syncStatus: { not: SyncStatus.SYNCING },
+      OR: [{ lastSyncAt: null }, { lastSyncAt: { lt: dueBefore } }],
+    },
+    select: { id: true, propertyId: true, lastSyncAt: true },
+    orderBy: [{ lastSyncAt: "asc" }],
+  });
+
+  let attempted = 0;
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const integration of integrations) {
+    attempted += 1;
+    try {
+      await syncPropertyIcal(integration.id, { mode: "AUTO" });
+      succeeded += 1;
+    } catch (err: any) {
+      failed += 1;
+      logger.error(
+        {
+          err,
+          integrationId: integration.id,
+          propertyId: integration.propertyId,
+          lastSyncAt: integration.lastSyncAt,
+        },
+        "Due automatic iCal sync failed"
+      );
+    }
+  }
+
+  return {
+    attempted,
+    succeeded,
+    failed,
+  };
 }

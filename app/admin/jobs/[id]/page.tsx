@@ -166,6 +166,9 @@ export default function JobDetailPage() {
   });
   const [continuationDialog, setContinuationDialog] = useState<{ request: any; decision: "APPROVE" | "REJECT" } | null>(null);
   const [continuationSubmitting, setContinuationSubmitting] = useState(false);
+  const [taskReviewDialog, setTaskReviewDialog] = useState<{ task: any; decision: "APPROVE" | "REJECT" } | null>(null);
+  const [taskReviewNote, setTaskReviewNote] = useState("");
+  const [taskReviewSubmitting, setTaskReviewSubmitting] = useState(false);
   const [continuationForm, setContinuationForm] = useState({
     decisionNote: "",
     newScheduledDate: "",
@@ -291,6 +294,39 @@ export default function JobDetailPage() {
       });
     }
     setEarlyCheckoutLoading(false);
+  }
+
+  function openTaskReviewDialog(task: any, decision: "APPROVE" | "REJECT") {
+    setTaskReviewDialog({ task, decision });
+    setTaskReviewNote("");
+  }
+
+  async function reviewClientTaskRequest() {
+    if (!taskReviewDialog) return;
+    setTaskReviewSubmitting(true);
+    const res = await fetch(`/api/admin/job-tasks/${taskReviewDialog.task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision: taskReviewDialog.decision,
+        note: taskReviewNote.trim() || undefined,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setTaskReviewSubmitting(false);
+    if (!res.ok) {
+      toast({
+        title: "Task review failed",
+        description: body.error ?? "Could not update task request.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: taskReviewDialog.decision === "APPROVE" ? "Task approved" : "Task rejected",
+    });
+    setTaskReviewDialog(null);
+    load();
   }
 
   useEffect(() => {
@@ -1434,6 +1470,61 @@ export default function JobDetailPage() {
                   </div>
                 </div>
               ) : null}
+              {(job.jobTasks ?? []).filter((task: any) => task.source === "CLIENT").length > 0 ? (
+                <div className="space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Client Task Requests
+                  </p>
+                  <div className="space-y-2">
+                    {(job.jobTasks ?? [])
+                      .filter((task: any) => task.source === "CLIENT")
+                      .map((task: any) => (
+                        <div key={task.id} className="space-y-2 rounded-md border bg-background px-3 py-3 text-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{task.title}</p>
+                              {task.description ? (
+                                <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
+                              ) : null}
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Requested by {task.requestedBy?.name || task.requestedBy?.email || "Client"} on{" "}
+                                {format(new Date(task.createdAt), "dd MMM yyyy HH:mm")}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline">{String(task.approvalStatus).replace(/_/g, " ")}</Badge>
+                              <Badge variant="outline">{String(task.executionStatus).replace(/_/g, " ")}</Badge>
+                              {task.requiresPhoto ? <Badge variant="outline">Photo proof</Badge> : null}
+                              {task.requiresNote ? <Badge variant="outline">Cleaner note</Badge> : null}
+                            </div>
+                          </div>
+                          {Array.isArray(task.attachments) && task.attachments.length > 0 ? (
+                            <MediaGallery
+                              items={task.attachments.map((attachment: any) => ({
+                                id: attachment.id,
+                                url: attachment.url,
+                                label: attachment.label || "Client reference",
+                                mediaType: attachment.mediaType,
+                              }))}
+                              title="Client reference files"
+                              className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+                            />
+                          ) : null}
+                          {task.approvalStatus === "PENDING_APPROVAL" ? (
+                            <div className="flex flex-wrap gap-2">
+                              <Button size="sm" onClick={() => openTaskReviewDialog(task, "APPROVE")}>
+                                Approve
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => openTaskReviewDialog(task, "REJECT")}>
+                                Reject
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
               <MediaGallery
                 items={((jobMeta.attachments ?? []) as any[]).map((item) => ({
                   id: item.key,
@@ -1906,12 +1997,45 @@ export default function JobDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(taskReviewDialog)} onOpenChange={(open) => !open && setTaskReviewDialog(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {taskReviewDialog?.decision === "APPROVE" ? "Approve client task request" : "Reject client task request"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="font-medium">{taskReviewDialog?.task?.title}</p>
+              {taskReviewDialog?.task?.description ? (
+                <p className="mt-1 text-sm text-muted-foreground">{taskReviewDialog.task.description}</p>
+              ) : null}
+            </div>
+            <div className="space-y-1">
+              <Label>Decision note</Label>
+              <Textarea
+                value={taskReviewNote}
+                onChange={(e) => setTaskReviewNote(e.target.value)}
+                placeholder="Optional note for the client and assigned cleaners"
+              />
+            </div>
+            <Button onClick={reviewClientTaskRequest} disabled={taskReviewSubmitting} className="w-full">
+              {taskReviewSubmitting
+                ? "Saving..."
+                : taskReviewDialog?.decision === "APPROVE"
+                  ? "Approve request"
+                  : "Reject request"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <TwoStepConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Delete this job"
         description="This permanently removes the job, submissions, QA, time logs, laundry links, and report data."
-        confirmPhrase="DELETE"
+        actionKey="deleteJob"
         confirmLabel="Delete job"
         requireSecurityVerification
         loading={deletingJob}
@@ -1922,7 +2046,7 @@ export default function JobDetailPage() {
         onOpenChange={setResetOpen}
         title="Reset this job"
         description="This resets the job back to Unassigned, removes all assigned cleaners, clears submissions, reports, QA, laundry progress, time logs, and restores deducted inventory."
-        confirmPhrase="RESET"
+        actionKey="resetJob"
         confirmLabel="Reset job"
         requireSecurityVerification
         loading={resettingJob}

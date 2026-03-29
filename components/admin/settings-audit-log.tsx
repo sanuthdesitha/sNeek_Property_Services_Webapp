@@ -65,6 +65,9 @@ export function SettingsAuditLog({ entries }: { entries: AuditEntry[] }) {
       return;
     }
 
+    if (typeof window !== "undefined" && body && typeof body === "object") {
+      window.dispatchEvent(new CustomEvent("sneek:settings-restored", { detail: body }));
+    }
     toast({ title: "Settings restored" });
     router.refresh();
   }

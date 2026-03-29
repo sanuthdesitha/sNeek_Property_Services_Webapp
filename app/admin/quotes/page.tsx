@@ -337,6 +337,7 @@ export default function QuotesPage() {
         onOpenChange={(open) => !open && setDeleteQuote(null)}
         title="Delete quote"
         description="This permanently removes the quote record."
+        actionKey="deleteQuote"
         confirmLabel="Delete quote"
         loading={deletingQuote}
         onConfirm={removeQuote}

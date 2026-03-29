@@ -5,12 +5,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  getConfirmationPolicy,
+  type ConfirmationActionKey,
+} from "@/lib/security/confirmation-policy";
 
 interface TwoStepConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
+  actionKey?: ConfirmationActionKey;
   confirmPhrase?: string;
   confirmLabel?: string;
   cancelLabel?: string;
@@ -25,6 +30,7 @@ export function TwoStepConfirmDialog({
   onOpenChange,
   title,
   description,
+  actionKey,
   confirmPhrase,
   confirmLabel = "Yes",
   cancelLabel = "No",
@@ -45,8 +51,10 @@ export function TwoStepConfirmDialog({
     }
   }, [open]);
 
-  const phraseRequired = Boolean(confirmPhrase?.trim());
-  const phraseMatches = !phraseRequired || typedPhrase.trim() === confirmPhrase?.trim();
+  const policy = getConfirmationPolicy(actionKey);
+  const resolvedConfirmPhrase = confirmPhrase?.trim() || policy?.confirmPhrase || "";
+  const phraseRequired = Boolean(resolvedConfirmPhrase);
+  const phraseMatches = !phraseRequired || typedPhrase.trim() === resolvedConfirmPhrase;
   const hasSecurityInput = !requireSecurityVerification || Boolean(pin.trim() || password.trim());
   const canConfirm = phraseMatches && hasSecurityInput && !loading;
 
@@ -63,12 +71,12 @@ export function TwoStepConfirmDialog({
 
           {phraseRequired ? (
             <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <Label htmlFor="confirm-phrase">Type `{confirmPhrase}` to continue</Label>
+              <Label htmlFor="confirm-phrase">Type `{resolvedConfirmPhrase}` to continue</Label>
               <Input
                 id="confirm-phrase"
                 value={typedPhrase}
                 onChange={(event) => setTypedPhrase(event.target.value)}
-                placeholder={confirmPhrase}
+                placeholder={resolvedConfirmPhrase}
                 autoComplete="off"
               />
             </div>

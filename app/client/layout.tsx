@@ -2,12 +2,14 @@ import { getAppSettings } from "@/lib/settings";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
+import { getClientPortalContext } from "@/lib/client/portal";
 
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const session = await requireRole([Role.CLIENT]);
   const settings = await getAppSettings();
+  const portal = await getClientPortalContext(session.user.id, settings);
   const companyName = settings.companyName || "sNeek Property Services";
-  const visibility = settings.clientPortalVisibility;
+  const visibility = portal.visibility;
 
   return (
     <PortalShell
@@ -22,7 +24,10 @@ export default async function ClientLayout({ children }: { children: React.React
       hideHeaderOnScroll
       navItems={[
         { href: "/client", label: "Dashboard", exact: true },
+        ...(visibility.showProperties ? [{ href: "/client/properties", label: "Properties" }] : []),
+        ...(visibility.showJobs ? [{ href: "/client/jobs", label: "Jobs" }] : []),
         ...(visibility.showCalendar ? [{ href: "/client/calendar", label: "Calendar" }] : []),
+        ...(visibility.showLaundryUpdates ? [{ href: "/client/laundry", label: "Laundry" }] : []),
         ...(visibility.showInventory ? [{ href: "/client/inventory", label: "Inventory" }] : []),
         ...(visibility.showInventory && visibility.showShopping ? [{ href: "/client/shopping", label: "Shopping" }] : []),
         ...(visibility.showInventory && visibility.showStockRuns && visibility.allowStockRuns

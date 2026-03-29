@@ -59,6 +59,7 @@ async function safeCount<T>(query: Promise<T>, fallback: T): Promise<T> {
 export interface AdminAttentionSummary {
   pendingPayRequests: number;
   pendingTimeAdjustments: number;
+  pendingClientTaskRequests: number;
   flaggedLaundry: number;
   pendingLaundryRescheduleDraft: number;
   unassignedJobs: number;
@@ -72,7 +73,7 @@ export interface AdminAttentionSummary {
 }
 
 export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary> {
-  const [pendingPayRequests, pendingTimeAdjustments, flaggedLaundry, pendingLaundryRescheduleDraft, unassignedJobs, highCases, newCases, pendingContinuations, pendingClientApprovals, openCases] =
+  const [pendingPayRequests, pendingTimeAdjustments, pendingClientTaskRequests, flaggedLaundry, pendingLaundryRescheduleDraft, unassignedJobs, highCases, newCases, pendingContinuations, pendingClientApprovals, openCases] =
     await Promise.all([
       safeCount(
         db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
@@ -80,6 +81,10 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
       ),
       safeCount(
         db.timeLogAdjustmentRequest.count({ where: { status: "PENDING" } }),
+        0
+      ),
+      safeCount(
+        db.jobTask.count({ where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL" } }),
         0
       ),
       db.laundryTask.count({ where: { status: "FLAGGED" } }),
@@ -118,6 +123,7 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
   const attentionCount =
     pendingPayRequests +
     pendingTimeAdjustments +
+    pendingClientTaskRequests +
     flaggedLaundry +
     pendingLaundryRescheduleDraft +
     unassignedJobs +
@@ -128,6 +134,7 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
   return {
     pendingPayRequests,
     pendingTimeAdjustments,
+    pendingClientTaskRequests,
     flaggedLaundry,
     pendingLaundryRescheduleDraft,
     unassignedJobs,
@@ -207,6 +214,15 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
       href: "/admin/approvals",
       actionLabel: "Track approvals",
       tone: "warning",
+    },
+    {
+      id: "admin-client-task-requests",
+      title: "Client task requests pending",
+      description: "Client-submitted job tasks need admin approval before cleaners see them.",
+      count: summary.pendingClientTaskRequests,
+      href: "/admin/jobs",
+      actionLabel: "Review jobs",
+      tone: "critical",
     },
     {
       id: "admin-flagged-laundry",

@@ -128,6 +128,16 @@ export const assignJobSchema = z.object({
 export const submitJobSchema = z.object({
   templateId: z.string().min(1),
   data: z.record(z.unknown()),
+  jobTasks: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        decision: z.enum(["COMPLETED", "NOT_COMPLETED"]),
+        note: z.string().trim().max(4000).optional(),
+        proofKeys: z.array(z.string().trim().min(1)).max(20).optional(),
+      })
+    )
+    .optional(),
   laundryReady: z.boolean().optional(),
   laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
   laundrySkipReasonCode: z.string().trim().max(120).optional(),

@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { getAppSettings, type AppSettings } from "@/lib/settings";
+import { getClientPortalContext } from "@/lib/client/portal";
+import { requireRole } from "@/lib/auth/session";
+import { Role } from "@prisma/client";
 
 type CleanerModule =
   | "jobs"
@@ -11,6 +14,9 @@ type CleanerModule =
   | "lostFound";
 
 type ClientModule =
+  | "properties"
+  | "jobs"
+  | "laundry"
   | "calendar"
   | "inventory"
   | "shopping"
@@ -38,7 +44,9 @@ export async function ensureCleanerModuleAccess(module: CleanerModule) {
 
 export async function ensureClientModuleAccess(module: ClientModule) {
   const settings = await getAppSettings();
-  const allowed = isClientModuleEnabled(settings, module);
+  const session = await requireRole([Role.CLIENT]);
+  const { visibility } = await getClientPortalContext(session.user.id, settings);
+  const allowed = isClientModuleEnabled(visibility, module);
 
   if (!allowed) {
     redirect("/client");
@@ -67,9 +75,18 @@ export function isCleanerModuleEnabled(settings: AppSettings, module: CleanerMod
   );
 }
 
-export function isClientModuleEnabled(settings: AppSettings, module: ClientModule) {
-  const visibility = settings.clientPortalVisibility;
+export function isClientModuleEnabled(
+  settingsOrVisibility: AppSettings | AppSettings["clientPortalVisibility"],
+  module: ClientModule
+) {
+  const visibility =
+    "clientPortalVisibility" in settingsOrVisibility
+      ? settingsOrVisibility.clientPortalVisibility
+      : settingsOrVisibility;
   return (
+    (module === "properties" && visibility.showProperties) ||
+    (module === "jobs" && visibility.showJobs) ||
+    (module === "laundry" && visibility.showLaundryUpdates) ||
     (module === "calendar" && visibility.showCalendar) ||
     (module === "inventory" && visibility.showInventory) ||
     (module === "shopping" && visibility.showInventory && visibility.showShopping) ||

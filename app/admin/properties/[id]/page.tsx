@@ -1372,7 +1372,7 @@ export default function PropertyDetailPage() {
         onOpenChange={setDeleteOpen}
         title="Delete property"
         description="This will deactivate the property and remove it from active operations lists."
-        confirmPhrase="DELETE"
+        actionKey="deactivateProperty"
         confirmLabel="Delete property"
         requireSecurityVerification
         loading={deletingProperty}

@@ -11,6 +11,7 @@ import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
+import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 
 export async function GET(
   _req: NextRequest,
@@ -51,6 +52,13 @@ export async function GET(
     const settings = await getAppSettings();
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
+    await attachPendingCarryForwardTasksToJob({
+      jobId: job.id,
+      propertyId: job.propertyId,
+      scheduledDate: job.scheduledDate,
+      startTime: job.startTime,
+    });
+    const jobTasks = await listCleanerJobTasks(job.id);
 
     const configuredPropertyTemplateId =
       settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
@@ -186,6 +194,7 @@ export async function GET(
     return NextResponse.json({
       job,
       jobMeta,
+      jobTasks,
       jobTimingHighlights,
       continuationProgressSnapshot,
       viewerName: session.user.name ?? session.user.email ?? "Cleaner",

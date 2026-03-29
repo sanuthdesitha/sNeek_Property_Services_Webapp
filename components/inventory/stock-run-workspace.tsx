@@ -439,6 +439,7 @@ export function StockRunWorkspace({
         onOpenChange={setDiscardConfirmOpen}
         title="Discard stock count"
         description="This keeps the stock count for reference but prevents it from being edited or applied to inventory."
+        actionKey="discardStockRun"
         confirmLabel="Discard stock count"
         loading={saving}
         onConfirm={() => void saveRun("DISCARDED")}

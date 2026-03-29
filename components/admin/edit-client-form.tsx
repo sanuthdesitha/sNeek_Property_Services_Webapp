@@ -7,10 +7,38 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
+import type { ClientPortalVisibility } from "@/lib/settings";
+
+const CLIENT_PORTAL_OVERRIDE_FIELDS: Array<[keyof ClientPortalVisibility, string]> = [
+  ["showProperties", "Show properties"],
+  ["showJobs", "Show jobs"],
+  ["showCalendar", "Show calendar"],
+  ["showReports", "Show reports"],
+  ["showReportDownloads", "Allow report PDF downloads"],
+  ["showChecklistPreview", "Show checklist preview"],
+  ["showInventory", "Show inventory"],
+  ["showShopping", "Show shopping"],
+  ["showStockRuns", "Show stock count runs"],
+  ["showFinanceDetails", "Show finance details"],
+  ["showOngoingJobs", "Show ongoing jobs"],
+  ["showLaundryUpdates", "Show laundry updates"],
+  ["showLaundryImages", "Show laundry images"],
+  ["showLaundryCosts", "Show laundry costs"],
+  ["showClientTaskRequests", "Allow client task requests"],
+  ["showCases", "Show cases/issues"],
+  ["showExtraPayRequests", "Show extra pay requests"],
+  ["showQuoteRequests", "Show quote requests"],
+  ["showApprovals", "Show approval requests"],
+  ["showCleanerNames", "Show cleaner names to client"],
+  ["allowInventoryThresholdEdits", "Allow inventory threshold edits"],
+  ["allowStockRuns", "Allow stock runs"],
+  ["allowCaseReplies", "Allow case replies"],
+];
 
 interface EditClientFormProps {
   client: {
@@ -20,10 +48,12 @@ interface EditClientFormProps {
     phone: string | null;
     address: string | null;
     notes: string | null;
+    portalVisibilityOverrides: Partial<ClientPortalVisibility> | null;
   };
+  defaultPortalVisibility: ClientPortalVisibility;
 }
 
-export function EditClientForm({ client }: EditClientFormProps) {
+export function EditClientForm({ client, defaultPortalVisibility }: EditClientFormProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -36,6 +66,7 @@ export function EditClientForm({ client }: EditClientFormProps) {
     phone: client.phone ?? "",
     address: client.address ?? "",
     notes: client.notes ?? "",
+    portalVisibilityOverrides: { ...(client.portalVisibilityOverrides ?? {}) },
   });
   const [welcomeNote, setWelcomeNote] = useState("");
 
@@ -195,6 +226,46 @@ export function EditClientForm({ client }: EditClientFormProps) {
             <Textarea id="notes" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
           </div>
 
+          <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+            <div>
+              <p className="text-sm font-medium">Client portal visibility overrides</p>
+              <p className="text-xs text-muted-foreground">
+                These switches override the global client portal defaults only for this client.
+              </p>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {CLIENT_PORTAL_OVERRIDE_FIELDS.map(([key, label]) => {
+                const overrideValue = form.portalVisibilityOverrides[key];
+                const effectiveValue =
+                  typeof overrideValue === "boolean" ? overrideValue : defaultPortalVisibility[key];
+                return (
+                  <div key={key} className="rounded border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <Label className="text-xs">{label}</Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Default: {defaultPortalVisibility[key] ? "Shown" : "Hidden"}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={effectiveValue}
+                        onCheckedChange={(value) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            portalVisibilityOverrides: {
+                              ...prev.portalVisibilityOverrides,
+                              [key]: value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
             <div>
               <p className="text-sm font-medium">Portal invitation</p>
@@ -234,7 +305,7 @@ export function EditClientForm({ client }: EditClientFormProps) {
         onOpenChange={setDeleteOpen}
         title="Deactivate client"
         description="This will hide the client from active lists. Existing records remain in history."
-        confirmPhrase="DEACTIVATE"
+        actionKey="deactivateClient"
         confirmLabel="Deactivate"
         requireSecurityVerification
         loading={deleting}
@@ -246,7 +317,7 @@ export function EditClientForm({ client }: EditClientFormProps) {
         onOpenChange={setInviteOpen}
         title="Send client portal invitation"
         description="This resets the linked client account password and emails a temporary password with your welcome note."
-        confirmPhrase="INVITE"
+        actionKey="sendClientInvite"
         confirmLabel="Send invite"
         requireSecurityVerification
         loading={inviting}

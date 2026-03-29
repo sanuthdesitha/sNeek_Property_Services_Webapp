@@ -56,29 +56,38 @@ export async function POST(
     }
     const settings = await getAppSettings();
 
-    // Remove assignments not in new list
-    await db.jobAssignment.deleteMany({
-      where: userIds.length === 0 ? { jobId: params.id } : { jobId: params.id, userId: { notIn: userIds } },
-    });
+    const nextStatus = job.status === "UNASSIGNED" && userIds.length > 0 ? "ASSIGNED" : job.status;
 
-    // Upsert new assignments
-    for (const userId of userIds) {
-      const configuredRate = settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? null;
-      await db.jobAssignment.upsert({
-        where: { jobId_userId: { jobId: params.id, userId } },
-        create: {
-          jobId: params.id,
-          userId,
-          isPrimary: userId === (primaryUserId ?? userIds[0]),
-          payRate: configuredRate,
-        },
-        update: {
-          isPrimary: userId === (primaryUserId ?? userIds[0]),
-          payRate: configuredRate,
-          removedAt: null,
-        },
+    await db.$transaction(async (tx) => {
+      await tx.jobAssignment.deleteMany({
+        where: userIds.length === 0 ? { jobId: params.id } : { jobId: params.id, userId: { notIn: userIds } },
       });
-    }
+
+      for (const userId of userIds) {
+        const configuredRate = settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? null;
+        await tx.jobAssignment.upsert({
+          where: { jobId_userId: { jobId: params.id, userId } },
+          create: {
+            jobId: params.id,
+            userId,
+            isPrimary: userId === (primaryUserId ?? userIds[0]),
+            payRate: configuredRate,
+          },
+          update: {
+            isPrimary: userId === (primaryUserId ?? userIds[0]),
+            payRate: configuredRate,
+            removedAt: null,
+          },
+        });
+      }
+
+      if (nextStatus !== job.status) {
+        await tx.job.update({
+          where: { id: params.id },
+          data: { status: nextStatus },
+        });
+      }
+    });
 
     await db.auditLog.create({
       data: {
@@ -204,7 +213,7 @@ export async function POST(
       event: "JOB_ASSIGNED",
       payload: {
         jobId: job.id,
-        status: job.status,
+        status: nextStatus,
         jobType: job.jobType,
       },
     });

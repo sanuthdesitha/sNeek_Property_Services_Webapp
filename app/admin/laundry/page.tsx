@@ -1409,7 +1409,7 @@ export default function LaundryPage() {
         onOpenChange={(open) => !open && setTaskToDelete(null)}
         title="Delete laundry task"
         description="This removes the task and linked confirmations for this job."
-        confirmPhrase="DELETE"
+        actionKey="deleteLaundryTask"
         confirmLabel="Delete task"
         requireSecurityVerification
         loading={deletingTask}

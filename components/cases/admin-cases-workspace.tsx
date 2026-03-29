@@ -432,7 +432,7 @@ export function AdminCasesWorkspace() {
         onOpenChange={setDeleteOpen}
         title="Delete case"
         description="This permanently removes the case, comments, and attachments."
-        confirmPhrase="DELETE"
+        actionKey="deleteCase"
         confirmLabel="Delete case"
         requireSecurityVerification
         loading={deleting}

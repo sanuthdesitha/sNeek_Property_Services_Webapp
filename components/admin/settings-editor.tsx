@@ -35,6 +35,8 @@ interface SettingsEditorProps {
   readOnly?: boolean;
 }
 
+const SETTINGS_RESTORED_EVENT = "sneek:settings-restored";
+
 const ROLES: Role[] = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER, Role.CLIENT, Role.LAUNDRY];
 const JOB_TYPES: JobType[] = [
   JobType.AIRBNB_TURNOVER,
@@ -230,7 +232,7 @@ function elementToBuilderBlocks(element: HTMLElement): EmailBuilderBlock[] {
   return [{ id: createBlockId(), type: "html", text: element.outerHTML.trim() }];
 }
 
-function htmlToBuilderBlocks(html: string) {
+function htmlToBuilderBlocks(html: string): EmailBuilderBlock[] | null {
   if (typeof window === "undefined") return null;
   const cleaned = stripBuilderMetadata(html);
   if (!cleaned) return null;
@@ -410,11 +412,21 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
     [cleanerOptions, settings.selectAllAllowedCleanerIds]
   );
 
-  useEffect(() => {
-    const nextBlocks: Record<AppEmailTemplateKey, EmailBuilderBlock[]> = { ...emailBlocksByTemplate };
-    const nextEnabled: Record<AppEmailTemplateKey, boolean> = { ...builderEnabledByTemplate };
+  function hydrateFromSnapshot(nextSettings: AppSettings) {
+    setSettings(nextSettings);
+    const nextBlocks = Object.fromEntries(
+      EMAIL_TEMPLATE_KEYS.map((key) => [
+        key,
+        defaultBuilderBlocks(EMAIL_TEMPLATE_DEFINITIONS[key].label),
+      ])
+    ) as Record<AppEmailTemplateKey, EmailBuilderBlock[]>;
+    const nextEnabled = Object.fromEntries(
+      EMAIL_TEMPLATE_KEYS.map((key) => [key, false])
+    ) as Record<AppEmailTemplateKey, boolean>;
     for (const key of EMAIL_TEMPLATE_KEYS) {
-      const parsed = tryParseBuilderBlocks(settings.emailTemplates[key].html);
+      const parsed =
+        tryParseBuilderBlocks(nextSettings.emailTemplates[key].html) ??
+        htmlToBuilderBlocks(nextSettings.emailTemplates[key].html);
       if (parsed) {
         nextBlocks[key] = parsed;
         nextEnabled[key] = true;
@@ -422,6 +434,24 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
     }
     setEmailBlocksByTemplate(nextBlocks);
     setBuilderEnabledByTemplate(nextEnabled);
+  }
+
+  useEffect(() => {
+    hydrateFromSnapshot(initialSettings);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSettings]);
+
+  useEffect(() => {
+    function handleSettingsRestored(event: Event) {
+      const detail = (event as CustomEvent<AppSettings>).detail;
+      if (!detail || typeof detail !== "object") return;
+      hydrateFromSnapshot(detail);
+    }
+
+    window.addEventListener(SETTINGS_RESTORED_EVENT, handleSettingsRestored as EventListener);
+    return () => {
+      window.removeEventListener(SETTINGS_RESTORED_EVENT, handleSettingsRestored as EventListener);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1665,22 +1695,27 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
         <div className="space-y-2">
           <p className="text-sm font-medium">Client Portal Visibility (Admin-controlled)</p>
           <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
-            {[
-              ["showCalendar", "Show calendar"],
-              ["showReports", "Show reports"],
-              ["showReportDownloads", "Allow report PDF downloads"],
-              ["showInventory", "Show inventory"],
-              ["showShopping", "Show shopping"],
-              ["showStockRuns", "Show stock count runs"],
-              ["showFinanceDetails", "Show finance details"],
-              ["showOngoingJobs", "Show ongoing jobs"],
-              ["showLaundryUpdates", "Show laundry updates"],
-              ["showLaundryCosts", "Show laundry costs"],
-              ["showCases", "Show cases/issues"],
-              ["showExtraPayRequests", "Show extra pay requests"],
-              ["showQuoteRequests", "Show quote requests"],
-              ["showApprovals", "Show approval requests"],
-              ["showCleanerNames", "Show cleaner names to client"],
+              {[
+                ["showProperties", "Show properties"],
+                ["showJobs", "Show jobs"],
+                ["showCalendar", "Show calendar"],
+                ["showReports", "Show reports"],
+                ["showReportDownloads", "Allow report PDF downloads"],
+                ["showChecklistPreview", "Show checklist preview"],
+                ["showInventory", "Show inventory"],
+                ["showShopping", "Show shopping"],
+                ["showStockRuns", "Show stock count runs"],
+                ["showFinanceDetails", "Show finance details"],
+                ["showOngoingJobs", "Show ongoing jobs"],
+                ["showLaundryUpdates", "Show laundry updates"],
+                ["showLaundryImages", "Show laundry images"],
+                ["showLaundryCosts", "Show laundry costs"],
+                ["showClientTaskRequests", "Allow client task requests"],
+                ["showCases", "Show cases/issues"],
+                ["showExtraPayRequests", "Show extra pay requests"],
+                ["showQuoteRequests", "Show quote requests"],
+                ["showApprovals", "Show approval requests"],
+                ["showCleanerNames", "Show cleaner names to client"],
               ["allowInventoryThresholdEdits", "Allow client inventory threshold edits"],
               ["allowStockRuns", "Allow client stock count runs"],
               ["allowCaseReplies", "Allow client case replies"],

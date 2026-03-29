@@ -832,7 +832,7 @@ export default function JobsPage() {
             ? `This will permanently delete the job for ${jobToDelete.property?.name ?? "this property"} on ${format(new Date(jobToDelete.scheduledDate), "dd MMM yyyy")}.`
             : "This will permanently delete the selected job."
         }
-        confirmPhrase="DELETE"
+        actionKey="deleteJob"
         confirmLabel="Delete job"
         requireSecurityVerification
         loading={deleting}

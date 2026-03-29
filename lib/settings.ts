@@ -20,6 +20,8 @@ export interface ProfileEditPolicy {
 }
 
 export interface ClientPortalVisibility {
+  showProperties: boolean;
+  showJobs: boolean;
   showCalendar: boolean;
   showReports: boolean;
   showInventory: boolean;
@@ -31,7 +33,10 @@ export interface ClientPortalVisibility {
   showExtraPayRequests: boolean;
   showCleanerNames: boolean;
   showLaundryUpdates: boolean;
+  showLaundryImages: boolean;
   showLaundryCosts: boolean;
+  showChecklistPreview: boolean;
+  showClientTaskRequests: boolean;
   showQuoteRequests: boolean;
   showApprovals: boolean;
   showReportDownloads: boolean;
@@ -249,6 +254,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   profileEditOverrides: {},
   clientPortalVisibility: {
+    showProperties: true,
+    showJobs: true,
     showCalendar: true,
     showReports: true,
     showInventory: true,
@@ -260,7 +267,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showExtraPayRequests: false,
     showCleanerNames: false,
     showLaundryUpdates: true,
+    showLaundryImages: true,
     showLaundryCosts: true,
+    showChecklistPreview: true,
+    showClientTaskRequests: true,
     showQuoteRequests: true,
     showApprovals: true,
     showReportDownloads: true,
@@ -409,6 +419,8 @@ function sanitizeClientPortalVisibility(
   if (!input || typeof input !== "object") return fallback;
   const row = input as Record<string, unknown>;
   return {
+    showProperties: typeof row.showProperties === "boolean" ? row.showProperties : fallback.showProperties,
+    showJobs: typeof row.showJobs === "boolean" ? row.showJobs : fallback.showJobs,
     showCalendar: typeof row.showCalendar === "boolean" ? row.showCalendar : fallback.showCalendar,
     showReports: typeof row.showReports === "boolean" ? row.showReports : fallback.showReports,
     showInventory: typeof row.showInventory === "boolean" ? row.showInventory : fallback.showInventory,
@@ -426,8 +438,16 @@ function sanitizeClientPortalVisibility(
       typeof row.showCleanerNames === "boolean" ? row.showCleanerNames : fallback.showCleanerNames,
     showLaundryUpdates:
       typeof row.showLaundryUpdates === "boolean" ? row.showLaundryUpdates : fallback.showLaundryUpdates,
+    showLaundryImages:
+      typeof row.showLaundryImages === "boolean" ? row.showLaundryImages : fallback.showLaundryImages,
     showLaundryCosts:
       typeof row.showLaundryCosts === "boolean" ? row.showLaundryCosts : fallback.showLaundryCosts,
+    showChecklistPreview:
+      typeof row.showChecklistPreview === "boolean" ? row.showChecklistPreview : fallback.showChecklistPreview,
+    showClientTaskRequests:
+      typeof row.showClientTaskRequests === "boolean"
+        ? row.showClientTaskRequests
+        : fallback.showClientTaskRequests,
     showQuoteRequests:
       typeof row.showQuoteRequests === "boolean" ? row.showQuoteRequests : fallback.showQuoteRequests,
     showApprovals:

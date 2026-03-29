@@ -12,6 +12,7 @@ import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention
 import { getClientImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
+import { getClientPortalContext } from "@/lib/client/portal";
 
 const TZ = "Australia/Sydney";
 
@@ -27,14 +28,13 @@ function parseConfirmationMeta(notes: string | null | undefined) {
 export default async function ClientDashboard() {
   const session = await requireRole([Role.CLIENT]);
   const appSettings = await getAppSettings();
-  const visibility = appSettings.clientPortalVisibility;
+  const portal = await getClientPortalContext(session.user.id, appSettings);
+  const visibility = portal.visibility;
 
-  const user = await db.user.findUnique({
-    where: { id: session.user.id },
-    include: { client: { include: { properties: { where: { isActive: true } } } } },
+  const client = await db.client.findUnique({
+    where: { id: portal.clientId ?? "__missing__" },
+    include: { properties: { where: { isActive: true } } },
   });
-
-  const client = user?.client;
 
   const reports = client
     ? await db.report.findMany({
@@ -169,6 +169,16 @@ export default async function ClientDashboard() {
                     <Link href="/client/reports">Reports</Link>
                   </Button>
                 ) : null}
+                {visibility.showProperties ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/client/properties">Properties</Link>
+                  </Button>
+                ) : null}
+                {visibility.showJobs ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/client/jobs">Jobs</Link>
+                  </Button>
+                ) : null}
                 {visibility.showInventory ? (
                   <Button size="sm" variant="outline" asChild>
                     <Link href="/client/inventory">Inventory</Link>
@@ -276,6 +286,7 @@ export default async function ClientDashboard() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        {visibility.showProperties ? (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Your Properties</CardTitle>
@@ -283,7 +294,11 @@ export default async function ClientDashboard() {
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {(client?.properties ?? []).map((prop) => (
-              <div key={prop.id} className="rounded-2xl border border-border/70 bg-white/70 p-4">
+              <Link
+                key={prop.id}
+                href={visibility.showProperties ? `/client/properties/${prop.id}` : "#"}
+                className="rounded-2xl border border-border/70 bg-white/70 p-4 transition hover:border-primary/40"
+              >
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
                     <Building2 className="h-5 w-5 text-primary" />
@@ -298,7 +313,7 @@ export default async function ClientDashboard() {
                     </p>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
             {!client?.properties?.length ? (
               <div className="sm:col-span-2 rounded-2xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
@@ -307,6 +322,7 @@ export default async function ClientDashboard() {
             ) : null}
           </CardContent>
         </Card>
+        ) : <div />}
 
         <div className="space-y-4">
           {visibility.showOngoingJobs ? (

@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { updateClientSchema } from "@/lib/validations/client";
-import { Role } from "@prisma/client";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import {
   normalizeClientEmail,
   syncPrimaryClientUserFromClient,
 } from "@/lib/clients/contact-sync";
+
+function normalizePortalVisibilityOverrides(
+  input: Record<string, unknown> | null | undefined
+): Prisma.InputJsonValue | null {
+  if (!input || typeof input !== "object") return null;
+  const entries = Object.entries(input).filter(([, value]) => typeof value === "boolean");
+  if (!entries.length) return null;
+  return Object.fromEntries(entries) as Prisma.InputJsonValue;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -50,6 +59,11 @@ export async function PATCH(
         ...body,
         email:
           body.email !== undefined ? normalizeClientEmail(body.email) : body.email,
+        portalVisibilityOverrides:
+          body.portalVisibilityOverrides !== undefined
+            ? normalizePortalVisibilityOverrides(body.portalVisibilityOverrides as Record<string, unknown>) ??
+              Prisma.JsonNull
+            : body.portalVisibilityOverrides,
       };
 
       const nextClient = await tx.client.update({ where: { id: params.id }, data });

@@ -8,6 +8,7 @@ import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 
 function normalizeRule(
   rule:
@@ -93,6 +94,12 @@ export async function POST(req: NextRequest) {
       }),
     },
       include: { property: true },
+    });
+    await attachPendingCarryForwardTasksToJob({
+      jobId: job.id,
+      propertyId: job.propertyId,
+      scheduledDate: job.scheduledDate,
+      startTime: job.startTime,
     });
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {

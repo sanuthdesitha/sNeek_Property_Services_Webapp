@@ -814,7 +814,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
         </div>
       </div>
 
-      <TwoStepConfirmDialog open={deleteTemplateOpen} onOpenChange={setDeleteTemplateOpen} title="Delete job template" description="This removes the saved template." confirmLabel="Delete template" loading={deletingTemplate} onConfirm={deleteTemplate} />
+      <TwoStepConfirmDialog open={deleteTemplateOpen} onOpenChange={setDeleteTemplateOpen} title="Delete job template" description="This removes the saved template." actionKey="deactivateFormTemplate" confirmLabel="Delete template" requireSecurityVerification loading={deletingTemplate} onConfirm={deleteTemplate} />
     </div>
   );
 }

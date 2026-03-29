@@ -1,5 +1,7 @@
+import { syncAllIcalIfDue } from "@/lib/ical/sync";
 import { logger } from "@/lib/logger";
 import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
+import { autoApprovePendingClientJobTasks } from "@/lib/job-tasks/service";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
@@ -26,7 +28,9 @@ function getState(): SchedulerState {
 }
 
 async function runScheduledTick() {
+  await syncAllIcalIfDue(new Date());
   await dispatchJobReminders({ reminderType: "ALL" });
+  await autoApprovePendingClientJobTasks(new Date());
   await dispatchTomorrowPrepSummaries(new Date());
   await sendStockAlerts();
   await sendAdminAttentionSummary({ now: new Date() });

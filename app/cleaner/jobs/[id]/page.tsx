@@ -151,6 +151,18 @@ function adminRequestedTaskPhotoFieldId(taskId: string) {
   return `__admin_requested_task_${taskId}_photo`;
 }
 
+function jobTaskDecisionFieldId(taskId: string) {
+  return `__job_task_${taskId}_decision`;
+}
+
+function jobTaskNoteFieldId(taskId: string) {
+  return `__job_task_${taskId}_note`;
+}
+
+function jobTaskProofFieldId(taskId: string) {
+  return `__job_task_${taskId}_proof`;
+}
+
 function carryForwardPhotoFieldId(taskId: string) {
   return `carry_forward_photo_${taskId}`;
 }
@@ -172,6 +184,17 @@ function formatLaundryOutcomeLabelValue(outcome: LaundryOutcome) {
 function getLaundrySkipReasonLabel(reasonCode: string | undefined) {
   if (!reasonCode) return "";
   return LAUNDRY_SKIP_REASONS.find((reason) => reason.value === reasonCode)?.label ?? reasonCode.replace(/_/g, " ");
+}
+
+function formatJobTaskSourceLabel(source: string) {
+  switch (source) {
+    case "CLIENT":
+      return "Client request";
+    case "CARRY_FORWARD":
+      return "Carry forward";
+    default:
+      return "Admin request";
+  }
 }
 
 function buildLaundryUpdateSummary(update: SavedLaundryUpdate | null) {
@@ -1315,11 +1338,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     ? payload.jobMeta.tags.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
   const hasJobNotes = Boolean(typeof job?.notes === "string" && job.notes.trim().length > 0);
-  const specialRequestTasks: JobSpecialRequestTask[] = Array.isArray(payload?.jobMeta?.specialRequestTasks)
+  const unifiedJobTasks: Array<any> = Array.isArray(payload?.jobTasks)
+    ? payload.jobTasks.filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === "object")
+    : [];
+  const hasUnifiedAdminTasks = unifiedJobTasks.some((task) => task.source === "ADMIN");
+  const hasUnifiedCarryForwardTasks = unifiedJobTasks.some((task) => task.source === "CARRY_FORWARD");
+  const specialRequestTasks: JobSpecialRequestTask[] =
+    hasUnifiedAdminTasks
+      ? []
+      : Array.isArray(payload?.jobMeta?.specialRequestTasks)
     ? payload.jobMeta.specialRequestTasks
         .filter((item: unknown): item is JobSpecialRequestTask => !!item && typeof item === "object")
         .filter((task: JobSpecialRequestTask) => typeof task.title === "string" && task.title.trim().length > 0)
-    : [];
+      : [];
   const serviceContext = payload?.jobMeta?.serviceContext ?? {};
   const reservationContext = payload?.jobMeta?.reservationContext ?? {};
   const hasServiceContext =
@@ -1328,7 +1359,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     Boolean(reservationContext && typeof reservationContext === "object" && Object.keys(reservationContext).length > 0);
   const preparationGuestCount = Number(reservationContext?.preparationGuestCount ?? 0);
   const preparationSource = reservationContext?.preparationSource ?? "INCOMING_BOOKING";
-  const carryForwardTasks: Array<any> = Array.isArray(payload?.carryForwardTasks) ? payload.carryForwardTasks : [];
+  const carryForwardTasks: Array<any> =
+    hasUnifiedCarryForwardTasks || !Array.isArray(payload?.carryForwardTasks) ? [] : payload.carryForwardTasks;
   const canUseSelectAll = Boolean(payload?.canUseSelectAll);
   const sectionsWithAutoInventory = useMemo(() => {
     const baseSections = Array.isArray(sections)
@@ -2101,6 +2133,53 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     );
   }
 
+  function renderTaskReferenceAttachments(task: any) {
+    const attachments = Array.isArray(task?.attachments) ? task.attachments : [];
+    if (attachments.length === 0) return null;
+
+    return (
+      <div className="space-y-2 rounded-md border border-dashed p-3">
+        <p className="text-xs font-medium text-muted-foreground">Reference files</p>
+        <div className="flex flex-wrap gap-2">
+          {attachments.map((attachment: any) => {
+            const key = typeof attachment?.s3Key === "string" ? attachment.s3Key : "";
+            const label = typeof attachment?.label === "string" && attachment.label.trim() ? attachment.label : "Reference";
+            const previewUrl = key ? uploadPreviewUrls[key] : "";
+            const isImage = Boolean(key && isImageFileName(key));
+            return (
+              <div key={attachment.id ?? key ?? label} className="rounded-md border bg-background p-2 text-xs">
+                {isImage && previewUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => openImagePreviewForKey(key, label)}
+                    className="mb-2 block h-20 w-20 overflow-hidden rounded border bg-muted"
+                  >
+                    <img src={previewUrl} alt={label} className="h-full w-full object-cover" />
+                  </button>
+                ) : null}
+                {isImage && key ? (
+                  <button
+                    type="button"
+                    className="text-left text-primary underline"
+                    onClick={() => openImagePreviewForKey(key, label)}
+                  >
+                    {label}
+                  </button>
+                ) : typeof attachment?.url === "string" && attachment.url ? (
+                  <a href={attachment.url} target="_blank" rel="noreferrer" className="text-primary underline">
+                    {label}
+                  </a>
+                ) : (
+                  <span>{label}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   function renderInventoryField(field: any, section?: any) {
     if (!job?.property?.inventoryEnabled) {
       return (
@@ -2554,6 +2633,55 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         return null;
       }
     }
+    const unifiedTaskPayload = unifiedJobTasks.map((task) => {
+      const decision = String(formData[jobTaskDecisionFieldId(String(task.id))] ?? "");
+      const note = String(formData[jobTaskNoteFieldId(String(task.id))] ?? "").trim();
+      const proofKeys = uploads[jobTaskProofFieldId(String(task.id))] ?? [];
+      return {
+        id: String(task.id),
+        title: String(task.title ?? "Task"),
+        decision,
+        note,
+        proofKeys,
+        requiresPhoto: task.requiresPhoto === true,
+        requiresNote: task.requiresNote === true,
+      };
+    });
+    for (const task of unifiedTaskPayload) {
+      if (task.decision !== "COMPLETED" && task.decision !== "NOT_COMPLETED") {
+        toast({
+          title: "Task decision required",
+          description: `Choose completed or not completed for "${task.title}".`,
+          variant: "destructive",
+        });
+        return null;
+      }
+      if (task.decision === "COMPLETED") {
+        if (task.requiresNote && !task.note) {
+          toast({
+            title: "Cleaner note required",
+            description: `Add the requested note for "${task.title}".`,
+            variant: "destructive",
+          });
+          return null;
+        }
+        if (task.requiresPhoto && task.proofKeys.length === 0) {
+          toast({
+            title: "Image proof required",
+            description: `Upload proof for "${task.title}".`,
+            variant: "destructive",
+          });
+          return null;
+        }
+      } else if (!task.note) {
+        toast({
+          title: "Reason required",
+          description: `Explain why "${task.title}" was not completed.`,
+          variant: "destructive",
+        });
+        return null;
+      }
+    }
     const carryForwardTaskPhotoKeys = Object.fromEntries(
       carryForwardTasks.map((task) => {
         const taskId = String(task.id);
@@ -2563,6 +2691,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     );
     const payloadToSubmit = {
       templateId: template.id,
+      jobTasks: unifiedTaskPayload.map((task) => ({
+        id: task.id,
+        decision: task.decision,
+        note: task.note,
+        proofKeys: task.proofKeys,
+      })),
       laundryOutcome: laundryOutcome ?? undefined,
       laundryReady: laundryOutcome ? laundryReady : undefined,
       laundrySkipReasonCode,
@@ -3283,6 +3417,116 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </Button>
           )}
           <Progress value={progress} className="h-2" />
+          {unifiedJobTasks.length > 0 ? (
+            <Card className="border-destructive bg-destructive/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-destructive">Priority Job Tasks</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {unifiedJobTasks.map((task) => {
+                  const taskId = String(task.id);
+                  const decisionFieldId = jobTaskDecisionFieldId(taskId);
+                  const noteFieldId = jobTaskNoteFieldId(taskId);
+                  const proofFieldId = jobTaskProofFieldId(taskId);
+                  const decision = String(formData[decisionFieldId] ?? "");
+                  const proofCount = uploads[proofFieldId]?.length ?? 0;
+                  return (
+                    <div key={taskId} className="space-y-3 rounded-md border bg-background p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium">{task.title}</p>
+                          {task.description ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="destructive">Required</Badge>
+                          <Badge variant="outline">{formatJobTaskSourceLabel(String(task.source ?? "ADMIN"))}</Badge>
+                          {task.approvalStatus === "AUTO_APPROVED" ? (
+                            <Badge variant="outline">Auto-approved</Badge>
+                          ) : null}
+                          {task.requiresPhoto ? <Badge variant="outline">Image proof</Badge> : null}
+                          {task.requiresNote ? <Badge variant="outline">Cleaner note</Badge> : null}
+                        </div>
+                      </div>
+                      {renderTaskReferenceAttachments(task)}
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Task outcome</Label>
+                        <Select
+                          value={decision}
+                          onValueChange={(value) =>
+                            setFormData((prev) => ({ ...prev, [decisionFieldId]: value }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select completed or not completed" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="COMPLETED">Completed</SelectItem>
+                            <SelectItem value="NOT_COMPLETED">Not completed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">
+                            {decision === "NOT_COMPLETED" ? "Reason *" : task.requiresNote ? "Cleaner note *" : "Cleaner note"}
+                          </Label>
+                          <Textarea
+                            value={formData[noteFieldId] ?? ""}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, [noteFieldId]: e.target.value }))
+                            }
+                            placeholder={
+                              decision === "NOT_COMPLETED"
+                                ? "Explain why this task could not be completed"
+                                : "Add proof notes if needed"
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2 rounded-md border border-dashed p-3">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            {decision === "NOT_COMPLETED" ? "Proof (optional)" : task.requiresPhoto ? "Image proof *" : "Proof"}
+                            {proofCount > 0 ? ` (${proofCount} uploaded)` : ""}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                              <Camera className="h-3.5 w-3.5" />
+                              Take photo
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) handleUpload(proofFieldId, e.target.files, "camera");
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                            <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                              Upload proof
+                              <input
+                                type="file"
+                                accept="image/*,video/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) handleUpload(proofFieldId, e.target.files, "gallery");
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
+                          </div>
+                          {renderUnifiedUploadList(proofFieldId)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          ) : null}
           {specialRequestTasks.length > 0 ? (
             <Card className="border-destructive bg-destructive/5">
               <CardHeader className="pb-2">

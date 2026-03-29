@@ -48,6 +48,7 @@ function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSumm
   const approvalCount =
     summary.pendingPayRequests +
     summary.pendingTimeAdjustments +
+    summary.pendingClientTaskRequests +
     summary.pendingContinuations +
     summary.pendingClientApprovals +
     summary.pendingLaundryRescheduleDraft;
@@ -56,6 +57,7 @@ function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSumm
     { label: "Approvals / review items", count: approvalCount },
     { label: "Cleaner pay requests pending", count: summary.pendingPayRequests },
     { label: "Clock adjustments pending", count: summary.pendingTimeAdjustments },
+    { label: "Client task requests pending", count: summary.pendingClientTaskRequests },
     { label: "Pause / continue approvals pending", count: summary.pendingContinuations },
     { label: "Client approvals awaiting response", count: summary.pendingClientApprovals },
     { label: "Laundry reschedule drafts pending", count: summary.pendingLaundryRescheduleDraft },
@@ -163,6 +165,7 @@ export async function sendAdminAttentionSummary(options: SendAdminAttentionSumma
       approvalCount: breakdown.approvalCount,
       pendingPayRequests: summary.pendingPayRequests,
       pendingTimeAdjustments: summary.pendingTimeAdjustments,
+      pendingClientTaskRequests: summary.pendingClientTaskRequests,
       pendingContinuations: summary.pendingContinuations,
       pendingClientApprovals: summary.pendingClientApprovals,
       pendingLaundryRescheduleDraft: summary.pendingLaundryRescheduleDraft,
@@ -184,6 +187,7 @@ export async function sendAdminAttentionSummary(options: SendAdminAttentionSumma
       approvalCount: breakdown.approvalCount,
       pendingPayRequests: summary.pendingPayRequests,
       pendingTimeAdjustments: summary.pendingTimeAdjustments,
+      pendingClientTaskRequests: summary.pendingClientTaskRequests,
       pendingContinuations: summary.pendingContinuations,
       pendingClientApprovals: summary.pendingClientApprovals,
       pendingLaundryRescheduleDraft: summary.pendingLaundryRescheduleDraft,

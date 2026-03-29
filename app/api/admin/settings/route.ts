@@ -14,8 +14,11 @@ const rolePolicySchema = z.object({
 });
 
 const clientPortalVisibilitySchema = z.object({
+  showProperties: z.boolean().optional(),
+  showJobs: z.boolean().optional(),
   showCalendar: z.boolean().optional(),
   showReports: z.boolean().optional(),
+  showChecklistPreview: z.boolean().optional(),
   showInventory: z.boolean().optional(),
   showShopping: z.boolean().optional(),
   showStockRuns: z.boolean().optional(),
@@ -25,7 +28,9 @@ const clientPortalVisibilitySchema = z.object({
   showExtraPayRequests: z.boolean().optional(),
   showCleanerNames: z.boolean().optional(),
   showLaundryUpdates: z.boolean().optional(),
+  showLaundryImages: z.boolean().optional(),
   showLaundryCosts: z.boolean().optional(),
+  showClientTaskRequests: z.boolean().optional(),
   showQuoteRequests: z.boolean().optional(),
   showApprovals: z.boolean().optional(),
   showReportDownloads: z.boolean().optional(),

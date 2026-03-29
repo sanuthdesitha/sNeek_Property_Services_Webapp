@@ -102,6 +102,7 @@ export default function NotificationsPage() {
         onOpenChange={setClearOpen}
         title="Clear notifications"
         description="This will remove all notification logs from the system."
+        actionKey="clearNotificationLog"
         confirmLabel="Yes"
         cancelLabel="No"
         loading={clearing}

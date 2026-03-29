@@ -17,6 +17,7 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { syncAdminJobTasks } from "@/lib/job-tasks/service";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 const FINISHED_JOB_STATUSES = new Set<JobStatus>([
@@ -88,6 +89,20 @@ export async function GET(
         laundryTask: true,
         report: true,
         issueTickets: true,
+        jobTasks: {
+          include: {
+            requestedBy: { select: { id: true, name: true, email: true } },
+            approvedBy: { select: { id: true, name: true, email: true } },
+            attachments: {
+              where: { kind: "REQUEST_REFERENCE" },
+              orderBy: { createdAt: "asc" },
+            },
+            events: {
+              orderBy: { createdAt: "asc" },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
     if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -122,7 +137,7 @@ export async function PATCH(
         startTime: true,
         dueTime: true,
         scheduledDate: true,
-        property: { select: { name: true, suburb: true } },
+        property: { select: { name: true, suburb: true, clientId: true } },
         assignments: {
           where: { removedAt: null },
           select: {
@@ -242,7 +257,7 @@ export async function PATCH(
         startTime: true,
         dueTime: true,
         scheduledDate: true,
-        property: { select: { name: true, suburb: true } },
+        property: { select: { name: true, suburb: true, clientId: true } },
       },
     });
 
@@ -256,6 +271,16 @@ export async function PATCH(
         after: data as any,
       },
     });
+
+    if (body.specialRequestTasks !== undefined && refreshed) {
+      await syncAdminJobTasks({
+        jobId: refreshed.id,
+        propertyId: refreshed.propertyId,
+        clientId: refreshed.property?.clientId ?? null,
+        actorUserId: session.user.id,
+        tasks: body.specialRequestTasks,
+      });
+    }
 
     if (refreshed) {
       const previousMeta = parseJobInternalNotes(current.internalNotes);

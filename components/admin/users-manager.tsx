@@ -1027,7 +1027,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
             ? `This sends a new temporary password to ${resetTarget.name ?? resetTarget.email} and logs out existing sessions.`
             : "This resets the account password."
         }
-        confirmPhrase="RESET"
+        actionKey="resetUserPassword"
         confirmLabel="Reset password"
         requireSecurityVerification
         loading={resettingPassword}
@@ -1045,7 +1045,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
             ? `This will permanently delete ${deleteTarget.name ?? deleteTarget.email}. Accounts with job history cannot be deleted.`
             : "This action is permanent."
         }
-        confirmPhrase="DELETE"
+        actionKey="deleteUserAccount"
         confirmLabel="Delete account"
         requireSecurityVerification
         loading={deleting}
