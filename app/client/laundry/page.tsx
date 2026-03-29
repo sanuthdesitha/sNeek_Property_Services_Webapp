@@ -8,6 +8,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientLaundryForUser } from "@/lib/client/portal-data";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MediaGallery } from "@/components/shared/media-gallery";
 
 const TZ = "Australia/Sydney";
 
@@ -102,9 +103,18 @@ export default async function ClientLaundryPage() {
                       <p className="text-xs font-medium text-amber-700">Admin note: {task.adminOverrideNote}</p>
                     ) : null}
                     {portal.visibility.showLaundryImages && confirmation.photoUrl ? (
-                      <a className="text-xs text-primary underline" href={confirmation.photoUrl} target="_blank" rel="noreferrer">
-                        View image
-                      </a>
+                      <MediaGallery
+                        items={[
+                          {
+                            id: `${confirmation.id}-photo`,
+                            url: confirmation.photoUrl,
+                            label: confirmation.laundryReady ? "Laundry ready image" : "Laundry update image",
+                            mediaType: "PHOTO",
+                          },
+                        ]}
+                        title={`${task.property.name} laundry image`}
+                        className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+                      />
                     ) : null}
                   </div>
                 ))}

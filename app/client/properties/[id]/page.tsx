@@ -10,6 +10,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientPropertyDetailForUser } from "@/lib/client/portal-data";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { Button } from "@/components/ui/button";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 
@@ -208,9 +209,18 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                             ) : null}
                             {task.skipReasonNote ? <p className="text-xs text-muted-foreground">{task.skipReasonNote}</p> : null}
                             {portal.visibility.showLaundryImages && confirmation.photoUrl ? (
-                              <a href={confirmation.photoUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-primary underline">
-                                View image
-                              </a>
+                              <MediaGallery
+                                items={[
+                                  {
+                                    id: `${confirmation.id}-photo`,
+                                    url: confirmation.photoUrl,
+                                    label: confirmation.laundryReady ? "Laundry ready image" : "Laundry update image",
+                                    mediaType: "PHOTO",
+                                  },
+                                ]}
+                                title="Laundry image"
+                                className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+                              />
                             ) : null}
                           </div>
                         ))}
