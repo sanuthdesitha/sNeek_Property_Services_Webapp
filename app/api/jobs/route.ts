@@ -31,12 +31,17 @@ export async function GET(req: NextRequest) {
     const jobs = await db.job.findMany({
       where,
       include: {
-        property: { select: { name: true, suburb: true, address: true } },
+        property: { select: { name: true, suburb: true, address: true, client: { select: { id: true, name: true, email: true } } } },
         assignments: { include: { user: { select: { id: true, name: true } } } },
         qaReviews: {
           select: { id: true, score: true, passed: true, createdAt: true },
           orderBy: { createdAt: "desc" },
           take: 1,
+        },
+        issueTickets: {
+          where: { caseType: "DAMAGE", status: { not: "RESOLVED" } },
+          select: { id: true, status: true, severity: true, title: true },
+          take: 5,
         },
         _count: { select: { formSubmissions: true } },
       },

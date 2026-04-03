@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { JobType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,20 +12,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 
-const SERVICE_TYPES = [
-  { value: "AIRBNB_TURNOVER", label: "Airbnb Turnover" },
-  { value: "DEEP_CLEAN", label: "Deep Clean" },
-  { value: "END_OF_LEASE", label: "End of Lease" },
-  { value: "GENERAL_CLEAN", label: "General Clean" },
-  { value: "POST_CONSTRUCTION", label: "Post Construction" },
-  { value: "PRESSURE_WASH", label: "Pressure Wash" },
-  { value: "WINDOW_CLEAN", label: "Window Clean" },
-  { value: "LAWN_MOWING", label: "Lawn Mowing" },
-  { value: "SPECIAL_CLEAN", label: "Special Clean" },
-  { value: "COMMERCIAL_RECURRING", label: "Commercial Recurring" },
-] as const;
+const SERVICE_TYPES: Array<{ value: JobType; label: string }> = [
+  { value: JobType.AIRBNB_TURNOVER, label: "Airbnb Turnover" },
+  { value: JobType.DEEP_CLEAN, label: "Deep Clean" },
+  { value: JobType.END_OF_LEASE, label: "End of Lease" },
+  { value: JobType.GENERAL_CLEAN, label: "General Clean" },
+  { value: JobType.POST_CONSTRUCTION, label: "Post Construction" },
+  { value: JobType.PRESSURE_WASH, label: "Pressure Wash" },
+  { value: JobType.WINDOW_CLEAN, label: "Window Clean" },
+  { value: JobType.LAWN_MOWING, label: "Lawn Mowing" },
+  { value: JobType.SPECIAL_CLEAN, label: "Special Clean" },
+  { value: JobType.COMMERCIAL_RECURRING, label: "Commercial Recurring" },
+  { value: JobType.CARPET_STEAM_CLEAN, label: "Carpet Steam Clean" },
+  { value: JobType.MOLD_TREATMENT, label: "Mould Treatment" },
+  { value: JobType.UPHOLSTERY_CLEANING, label: "Upholstery Cleaning" },
+  { value: JobType.TILE_GROUT_CLEANING, label: "Tile & Grout Cleaning" },
+  { value: JobType.GUTTER_CLEANING, label: "Gutter Cleaning" },
+  { value: JobType.SPRING_CLEANING, label: "Spring Cleaning" },
+];
 
-type ServiceType = (typeof SERVICE_TYPES)[number]["value"];
+type ServiceType = JobType;
 
 interface LeadOption {
   id: string;

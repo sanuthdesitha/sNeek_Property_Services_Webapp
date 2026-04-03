@@ -58,28 +58,35 @@ export async function POST(
         data: { status: passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW },
       });
 
+      let autoCaseCreated = false;
       if (!passed) {
         if (settings.qaAutomation.createIssueTicket) {
           const existingIssue = await tx.issueTicket.findFirst({
             where: {
               jobId: params.id,
+              caseType: "OPS",
               status: { not: "RESOLVED" },
-              title: { startsWith: "QA failed" },
             },
             select: { id: true },
           });
           if (!existingIssue) {
+            const jobNumber = await tx.job.findUnique({
+              where: { id: params.id },
+              select: { jobNumber: true },
+            });
             await tx.issueTicket.create({
               data: {
                 jobId: params.id,
-                title: "QA failed - rework required",
-                description:
-                  body.notes?.trim() ||
-                  `QA score ${body.score} below threshold ${settings.qaAutomation.failureThreshold}.`,
+                title: `QA Below Threshold - ${jobNumber?.jobNumber ?? params.id.slice(-6)}`,
+                description: `Auto-generated from QA score of ${body.score}%.`,
+                caseType: "OPS",
+                source: "QA_AUTOMATION",
                 severity: "HIGH",
                 status: "OPEN",
+                clientVisible: false,
               },
             });
+            autoCaseCreated = true;
           }
         }
 
@@ -132,6 +139,7 @@ export async function POST(
             score: body.score,
             passed,
             threshold: settings.qaAutomation.failureThreshold,
+            autoCaseCreated,
           } as any,
         },
       });

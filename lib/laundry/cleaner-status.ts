@@ -275,6 +275,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
           laundryReady: true,
           bagLocation: params.bagLocation ?? null,
           photoUrl: laundryPhotoUrl,
+          s3Key: params.laundryPhotoKey?.trim() || null,
           notes: buildCleanerConfirmationNotes({
             source: params.source,
             laundryOutcome: params.laundryOutcome,

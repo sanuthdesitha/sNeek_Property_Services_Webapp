@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, Kanban, List, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, Kanban, List, Plus, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,10 +51,37 @@ const STATUS_LABELS: Record<string, string> = {
   INVOICED: "Invoiced",
 };
 
+const JOB_FILTER_DEFAULTS = {
+  status: "all",
+  search: "",
+  cleanerName: "",
+  jobType: "all",
+  dateFrom: "",
+  dateTo: "",
+  invoiced: "all",
+};
+
+type JobFilters = typeof JOB_FILTER_DEFAULTS;
+
+function parseJobFilters(params: { get(name: string): string | null }): JobFilters {
+  return {
+    status: params.get("status") || JOB_FILTER_DEFAULTS.status,
+    search: params.get("search") || JOB_FILTER_DEFAULTS.search,
+    cleanerName: params.get("cleanerName") || JOB_FILTER_DEFAULTS.cleanerName,
+    jobType: params.get("jobType") || JOB_FILTER_DEFAULTS.jobType,
+    dateFrom: params.get("dateFrom") || JOB_FILTER_DEFAULTS.dateFrom,
+    dateTo: params.get("dateTo") || JOB_FILTER_DEFAULTS.dateTo,
+    invoiced: params.get("invoiced") || JOB_FILTER_DEFAULTS.invoiced,
+  };
+}
+
 export default function JobsPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [jobs, setJobs] = useState<any[]>([]);
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filters, setFilters] = useState<JobFilters>(() => parseJobFilters(searchParams));
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, setView] = useState<"list" | "kanban">("list");
   const [loading, setLoading] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -76,10 +103,9 @@ export default function JobsPage() {
   const [quickAssignSubmitting, setQuickAssignSubmitting] = useState(false);
   const [pendingContinuationRows, setPendingContinuationRows] = useState<any[]>([]);
 
-  async function loadJobs(status = filterStatus) {
-    const url = status !== "all" ? `/api/jobs?status=${status}` : "/api/jobs";
+  async function loadJobs() {
     setLoading(true);
-    const res = await fetch(url);
+    const res = await fetch("/api/jobs");
     const data = await res.json().catch(() => []);
     setJobs(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -92,10 +118,21 @@ export default function JobsPage() {
   }
 
   useEffect(() => {
-    loadJobs(filterStatus);
+    loadJobs();
     loadPendingContinuations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus]);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      const defaultValue = JOB_FILTER_DEFAULTS[key as keyof JobFilters];
+      if (value && value !== defaultValue) {
+        params.set(key, value);
+      }
+    });
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [filters, pathname, router]);
 
   useEffect(() => {
     fetch("/api/admin/users?role=CLEANER")
@@ -117,10 +154,6 @@ export default function JobsPage() {
       });
   }, []);
 
-  const qaQueueJobs = useMemo(
-    () => jobs.filter((job) => job.status === "SUBMITTED" || job.status === "QA_REVIEW"),
-    [jobs]
-  );
   const cleanerOptions = useMemo(
     () =>
       cleaners.map((cleaner) => ({
@@ -129,6 +162,67 @@ export default function JobsPage() {
         hint: cleaner.email,
       })),
     [cleaners]
+  );
+  const jobTypeOptions = useMemo(
+    () => Array.from(new Set(jobs.map((job) => String(job?.jobType ?? "")).filter(Boolean))).sort(),
+    [jobs]
+  );
+  const activeFilterCount = useMemo(
+    () =>
+      Object.entries(filters).filter(([key, value]) => {
+        const defaultValue = JOB_FILTER_DEFAULTS[key as keyof JobFilters];
+        return value !== defaultValue;
+      }).length,
+    [filters]
+  );
+  const filteredJobs = useMemo(() => {
+    const searchNeedle = filters.search.trim().toLowerCase();
+    const cleanerNeedle = filters.cleanerName.trim().toLowerCase();
+
+    return jobs.filter((job) => {
+      if (filters.status !== "all" && job.status !== filters.status) return false;
+      if (filters.jobType !== "all" && String(job.jobType ?? "") !== filters.jobType) return false;
+
+      const scheduledDate = job?.scheduledDate ? new Date(job.scheduledDate) : null;
+      if (filters.dateFrom && scheduledDate && scheduledDate < new Date(`${filters.dateFrom}T00:00:00`)) return false;
+      if (filters.dateTo && scheduledDate && scheduledDate > new Date(`${filters.dateTo}T23:59:59`)) return false;
+
+      const isInvoiced =
+        job.status === "INVOICED" ||
+        Boolean(job.invoiceId) ||
+        Boolean(job.invoice?.id) ||
+        Boolean(job.clientInvoiceLineId) ||
+        Boolean(job.clientInvoiceLine?.id);
+      if (filters.invoiced === "yes" && !isInvoiced) return false;
+      if (filters.invoiced === "no" && isInvoiced) return false;
+
+      if (searchNeedle) {
+        const searchable = [
+          job.jobNumber,
+          job.property?.name,
+          job.property?.suburb,
+          job.client?.name,
+          job.client?.email,
+          job.property?.client?.name,
+          job.property?.client?.email,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!searchable.includes(searchNeedle)) return false;
+      }
+
+      if (cleanerNeedle) {
+        const assignmentText = getAssignmentNames(job).join(" ").toLowerCase();
+        if (!assignmentText.includes(cleanerNeedle)) return false;
+      }
+
+      return true;
+    });
+  }, [filters, jobs]);
+  const qaQueueJobs = useMemo(
+    () => filteredJobs.filter((job) => job.status === "SUBMITTED" || job.status === "QA_REVIEW"),
+    [filteredJobs]
   );
   const pendingContinuationJobIds = useMemo(
     () => new Set(pendingContinuationRows.map((row) => row.jobId).filter(Boolean)),
@@ -321,7 +415,7 @@ export default function JobsPage() {
   }
 
   const groupedByStatus = JOB_STATUSES.reduce((acc, status) => {
-    acc[status] = jobs.filter((job) => job.status === status);
+    acc[status] = filteredJobs.filter((job) => job.status === status);
     return acc;
   }, {} as Record<string, any[]>);
 
@@ -334,27 +428,29 @@ export default function JobsPage() {
     return Array.from(new Set(names));
   }
 
+  function hasActiveDamageCase(job: any) {
+    return Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Jobs</h2>
-          <p className="text-sm text-muted-foreground">{jobs.length} jobs</p>
+          <p className="text-sm text-muted-foreground">
+            {filteredJobs.length} of {jobs.length} jobs
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {JOB_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {STATUS_LABELS[status]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Button variant="outline" onClick={() => setFiltersOpen((current) => !current)}>
+            <SlidersHorizontal className="mr-2 h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 ? (
+              <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </Button>
           <div className="flex rounded-md border">
             <Button
               variant={view === "list" ? "default" : "ghost"}
@@ -387,6 +483,95 @@ export default function JobsPage() {
           </Button>
         </div>
       </div>
+
+      {filtersOpen ? (
+        <Card>
+          <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Search</p>
+              <Input
+                value={filters.search}
+                onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+                placeholder="Property, suburb, client, job number"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Job type</p>
+              <Select value={filters.jobType} onValueChange={(value) => setFilters((current) => ({ ...current, jobType: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All job types</SelectItem>
+                  {jobTypeOptions.map((jobType) => (
+                    <SelectItem key={jobType} value={jobType}>
+                      {jobType.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Status</p>
+              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {JOB_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {STATUS_LABELS[status]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Cleaner</p>
+              <Input
+                value={filters.cleanerName}
+                onChange={(event) => setFilters((current) => ({ ...current, cleanerName: event.target.value }))}
+                placeholder="Assigned cleaner name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Date from</p>
+              <Input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Date to</p>
+              <Input
+                type="date"
+                value={filters.dateTo}
+                onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Invoice status</p>
+              <Select value={filters.invoiced} onValueChange={(value) => setFilters((current) => ({ ...current, invoiced: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="yes">Invoiced</SelectItem>
+                  <SelectItem value="no">Not invoiced</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end justify-end">
+              <Button variant="ghost" onClick={() => setFilters(JOB_FILTER_DEFAULTS)}>
+                Clear all
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {loading ? (
         <p className="text-muted-foreground">Loading...</p>
@@ -605,7 +790,7 @@ export default function JobsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="divide-y">
-                {jobs.map((job) => (
+                {filteredJobs.map((job) => (
                   (() => {
                     const assignmentNames = getAssignmentNames(job);
                     return (
@@ -627,6 +812,14 @@ export default function JobsPage() {
                           >
                             {job.jobNumber}
                           </Badge>
+                        ) : null}
+                        {hasActiveDamageCase(job) ? (
+                          <Button size="sm" variant="outline" asChild className="h-6 border-red-300 px-2 text-red-700 hover:bg-red-50 hover:text-red-800">
+                            <Link href={`/admin/cases?jobId=${job.id}`}>
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              Damage
+                            </Link>
+                          </Button>
                         ) : null}
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -677,7 +870,7 @@ export default function JobsPage() {
                     );
                   })()
                 ))}
-                {jobs.length === 0 ? (
+                {filteredJobs.length === 0 ? (
                   <p className="px-6 py-10 text-center text-sm text-muted-foreground">No jobs match filters.</p>
                 ) : null}
               </div>
@@ -715,6 +908,14 @@ export default function JobsPage() {
                           >
                             {job.jobNumber}
                           </Badge>
+                        ) : null}
+                        {hasActiveDamageCase(job) ? (
+                          <Button size="sm" variant="outline" asChild className="h-6 border-red-300 px-2 text-red-700 hover:bg-red-50 hover:text-red-800">
+                            <Link href={`/admin/cases?jobId=${job.id}`}>
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              Damage
+                            </Link>
+                          </Button>
                         ) : null}
                       </div>
                       <p className="text-xs text-muted-foreground">{job.property.suburb}</p>

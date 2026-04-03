@@ -1,27 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Space_Grotesk } from "next/font/google";
 import { kickWebScheduledOps } from "@/lib/ops/web-scheduler";
 import "./globals.css";
 import { Providers } from "./providers";
 
-const manrope = Manrope({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-});
-
 export const metadata: Metadata = {
   title: {
-    default: "sNeek Property Services Dashboard",
+    default: "sNeek Property Services",
     template: "%s | sNeek Property Services",
   },
-  description: "Property cleaning operations management",
+  description: "Professional cleaning, Airbnb turnovers, property reports, laundry coordination, and practical property support across Sydney.",
   manifest: "/manifest.json",
   icons: {
     icon: [{ url: "/icon", type: "image/svg+xml", sizes: "64x64" }],
@@ -45,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${manrope.variable} ${spaceGrotesk.variable}`}>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

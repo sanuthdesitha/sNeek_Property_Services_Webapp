@@ -18,6 +18,7 @@ import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
+import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 
 const TZ = "Australia/Sydney";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -77,6 +78,14 @@ async function main() {
     logger.info({ ...result }, "Tomorrow prep summaries sent");
   });
 
+  await boss.schedule("workforce-post-dispatch", "*/5 * * * *", {});
+  await boss.work("workforce-post-dispatch", async () => {
+    const result = await dispatchScheduledWorkforcePosts(new Date());
+    if (result.dispatched > 0) {
+      logger.info({ ...result }, "Scheduled workforce posts dispatched");
+    }
+  });
+
   await boss.schedule("sla-escalation", "*/15 * * * *", {});
   await boss.work("sla-escalation", async () => {
     const result = await runSlaEscalation(new Date());
@@ -96,6 +105,22 @@ async function main() {
     const result = await generateRecurringJobs({ startDate, endDate });
     if (result.created > 0) {
       logger.info({ ...result, startDate, endDate }, "Recurring jobs generated");
+    }
+  });
+
+  await boss.schedule("document-expiry-check", "0 8 * * *", {});
+  await boss.work("document-expiry-check", async () => {
+    const result = await runDocumentExpiryCheck(new Date());
+    if (result.warned > 0 || result.expired > 0) {
+      logger.info({ ...result }, "Staff document expiry check completed");
+    }
+  });
+
+  await boss.schedule("recognition-check", "0 9 * * 0", {});
+  await boss.work("recognition-check", async () => {
+    const result = await runRecognitionCheck(new Date());
+    if (result.created > 0) {
+      logger.info({ ...result }, "Automatic staff recognitions awarded");
     }
   });
 

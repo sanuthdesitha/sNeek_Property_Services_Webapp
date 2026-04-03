@@ -91,6 +91,16 @@ export default withAuth(
           pathname === "/register" ||
           pathname === "/unauthorized" ||
           pathname === "/" ||
+          pathname === "/services" ||
+          pathname.startsWith("/services/") ||
+          pathname === "/faq" ||
+          pathname === "/quote" ||
+          pathname === "/contact" ||
+          pathname === "/careers" ||
+          pathname === "/subscriptions" ||
+          pathname === "/terms" ||
+          pathname === "/privacy" ||
+          pathname === "/airbnb-hosting" ||
           pathname.startsWith("/apply/") ||
           pathname === "/icon" ||
           pathname === "/manifest.json"

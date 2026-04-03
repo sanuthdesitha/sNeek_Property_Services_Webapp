@@ -104,11 +104,78 @@
   .page-fade {
     animation: pageFade 360ms ease both;
   }
+
+  .public-page-container {
+    max-width: var(--container-max-w, 80%);
+  }
+
+  .public-section-full {
+    width: 100%;
+  }
+
+  .section-gap {
+    padding-block: 4rem;
+  }
+
+  @media (min-width: 640px) {
+    .section-gap {
+      padding-block: 5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .section-gap {
+      padding-block: 6rem;
+    }
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .animate-float-slow {
+    animation: floatSlow 8s ease-in-out infinite;
+  }
+
+  .animate-float-slower {
+    animation: floatSlower 12s ease-in-out infinite;
+  }
+
+  .animate-gentle-pulse {
+    animation: gentlePulse 4.5s ease-in-out infinite;
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 500ms ease both;
+  }
+
+  .animate-slide-left {
+    animation: slideInLeft 600ms ease both;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 400ms ease both;
+  }
+
+  .animate-bounce-in {
+    animation: bounceIn 600ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .animate-marquee {
+    animation: marquee 28s linear infinite;
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 25%,
+      hsl(var(--background)) 50%,
+      hsl(var(--muted)) 75%
+    );
+    background-size: 400% 100%;
+    animation: shimmer 1.5s ease infinite;
   }
 }
 
@@ -121,6 +188,66 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(-14px) translateX(4px);
+  }
+}
+
+@keyframes floatSlower {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(12px) translateX(-6px);
+  }
+}
+
+@keyframes gentlePulse {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes bounceIn {
+  0%   { opacity: 0; transform: scale(0.6); }
+  60%  { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position: 200% center; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
 }
 
 /* Scrollbar */

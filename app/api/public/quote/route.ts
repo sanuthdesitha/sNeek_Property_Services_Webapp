@@ -9,7 +9,10 @@ export async function POST(req: NextRequest) {
     const result = await calculateQuote(body);
     return NextResponse.json(result);
   } catch (err: any) {
-    const requiresManualQuote = err?.code === "NO_PRICEBOOK_MATCH" || /No price book entry/i.test(err?.message ?? "");
+    const requiresManualQuote =
+      err?.code === "NO_PRICEBOOK_MATCH" ||
+      err?.code === "MANUAL_REVIEW_REQUIRED" ||
+      /No price book entry/i.test(err?.message ?? "");
     if (requiresManualQuote) {
       return NextResponse.json(
         {

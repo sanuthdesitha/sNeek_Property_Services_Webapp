@@ -30,7 +30,9 @@ type FailedPickupMode = "RESCHEDULE" | "REQUEST_SKIP" | "REQUEST_DELETE";
 type RangeMode = "day" | "week" | "month" | "all";
 type ReadyFilter = "all" | "today" | "tomorrow";
 type SortMode = "pickup_asc" | "pickup_desc" | "updated_desc" | "property_asc";
+type ViewMode = "compact" | "full";
 type UploadSource = "camera" | "gallery";
+const LAUNDRY_PREFS_KEY = "sneek_laundry_prefs";
 
 function parseEventNotes(notes: string | null | undefined): any {
   if (!notes) return null;
@@ -230,6 +232,11 @@ function toDayKey(value: Date | string) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
+function isOlderCompletedTask(task: any) {
+  if (task?.status !== "DROPPED" || !task?.droppedAt) return false;
+  return new Date(task.droppedAt).getTime() < Date.now() - 3 * 24 * 60 * 60 * 1000;
+}
+
 function isImageFile(file: File) {
   return file.type?.toLowerCase().startsWith("image/") || /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(file.name ?? "");
 }
@@ -253,7 +260,9 @@ export default function LaundryPortal() {
   const [rangeMode, setRangeMode] = useState<RangeMode>("week");
   const [readyFilter, setReadyFilter] = useState<ReadyFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("pickup_asc");
+  const [viewMode, setViewMode] = useState<ViewMode>("full");
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Set<string>>(new Set());
 
   const [actionTask, setActionTask] = useState<any | null>(null);
   const [actionType, setActionType] = useState<ActionType | null>(null);
@@ -393,6 +402,31 @@ export default function LaundryPortal() {
       }));
     });
   }
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LAUNDRY_PREFS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.rangeMode) setRangeMode(parsed.rangeMode as RangeMode);
+      if (parsed?.readyFilter) setReadyFilter(parsed.readyFilter as ReadyFilter);
+      if (parsed?.sortMode) setSortMode(parsed.sortMode as SortMode);
+      if (parsed?.viewMode) setViewMode(parsed.viewMode as ViewMode);
+    } catch {
+      // Ignore invalid saved prefs.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        LAUNDRY_PREFS_KEY,
+        JSON.stringify({ rangeMode, readyFilter, sortMode, viewMode })
+      );
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [rangeMode, readyFilter, sortMode, viewMode]);
 
   useEffect(() => {
     load();
@@ -849,11 +883,27 @@ export default function LaundryPortal() {
 
   const sortedTasks = useMemo(() => {
     const copy = [...tasks];
+    const todayStart = startOfDay(new Date()).getTime();
+    const tomorrowStart = addDays(startOfDay(new Date()), 1).getTime();
     copy.sort((a, b) => {
+      const aPickup = startOfDay(new Date(a.pickupDate)).getTime();
+      const bPickup = startOfDay(new Date(b.pickupDate)).getTime();
+      if (sortMode === "pickup_asc") {
+        const bucket = (task: any) => {
+          if (task.status === "DROPPED") return 4;
+          const pickup = startOfDay(new Date(task.pickupDate)).getTime();
+          if (pickup <= todayStart) return 0;
+          if (pickup === tomorrowStart) return 1;
+          return 2;
+        };
+        const bucketDiff = bucket(a) - bucket(b);
+        if (bucketDiff !== 0) return bucketDiff;
+        return aPickup - bPickup;
+      }
       if (sortMode === "pickup_desc") return new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime();
       if (sortMode === "updated_desc") return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       if (sortMode === "property_asc") return String(a.property?.name ?? "").localeCompare(String(b.property?.name ?? ""));
-      return new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime();
+      return aPickup - bPickup;
     });
     return copy;
   }, [tasks, sortMode]);
@@ -1199,6 +1249,13 @@ export default function LaundryPortal() {
             <p className="text-xs text-muted-foreground">Tracked return costs (loaded tasks)</p>
             <p className="mt-1 text-lg font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(2)}` : "Hidden"}</p>
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">View mode</Label>
+            <div className="flex rounded-md border">
+              <Button type="button" variant={viewMode === "full" ? "default" : "ghost"} className="flex-1 rounded-r-none" onClick={() => setViewMode("full")}>Full</Button>
+              <Button type="button" variant={viewMode === "compact" ? "default" : "ghost"} className="flex-1 rounded-l-none" onClick={() => setViewMode("compact")}>Compact</Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -1236,6 +1293,32 @@ export default function LaundryPortal() {
               const pendingFailedPickup = getPendingFailedPickupRequest(task);
               const completion = getTaskCompletionDetails(task);
               const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
+              if (viewMode === "compact") {
+                return (
+                  <Card key={task.id} className="border-primary/20">
+                    <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                      <div>
+                        <p className="font-medium">{task.property.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Pickup {format(new Date(task.pickupDate), "dd MMM")} · Drop {format(new Date(task.dropoffDate), "dd MMM")}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={task.status === "PICKED_UP" ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
+                          {task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
+                        </Badge>
+                        {task.status === "CONFIRMED" ? (
+                          <Button size="sm" onClick={() => openAction(task, "PICKED_UP")}>Pick up</Button>
+                        ) : task.status === "PICKED_UP" ? (
+                          <Button size="sm" variant="outline" onClick={() => openAction(task, "RETURNED")}>Return</Button>
+                        ) : task.status === "DROPPED" ? (
+                          <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>Edit</Button>
+                        ) : null}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              }
               return (
                 <Card key={task.id} className="border-primary/30">
                   <CardContent className="p-4">
@@ -1432,6 +1515,21 @@ export default function LaundryPortal() {
             const droppedConfirmation = getEventConfirmation(task, "DROPPED");
             const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
             const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
+            if (viewMode === "compact") {
+              return (
+                <Card key={task.id}>
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                      <p className="font-medium text-sm">{task.property.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Pickup {format(new Date(task.pickupDate), "dd MMM")} · Drop {format(new Date(task.dropoffDate), "dd MMM")}
+                      </p>
+                    </div>
+                    <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
+                  </CardContent>
+                </Card>
+              );
+            }
             return (
               <div key={task.id}>
                 {showGroupHeader ? (
@@ -1537,10 +1635,12 @@ export default function LaundryPortal() {
             const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
             const completion = getTaskCompletionDetails(task);
             const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
+            const olderCompleted = isOlderCompletedTask(task);
+            const historyExpanded = !olderCompleted || expandedHistoryIds.has(task.id);
             return (
               <Card key={task.id}>
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <History className="h-4 w-4 text-muted-foreground" />
                       <div>
@@ -1548,33 +1648,55 @@ export default function LaundryPortal() {
                         <p className="text-xs text-muted-foreground">
                           Pickup {format(new Date(task.pickupDate), "dd MMM yyyy")} - Drop {format(new Date(task.dropoffDate), "dd MMM yyyy")}
                         </p>
-                        {laundryConfig.showCostTracking && completion.totalPrice != null && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Price: ${Number(completion.totalPrice).toFixed(2)}
-                          </p>
-                        )}
-                        {completion.loadWeightKg != null && (
-                          <p className="text-xs text-muted-foreground">Weight: {Number(completion.loadWeightKg).toFixed(1)} kg</p>
-                        )}
-                        {droppedEarly && (
-                          <p className="mt-1 text-xs text-amber-700">
-                            Returned early. Planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
-                            {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
-                            {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
-                          </p>
-                        )}
                       </div>
                     </div>
-                    <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
-                  </div>
-                  {task.status === "DROPPED" && (
-                    <div className="mt-3">
-                      <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
-                        <FilePenLine className="mr-1 h-4 w-4" />
-                        Edit completed details
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
+                      {olderCompleted ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setExpandedHistoryIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(task.id)) next.delete(task.id);
+                              else next.add(task.id);
+                              return next;
+                            })
+                          }
+                        >
+                          {historyExpanded ? "Collapse" : "Expand"}
+                        </Button>
+                      ) : null}
                     </div>
-                  )}
+                  </div>
+                  {historyExpanded ? (
+                    <>
+                      {laundryConfig.showCostTracking && completion.totalPrice != null && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Price: ${Number(completion.totalPrice).toFixed(2)}
+                        </p>
+                      )}
+                      {completion.loadWeightKg != null && (
+                        <p className="text-xs text-muted-foreground">Weight: {Number(completion.loadWeightKg).toFixed(1)} kg</p>
+                      )}
+                      {droppedEarly && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          Returned early. Planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
+                          {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
+                          {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
+                        </p>
+                      )}
+                      {task.status === "DROPPED" ? (
+                        <div className="mt-3">
+                          <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
+                            <FilePenLine className="mr-1 h-4 w-4" />
+                            Edit completed details
+                          </Button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                 </CardContent>
               </Card>
             );

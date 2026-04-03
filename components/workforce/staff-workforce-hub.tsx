@@ -12,7 +12,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { CheckCircle2, ChevronLeft, ChevronRight, FileCheck2, GraduationCap, MessageCircle, RotateCcw, Save, Sparkles, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Award,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileCheck2,
+  GraduationCap,
+  MessageCircle,
+  Paperclip,
+  Pencil,
+  Pin,
+  RotateCcw,
+  Save,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { WorkforcePostCard } from "@/components/workforce/workforce-post-card";
 
 async function uploadPrivateFile(file: File, folder: string) {
@@ -83,6 +101,17 @@ function isModuleComplete(module: any, answers: Record<string, any>) {
   return moduleAnsweredCount(module, answers) >= total;
 }
 
+function formatMessageDay(value: string | Date) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const key = date.toDateString();
+  if (key === today.toDateString()) return "Today";
+  if (key === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -91,12 +120,16 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [messageBody, setMessageBody] = useState("");
+  const [chatFiles, setChatFiles] = useState<File[]>([]);
+  const [editingMessageId, setEditingMessageId] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedModuleByAssignment, setSelectedModuleByAssignment] = useState<Record<string, string>>({});
   const [answersByAssignment, setAnswersByAssignment] = useState<Record<string, Record<string, any>>>({});
   const [docFile, setDocFile] = useState<File | null>(null);
-  const [docForm, setDocForm] = useState({ category: "POLICE_CHECK", title: "", notes: "", expiresAt: "" });
+  const [docForm, setDocForm] = useState({ category: "POLICE_CHECK", title: "", notes: "", expiresAt: "", requestId: "", requiresSignature: false });
   const [directChatUserId, setDirectChatUserId] = useState("");
+  const [signingDocumentId, setSigningDocumentId] = useState("");
+  const [signConfirm, setSignConfirm] = useState(false);
 
   async function load(options?: { silent?: boolean }) {
     const silent = options?.silent === true;
@@ -132,7 +165,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
 
   async function loadMessages(channelId: string) {
     if (!channelId) return setMessages([]);
-    const res = await fetch(`/api/workforce/channels/${channelId}`);
+    const res = await fetch(`/api/chat/channels/${channelId}/messages`);
     const body = await res.json().catch(() => []);
     if (!res.ok) throw new Error(body.error ?? "Could not load channel.");
     setMessages(Array.isArray(body) ? body : []);
@@ -176,14 +209,39 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
   useEffect(() => {
     if (!selectedChannelId) return;
     void loadMessages(selectedChannelId);
-    const timer = window.setInterval(() => void loadMessages(selectedChannelId), 8000);
+    const timer = window.setInterval(() => void loadMessages(selectedChannelId), 3000);
     return () => window.clearInterval(timer);
   }, [selectedChannelId]);
+
+  useEffect(() => {
+    const unreadPosts = (data?.posts ?? []).filter((post: any) => post.isUnread === true);
+    if (unreadPosts.length === 0) return;
+    void Promise.all(
+      unreadPosts.map((post: any) =>
+        fetch(`/api/admin/workforce/posts/${post.id}/read`, { method: "POST" }).catch(() => null)
+      )
+    ).then(() => {
+      void load({ silent: true });
+    });
+  }, [data]);
 
   const currentAssignment = useMemo(
     () => (data?.assignments ?? []).find((assignment: any) => assignment.id === selectedAssignmentId) ?? null,
     [data, selectedAssignmentId]
   );
+  const groupedMessages = useMemo(() => {
+    const groups: Array<{ label: string; items: any[] }> = [];
+    for (const message of messages) {
+      const label = formatMessageDay(message.createdAt);
+      const last = groups[groups.length - 1];
+      if (!last || last.label !== label) {
+        groups.push({ label, items: [message] });
+      } else {
+        last.items.push(message);
+      }
+    }
+    return groups;
+  }, [messages]);
   const assignmentAnswers = answersByAssignment[selectedAssignmentId] ?? {};
   const assignmentModules = currentAssignment?.path?.schema?.modules ?? [];
   const selectedModuleId = selectedModuleByAssignment[selectedAssignmentId] || assignmentModules[0]?.id || "";
@@ -191,6 +249,10 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
   const selectedModuleIndex = selectedModule ? assignmentModules.findIndex((module: any) => module.id === selectedModule.id) : -1;
   const completedModuleCount = assignmentModules.filter((module: any) => isModuleComplete(module, assignmentAnswers)).length;
   const learningProgressPercent = assignmentModules.length > 0 ? Math.round((completedModuleCount / assignmentModules.length) * 100) : 0;
+  const expiringDocuments = useMemo(
+    () => (data?.documents ?? []).filter((doc: any) => doc.expiryStatus === "EXPIRING_SOON" || doc.expiryStatus === "EXPIRED"),
+    [data]
+  );
 
   function updateAssignmentAnswers(mutator: (current: Record<string, any>) => Record<string, any>) {
     if (!selectedAssignmentId) return;
@@ -221,6 +283,55 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
     }
     const nextModule = assignmentModules[selectedModuleIndex + direction];
     if (nextModule) setCurrentModule(nextModule.id);
+  }
+
+  async function sendChatMessage() {
+    if (!selectedChannelId || !messageBody.trim()) return;
+    try {
+      const attachments =
+        chatFiles.length > 0
+          ? await Promise.all(
+              chatFiles.map(async (file) => {
+                const upload = await uploadPrivateFile(file, "team-chat");
+                return {
+                  url: upload.url,
+                  s3Key: upload.key,
+                  fileName: file.name,
+                  mimeType: upload.mimeType ?? file.type,
+                };
+              })
+            )
+          : [];
+      const res = await fetch(`/api/chat/channels/${selectedChannelId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: messageBody, attachments }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not send message.");
+      setMessageBody("");
+      setChatFiles([]);
+      setEditingMessageId("");
+      await loadMessages(selectedChannelId);
+    } catch (err: any) {
+      toast({ title: "Message failed", description: err.message ?? "Could not send message.", variant: "destructive" });
+    }
+  }
+
+  async function updateChatMessageItem(messageId: string, payload: Record<string, unknown>, successTitle?: string) {
+    try {
+      const res = await fetch(`/api/chat/channels/${selectedChannelId}/messages/${messageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not update message.");
+      if (successTitle) toast({ title: successTitle });
+      await loadMessages(selectedChannelId);
+    } catch (err: any) {
+      toast({ title: "Chat update failed", description: err.message ?? "Try again.", variant: "destructive" });
+    }
   }
 
   if (loading && !data) return <div className="py-10 text-sm text-muted-foreground">Loading team hub...</div>;
@@ -279,8 +390,13 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
               </div>
               {(data?.channels ?? []).map((channel: any) => (
                 <button key={channel.id} type="button" className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedChannelId === channel.id ? "border-primary bg-primary/5" : "bg-white/80"}`} onClick={() => setSelectedChannelId(channel.id)}>
-                  <p className="text-sm font-semibold">{channel.name}</p>
-                  <p className="text-xs text-muted-foreground">{channel.description || channel.kind}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">{channel.name}</p>
+                    {channel.unreadCount > 0 ? <Badge variant="destructive">{channel.unreadCount}</Badge> : null}
+                    {channel.pinnedCount > 0 ? <Badge variant="outline"><Pin className="mr-1 h-3 w-3" />{channel.pinnedCount}</Badge> : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{channel.description || channel.kind}</p>
+                  {channel.lastMessage ? <p className="mt-2 line-clamp-1 text-xs text-slate-500">{channel.lastMessage.senderName || "Team"} · {channel.lastMessage.body}</p> : null}
                 </button>
               ))}
             </CardContent>
@@ -289,29 +405,69 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
             <CardHeader><CardTitle>Conversation</CardTitle><CardDescription>Messages sync across team members working from the same hub.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <ScrollArea className="h-[420px] rounded-2xl border bg-white/80 p-4">
-                <div className="space-y-3">
-                  {messages.map((message) => (
-                    <div key={message.id} className="rounded-2xl border bg-white p-3 shadow-sm">
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span>{message.sender?.name || message.sender?.role || "Team"}</span>
-                        <span>{new Date(message.createdAt).toLocaleString("en-AU")}</span>
+                <div className="space-y-4">
+                  {groupedMessages.map((group) => (
+                    <div key={group.label} className="space-y-3">
+                      <div className="sticky top-0 z-10 flex justify-center">
+                        <span className="rounded-full border bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">{group.label}</span>
                       </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
+                      {group.items.map((message) => (
+                        <div key={message.id} className={`rounded-2xl border bg-white p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
+                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <span>{message.sender?.name || message.sender?.role || "Team"}</span>
+                            <div className="flex items-center gap-2">
+                              {message.isPinned ? <Badge variant="warning"><Pin className="mr-1 h-3 w-3" />Pinned</Badge> : null}
+                              <span>{new Date(message.createdAt).toLocaleString("en-AU")}</span>
+                            </div>
+                          </div>
+                          {editingMessageId === message.id ? (
+                            <div className="mt-2 space-y-2">
+                              <Textarea value={messageBody} onChange={(event) => setMessageBody(event.target.value)} />
+                              <div className="flex flex-wrap gap-2">
+                                <Button size="sm" onClick={() => void updateChatMessageItem(message.id, { body: messageBody }, "Message updated")}>Save</Button>
+                                <Button size="sm" variant="outline" onClick={() => { setEditingMessageId(""); setMessageBody(""); }}>Cancel</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
+                          )}
+                          {(message.attachments?.length ?? 0) > 0 ? (
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              {message.attachments.map((attachment: any) => {
+                                const isImage = String(attachment.mimeType ?? "").startsWith("image/");
+                                return (
+                                  <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border bg-slate-50">
+                                    {isImage ? <img src={attachment.url} alt={attachment.fileName || "Attachment"} className="aspect-[4/3] w-full object-cover" /> : null}
+                                    <div className="p-3 text-xs text-slate-600">{attachment.fileName || attachment.label || "Attachment"}</div>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {message.sender?.id === data?.me?.id ? (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => { setEditingMessageId(message.id); setMessageBody(message.body || ""); }}>
+                                  <Pencil className="mr-2 h-4 w-4" />Edit
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => void updateChatMessageItem(message.id, { delete: true }, "Message removed")}>
+                                  <Trash2 className="mr-2 h-4 w-4" />Delete
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
               </ScrollArea>
               <Textarea value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder="Write a message" />
-              <Button disabled={!selectedChannelId || !messageBody.trim()} onClick={async () => {
-                const res = await fetch(`/api/workforce/channels/${selectedChannelId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: messageBody }) });
-                const body = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  toast({ title: "Message failed", description: body.error ?? "Could not send message.", variant: "destructive" });
-                  return;
-                }
-                setMessageBody("");
-                await loadMessages(selectedChannelId);
-              }}><MessageCircle className="mr-2 h-4 w-4" />Send</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input type="file" multiple className="max-w-sm" onChange={(event) => setChatFiles(Array.from(event.target.files ?? []))} />
+                {chatFiles.length > 0 ? <Badge variant="outline"><Paperclip className="mr-1 h-3 w-3" />{chatFiles.length} attached</Badge> : null}
+              </div>
+              <Button disabled={!selectedChannelId || !messageBody.trim()} onClick={() => void sendChatMessage()}><MessageCircle className="mr-2 h-4 w-4" />Send</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -571,6 +727,33 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                                 <RotateCcw className="mr-2 h-4 w-4" />Retake from start
                               </Button>
                             ) : null}
+                            {currentAssignment.status === "COMPLETED" ? (
+                              <Button
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`/api/me/workforce/assignments/${currentAssignment.id}/certificate`);
+                                    if (!res.ok) {
+                                      const body = await res.json().catch(() => ({}));
+                                      throw new Error(body.error ?? "Could not download certificate.");
+                                    }
+                                    const blob = await res.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const anchor = document.createElement("a");
+                                    anchor.href = url;
+                                    anchor.download = `learning-certificate-${currentAssignment.id}.pdf`;
+                                    document.body.appendChild(anchor);
+                                    anchor.click();
+                                    anchor.remove();
+                                    URL.revokeObjectURL(url);
+                                  } catch (err: any) {
+                                    toast({ title: "Download failed", description: err.message ?? "Could not download certificate.", variant: "destructive" });
+                                  }
+                                }}
+                              >
+                                <Download className="mr-2 h-4 w-4" />Certificate
+                              </Button>
+                            ) : null}
                             <Button
                               disabled={learningBusy}
                               onClick={async () => {
@@ -605,16 +788,46 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
           <Card>
             <CardHeader><CardTitle>Upload Document</CardTitle><CardDescription>Keep licences, police checks, CVs, and certifications in one place.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Requested document</Label>
+                <Select
+                  value={docForm.requestId || "none"}
+                  onValueChange={(value) => {
+                    if (value === "none") {
+                      setDocForm((current) => ({ ...current, requestId: "" }));
+                      return;
+                    }
+                    const request = (data?.documentRequests ?? []).find((item: any) => item.id === value);
+                    setDocForm((current) => ({
+                      ...current,
+                      requestId: value,
+                      category: request?.category ?? current.category,
+                      title: request?.title ?? current.title,
+                      notes: request?.notes ?? current.notes,
+                    }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {(data?.documentRequests ?? []).map((request: any) => (
+                      <SelectItem key={request.id} value={request.id}>{request.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2"><Label>Category</Label><Select value={docForm.category} onValueChange={(value) => setDocForm((current) => ({ ...current, category: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["POLICE_CHECK", "DRIVERS_LICENCE", "WHITE_CARD", "CV", "INSURANCE", "OTHER"].map((item) => <SelectItem key={item} value={item}>{item.replace(/_/g, " ")}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label>Title</Label><Input value={docForm.title} onChange={(event) => setDocForm((current) => ({ ...current, title: event.target.value }))} /></div>
               <div className="space-y-2"><Label>Expiry date</Label><Input type="date" value={docForm.expiresAt} onChange={(event) => setDocForm((current) => ({ ...current, expiresAt: event.target.value }))} /></div>
               <div className="space-y-2"><Label>Notes</Label><Textarea value={docForm.notes} onChange={(event) => setDocForm((current) => ({ ...current, notes: event.target.value }))} /></div>
+              <label className="flex items-center gap-2 text-sm"><Checkbox checked={docForm.requiresSignature} onCheckedChange={(checked) => setDocForm((current) => ({ ...current, requiresSignature: checked === true }))} />This document requires my signature after admin review</label>
               <div className="space-y-2"><Label>File</Label><Input type="file" onChange={(event) => setDocFile(event.target.files?.[0] ?? null)} /></div>
               <Button disabled={!docFile || !docForm.title.trim()} onClick={async () => {
                 try {
                   const upload = await uploadPrivateFile(docFile!, "staff-documents");
                   await runAction({ action: "UPLOAD_DOCUMENT", ...docForm, fileName: docFile!.name, s3Key: upload.key, url: upload.url, mimeType: upload.mimeType ?? docFile!.type }, "Document uploaded");
                   setDocFile(null);
+                  setDocForm({ category: "POLICE_CHECK", title: "", notes: "", expiresAt: "", requestId: "", requiresSignature: false });
                 } catch (err: any) {
                   toast({ title: "Upload failed", description: err.message ?? "Could not upload document.", variant: "destructive" });
                 }
@@ -622,20 +835,76 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Your Documents</CardTitle><CardDescription>Admin can verify or reject these after review.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Your Documents</CardTitle><CardDescription>Admin can verify, reject, or request a signature after review.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
+              {expiringDocuments.length > 0 ? (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50/80 p-4 text-sm text-amber-900">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="h-4 w-4" />
+                    {expiringDocuments.length} document(s) need attention
+                  </div>
+                  <p className="mt-2">Replace or renew anything marked expiring soon or expired so admin can keep your compliance current.</p>
+                </div>
+              ) : null}
+              {(data?.documentRequests ?? []).length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">Requests from admin</p>
+                  {(data?.documentRequests ?? []).map((request: any) => (
+                    <div key={request.id} className="rounded-2xl border bg-muted/20 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{request.title}</p>
+                        <Badge variant={request.status === "FULFILLED" ? "success" : "warning"}>{request.status}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">{request.notes || "Upload the requested document in the form on the left."}</p>
+                      {request.fulfilledDocument ? (
+                        <p className="mt-2 text-xs text-emerald-700">Fulfilled by: {request.fulfilledDocument.title}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {(data?.documents ?? []).map((doc: any) => (
                 <div key={doc.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{doc.title}</p>
                     <Badge variant="outline">{doc.category.replace(/_/g, " ")}</Badge>
-                    <Badge variant={doc.status === "VERIFIED" ? "success" : doc.status === "REJECTED" ? "destructive" : "warning"}>{doc.status}</Badge>
+                    <Badge variant={doc.status === "VERIFIED" || doc.status === "SIGNED" ? "success" : doc.status === "REJECTED" || doc.status === "EXPIRED" ? "destructive" : "warning"}>{doc.status}</Badge>
+                    {doc.expiryStatus === "EXPIRING_SOON" ? <Badge variant="warning">Expiring soon</Badge> : null}
+                    {doc.expiryStatus === "EXPIRED" ? <Badge variant="destructive">Expired</Badge> : null}
+                    {doc.requiresSignature ? <Badge variant="outline">Signature required</Badge> : null}
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">{doc.fileName}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <a href={doc.url} target="_blank" rel="noreferrer" className="inline-flex rounded-full border px-3 py-2 text-xs font-medium">Open</a>
                     {doc.expiresAt ? <Badge variant="outline">Expires {String(doc.expiresAt).slice(0, 10)}</Badge> : null}
+                    {doc.requiresSignature && doc.status === "VERIFIED" ? (
+                      <Button size="sm" variant="outline" onClick={() => { setSigningDocumentId(doc.id); setSignConfirm(false); }}>
+                        Sign
+                      </Button>
+                    ) : null}
                   </div>
+                  {signingDocumentId === doc.id ? (
+                    <div className="mt-4 rounded-2xl border bg-muted/20 p-4">
+                      <p className="text-sm font-medium">Sign acknowledgement</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Review the document first, then confirm you have read and understood it.</p>
+                      <label className="mt-3 flex items-center gap-2 text-sm">
+                        <Checkbox checked={signConfirm} onCheckedChange={(checked) => setSignConfirm(checked === true)} />
+                        I confirm I have read and understood this document.
+                      </label>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" disabled={!signConfirm} onClick={async () => {
+                          try {
+                            await runAction({ action: "SIGN_DOCUMENT", documentId: doc.id }, "Document signed");
+                            setSigningDocumentId("");
+                            setSignConfirm(false);
+                          } catch (err: any) {
+                            toast({ title: "Sign failed", description: err.message ?? "Could not sign document.", variant: "destructive" });
+                          }
+                        }}>Confirm signature</Button>
+                        <Button size="sm" variant="outline" onClick={() => { setSigningDocumentId(""); setSignConfirm(false); }}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </CardContent>
@@ -644,30 +913,101 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
 
         <TabsContent value="recognition" className="space-y-4">
           <Card>
-            <CardHeader><CardTitle>Your Recognition</CardTitle><CardDescription>QA trend visibility plus public recognition sent by admin.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold">QA profile</p>
-                  {typeof data?.me?.qaStars === "number" ? <Badge variant="warning">{data.me.qaStars.toFixed(1)} / 5</Badge> : <Badge variant="secondary">No QA average yet</Badge>}
-                  {data?.me?.readinessLabel ? <Badge variant="outline">{data.me.readinessLabel}</Badge> : null}
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">Average QA: {data?.me?.qaAverage ?? "-"}% · Reviews: {data?.me?.qaReviewCount ?? 0}</p>
-              </div>
-              {(data?.recognitions ?? []).map((recognition: any) => (
-                <div key={recognition.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+            <CardHeader><CardTitle>Your Recognition</CardTitle><CardDescription>QA trend visibility, public wall highlights, and badge history sent by admin.</CardDescription></CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold">{recognition.title}</p>
-                    <Badge variant="outline"><Sparkles className="mr-1 h-3 w-3" />{recognition.badgeKey.replace(/_/g, " ")}</Badge>
+                    <p className="font-semibold">QA profile</p>
+                    {typeof data?.me?.qaStars === "number" ? <Badge variant="warning">{data.me.qaStars.toFixed(1)} / 5</Badge> : <Badge variant="secondary">No QA average yet</Badge>}
                   </div>
-                  {recognition.message ? <p className="mt-2 text-sm leading-6">{recognition.message}</p> : null}
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(recognition.createdAt).toLocaleString("en-AU")}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Average QA: {data?.me?.qaAverage ?? "-"}% · Reviews: {data?.me?.qaReviewCount ?? 0}</p>
                 </div>
-              ))}
+                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <p className="font-semibold">Readiness</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{data?.me?.readinessLabel || "Awaiting QA data"}</p>
+                </div>
+                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <p className="font-semibold">Public recognitions</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{data?.me?.publicRecognitionCount ?? 0} visible shout-out(s)</p>
+                </div>
+              </div>
+
+              {data?.recognitionBoard?.spotlight ? (
+                <div className="rounded-3xl border bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_32%),white] p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Award className="h-5 w-5 text-amber-600" />
+                    <p className="text-lg font-semibold">{data.recognitionBoard.spotlight.title}</p>
+                    <Badge variant="warning">Spotlight</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{data.recognitionBoard.spotlight.message || "Recognition spotlight"}</p>
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <MiniLeaderboard title="Top QA" rows={data?.recognitionBoard?.leaderboard?.qa ?? []} valueKey="qaAverage" suffix="%" />
+                <MiniLeaderboard title="Most Jobs" rows={data?.recognitionBoard?.leaderboard?.completed ?? []} valueKey="monthJobsCompleted" />
+                <MiniLeaderboard title="Most Recognised" rows={data?.recognitionBoard?.leaderboard?.recognition ?? []} valueKey="recognitionsReceived" />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold">Your history</p>
+                  {(data?.recognitions ?? []).map((recognition: any) => (
+                    <div key={recognition.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{recognition.title}</p>
+                        <Badge variant="outline"><Sparkles className="mr-1 h-3 w-3" />{recognition.badgeKey.replace(/_/g, " ")}</Badge>
+                      </div>
+                      {recognition.message ? <p className="mt-2 text-sm leading-6">{recognition.message}</p> : null}
+                      <p className="mt-2 text-xs text-muted-foreground">{new Date(recognition.createdAt).toLocaleString("en-AU")}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold">Public wall</p>
+                  {(data?.recognitionBoard?.publicWall ?? []).slice(0, 8).map((recognition: any) => (
+                    <div key={recognition.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{recognition.user?.name || "Team member"}</p>
+                        <Badge variant="outline">{recognition.badgeKey.replace(/_/g, " ")}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm">{recognition.title}</p>
+                      {recognition.message ? <p className="mt-2 text-sm text-muted-foreground">{recognition.message}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function MiniLeaderboard({
+  title,
+  rows,
+  valueKey,
+  suffix = "",
+}: {
+  title: string;
+  rows: any[];
+  valueKey: string;
+  suffix?: string;
+}) {
+  return (
+    <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+      <p className="font-semibold">{title}</p>
+      <div className="mt-3 space-y-3">
+        {rows.length > 0 ? rows.map((row, index) => (
+          <div key={row.id} className="flex items-center justify-between gap-3 text-sm">
+            <span>{index + 1}. {row.name || row.email}</span>
+            <Badge variant="outline">{row[valueKey] ?? 0}{suffix}</Badge>
+          </div>
+        )) : <p className="text-sm text-muted-foreground">No data yet.</p>}
+      </div>
     </div>
   );
 }

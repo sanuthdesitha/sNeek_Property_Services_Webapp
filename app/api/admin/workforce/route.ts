@@ -5,16 +5,21 @@ import { requireRole } from "@/lib/auth/session";
 import {
   createChatChannel,
   createHiringPosition,
+  createLearningPath,
   createStaffDocument,
+  createStaffDocumentRequest,
   createTeamGroup,
   createWorkforcePost,
   getAdminWorkforceOverview,
   openDirectChat,
   assignLearningPath,
+  previewSmartGroupMembers,
   reviewStaffDocument,
+  runRecognitionCheck,
   sendRecognition,
   updateHiringApplication,
   updateHiringPosition,
+  updateLearningPath,
   updateTeamGroup,
   updateWorkforcePost,
 } from "@/lib/workforce/service";
@@ -66,6 +71,14 @@ export async function POST(req: NextRequest) {
         });
         return NextResponse.json({ ok: true });
       }
+      case "PREVIEW_GROUP": {
+        const result = await previewSmartGroupMembers({
+          membershipMode: body.membershipMode ? String(body.membershipMode) : null,
+          smartRules: body.smartRules && typeof body.smartRules === "object" ? body.smartRules as any : null,
+          memberUserIds: Array.isArray(body.memberUserIds) ? body.memberUserIds.map(String) : [],
+        });
+        return NextResponse.json({ ok: true, result });
+      }
       case "CREATE_POST": {
         const result = await createWorkforcePost({
           title: String(body.title ?? ""),
@@ -74,6 +87,8 @@ export async function POST(req: NextRequest) {
           coverImageUrl: body.coverImageUrl ? String(body.coverImageUrl) : null,
           pinned: body.pinned === true,
           audience: body.audience && typeof body.audience === "object" ? body.audience as any : { all: true },
+          attachments: body.attachments && typeof body.attachments === "object" ? body.attachments as any : null,
+          publishAt: body.publishAt ? String(body.publishAt) : null,
           createdById: session.user.id,
         });
         return NextResponse.json({ ok: true, result });
@@ -88,6 +103,8 @@ export async function POST(req: NextRequest) {
           coverImageUrl: body.coverImageUrl ? String(body.coverImageUrl) : null,
           pinned: body.pinned === true,
           audience: body.audience && typeof body.audience === "object" ? body.audience as any : { all: true },
+          attachments: body.attachments && typeof body.attachments === "object" ? body.attachments as any : null,
+          publishAt: body.publishAt ? String(body.publishAt) : null,
         });
         return NextResponse.json({ ok: true, result });
       }
@@ -117,6 +134,37 @@ export async function POST(req: NextRequest) {
         });
         return NextResponse.json({ ok: true });
       }
+      case "CREATE_LEARNING_PATH": {
+        const result = await createLearningPath({
+          title: String(body.title ?? ""),
+          slug: body.slug ? String(body.slug) : null,
+          type: body.type ? String(body.type) : null,
+          description: body.description ? String(body.description) : null,
+          coverImageUrl: body.coverImageUrl ? String(body.coverImageUrl) : null,
+          audience: body.audience && typeof body.audience === "object" ? body.audience as any : null,
+          schema: body.schema && typeof body.schema === "object" ? body.schema as any : null,
+          isPublished: body.isPublished === true,
+          mandatory: body.mandatory === true,
+          createdById: session.user.id,
+        });
+        return NextResponse.json({ ok: true, result });
+      }
+      case "UPDATE_LEARNING_PATH": {
+        await createGuard(body.pathId, "pathId");
+        const result = await updateLearningPath({
+          pathId: String(body.pathId),
+          title: body.title ? String(body.title) : undefined,
+          slug: body.slug ? String(body.slug) : undefined,
+          type: body.type ? String(body.type) : undefined,
+          description: body.description !== undefined ? String(body.description) : undefined,
+          coverImageUrl: body.coverImageUrl !== undefined ? String(body.coverImageUrl) : undefined,
+          audience: body.audience && typeof body.audience === "object" ? body.audience as any : undefined,
+          schema: body.schema && typeof body.schema === "object" ? body.schema as any : undefined,
+          isPublished: typeof body.isPublished === "boolean" ? body.isPublished : undefined,
+          mandatory: typeof body.mandatory === "boolean" ? body.mandatory : undefined,
+        });
+        return NextResponse.json({ ok: true, result });
+      }
       case "REVIEW_DOCUMENT": {
         const result = await reviewStaffDocument({
           documentId: String(body.documentId ?? ""),
@@ -124,6 +172,7 @@ export async function POST(req: NextRequest) {
           status: String(body.status ?? "PENDING"),
           notes: body.notes ? String(body.notes) : null,
           expiresAt: body.expiresAt ? String(body.expiresAt) : null,
+          requiresSignature: body.requiresSignature === true,
         });
         return NextResponse.json({ ok: true, result });
       }
@@ -139,6 +188,19 @@ export async function POST(req: NextRequest) {
           mimeType: body.mimeType ? String(body.mimeType) : null,
           notes: body.notes ? String(body.notes) : null,
           expiresAt: body.expiresAt ? String(body.expiresAt) : null,
+          requiresSignature: body.requiresSignature === true,
+          requestId: body.requestId ? String(body.requestId) : null,
+        });
+        return NextResponse.json({ ok: true, result });
+      }
+      case "REQUEST_DOCUMENT": {
+        const result = await createStaffDocumentRequest({
+          userId: String(body.userId ?? ""),
+          requestedById: session.user.id,
+          category: String(body.category ?? "OTHER"),
+          title: String(body.title ?? "Requested document"),
+          notes: body.notes ? String(body.notes) : null,
+          dueAt: body.dueAt ? String(body.dueAt) : null,
         });
         return NextResponse.json({ ok: true, result });
       }
@@ -152,6 +214,10 @@ export async function POST(req: NextRequest) {
           celebrationStyle: body.celebrationStyle ? String(body.celebrationStyle) : "SPOTLIGHT",
           isPublic: body.isPublic !== false,
         });
+        return NextResponse.json({ ok: true, result });
+      }
+      case "RUN_RECOGNITION_CHECK": {
+        const result = await runRecognitionCheck(new Date());
         return NextResponse.json({ ok: true, result });
       }
       case "CREATE_POSITION": {
@@ -187,6 +253,10 @@ export async function POST(req: NextRequest) {
           reviewedById: session.user.id,
           status: String(body.status ?? "NEW"),
           notes: body.notes ? String(body.notes) : null,
+          interviewNotes: body.interviewNotes ? String(body.interviewNotes) : null,
+          interviewDate: body.interviewDate ? String(body.interviewDate) : null,
+          offerDetails: body.offerDetails && typeof body.offerDetails === "object" ? body.offerDetails as any : null,
+          rejectionReason: body.rejectionReason ? String(body.rejectionReason) : null,
         });
         return NextResponse.json({ ok: true, result });
       }

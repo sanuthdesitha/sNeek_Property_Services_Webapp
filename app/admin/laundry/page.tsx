@@ -185,6 +185,7 @@ export default function LaundryPage() {
   const [reportHistory, setReportHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false);
+  const [replacingConfirmationId, setReplacingConfirmationId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     pickupDate: "",
     dropoffDate: "",
@@ -360,6 +361,40 @@ export default function LaundryPage() {
     }
     toast({ title: "Laundry report emailed" });
     fetchReportHistory();
+  }
+
+  async function replaceConfirmationPhoto(confirmationId: string, file: File) {
+    setReplacingConfirmationId(confirmationId);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("folder", "laundry-confirmations");
+      const uploadRes = await fetch("/api/uploads/direct", { method: "POST", body: form });
+      const uploadBody = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploadBody?.key) {
+        throw new Error(uploadBody.error ?? "Could not upload replacement photo.");
+      }
+
+      const res = await fetch(`/api/admin/laundry/confirmations/${confirmationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          s3Key: uploadBody.key,
+          photoUrl: uploadBody.url,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not replace confirmation photo.");
+      }
+
+      toast({ title: "Confirmation photo updated" });
+      fetchTasks();
+    } catch (error: any) {
+      toast({ title: "Photo replace failed", description: error?.message ?? "Could not replace photo.", variant: "destructive" });
+    } finally {
+      setReplacingConfirmationId(null);
+    }
   }
 
   useEffect(() => {
@@ -884,6 +919,7 @@ export default function LaundryPage() {
                       cleanerConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-cleaner`,
+                            confirmationId: cleanerConfirmation.id,
                             url: cleanerConfirmation.photoUrl,
                             label: "Cleaner proof",
                             mediaType: "PHOTO",
@@ -892,6 +928,7 @@ export default function LaundryPage() {
                       pickupConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-pickup`,
+                            confirmationId: pickupConfirmation.id,
                             url: pickupConfirmation.photoUrl,
                             label: "Pickup proof",
                             mediaType: "PHOTO",
@@ -900,6 +937,7 @@ export default function LaundryPage() {
                       droppedConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-dropoff`,
+                            confirmationId: droppedConfirmation.id,
                             url: droppedConfirmation.photoUrl,
                             label: "Drop-off proof",
                             mediaType: "PHOTO",
@@ -935,6 +973,25 @@ export default function LaundryPage() {
                     <div className="mt-2">
                       <p className="mb-1 text-xs font-medium text-muted-foreground">Evidence</p>
                       <MediaGallery items={mediaItems} title="Laundry Evidence" className="grid grid-cols-3 gap-2" />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {mediaItems.map((item: any) => (
+                          <label key={`${item.id}-replace`} className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file && item.confirmationId) {
+                                  void replaceConfirmationPhoto(item.confirmationId, file);
+                                }
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                            {replacingConfirmationId === item.confirmationId ? `Replacing ${item.label}...` : `Replace ${item.label}`}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   )}
                   <div className="mt-2 rounded-md bg-muted/40 p-2">
@@ -976,6 +1033,7 @@ export default function LaundryPage() {
                       cleanerConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-cleaner`,
+                            confirmationId: cleanerConfirmation.id,
                             url: cleanerConfirmation.photoUrl,
                             label: "Cleaner proof",
                             mediaType: "PHOTO",
@@ -984,6 +1042,7 @@ export default function LaundryPage() {
                       pickupConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-pickup`,
+                            confirmationId: pickupConfirmation.id,
                             url: pickupConfirmation.photoUrl,
                             label: "Pickup proof",
                             mediaType: "PHOTO",
@@ -992,6 +1051,7 @@ export default function LaundryPage() {
                       droppedConfirmation?.photoUrl
                         ? {
                             id: `${task.id}-dropoff`,
+                            confirmationId: droppedConfirmation.id,
                             url: droppedConfirmation.photoUrl,
                             label: "Drop-off proof",
                             mediaType: "PHOTO",
@@ -1055,6 +1115,25 @@ export default function LaundryPage() {
                     <div className="mt-2">
                       <p className="mb-1 text-xs font-medium text-muted-foreground">Evidence</p>
                       <MediaGallery items={mediaItems} title="Laundry Evidence" className="grid grid-cols-3 gap-2" />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {mediaItems.map((item: any) => (
+                          <label key={`${item.id}-replace`} className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file && item.confirmationId) {
+                                  void replaceConfirmationPhoto(item.confirmationId, file);
+                                }
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                            {replacingConfirmationId === item.confirmationId ? `Replacing ${item.label}...` : `Replace ${item.label}`}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   )}
                   <div className="mt-2 rounded-md bg-muted/40 p-2">

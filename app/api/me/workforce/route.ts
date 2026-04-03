@@ -8,6 +8,7 @@ import {
   openDirectChat,
   restartLearningAssignment,
   saveLearningProgress,
+  signStaffDocument,
   startLearningAssignment,
   submitLearningAssignment,
 } from "@/lib/workforce/service";
@@ -71,6 +72,15 @@ export async function POST(req: NextRequest) {
           mimeType: body.mimeType ? String(body.mimeType) : null,
           notes: body.notes ? String(body.notes) : null,
           expiresAt: body.expiresAt ? String(body.expiresAt) : null,
+          requiresSignature: body.requiresSignature === true,
+          requestId: body.requestId ? String(body.requestId) : null,
+        });
+        return NextResponse.json({ ok: true, result });
+      }
+      case "SIGN_DOCUMENT": {
+        const result = await signStaffDocument({
+          documentId: String(body.documentId ?? ""),
+          userId: session.user.id,
         });
         return NextResponse.json({ ok: true, result });
       }

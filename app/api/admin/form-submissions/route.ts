@@ -12,9 +12,9 @@ export async function GET(req: NextRequest) {
     const submissions = await db.formSubmission.findMany({
       where: { ...(templateId ? { templateId } : {}) },
       include: {
-        template: { select: { id: true, name: true, serviceType: true } },
+        template: { select: { id: true, name: true, serviceType: true, schema: true } },
         submittedBy: { select: { id: true, name: true, email: true } },
-        media: { select: { id: true, fieldId: true, url: true, mediaType: true, createdAt: true } },
+        media: { select: { id: true, fieldId: true, url: true, mediaType: true, createdAt: true, s3Key: true, mimeType: true, label: true } },
         job: {
           select: {
             id: true,

@@ -149,6 +149,7 @@ const updateSchema = z.object({
   logoUrl: z.string().trim().optional(),
   accountsEmail: z.string().trim().email().optional(),
   timezone: z.string().trim().min(1).optional(),
+  websiteContent: z.any().optional(),
   smsProvider: z.enum(["none", "twilio", "cellcast"]).optional(),
   reminder24hHours: z.number().int().min(1).max(168).optional(),
   reminder2hHours: z.number().int().min(1).max(48).optional(),

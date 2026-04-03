@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
@@ -55,6 +56,12 @@ type BuilderSection = {
   fields: BuilderField[];
 };
 
+type SubmissionTemplateField = {
+  id: string;
+  label: string;
+  type: string;
+};
+
 function normalizePageSlot(input: unknown): PageSlot {
   if (typeof input !== "string") return "auto";
   const trimmed = input.trim().toLowerCase();
@@ -82,6 +89,15 @@ function emptySection(): BuilderSection {
   };
 }
 
+function isInternalSubmissionKey(key: string) {
+  return key.startsWith("__");
+}
+
+function cloneSubmissionData(input: any) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return JSON.parse(JSON.stringify(input));
+}
+
 export default function FormsPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
@@ -97,6 +113,14 @@ export default function FormsPage() {
   const [dragSectionIndex, setDragSectionIndex] = useState<number | null>(null);
   const [dragFieldRef, setDragFieldRef] = useState<{ sectionIndex: number; fieldIndex: number } | null>(null);
   const [viewSubmission, setViewSubmission] = useState<any>(null);
+  const [submissionEditMode, setSubmissionEditMode] = useState(false);
+  const [submissionDraft, setSubmissionDraft] = useState<Record<string, any>>({});
+  const [submissionMediaDraft, setSubmissionMediaDraft] = useState<any[]>([]);
+  const [submissionSaving, setSubmissionSaving] = useState(false);
+  const [submissionUploading, setSubmissionUploading] = useState(false);
+  const [submissionLaundryReady, setSubmissionLaundryReady] = useState<boolean | null>(null);
+  const [submissionLaundryOutcome, setSubmissionLaundryOutcome] = useState("");
+  const [submissionBagLocation, setSubmissionBagLocation] = useState("");
   const [activeTab, setActiveTab] = useState("builder");
   const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
 
@@ -326,13 +350,125 @@ export default function FormsPage() {
   }
 
   async function openSubmission(submission: any) {
+    setSubmissionEditMode(false);
+    setSubmissionDraft(cloneSubmissionData(submission?.data));
+    setSubmissionMediaDraft(Array.isArray(submission?.media) ? submission.media : []);
+    setSubmissionLaundryReady(typeof submission?.laundryReady === "boolean" ? submission.laundryReady : null);
+    setSubmissionLaundryOutcome(submission?.laundryOutcome ?? "");
+    setSubmissionBagLocation(submission?.bagLocation ?? "");
     setViewSubmission(submission);
+  }
+
+  async function saveSubmissionChanges() {
+    if (!viewSubmission?.id) return;
+    setSubmissionSaving(true);
+    try {
+      const res = await fetch(`/api/admin/form-submissions/${viewSubmission.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: submissionDraft,
+          laundryReady: submissionLaundryReady,
+          laundryOutcome: submissionLaundryOutcome || null,
+          bagLocation: submissionBagLocation || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not save submission changes.");
+      setViewSubmission(body);
+      setSubmissionDraft(cloneSubmissionData(body?.data));
+      setSubmissionMediaDraft(Array.isArray(body?.media) ? body.media : []);
+      setSubmissionEditMode(false);
+      await loadSubmissions();
+      toast({ title: "Submission updated", description: "The report will refresh in the background." });
+    } catch (error: any) {
+      toast({ title: "Save failed", description: error?.message ?? "Could not update submission.", variant: "destructive" });
+    } finally {
+      setSubmissionSaving(false);
+    }
+  }
+
+  async function deleteSubmissionMedia(mediaId: string) {
+    if (!viewSubmission?.id) return;
+    setSubmissionSaving(true);
+    try {
+      const res = await fetch(`/api/admin/form-submissions/${viewSubmission.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteMediaIds: [mediaId] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not delete media.");
+      setViewSubmission(body);
+      setSubmissionMediaDraft(Array.isArray(body?.media) ? body.media : []);
+      await loadSubmissions();
+      toast({ title: "Media removed" });
+    } catch (error: any) {
+      toast({ title: "Delete failed", description: error?.message ?? "Could not remove media.", variant: "destructive" });
+    } finally {
+      setSubmissionSaving(false);
+    }
+  }
+
+  async function uploadSubmissionMedia(files: FileList | null) {
+    if (!viewSubmission?.id || !files?.length) return;
+    setSubmissionUploading(true);
+    try {
+      const uploaded: Array<{ url: string; s3Key: string; fieldId: string; mimeType: string | null; label: string | null }> = [];
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("folder", "submission-edits");
+        const uploadRes = await fetch("/api/uploads/direct", { method: "POST", body: form });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok || !uploadBody?.key) {
+          throw new Error(uploadBody.error ?? `Could not upload ${file.name}.`);
+        }
+        uploaded.push({
+          url: uploadBody.url,
+          s3Key: uploadBody.key,
+          fieldId: "admin_edit",
+          mimeType: uploadBody.mimeType ?? file.type ?? null,
+          label: file.name,
+        });
+      }
+
+      const res = await fetch(`/api/admin/form-submissions/${viewSubmission.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addMediaUrls: uploaded }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not attach media.");
+      setViewSubmission(body);
+      setSubmissionMediaDraft(Array.isArray(body?.media) ? body.media : []);
+      await loadSubmissions();
+      toast({ title: "Media added" });
+    } catch (error: any) {
+      toast({ title: "Upload failed", description: error?.message ?? "Could not upload media.", variant: "destructive" });
+    } finally {
+      setSubmissionUploading(false);
+    }
   }
 
   const sortedTemplates = useMemo(
     () => [...templates].sort((a, b) => a.name.localeCompare(b.name)),
     [templates]
   );
+  const submissionFields = useMemo<SubmissionTemplateField[]>(() => {
+    const sections = Array.isArray(viewSubmission?.template?.schema?.sections)
+      ? viewSubmission.template.schema.sections
+      : [];
+    return sections.flatMap((section: any): SubmissionTemplateField[] =>
+      Array.isArray(section?.fields)
+        ? section.fields.map((field: any): SubmissionTemplateField => ({
+            id: String(field?.id ?? ""),
+            label: String(field?.label ?? field?.id ?? "Field"),
+            type: String(field?.type ?? "text"),
+          }))
+        : []
+    );
+  }, [viewSubmission]);
   const allFieldOptions = sections.flatMap((section) =>
     section.fields.map((field) => ({
       id: field.id,
@@ -738,36 +874,204 @@ export default function FormsPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={Boolean(viewSubmission)} onOpenChange={() => setViewSubmission(null)}>
+      <Dialog
+        open={Boolean(viewSubmission)}
+        onOpenChange={() => {
+          setViewSubmission(null);
+          setSubmissionEditMode(false);
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Submission Detail</DialogTitle>
           </DialogHeader>
           {viewSubmission && (
             <div className="space-y-4">
-              <div className="text-sm">
-                <p>
-                  <strong>Property:</strong> {viewSubmission.job?.property?.name}
-                </p>
-                <p>
-                  <strong>Template:</strong> {viewSubmission.template?.name}
-                </p>
-                <p>
-                  <strong>Submitted:</strong> {format(new Date(viewSubmission.createdAt), "dd MMM yyyy HH:mm")}
-                </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="text-sm">
+                  <p>
+                    <strong>Property:</strong> {viewSubmission.job?.property?.name}
+                  </p>
+                  <p>
+                    <strong>Template:</strong> {viewSubmission.template?.name}
+                  </p>
+                  <p>
+                    <strong>Submitted:</strong> {format(new Date(viewSubmission.createdAt), "dd MMM yyyy HH:mm")}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {submissionEditMode ? (
+                    <>
+                      <Button variant="outline" onClick={() => openSubmission(viewSubmission)} disabled={submissionSaving}>
+                        Cancel
+                      </Button>
+                      <Button onClick={saveSubmissionChanges} disabled={submissionSaving}>
+                        {submissionSaving ? "Saving..." : "Save changes"}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="outline" onClick={() => setSubmissionEditMode(true)}>
+                      Edit
+                    </Button>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Submission Media (batch preview)</p>
-                <MediaGallery
-                  items={(viewSubmission.media ?? []).map((m: any) => ({
-                    id: m.id,
-                    url: m.url,
-                    label: `${m.fieldId} (${m.mediaType})`,
-                    mediaType: m.mediaType,
-                  }))}
-                  emptyText="No uploaded media"
-                  title="Submission Media"
-                />
+
+              <div className="space-y-3 rounded-md border p-4">
+                <p className="text-xs font-medium text-muted-foreground">Checklist answers</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {submissionFields
+                    .filter((field) => field.id && !isInternalSubmissionKey(field.id))
+                    .map((field) => {
+                      const value = submissionDraft[field.id];
+                      const isBooleanField = field.type === "checkbox";
+                      const isNumberField = field.type === "number";
+                      const isLongField = field.type === "textarea";
+                      const isLockedMediaField = field.type === "upload" || field.type === "signature";
+                      return (
+                        <div key={field.id} className="space-y-1.5 rounded-md border p-3">
+                          <Label>{field.label}</Label>
+                          {submissionEditMode ? (
+                            isBooleanField ? (
+                              <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                                <span>{value === true ? "Checked" : "Unchecked"}</span>
+                                <Switch
+                                  checked={value === true}
+                                  onCheckedChange={(checked) => setSubmissionDraft((current) => ({ ...current, [field.id]: checked }))}
+                                />
+                              </label>
+                            ) : isLongField ? (
+                              <Textarea
+                                rows={3}
+                                value={typeof value === "string" ? value : value === undefined || value === null ? "" : JSON.stringify(value, null, 2)}
+                                onChange={(event) => setSubmissionDraft((current) => ({ ...current, [field.id]: event.target.value }))}
+                              />
+                            ) : isLockedMediaField ? (
+                              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                                Manage this field via the media section below.
+                              </div>
+                            ) : (
+                              <Input
+                                type={isNumberField ? "number" : "text"}
+                                value={value === undefined || value === null ? "" : String(value)}
+                                onChange={(event) =>
+                                  setSubmissionDraft((current) => ({
+                                    ...current,
+                                    [field.id]: isNumberField ? Number(event.target.value || 0) : event.target.value,
+                                  }))
+                                }
+                              />
+                            )
+                          ) : (
+                            <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                              {typeof value === "boolean"
+                                ? value
+                                  ? "Yes"
+                                  : "No"
+                                : value === undefined || value === null || value === ""
+                                  ? "-"
+                                  : typeof value === "object"
+                                    ? JSON.stringify(value)
+                                    : String(value)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Laundry ready</Label>
+                  {submissionEditMode ? (
+                    <Select
+                      value={submissionLaundryReady === null ? "unset" : submissionLaundryReady ? "yes" : "no"}
+                      onValueChange={(value) =>
+                        setSubmissionLaundryReady(value === "unset" ? null : value === "yes")
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unset">Not set</SelectItem>
+                        <SelectItem value="yes">Ready</SelectItem>
+                        <SelectItem value="no">Not ready</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                      {submissionLaundryReady === null ? "-" : submissionLaundryReady ? "Ready" : "Not ready"}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Laundry outcome</Label>
+                  {submissionEditMode ? (
+                    <Input value={submissionLaundryOutcome} onChange={(event) => setSubmissionLaundryOutcome(event.target.value)} />
+                  ) : (
+                    <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">{viewSubmission.laundryOutcome || "-"}</div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Bag location</Label>
+                  {submissionEditMode ? (
+                    <Input value={submissionBagLocation} onChange={(event) => setSubmissionBagLocation(event.target.value)} />
+                  ) : (
+                    <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">{viewSubmission.bagLocation || "-"}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-muted-foreground">Submission Media</p>
+                  {submissionEditMode ? (
+                    <label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-sm">
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          void uploadSubmissionMedia(event.target.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      {submissionUploading ? "Uploading..." : "Add photos"}
+                    </label>
+                  ) : null}
+                </div>
+                {submissionEditMode ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {submissionMediaDraft.map((media: any) => (
+                      <div key={media.id} className="space-y-2 rounded-md border p-2">
+                        {media.mediaType === "VIDEO" ? (
+                          <video src={media.url} className="h-32 w-full rounded-md object-cover" controls />
+                        ) : (
+                          <img src={media.url} alt={media.label || media.fieldId} className="h-32 w-full rounded-md object-cover" />
+                        )}
+                        <p className="text-xs text-muted-foreground">{media.fieldId}</p>
+                        <Button size="sm" variant="destructive" onClick={() => deleteSubmissionMedia(media.id)} disabled={submissionSaving}>
+                          Delete
+                        </Button>
+                      </div>
+                    ))}
+                    {submissionMediaDraft.length === 0 ? <p className="text-sm text-muted-foreground">No uploaded media.</p> : null}
+                  </div>
+                ) : (
+                  <MediaGallery
+                    items={(submissionMediaDraft ?? []).map((m: any) => ({
+                      id: m.id,
+                      url: m.url,
+                      label: `${m.fieldId} (${m.mediaType})`,
+                      mediaType: m.mediaType,
+                    }))}
+                    emptyText="No uploaded media"
+                    title="Submission Media"
+                  />
+                )}
               </div>
               <div>
                 <p className="mb-2 text-xs font-medium text-muted-foreground">Report Preview</p>

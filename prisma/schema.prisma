@@ -33,6 +33,12 @@ enum JobType {
   LAWN_MOWING
   SPECIAL_CLEAN
   COMMERCIAL_RECURRING
+  CARPET_STEAM_CLEAN
+  MOLD_TREATMENT
+  UPHOLSTERY_CLEANING
+  TILE_GROUT_CLEANING
+  GUTTER_CLEANING
+  SPRING_CLEANING
 }
 
 enum JobStatus {
@@ -288,17 +294,22 @@ model User {
     createdTeamGroups TeamGroup[] @relation("TeamGroupCreatedBy")
     teamGroupMemberships TeamGroupMember[] @relation("TeamGroupMembershipUser")
     createdWorkforcePosts WorkforcePost[] @relation("WorkforcePostCreatedBy")
+    workforcePostReads WorkforcePostRead[] @relation("WorkforcePostReadUser")
     createdChatChannels ChatChannel[] @relation("ChatChannelCreatedBy")
+    chatChannelReads ChatChannelRead[] @relation("ChatChannelReadUser")
     sentChatMessages ChatMessage[] @relation("ChatMessageSender")
     learningPathsCreated LearningPath[] @relation("LearningPathCreatedBy")
     learningAssignments LearningAssignment[] @relation("LearningAssignmentUser")
     staffDocuments StaffDocument[] @relation("StaffDocumentOwner")
     uploadedStaffDocuments StaffDocument[] @relation("StaffDocumentUploadedBy")
     verifiedStaffDocuments StaffDocument[] @relation("StaffDocumentVerifiedBy")
+    requestedStaffDocuments StaffDocumentRequest[] @relation("StaffDocumentRequestUser")
+    createdStaffDocumentRequests StaffDocumentRequest[] @relation("StaffDocumentRequestCreatedBy")
     sentRecognitions StaffRecognition[] @relation("RecognitionSentBy")
     receivedRecognitions StaffRecognition[] @relation("RecognitionReceivedBy")
     createdHiringPositions HiringPosition[] @relation("HiringPositionCreatedBy")
     reviewedHiringApplications HiringApplication[] @relation("HiringApplicationReviewedBy")
+    hiredFromApplications HiringApplication[] @relation("HiringApplicationHiredUser")
     requestedJobTasks JobTask[] @relation("JobTaskRequestedBy")
     approvedJobTasks JobTask[] @relation("JobTaskApprovedBy")
     uploadedJobTaskAttachments JobTaskAttachment[] @relation("JobTaskAttachmentUploadedBy")
@@ -831,6 +842,7 @@ model LaundryConfirmation {
   laundryReady  Boolean
   bagLocation   String?
   photoUrl      String?  @db.Text
+  s3Key         String?
   notes         String?
   createdAt     DateTime @default(now())
 
@@ -895,18 +907,58 @@ model CaseAttachment {
 // ─────────────────────────────────────────────
 
 model PriceBook {
-  id          String   @id @default(cuid())
-  jobType     JobType
-  bedrooms    Int?
-  bathrooms   Int?
-  baseRate    Float
-  addOns      Json     // { oven, fridge, balcony, heavyMess, sameDay, ... }
-  multipliers Json     // { conditionLevel: { light, standard, heavy } }
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  jobType          JobType
+  bedrooms         Int?
+  bathrooms        Int?
+  baseRate         Float
+  pricingModel     String?
+  pricingVariables Json?
+  addOns           Json     // { oven, fridge, balcony, heavyMess, sameDay, ... }
+  multipliers      Json     // { conditionLevel: { light, standard, heavy } }
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([jobType, bedrooms, bathrooms])
+}
+
+model DiscountCampaign {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  title         String
+  description   String?  @db.Text
+  discountType  String   @default("PERCENT")
+  discountValue Float
+  minSubtotal   Float?
+  jobTypes      Json?
+  usageLimit    Int?
+  usageCount    Int      @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  tagline        String?
+  description    String?  @db.Text
+  serviceTypes   Json?
+  cadenceOptions Json?
+  startingPrice  Float?
+  priceLabel     String?
+  features       Json?
+  themeKey       String?
+  ctaLabel       String?
+  ctaHref        String?
+  isPublished    Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model QuoteLead {
@@ -924,6 +976,9 @@ model QuoteLead {
   notes         String?    @db.Text
   estimateMin   Float?
   estimateMax   Float?
+  requestedServiceLabel String?
+  promoCode     String?
+  structuredContext Json?
   status        LeadStatus @default(NEW)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -1222,11 +1277,26 @@ model WorkforcePost {
   attachments   Json?
   audience      Json?
   pinned        Boolean  @default(false)
+  publishAt     DateTime?
+  notificationsDispatchedAt DateTime?
   createdById   String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   createdBy     User     @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
+  reads         WorkforcePostRead[]
+}
+
+model WorkforcePostRead {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  readAt    DateTime @default(now())
+
+  post      WorkforcePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation("WorkforcePostReadUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
 }
 
 model ChatChannel {
@@ -1243,6 +1313,7 @@ model ChatChannel {
   group         TeamGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   createdBy     User       @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
   messages      ChatMessage[]
+  reads         ChatChannelRead[]
 }
 
 model ChatMessage {
@@ -1251,11 +1322,25 @@ model ChatMessage {
   senderId    String
   body        String   @db.Text
   attachments Json?
+  isPinned    Boolean  @default(false)
+  pinnedAt    DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   sender      User        @relation("ChatMessageSender", fields: [senderId], references: [id])
+}
+
+model ChatChannelRead {
+  id         String   @id @default(cuid())
+  channelId  String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  channel    ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user       User        @relation("ChatChannelReadUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
 }
 
 model LearningPath {
@@ -1268,6 +1353,7 @@ model LearningPath {
   audience      Json?
   schema        Json
   isPublished   Boolean  @default(false)
+  mandatory     Boolean  @default(false)
   createdById   String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1310,6 +1396,7 @@ model StaffDocument {
   mimeType     String?
   notes        String?  @db.Text
   status       String   @default("PENDING")
+  requiresSignature Boolean @default(false)
   expiresAt    DateTime?
   verifiedAt   DateTime?
   createdAt    DateTime @default(now())
@@ -1318,6 +1405,28 @@ model StaffDocument {
   user         User     @relation("StaffDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
   uploadedBy   User     @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
   verifiedBy   User?    @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
+  fulfilledRequests StaffDocumentRequest[] @relation("StaffDocumentRequestFulfilledDocument")
+}
+
+model StaffDocumentRequest {
+  id                  String   @id @default(cuid())
+  userId              String
+  requestedById       String
+  fulfilledDocumentId String?
+  category            String
+  title               String
+  notes               String?  @db.Text
+  dueAt               DateTime?
+  status              String   @default("REQUESTED")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User          @relation("StaffDocumentRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  requestedBy         User          @relation("StaffDocumentRequestCreatedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  fulfilledDocument   StaffDocument? @relation("StaffDocumentRequestFulfilledDocument", fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([requestedById, status])
 }
 
 model StaffRecognition {
@@ -1367,12 +1476,18 @@ model HiringApplication {
   resumeUrl      String?  @db.Text
   resumeKey      String?
   coverLetter    String?  @db.Text
+  interviewNotes String?  @db.Text
+  interviewDate  DateTime?
+  offerDetails   Json?
+  rejectionReason String? @db.Text
   reviewedById   String?
+  hiredUserId    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   position       HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
   reviewedBy     User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
+  hiredUser      User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
 }
 
 model AppSetting {

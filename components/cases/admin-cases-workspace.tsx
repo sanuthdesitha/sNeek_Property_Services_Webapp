@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { RefreshCw, Upload } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { RefreshCw, Upload, Wand2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,11 +76,37 @@ type CaseItem = {
 type CasesResponse = {
   items: CaseItem[];
   assignees: AssigneeOption[];
+  viewer?: { id: string; name: string | null; email: string | null; role: string | null } | null;
 };
 
 const CASE_TYPES: CaseType[] = ["DAMAGE", "CLIENT_DISPUTE", "LOST_FOUND", "OPS", "SLA", "OTHER"];
 const CASE_STATUSES: CaseStatus[] = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 const SEVERITIES: Severity[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+const CASE_FILTER_DEFAULTS = {
+  q: "",
+  status: "ALL",
+  caseType: "ALL",
+  assigneeUserId: "ALL",
+  jobId: "",
+};
+const RESOLUTION_TEMPLATES: Record<CaseType, string> = {
+  DAMAGE: "We have reviewed the reported damage. We will arrange a follow-up visit to assess and resolve.",
+  CLIENT_DISPUTE: "We acknowledge your concern and are investigating. We'll be in touch within 24 hours.",
+  LOST_FOUND: "We've followed up with the assigned cleaner. [Item status]. Please let us know if you need further assistance.",
+  OPS: "Operations has reviewed this case and is coordinating the next steps now.",
+  SLA: "We are reviewing the service timing and will confirm the follow-up action shortly.",
+  OTHER: "We have logged the issue and will update this case after our review.",
+};
+
+function parseFilters(params: { get(name: string): string | null }) {
+  return {
+    q: params.get("q") || CASE_FILTER_DEFAULTS.q,
+    status: params.get("status") || CASE_FILTER_DEFAULTS.status,
+    caseType: params.get("caseType") || CASE_FILTER_DEFAULTS.caseType,
+    assigneeUserId: params.get("assigneeUserId") || CASE_FILTER_DEFAULTS.assigneeUserId,
+    jobId: params.get("jobId") || CASE_FILTER_DEFAULTS.jobId,
+  };
+}
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
@@ -108,6 +135,9 @@ function statusTone(value: CaseStatus) {
 }
 
 export function AdminCasesWorkspace() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,9 +147,10 @@ export function AdminCasesWorkspace() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [items, setItems] = useState<CaseItem[]>([]);
   const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
+  const [viewer, setViewer] = useState<{ id: string; name: string | null; email: string | null; role: string | null } | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [selected, setSelected] = useState<CaseItem | null>(null);
-  const [filters, setFilters] = useState({ q: "", status: "ALL", caseType: "ALL", assigneeUserId: "ALL" });
+  const [filters, setFilters] = useState(() => parseFilters(searchParams));
   const [createDraft, setCreateDraft] = useState({ title: "", description: "", caseType: "OPS" as CaseType, severity: "MEDIUM" as Severity, clientVisible: false, clientCanReply: true });
   const [commentDraft, setCommentDraft] = useState({ body: "", isInternal: false });
 
@@ -131,6 +162,7 @@ export function AdminCasesWorkspace() {
       if (filters.status !== "ALL") query.set("status", filters.status);
       if (filters.caseType !== "ALL") query.set("caseType", filters.caseType);
       if (filters.assigneeUserId !== "ALL") query.set("assigneeUserId", filters.assigneeUserId);
+      if (filters.jobId.trim()) query.set("jobId", filters.jobId.trim());
       const res = await fetch(`/api/admin/cases?${query.toString()}`, { cache: "no-store" });
       const body = (await res.json().catch(() => ({}))) as Partial<CasesResponse> & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not load cases.");
@@ -138,12 +170,21 @@ export function AdminCasesWorkspace() {
       const nextAssignees = Array.isArray(body.assignees) ? body.assignees : [];
       setItems(nextItems);
       setAssignees(nextAssignees);
+      setViewer(body.viewer ?? null);
       if (!selectedId && nextItems[0]?.id) {
         setSelectedId(nextItems[0].id);
         setSelected(nextItems[0]);
       } else if (selectedId) {
         const nextSelected = nextItems.find((item) => item.id === selectedId) ?? null;
-        if (nextSelected) setSelected(nextSelected);
+        if (nextSelected) {
+          setSelected(nextSelected);
+        } else if (nextItems[0]?.id) {
+          setSelectedId(nextItems[0].id);
+          setSelected(nextItems[0]);
+        } else {
+          setSelectedId("");
+          setSelected(null);
+        }
       }
     } catch (error: any) {
       toast({ title: "Cases failed", description: error?.message ?? "Could not load cases.", variant: "destructive" });
@@ -171,11 +212,22 @@ export function AdminCasesWorkspace() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams();
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.status !== CASE_FILTER_DEFAULTS.status) params.set("status", filters.status);
+    if (filters.caseType !== CASE_FILTER_DEFAULTS.caseType) params.set("caseType", filters.caseType);
+    if (filters.assigneeUserId !== CASE_FILTER_DEFAULTS.assigneeUserId) params.set("assigneeUserId", filters.assigneeUserId);
+    if (filters.jobId.trim()) params.set("jobId", filters.jobId.trim());
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [filters, pathname, router]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       void loadList();
     }, 180);
     return () => clearTimeout(timer);
-  }, [filters.q, filters.status, filters.caseType, filters.assigneeUserId]);
+  }, [filters.q, filters.status, filters.caseType, filters.assigneeUserId, filters.jobId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -188,6 +240,7 @@ export function AdminCasesWorkspace() {
     if (!property) return "-";
     return property.suburb ? `${property.name} (${property.suburb})` : property.name;
   }, [selected]);
+  const selectedResolutionTemplate = selected ? RESOLUTION_TEMPLATES[selected.caseType] : "";
 
   async function createCase() {
     if (!createDraft.title.trim()) {
@@ -250,6 +303,28 @@ export function AdminCasesWorkspace() {
       toast({ title: "Save failed", description: error?.message ?? "Could not save case.", variant: "destructive" });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runQuickUpdate(
+    item: CaseItem,
+    patch: Partial<{ status: CaseStatus; assignedToUserId: string | null }>,
+    successTitle: string
+  ) {
+    try {
+      const res = await fetch(`/api/admin/cases/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const body = (await res.json().catch(() => ({}))) as CaseItem & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not update case.");
+      setItems((current) => current.map((row) => (row.id === body.id ? body : row)));
+      if (selectedId === body.id) setSelected(body);
+      toast({ title: successTitle });
+      await loadList();
+    } catch (error: any) {
+      toast({ title: "Update failed", description: error?.message ?? "Could not update case.", variant: "destructive" });
     }
   }
 
@@ -368,14 +443,34 @@ export function AdminCasesWorkspace() {
               <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.caseType} onChange={(event) => setFilters((prev) => ({ ...prev, caseType: event.target.value }))}><option value="ALL">All case types</option>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
               <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.assigneeUserId} onChange={(event) => setFilters((prev) => ({ ...prev, assigneeUserId: event.target.value }))}><option value="ALL">All owners</option><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select>
             </div>
+            <Input placeholder="Filter by job id" value={filters.jobId} onChange={(event) => setFilters((prev) => ({ ...prev, jobId: event.target.value }))} />
             {loadingList ? <p className="py-10 text-center text-sm text-muted-foreground">Loading cases...</p> : items.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No cases found.</p> : (
               <div className="space-y-2">
                 {items.map((item) => (
-                  <button key={item.id} type="button" className={`w-full rounded-xl border px-3 py-3 text-left transition ${selectedId === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`} onClick={() => setSelectedId(item.id)}>
-                    <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{prettify(item.status)}</Badge></div></div>
-                    <p className="mt-1 text-xs text-muted-foreground">{prettify(item.caseType)} · {item.property?.name || item.job?.property?.name || item.client?.name || "General case"}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Owner: {item.assignedTo?.name?.trim() || item.assignedTo?.email || "Unassigned"}</p>
-                  </button>
+                  <div key={item.id} className={`rounded-xl border px-3 py-3 transition ${selectedId === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}>
+                    <button type="button" className="w-full text-left" onClick={() => setSelectedId(item.id)}>
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{prettify(item.status)}</Badge></div></div>
+                      <p className="mt-1 text-xs text-muted-foreground">{prettify(item.caseType)} · {item.property?.name || item.job?.property?.name || item.client?.name || "General case"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Owner: {item.assignedTo?.name?.trim() || item.assignedTo?.email || "Unassigned"}</p>
+                    </button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {item.status === "OPEN" ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "IN_PROGRESS" }, "Case started")}>
+                          Start
+                        </Button>
+                      ) : null}
+                      {item.status !== "RESOLVED" ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "RESOLVED" }, "Case resolved")}>
+                          Resolve
+                        </Button>
+                      ) : null}
+                      {!item.assignedTo?.id && viewer?.id ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { assignedToUserId: viewer.id }, "Case assigned")}>
+                          Assign to me
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -401,7 +496,23 @@ export function AdminCasesWorkspace() {
                 </div>
                 <div className="grid gap-3 md:grid-cols-2"><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can see this case</span><Switch checked={selected.clientVisible} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientVisible: checked } : prev)} /></label><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can reply</span><Switch checked={selected.clientCanReply} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientCanReply: checked } : prev)} /></label></div>
                 <div className="space-y-1.5"><Label>Description</Label><Textarea rows={5} value={selected.description || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, description: event.target.value } : prev)} /></div>
-                <div className="space-y-1.5"><Label>Resolution / admin note</Label><Textarea rows={3} value={selected.resolutionNote || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, resolutionNote: event.target.value } : prev)} /></div>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label>Resolution / admin note</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSelected((prev) => (prev ? { ...prev, resolutionNote: selectedResolutionTemplate } : prev))
+                      }
+                    >
+                      <Wand2 className="mr-2 h-4 w-4" />
+                      Use template
+                    </Button>
+                  </div>
+                  <Textarea rows={3} value={selected.resolutionNote || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, resolutionNote: event.target.value } : prev)} />
+                </div>
                 <div className="flex flex-wrap gap-2"><Button onClick={saveCase} disabled={saving}>{saving ? "Saving..." : "Save case"}</Button><Button variant="destructive" onClick={() => setDeleteOpen(true)} disabled={deleting}>{deleting ? "Deleting..." : "Delete case"}</Button></div>
                 <div className="space-y-3 rounded-2xl border p-4">
                   <div><h3 className="font-semibold">Timeline</h3><p className="text-xs text-muted-foreground">Public updates and internal admin notes live in one thread.</p></div>

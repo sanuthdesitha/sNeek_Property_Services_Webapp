@@ -114,7 +114,11 @@ export default function LoginPage() {
   return (
     <div className="relative flex min-h-screen items-center justify-center p-4">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(255,178,98,0.2),transparent_35%),radial-gradient(circle_at_86%_10%,rgba(38,157,169,0.2),transparent_31%)]" />
-      <Card className="w-full max-w-sm shadow-xl page-fade">
+      <div className="w-full max-w-sm space-y-4 page-fade">
+        <div className="flex items-center rounded-full border border-white/70 bg-white/80 px-4 py-2 text-sm shadow-sm">
+          <Link href="/" className="font-medium text-primary hover:underline">Back to home</Link>
+        </div>
+      <Card className="w-full max-w-sm shadow-xl">
         <CardHeader className="text-center">
           {branding.logoUrl ? (
             <img
@@ -173,6 +177,7 @@ export default function LoginPage() {
           </p>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

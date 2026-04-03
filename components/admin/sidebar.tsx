@@ -20,6 +20,7 @@ import {
   Settings,
   UserCircle2,
   LogOut,
+  MonitorSmartphone,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -31,6 +32,7 @@ import {
   ClipboardList,
   Wallet,
   Clock3,
+  Rocket,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,8 @@ export const ADMIN_NAV_ITEMS = [
   { label: "Suppliers", href: "/admin/suppliers", icon: Truck },
   { label: "Invoices", href: "/admin/invoices", icon: Wallet },
   { label: "Finance", href: "/admin/finance", icon: BarChart3 },
+  { label: "Marketing", href: "/admin/marketing", icon: Rocket },
+  { label: "Website", href: "/admin/website", icon: MonitorSmartphone },
   { label: "Integrations", href: "/admin/integrations", icon: RefreshCw },
   { label: "Reports", href: "/admin/reports", icon: FileBarChart },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },

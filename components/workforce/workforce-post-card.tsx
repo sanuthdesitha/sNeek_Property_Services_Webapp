@@ -35,6 +35,14 @@ export function WorkforcePostCard({
     body: string;
     pinned?: boolean;
     coverImageUrl?: string | null;
+    attachments?: Array<{
+      url: string;
+      fileName?: string | null;
+      mimeType?: string | null;
+      label?: string | null;
+    }>;
+    isUnread?: boolean;
+    seenCount?: number;
     createdAt: string | Date;
     createdBy?: { name?: string | null; image?: string | null } | null;
   };
@@ -59,6 +67,7 @@ export function WorkforcePostCard({
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {post.isUnread ? <span className="h-2.5 w-2.5 rounded-full bg-sky-500" aria-hidden /> : null}
           {post.pinned ? <Badge variant="warning">Pinned</Badge> : null}
           {post.type === "RECOGNITION" ? (
             <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
@@ -90,6 +99,37 @@ export function WorkforcePostCard({
           <h3 className="text-base font-semibold tracking-tight text-slate-950">{post.title}</h3>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{post.body}</p>
         </div>
+        {(post.attachments?.length ?? 0) > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {post.attachments!.map((attachment) => {
+              const isImage = attachment.mimeType?.startsWith("image/");
+              return (
+                <a
+                  key={`${attachment.url}-${attachment.fileName ?? ""}`}
+                  href={attachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 transition hover:border-primary/40 hover:bg-primary/5"
+                >
+                  {isImage ? (
+                    <img
+                      src={attachment.url}
+                      alt={attachment.label || attachment.fileName || post.title}
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  ) : null}
+                  <div className="p-3">
+                    <p className="line-clamp-1 text-sm font-medium text-slate-900">{attachment.label || attachment.fileName || "Attachment"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{isImage ? "Open image" : attachment.mimeType || "Open file"}</p>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        ) : null}
+        {typeof post.seenCount === "number" ? (
+          <p className="text-xs text-slate-500">Seen by {post.seenCount} staff</p>
+        ) : null}
       </div>
     </article>
   );

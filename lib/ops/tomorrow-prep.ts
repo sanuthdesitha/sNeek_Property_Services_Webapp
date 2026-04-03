@@ -1,4 +1,4 @@
-import { addDays, format } from "date-fns";
+import { addDays, format, startOfDay } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { JobStatus, LaundryStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -99,7 +99,7 @@ async function writeDispatchState(state: DispatchState) {
 }
 
 function buildUtcDayRange(date: Date, timezone: string) {
-  const localDate = toZonedTime(date, timezone);
+  const localDate = startOfDay(toZonedTime(date, timezone));
   const startUtc = fromZonedTime(
     new Date(localDate.getFullYear(), localDate.getMonth(), localDate.getDate(), 0, 0, 0, 0),
     timezone

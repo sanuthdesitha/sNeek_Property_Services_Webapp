@@ -1,0 +1,158 @@
+import { type MarketedJobTypeValue } from "@/lib/marketing/job-types";
+
+export type DefaultPublicSubscriptionPlan = {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  description: string;
+  serviceTypes: MarketedJobTypeValue[];
+  cadenceOptions: string[];
+  startingPrice: number | null;
+  priceLabel: string;
+  features: string[];
+  themeKey: string;
+  ctaLabel: string;
+  ctaHref: string;
+  isPublished: boolean;
+  sortOrder: number;
+};
+
+export const DEFAULT_PUBLIC_SUBSCRIPTION_PLANS: DefaultPublicSubscriptionPlan[] = [
+  {
+    id: "default-weekly-home-care",
+    slug: "weekly-home-care",
+    name: "Weekly Home Care",
+    tagline: "For occupied homes that want a consistent reset every week.",
+    description: "Best for busy households that want steady upkeep, less build-up between visits, and a predictable recurring service window.",
+    serviceTypes: ["GENERAL_CLEAN"],
+    cadenceOptions: ["Weekly"],
+    startingPrice: 165,
+    priceLabel: "From $165 per week",
+    features: ["Regular general cleaning", "Priority recurring scheduling", "Optional oven, fridge, balcony, and linen add-ons"],
+    themeKey: "ocean",
+    ctaLabel: "Ask about weekly care",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 10,
+  },
+  {
+    id: "default-fortnightly-home-care",
+    slug: "fortnightly-home-care",
+    name: "Fortnightly Home Care",
+    tagline: "The most practical recurring cadence for most homes.",
+    description: "Designed for homes that want regular upkeep without the cost of weekly visits, while still staying ahead of heavier recovery cleans.",
+    serviceTypes: ["GENERAL_CLEAN", "DEEP_CLEAN"],
+    cadenceOptions: ["Fortnightly"],
+    startingPrice: 189,
+    priceLabel: "From $189 per fortnight",
+    features: ["Condition-aware recurring pricing", "Optional deep-clean rotations", "Flexible scope top-ups when needed"],
+    themeKey: "sand",
+    ctaLabel: "Ask about fortnightly service",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 20,
+  },
+  {
+    id: "default-monthly-refresh",
+    slug: "monthly-refresh",
+    name: "Monthly Refresh",
+    tagline: "A lighter recurring option for homes that stay mostly on top of upkeep.",
+    description: "Suited to homes that do not need weekly or fortnightly visits but still want a scheduled refresh rather than a reactive once-off clean.",
+    serviceTypes: ["GENERAL_CLEAN", "SPRING_CLEANING"],
+    cadenceOptions: ["Monthly"],
+    startingPrice: 235,
+    priceLabel: "From $235 per monthly visit",
+    features: ["Monthly reset visit", "Works well before hosting or inspections", "Add deep-detail items as needed"],
+    themeKey: "sage",
+    ctaLabel: "Ask about monthly service",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 30,
+  },
+  {
+    id: "default-airbnb-turnover-care",
+    slug: "airbnb-turnover-care",
+    name: "Airbnb Turnover Care",
+    tagline: "Cleaning, guest-ready presentation, and reliable turnover support.",
+    description: "Ideal for short-stay properties that need a repeatable turnover standard, photo-backed reporting, and quick issue visibility between bookings.",
+    serviceTypes: ["AIRBNB_TURNOVER"],
+    cadenceOptions: ["Per booking", "Custom"],
+    startingPrice: 155,
+    priceLabel: "From $155 per turnover",
+    features: ["Turnover cleaning", "Photo-backed reports", "Issue and stock visibility"],
+    themeKey: "harbour",
+    ctaLabel: "Talk about hosting support",
+    ctaHref: "/airbnb-hosting",
+    isPublished: true,
+    sortOrder: 40,
+  },
+  {
+    id: "default-airbnb-property-care-plus",
+    slug: "airbnb-property-care-plus",
+    name: "Airbnb Property Care+",
+    tagline: "For hosts who want more than just the clean.",
+    description: "A higher-touch hosting support plan built around turnovers, laundry timing, restocking, shopping runs, issue capture, and calmer guest changeovers.",
+    serviceTypes: ["AIRBNB_TURNOVER", "GENERAL_CLEAN"],
+    cadenceOptions: ["Per booking", "Weekly", "Custom"],
+    startingPrice: null,
+    priceLabel: "Custom monthly support pricing",
+    features: ["Laundry coordination", "Inventory and restock oversight", "Shopping runs and damage escalation", "Invoice-ready operational records"],
+    themeKey: "midnight",
+    ctaLabel: "Request a hosting plan",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 50,
+  },
+  {
+    id: "default-office-site-care",
+    slug: "office-site-care",
+    name: "Office Site Care",
+    tagline: "Recurring service for offices and managed commercial spaces.",
+    description: "Built for office or commercial environments that need recurring service windows, predictable communication, and a scope that matches the site properly.",
+    serviceTypes: ["COMMERCIAL_RECURRING"],
+    cadenceOptions: ["Weekly", "Fortnightly", "Custom"],
+    startingPrice: null,
+    priceLabel: "Quoted to site and cadence",
+    features: ["Recurring site cleaning", "Access-aware scheduling", "Tailored scope by workspace type"],
+    themeKey: "slate",
+    ctaLabel: "Request a site assessment",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 60,
+  },
+  {
+    id: "default-exterior-care",
+    slug: "exterior-care",
+    name: "Exterior Care Plan",
+    tagline: "Seasonal upkeep for outdoor presentation and access areas.",
+    description: "For homes and managed properties that want recurring lawn, pressure wash, or exterior presentation support without booking each visit from scratch.",
+    serviceTypes: ["LAWN_MOWING", "PRESSURE_WASH", "GUTTER_CLEANING"],
+    cadenceOptions: ["Monthly", "Quarterly", "Custom"],
+    startingPrice: 95,
+    priceLabel: "From $95 per visit",
+    features: ["Lawns and frontage presentation", "Pressure washing add-ons", "Seasonal gutter review options"],
+    themeKey: "garden",
+    ctaLabel: "Ask about exterior care",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 70,
+  },
+  {
+    id: "default-annual-refresh-plan",
+    slug: "annual-refresh-plan",
+    name: "Annual Refresh Plan",
+    tagline: "A planned mix of routine upkeep plus deeper reset work over the year.",
+    description: "This suits clients who want general cleaning through the year plus scheduled spring, deep, or specialty resets without arranging every job separately.",
+    serviceTypes: ["GENERAL_CLEAN", "DEEP_CLEAN", "SPRING_CLEANING", "WINDOW_CLEAN"],
+    cadenceOptions: ["Monthly", "Quarterly", "Custom"],
+    startingPrice: null,
+    priceLabel: "Tailored annual plan",
+    features: ["Recurring base service", "Planned deep-clean intervals", "Optional window or specialty rotations"],
+    themeKey: "sunrise",
+    ctaLabel: "Build my plan",
+    ctaHref: "/contact",
+    isPublished: true,
+    sortOrder: 80,
+  },
+];

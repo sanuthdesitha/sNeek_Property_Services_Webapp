@@ -381,6 +381,12 @@ export async function POST(
         confirmedById: session.user.id,
         laundryReady: true,
         bagLocation: nextStatus === "DROPPED" ? dropoffLocation?.trim() : undefined,
+        s3Key:
+          nextStatus === "DROPPED"
+            ? dropoffPhotoKey?.trim() || null
+            : nextStatus === "PICKED_UP"
+              ? pickupPhotoKey?.trim() || null
+              : null,
         photoUrl:
           nextStatus === "DROPPED"
             ? dropoffPhotoKey?.trim()
@@ -511,6 +517,7 @@ export async function PATCH(
         await tx.laundryConfirmation.update({
           where: { id: pickupConfirmation.id },
           data: {
+            s3Key: after.pickupPhotoKey || pickupConfirmation.s3Key || null,
             photoUrl: after.pickupPhotoKey ? publicUrl(after.pickupPhotoKey) : pickupConfirmation.photoUrl,
             notes: JSON.stringify(nextPickupMeta),
           },
@@ -521,6 +528,7 @@ export async function PATCH(
         where: { id: droppedConfirmation.id },
         data: {
           bagLocation: after.dropoffLocation || droppedConfirmation.bagLocation,
+          s3Key: after.dropoffPhotoKey || droppedConfirmation.s3Key || null,
           photoUrl: after.dropoffPhotoKey ? publicUrl(after.dropoffPhotoKey) : droppedConfirmation.photoUrl,
           notes: JSON.stringify(nextDroppedMeta),
         },

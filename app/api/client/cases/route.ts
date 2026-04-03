@@ -14,9 +14,18 @@ const createSchema = z.object({
   propertyId: z.string().trim().optional().nullable(),
   jobId: z.string().trim().optional().nullable(),
   reportId: z.string().trim().optional().nullable(),
-  title: z.string().trim().min(1).max(180),
+  title: z.string().trim().min(1).max(180).optional(),
   description: z.string().trim().max(6000),
+  caseType: z.enum(["DAMAGE", "CLIENT_DISPUTE", "LOST_FOUND", "OTHER"]).optional(),
   severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+  attachments: z.array(
+    z.object({
+      s3Key: z.string().trim().min(1),
+      url: z.string().trim().optional().nullable(),
+      mimeType: z.string().trim().optional().nullable(),
+      label: z.string().trim().optional().nullable(),
+    })
+  ).max(3).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -58,12 +67,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
     }
     const body = createSchema.parse(await req.json().catch(() => ({})));
+    const caseType = body.caseType ?? "CLIENT_DISPUTE";
+    const title =
+      body.title?.trim() ||
+      (caseType === "DAMAGE"
+        ? "Damage reported"
+        : caseType === "LOST_FOUND"
+          ? "Lost or found item"
+          : caseType === "OTHER"
+            ? "Service issue"
+            : "Client dispute");
     const created = await createCase({
-      title: body.title,
+      title,
       description: body.description,
       severity: body.severity ?? "MEDIUM",
       status: "OPEN",
-      caseType: "CLIENT_DISPUTE",
+      caseType,
       source: "CLIENT_PORTAL",
       clientId: user.clientId,
       propertyId: body.propertyId ?? null,
@@ -76,6 +95,13 @@ export async function POST(req: NextRequest) {
         body: body.description,
         isInternal: false,
       },
+      attachments: (body.attachments ?? []).map((attachment) => ({
+        uploadedByUserId: session.user.id,
+        s3Key: attachment.s3Key,
+        url: attachment.url ?? null,
+        mimeType: attachment.mimeType ?? null,
+        label: attachment.label ?? null,
+      })),
     });
     if (created) {
       await notifyCaseCreated({

@@ -10,6 +10,11 @@ import {
   sanitizeNotificationTemplates,
   type AppNotificationTemplates,
 } from "@/lib/notification-templates";
+import {
+  DEFAULT_WEBSITE_CONTENT,
+  sanitizeWebsiteContent,
+  type WebsiteContent,
+} from "@/lib/public-site/content";
 
 export type SmsProvider = "none" | "twilio" | "cellcast";
 
@@ -158,6 +163,7 @@ export interface AppSettings {
   logoUrl: string;
   accountsEmail: string;
   timezone: string;
+  websiteContent: WebsiteContent;
   smsProvider: SmsProvider;
   reminder24hHours: number;
   reminder2hHours: number;
@@ -219,6 +225,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   logoUrl: "",
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
+  websiteContent: DEFAULT_WEBSITE_CONTENT,
   smsProvider: "twilio",
   reminder24hHours: 24,
   reminder2hHours: 2,
@@ -819,6 +826,10 @@ function sanitizeSettings(input: unknown): AppSettings {
     timezone: typeof parsed.timezone === "string" && parsed.timezone.trim()
       ? parsed.timezone.trim()
       : DEFAULT_SETTINGS.timezone,
+    websiteContent: sanitizeWebsiteContent(
+      (parsed as any).websiteContent,
+      DEFAULT_SETTINGS.websiteContent
+    ),
     smsProvider:
       parsed.smsProvider === "none" || parsed.smsProvider === "twilio" || parsed.smsProvider === "cellcast"
         ? parsed.smsProvider
@@ -924,6 +935,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
     scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,
     autoClockOut: input.autoClockOut ?? current.autoClockOut,

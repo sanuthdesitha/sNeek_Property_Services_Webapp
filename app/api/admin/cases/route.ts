@@ -10,6 +10,7 @@ const querySchema = z.object({
   caseType: z.string().trim().optional(),
   clientId: z.string().trim().optional(),
   propertyId: z.string().trim().optional(),
+  jobId: z.string().trim().optional(),
   assigneeUserId: z.string().trim().optional(),
   q: z.string().trim().optional(),
 });
@@ -34,13 +35,14 @@ const createSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse({
       status: searchParams.get("status") ?? undefined,
       caseType: searchParams.get("caseType") ?? undefined,
       clientId: searchParams.get("clientId") ?? undefined,
       propertyId: searchParams.get("propertyId") ?? undefined,
+      jobId: searchParams.get("jobId") ?? undefined,
       assigneeUserId: searchParams.get("assigneeUserId") ?? undefined,
       q: searchParams.get("q") ?? undefined,
     });
@@ -49,7 +51,16 @@ export async function GET(req: NextRequest) {
       listCases(query),
       listCaseAssignees(),
     ]);
-    return NextResponse.json({ items, assignees });
+    return NextResponse.json({
+      items,
+      assignees,
+      viewer: {
+        id: session.user.id,
+        name: session.user.name ?? null,
+        email: session.user.email ?? null,
+        role: session.user.role,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message ?? "Could not load cases." },

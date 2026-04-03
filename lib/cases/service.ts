@@ -37,6 +37,7 @@ export interface CaseListFilters {
   caseType?: string | null;
   clientId?: string | null;
   propertyId?: string | null;
+  jobId?: string | null;
   q?: string | null;
   clientVisibleOnly?: boolean;
   assigneeUserId?: string | null;
@@ -252,6 +253,7 @@ export async function listCases(filters: CaseListFilters = {}) {
   if (filters.caseType) where.caseType = filters.caseType;
   if (filters.clientId) where.clientId = filters.clientId;
   if (filters.propertyId) where.propertyId = filters.propertyId;
+  if (filters.jobId) where.jobId = filters.jobId;
   if (filters.clientVisibleOnly) where.clientVisible = true;
   if (filters.assigneeUserId === "__unassigned") {
     where.assignedToUserId = null;
@@ -263,6 +265,9 @@ export async function listCases(filters: CaseListFilters = {}) {
       { title: { contains: filters.q.trim(), mode: "insensitive" } },
       { description: { contains: filters.q.trim(), mode: "insensitive" } },
       { resolutionNote: { contains: filters.q.trim(), mode: "insensitive" } },
+      { job: { jobNumber: { contains: filters.q.trim(), mode: "insensitive" } } },
+      { property: { name: { contains: filters.q.trim(), mode: "insensitive" } } },
+      { client: { name: { contains: filters.q.trim(), mode: "insensitive" } } },
     ];
   }
 

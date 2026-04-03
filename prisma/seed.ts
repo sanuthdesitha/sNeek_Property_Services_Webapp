@@ -9,10 +9,14 @@
 import { PrismaClient, Role, JobType, JobStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { DEFAULT_INVENTORY_ITEMS } from "../lib/inventory/default-items";
+import { DEFAULT_PUBLIC_SUBSCRIPTION_PLANS } from "../lib/marketing/default-subscription-plans";
+import { MARKETING_JOB_TYPES } from "../lib/marketing/job-types";
 import { DEFAULT_SETTINGS } from "../lib/settings";
 
 const db = new PrismaClient();
 const includeDemo = process.env.SEED_INCLUDE_DEMO === "1";
+const MARKETING_CAMPAIGNS_KEY = "marketing_discount_campaigns_v1";
+const MARKETING_PLANS_KEY = "marketing_subscription_plans_v1";
 
 async function seedDemoData() {
   const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -201,6 +205,135 @@ async function seedDemoData() {
   console.log("  Laundry: laundry@sneekproservices.com.au / laundry123");
 }
 
+type SeedPriceBookEntry = {
+  jobType: JobType;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  baseRate: number;
+  pricingModel?: string | null;
+  pricingVariables?: Record<string, unknown> | null;
+  addOns: Record<string, number>;
+  multipliers: Record<string, unknown>;
+};
+
+const seedPriceBookEntries: SeedPriceBookEntry[] = [
+  { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 1, bathrooms: 1, baseRate: 120, addOns: { oven: 40, fridge: 30, balcony: 20, heavyMess: 60, sameDay: 50, furnished: 10, pets: 15, outdoorArea: 15, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
+  { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 2, bathrooms: 1, baseRate: 160, addOns: { oven: 40, fridge: 30, balcony: 20, heavyMess: 60, sameDay: 50, furnished: 10, pets: 15, outdoorArea: 15, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
+  { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 2, bathrooms: 2, baseRate: 185, addOns: { oven: 40, fridge: 30, balcony: 25, heavyMess: 70, sameDay: 60, furnished: 12, pets: 15, outdoorArea: 18, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
+  { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 3, bathrooms: 2, baseRate: 230, addOns: { oven: 45, fridge: 35, balcony: 25, heavyMess: 80, sameDay: 70, furnished: 12, pets: 18, outdoorArea: 20, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
+  { jobType: JobType.GENERAL_CLEAN, bedrooms: 1, bathrooms: 1, baseRate: 110, addOns: { oven: 45, fridge: 30, balcony: 18, heavyMess: 60, sameDay: 45, furnished: 10, pets: 15, outdoorArea: 15, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.92, standard: 1.0, heavy: 1.22 } } },
+  { jobType: JobType.GENERAL_CLEAN, bedrooms: 2, bathrooms: 1, baseRate: 145, addOns: { oven: 45, fridge: 30, balcony: 18, heavyMess: 60, sameDay: 45, furnished: 10, pets: 15, outdoorArea: 15, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.92, standard: 1.0, heavy: 1.22 } } },
+  { jobType: JobType.GENERAL_CLEAN, bedrooms: 3, bathrooms: 2, baseRate: 210, addOns: { oven: 50, fridge: 35, balcony: 22, heavyMess: 80, sameDay: 55, furnished: 12, pets: 18, outdoorArea: 18, additionalFloor: 18, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.92, standard: 1.0, heavy: 1.22 } } },
+  { jobType: JobType.DEEP_CLEAN, bedrooms: 1, bathrooms: 1, baseRate: 200, addOns: { oven: 60, fridge: 50, balcony: 30, heavyMess: 80, sameDay: 80, furnished: 15, pets: 18, outdoorArea: 20, additionalFloor: 20, streetParking: 6, limitedParking: 14 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.4 } } },
+  { jobType: JobType.DEEP_CLEAN, bedrooms: 2, bathrooms: 2, baseRate: 320, addOns: { oven: 60, fridge: 50, balcony: 30, heavyMess: 100, sameDay: 80, furnished: 15, pets: 18, outdoorArea: 20, additionalFloor: 20, streetParking: 6, limitedParking: 14 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.4 } } },
+  { jobType: JobType.END_OF_LEASE, bedrooms: 2, bathrooms: 1, baseRate: 380, addOns: { oven: 80, fridge: 60, balcony: 40, heavyMess: 120, sameDay: 100, pets: 20, outdoorArea: 25, additionalFloor: 24, streetParking: 8, limitedParking: 16 }, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.5 } } },
+  { jobType: MARKETING_JOB_TYPES.SPRING_CLEANING, bedrooms: 2, bathrooms: 1, baseRate: 255, addOns: { oven: 60, fridge: 45, balcony: 22, heavyMess: 75, sameDay: 60, furnished: 12, pets: 18, outdoorArea: 18, additionalFloor: 20, streetParking: 5, limitedParking: 12 }, multipliers: { conditionLevel: { light: 0.95, standard: 1.0, heavy: 1.28 } } },
+  { jobType: MARKETING_JOB_TYPES.CARPET_STEAM_CLEAN, bedrooms: 0, bathrooms: 0, baseRate: 145, pricingModel: "ROOM_COUNT", pricingVariables: { includedUnits: 1, unitLabel: "room", additionalUnitRate: 55, minimumPrice: 145 }, addOns: { heavyMess: 30, sameDay: 35, pets: 20 }, multipliers: { conditionLevel: { light: 0.95, standard: 1.0, heavy: 1.15 } } },
+  { jobType: MARKETING_JOB_TYPES.UPHOLSTERY_CLEANING, bedrooms: 0, bathrooms: 0, baseRate: 120, pricingModel: "UNIT_COUNT", pricingVariables: { includedUnits: 1, unitLabel: "piece", additionalUnitRate: 65, minimumPrice: 120 }, addOns: { heavyMess: 25, sameDay: 30 }, multipliers: { conditionLevel: { light: 0.95, standard: 1.0, heavy: 1.12 } } },
+  { jobType: MARKETING_JOB_TYPES.TILE_GROUT_CLEANING, bedrooms: 0, bathrooms: 0, baseRate: 185, pricingModel: "AREA_BASED", pricingVariables: { baseAreaSqm: 20, ratePerExtraSqm: 8, minimumPrice: 185 }, addOns: { heavyMess: 35, sameDay: 40 }, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.18 } } },
+  { jobType: JobType.WINDOW_CLEAN, bedrooms: 0, bathrooms: 0, baseRate: 160, pricingModel: "UNIT_COUNT", pricingVariables: { includedUnits: 10, unitLabel: "window", additionalUnitRate: 12, exteriorAccessRate: 45, minimumPrice: 160 }, addOns: { sameDay: 30, limitedParking: 10 }, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.1 } } },
+  { jobType: JobType.PRESSURE_WASH, bedrooms: 0, bathrooms: 0, baseRate: 220, pricingModel: "AREA_BASED", pricingVariables: { baseAreaSqm: 50, ratePerExtraSqm: 4.5, minimumPrice: 220 }, addOns: { heavyMess: 40, sameDay: 35 }, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.2 } } },
+  { jobType: JobType.LAWN_MOWING, bedrooms: 0, bathrooms: 0, baseRate: 95, pricingModel: "AREA_BASED", pricingVariables: { baseAreaSqm: 100, ratePerExtraSqm: 0.75, minimumPrice: 95, overgrowthRate: 35 }, addOns: { sameDay: 20, outdoorArea: 15 }, multipliers: { conditionLevel: { light: 0.95, standard: 1.0, heavy: 1.18 } } },
+  { jobType: JobType.COMMERCIAL_RECURRING, bedrooms: 0, bathrooms: 0, baseRate: 0, pricingModel: "MANUAL_REVIEW", pricingVariables: { defaultLeadMode: "manual_review" }, addOns: {}, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.0 } } },
+];
+
+const seedCampaigns = [
+  { code: "WELCOME10", title: "Welcome Offer", description: "10% off standard instant-quote services for first-time customers.", discountType: "PERCENT", discountValue: 10, minSubtotal: 120, jobTypes: [JobType.GENERAL_CLEAN, JobType.DEEP_CLEAN, JobType.AIRBNB_TURNOVER], isActive: true },
+  { code: "SPRING25", title: "Spring Refresh", description: "A fixed campaign example for seasonal resets and spring cleaning requests.", discountType: "FIXED", discountValue: 25, minSubtotal: 200, jobTypes: [MARKETING_JOB_TYPES.SPRING_CLEANING, JobType.GENERAL_CLEAN], isActive: false },
+];
+
+const seedSubscriptionPlans = DEFAULT_PUBLIC_SUBSCRIPTION_PLANS.map((plan) => ({ ...plan }));
+
+async function ensurePriceBookEntry(entry: SeedPriceBookEntry) {
+  const existing = await db.priceBook.findFirst({
+    where: {
+      jobType: entry.jobType,
+      bedrooms: entry.bedrooms,
+      bathrooms: entry.bathrooms,
+    },
+    select: { id: true },
+  });
+
+  if (existing) return false;
+
+  await db.priceBook.create({
+    data: {
+      ...entry,
+      pricingModel: entry.pricingModel ?? null,
+      pricingVariables: (entry.pricingVariables ?? null) as any,
+      addOns: entry.addOns as any,
+      multipliers: entry.multipliers as any,
+      isActive: true,
+    } as any,
+  });
+
+  return true;
+}
+
+async function ensureDiscountCampaigns(records: typeof seedCampaigns) {
+  const existing = await db.appSetting.findUnique({ where: { key: MARKETING_CAMPAIGNS_KEY } });
+  const current = Array.isArray(existing?.value) ? (existing?.value as any[]) : [];
+  let created = 0;
+  const next = [...current];
+
+  for (const campaign of records) {
+    if (next.some((row) => typeof row?.code === "string" && row.code === campaign.code)) continue;
+    const timestamp = new Date().toISOString();
+    next.push({
+      id: `seed-${campaign.code.toLowerCase()}`,
+      code: campaign.code,
+      title: campaign.title,
+      description: campaign.description ?? null,
+      discountType: campaign.discountType,
+      discountValue: campaign.discountValue,
+      minSubtotal: campaign.minSubtotal ?? null,
+      jobTypes: campaign.jobTypes ?? null,
+      usageLimit: (campaign as any).usageLimit ?? null,
+      usageCount: 0,
+      startsAt: (campaign as any).startsAt ? (campaign as any).startsAt.toISOString() : null,
+      endsAt: (campaign as any).endsAt ? (campaign as any).endsAt.toISOString() : null,
+      isActive: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    created += 1;
+  }
+
+  await db.appSetting.upsert({
+    where: { key: MARKETING_CAMPAIGNS_KEY },
+    create: { key: MARKETING_CAMPAIGNS_KEY, value: next as any },
+    update: { value: next as any },
+  });
+
+  return created;
+}
+
+async function ensureSubscriptionPlans(records: typeof seedSubscriptionPlans) {
+  const existing = await db.appSetting.findUnique({ where: { key: MARKETING_PLANS_KEY } });
+  const current = Array.isArray(existing?.value) ? (existing?.value as any[]) : [];
+  let created = 0;
+  const next = [...current];
+
+  for (const plan of records) {
+    if (next.some((row) => typeof row?.slug === "string" && row.slug === plan.slug)) continue;
+    const timestamp = new Date().toISOString();
+    next.push({
+      ...plan,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    created += 1;
+  }
+
+  await db.appSetting.upsert({
+    where: { key: MARKETING_PLANS_KEY },
+    create: { key: MARKETING_PLANS_KEY, value: next as any },
+    update: { value: next as any },
+  });
+
+  return created;
+}
+
 async function main() {
   console.log(`Seeding database (${includeDemo ? "system + demo" : "system only"})...`);
 
@@ -234,31 +367,18 @@ async function main() {
 
   console.log(`Created ${DEFAULT_INVENTORY_ITEMS.length} inventory items`);
 
-  const priceBookEntries = [
-    { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 1, bathrooms: 1, baseRate: 120, addOns: { oven: 40, fridge: 30, balcony: 20, heavyMess: 60, sameDay: 50 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
-    { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 2, bathrooms: 1, baseRate: 160, addOns: { oven: 40, fridge: 30, balcony: 20, heavyMess: 60, sameDay: 50 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
-    { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 2, bathrooms: 2, baseRate: 185, addOns: { oven: 40, fridge: 30, balcony: 25, heavyMess: 70, sameDay: 60 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
-    { jobType: JobType.AIRBNB_TURNOVER, bedrooms: 3, bathrooms: 2, baseRate: 230, addOns: { oven: 45, fridge: 35, balcony: 25, heavyMess: 80, sameDay: 70 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.3 } } },
-    { jobType: JobType.DEEP_CLEAN, bedrooms: 1, bathrooms: 1, baseRate: 200, addOns: { oven: 60, fridge: 50, balcony: 30, heavyMess: 80, sameDay: 80 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.4 } } },
-    { jobType: JobType.DEEP_CLEAN, bedrooms: 2, bathrooms: 2, baseRate: 320, addOns: { oven: 60, fridge: 50, balcony: 30, heavyMess: 100, sameDay: 80 }, multipliers: { conditionLevel: { light: 0.9, standard: 1.0, heavy: 1.4 } } },
-    { jobType: JobType.END_OF_LEASE, bedrooms: 2, bathrooms: 1, baseRate: 380, addOns: { oven: 80, fridge: 60, balcony: 40, heavyMess: 120, sameDay: 100 }, multipliers: { conditionLevel: { light: 1.0, standard: 1.0, heavy: 1.5 } } },
-  ];
-
-  for (const entry of priceBookEntries) {
-    await db.priceBook.upsert({
-      where: {
-        jobType_bedrooms_bathrooms: {
-          jobType: entry.jobType,
-          bedrooms: entry.bedrooms,
-          bathrooms: entry.bathrooms,
-        },
-      },
-      create: { ...entry, isActive: true },
-      update: entry,
-    });
+  let createdPriceBookRows = 0;
+  for (const entry of seedPriceBookEntries) {
+    const created = await ensurePriceBookEntry(entry);
+    if (created) createdPriceBookRows += 1;
   }
 
-  console.log(`Created ${priceBookEntries.length} price book entries`);
+  const createdCampaigns = await ensureDiscountCampaigns(seedCampaigns);
+  const createdSubscriptionPlans = await ensureSubscriptionPlans(seedSubscriptionPlans);
+
+  console.log(`Ensured ${seedPriceBookEntries.length} price book rows (${createdPriceBookRows} new)`);
+  console.log(`Ensured ${seedCampaigns.length} campaigns (${createdCampaigns} new)`);
+  console.log(`Ensured ${seedSubscriptionPlans.length} subscription plans (${createdSubscriptionPlans} new)`);
 
   const airbnbTemplate = {
     sections: [
