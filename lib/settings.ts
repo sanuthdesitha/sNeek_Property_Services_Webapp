@@ -917,9 +917,20 @@ function sanitizeSettings(input: unknown): AppSettings {
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  const row = await db.appSetting.findUnique({ where: { key: "app" } });
-  if (!row) return DEFAULT_SETTINGS;
-  return sanitizeSettings(row.value);
+  if (typeof process.env.DATABASE_URL !== "string" || process.env.DATABASE_URL.trim().length === 0) {
+    return DEFAULT_SETTINGS;
+  }
+
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: "app" } });
+    if (!row) return DEFAULT_SETTINGS;
+    return sanitizeSettings(row.value);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[settings] Falling back to default app settings:", error);
+    }
+    return DEFAULT_SETTINGS;
+  }
 }
 
 export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppSettings> {

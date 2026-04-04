@@ -63,6 +63,10 @@ const DEFAULT_CAMPAIGNS: MarketingCampaignRecord[] = [
   },
 ];
 
+function hasDatabaseUrl() {
+  return typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.trim().length > 0;
+}
+
 function sanitizeJobTypes(value: unknown): MarketedJobTypeValue[] | null {
   if (!Array.isArray(value)) return null;
   const rows = value.filter((item): item is MarketedJobTypeValue => typeof item === "string" && (MARKETED_JOB_TYPE_VALUES as readonly string[]).includes(item));
@@ -129,9 +133,20 @@ function sanitizePlans(value: unknown): MarketingSubscriptionPlanRecord[] {
 }
 
 async function readJsonSetting<T>(key: string, fallback: T, sanitizer: (value: unknown) => T): Promise<T> {
-  const row = await db.appSetting.findUnique({ where: { key } });
-  if (!row) return fallback;
-  return sanitizer(row.value);
+  if (!hasDatabaseUrl()) {
+    return fallback;
+  }
+
+  try {
+    const row = await db.appSetting.findUnique({ where: { key } });
+    if (!row) return fallback;
+    return sanitizer(row.value);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[marketing/store] Falling back for ${key}:`, error);
+    }
+    return fallback;
+  }
 }
 
 async function writeJsonSetting<T>(key: string, value: T) {
