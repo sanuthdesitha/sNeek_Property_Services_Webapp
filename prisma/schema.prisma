@@ -43,6 +43,7 @@ enum JobType {
 
 enum JobStatus {
   UNASSIGNED
+  OFFERED
   ASSIGNED
   IN_PROGRESS
   PAUSED
@@ -51,6 +52,13 @@ enum JobStatus {
   QA_REVIEW
   COMPLETED
   INVOICED
+}
+
+enum JobAssignmentResponseStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TRANSFERRED
 }
 
 enum LaundryStatus {
@@ -261,192 +269,210 @@ model User {
   passwordHash  String?
   role          Role      @default(CLEANER)
   phone         String?
+  hourlyRate    Float?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts      Account[]
-  sessions      Session[]
-  jobAssignments JobAssignment[]
-  timeLogs      TimeLog[]
-  formSubmissions FormSubmission[]
-  auditLogs     AuditLog[]        @relation("AuditUser")
-  notifications Notification[]
-  notificationPreference UserNotificationPreference?
-    pushDevices    UserPushDevice[]
-    payAdjustmentRequests CleanerPayAdjustment[] @relation("CleanerAdjustmentRequests")
-    payAdjustmentReviews  CleanerPayAdjustment[] @relation("CleanerAdjustmentReviews")
-  timeAdjustmentRequests TimeLogAdjustmentRequest[] @relation("TimeAdjustmentRequestedBy")
-  timeAdjustmentReviews  TimeLogAdjustmentRequest[] @relation("TimeAdjustmentReviewedBy")
-  icalSyncRunsTriggered IcalSyncRun[] @relation("IcalSyncTriggeredBy")
-  icalSyncRunsReverted  IcalSyncRun[] @relation("IcalSyncRevertedBy")
-  assignedCases  IssueTicket[] @relation("IssueTicketAssignedTo")
-  caseComments   CaseComment[]
-  caseAttachments CaseAttachment[]
-  stockRuns      StockRun[]     @relation("StockRunRequestedBy")
-  shoppingRuns   ShoppingRun[]  @relation("ShoppingRunOwner")
-  shoppingReceipts ShoppingReceipt[] @relation("ShoppingReceiptUploadedBy")
-  shoppingSettlementsPaid ShoppingSettlement[] @relation("ShoppingSettlementPaidBy")
-  reportVisibilityUpdates Report[] @relation("ReportVisibilityUpdatedBy")
-    // Client link (optional)
-    clientId      String?
-    client        Client?   @relation(fields: [clientId], references: [id])
-    createdTeamGroups TeamGroup[] @relation("TeamGroupCreatedBy")
-    teamGroupMemberships TeamGroupMember[] @relation("TeamGroupMembershipUser")
-    createdWorkforcePosts WorkforcePost[] @relation("WorkforcePostCreatedBy")
-    workforcePostReads WorkforcePostRead[] @relation("WorkforcePostReadUser")
-    createdChatChannels ChatChannel[] @relation("ChatChannelCreatedBy")
-    chatChannelReads ChatChannelRead[] @relation("ChatChannelReadUser")
-    sentChatMessages ChatMessage[] @relation("ChatMessageSender")
-    learningPathsCreated LearningPath[] @relation("LearningPathCreatedBy")
-    learningAssignments LearningAssignment[] @relation("LearningAssignmentUser")
-    staffDocuments StaffDocument[] @relation("StaffDocumentOwner")
-    uploadedStaffDocuments StaffDocument[] @relation("StaffDocumentUploadedBy")
-    verifiedStaffDocuments StaffDocument[] @relation("StaffDocumentVerifiedBy")
-    requestedStaffDocuments StaffDocumentRequest[] @relation("StaffDocumentRequestUser")
-    createdStaffDocumentRequests StaffDocumentRequest[] @relation("StaffDocumentRequestCreatedBy")
-    sentRecognitions StaffRecognition[] @relation("RecognitionSentBy")
-    receivedRecognitions StaffRecognition[] @relation("RecognitionReceivedBy")
-    createdHiringPositions HiringPosition[] @relation("HiringPositionCreatedBy")
-    reviewedHiringApplications HiringApplication[] @relation("HiringApplicationReviewedBy")
-    hiredFromApplications HiringApplication[] @relation("HiringApplicationHiredUser")
-    requestedJobTasks JobTask[] @relation("JobTaskRequestedBy")
-    approvedJobTasks JobTask[] @relation("JobTaskApprovedBy")
-    uploadedJobTaskAttachments JobTaskAttachment[] @relation("JobTaskAttachmentUploadedBy")
-    jobTaskEvents JobTaskEvent[] @relation("JobTaskEventActor")
-  }
+  accounts                     Account[]
+  sessions                     Session[]
+  jobAssignments               JobAssignment[]
+  timeLogs                     TimeLog[]
+  formSubmissions              FormSubmission[]
+  auditLogs                    AuditLog[]                  @relation("AuditUser")
+  notifications                Notification[]
+  notificationPreference       UserNotificationPreference?
+  pushDevices                  UserPushDevice[]
+  payAdjustmentRequests        CleanerPayAdjustment[]      @relation("CleanerAdjustmentRequests")
+  payAdjustmentReviews         CleanerPayAdjustment[]      @relation("CleanerAdjustmentReviews")
+  timeAdjustmentRequests       TimeLogAdjustmentRequest[]  @relation("TimeAdjustmentRequestedBy")
+  timeAdjustmentReviews        TimeLogAdjustmentRequest[]  @relation("TimeAdjustmentReviewedBy")
+  icalSyncRunsTriggered        IcalSyncRun[]               @relation("IcalSyncTriggeredBy")
+  icalSyncRunsReverted         IcalSyncRun[]               @relation("IcalSyncRevertedBy")
+  assignedCases                IssueTicket[]               @relation("IssueTicketAssignedTo")
+  caseComments                 CaseComment[]
+  caseAttachments              CaseAttachment[]
+  stockRuns                    StockRun[]                  @relation("StockRunRequestedBy")
+  shoppingRuns                 ShoppingRun[]               @relation("ShoppingRunOwner")
+  shoppingReceipts             ShoppingReceipt[]           @relation("ShoppingReceiptUploadedBy")
+  shoppingSettlementsPaid      ShoppingSettlement[]        @relation("ShoppingSettlementPaidBy")
+  reportVisibilityUpdates      Report[]                    @relation("ReportVisibilityUpdatedBy")
+  // Client link (optional)
+  clientId                     String?
+  client                       Client?                     @relation(fields: [clientId], references: [id])
+  createdTeamGroups            TeamGroup[]                 @relation("TeamGroupCreatedBy")
+  teamGroupMemberships         TeamGroupMember[]           @relation("TeamGroupMembershipUser")
+  createdWorkforcePosts        WorkforcePost[]             @relation("WorkforcePostCreatedBy")
+  workforcePostReads           WorkforcePostRead[]         @relation("WorkforcePostReadUser")
+  createdChatChannels          ChatChannel[]               @relation("ChatChannelCreatedBy")
+  chatChannelReads             ChatChannelRead[]           @relation("ChatChannelReadUser")
+  sentChatMessages             ChatMessage[]               @relation("ChatMessageSender")
+  learningPathsCreated         LearningPath[]              @relation("LearningPathCreatedBy")
+  learningAssignments          LearningAssignment[]        @relation("LearningAssignmentUser")
+  staffDocuments               StaffDocument[]             @relation("StaffDocumentOwner")
+  uploadedStaffDocuments       StaffDocument[]             @relation("StaffDocumentUploadedBy")
+  verifiedStaffDocuments       StaffDocument[]             @relation("StaffDocumentVerifiedBy")
+  requestedStaffDocuments      StaffDocumentRequest[]      @relation("StaffDocumentRequestUser")
+  createdStaffDocumentRequests StaffDocumentRequest[]      @relation("StaffDocumentRequestCreatedBy")
+  sentRecognitions             StaffRecognition[]          @relation("RecognitionSentBy")
+  receivedRecognitions         StaffRecognition[]          @relation("RecognitionReceivedBy")
+  createdHiringPositions       HiringPosition[]            @relation("HiringPositionCreatedBy")
+  reviewedHiringApplications   HiringApplication[]         @relation("HiringApplicationReviewedBy")
+  hiredFromApplications        HiringApplication[]         @relation("HiringApplicationHiredUser")
+  requestedJobTasks            JobTask[]                   @relation("JobTaskRequestedBy")
+  approvedJobTasks             JobTask[]                   @relation("JobTaskApprovedBy")
+  uploadedJobTaskAttachments   JobTaskAttachment[]         @relation("JobTaskAttachmentUploadedBy")
+  jobTaskEvents                JobTaskEvent[]              @relation("JobTaskEventActor")
+  sentClientMessages           ClientMessage[]             @relation("ClientMessageSender")
+  cleanerAvailabilityEntries   CleanerAvailability[]       @relation("CleanerAvailabilityUser")
+  preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
+  createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
+}
 
 // ─────────────────────────────────────────────
 // Clients + Properties
 // ─────────────────────────────────────────────
 
 model Client {
-  id          String   @id @default(cuid())
-  name        String
-  email       String?
-  phone       String?
-  address     String?
-  notes       String?  @db.Text
+  id                        String   @id @default(cuid())
+  name                      String
+  email                     String?
+  phone                     String?
+  address                   String?
+  notes                     String?  @db.Text
   portalVisibilityOverrides Json?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
-  properties  Property[]
-  users       User[]
-  quotes      Quote[]
-  jobTasks    JobTask[]
-  leads       QuoteLead[]
-  cases       IssueTicket[]
-  shoppingRuns ShoppingRun[]
-  invoices    ClientInvoice[]
+  properties          Property[]
+  users               User[]
+  quotes              Quote[]
+  jobTasks            JobTask[]
+  leads               QuoteLead[]
+  cases               IssueTicket[]
+  shoppingRuns        ShoppingRun[]
+  invoices            ClientInvoice[]
+  loyaltyAccount      LoyaltyAccount?
+  referralsMade       Referral[]                 @relation("ReferralReferrer")
+  referralsConverted  Referral[]                 @relation("ReferralReferee")
+  satisfactionRatings ClientSatisfactionRating[]
+  messages            ClientMessage[]
 }
 
 model Property {
-  id                  String   @id @default(cuid())
-  clientId            String
-  name                String
-  address             String
-  suburb              String
-  state               String   @default("NSW")
-  postcode            String?
-  notes               String?  @db.Text
-  accessInfo          Json?    // { lockbox, codes, parking, other }
-  linenBufferSets     Int      @default(0)
-  inventoryEnabled    Boolean  @default(false)
-  defaultCheckinTime  String   @default("14:00")  // HH:mm
-  defaultCheckoutTime String   @default("10:00")  // HH:mm
-  hasBalcony          Boolean  @default(false)
-  bedrooms            Int      @default(1)
-  bathrooms           Int      @default(1)
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  clientId               String
+  name                   String
+  address                String
+  suburb                 String
+  state                  String   @default("NSW")
+  postcode               String?
+  notes                  String?  @db.Text
+  accessInfo             Json? // { lockbox, codes, parking, other }
+  linenBufferSets        Int      @default(0)
+  inventoryEnabled       Boolean  @default(false)
+  defaultCheckinTime     String   @default("14:00") // HH:mm
+  defaultCheckoutTime    String   @default("10:00") // HH:mm
+  hasBalcony             Boolean  @default(false)
+  bedrooms               Int      @default(1)
+  bathrooms              Int      @default(1)
+  latitude               Float?
+  longitude              Float?
+  accessCode             String?  @db.Text
+  alarmCode              String?  @db.Text
+  keyLocation            String?
+  accessNotes            String?  @db.Text
+  preferredCleanerUserId String?
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  client              Client        @relation(fields: [clientId], references: [id])
-  integration         Integration?
-  reservations        Reservation[]
-  jobs                Job[]
-  propertyStock       PropertyStock[]
-  laundryTasks        LaundryTask[]
-  icalSyncRuns        IcalSyncRun[]
-  cases               IssueTicket[]
-  stockRuns           StockRun[]
-  shoppingRunLines    ShoppingRunLine[]
-  clientRates         PropertyClientRate[]
-  payAdjustments      CleanerPayAdjustment[]
-  jobTasks            JobTask[]
+  client           Client                 @relation(fields: [clientId], references: [id])
+  preferredCleaner User?                  @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
+  integration      Integration?
+  reservations     Reservation[]
+  jobs             Job[]
+  propertyStock    PropertyStock[]
+  laundryTasks     LaundryTask[]
+  icalSyncRuns     IcalSyncRun[]
+  cases            IssueTicket[]
+  stockRuns        StockRun[]
+  shoppingRunLines ShoppingRunLine[]
+  clientRates      PropertyClientRate[]
+  payAdjustments   CleanerPayAdjustment[]
+  jobTasks         JobTask[]
 }
 
 model Integration {
-  id                String              @id @default(cuid())
-  propertyId        String              @unique
-  provider          IntegrationProvider @default(ICAL_HOSPITABLE)
-  icalUrl           String?             @db.Text
-  isEnabled         Boolean             @default(false)
-  lastSyncAt        DateTime?
-  lastSyncEtag      String?
-  lastSyncModified  String?
-  syncStatus        SyncStatus          @default(IDLE)
-  syncError         String?             @db.Text
-  notes             String?             @db.Text
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id               String              @id @default(cuid())
+  propertyId       String              @unique
+  provider         IntegrationProvider @default(ICAL_HOSPITABLE)
+  icalUrl          String?             @db.Text
+  isEnabled        Boolean             @default(false)
+  lastSyncAt       DateTime?
+  lastSyncEtag     String?
+  lastSyncModified String?
+  syncStatus       SyncStatus          @default(IDLE)
+  syncError        String?             @db.Text
+  notes            String?             @db.Text
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
-  property          Property            @relation(fields: [propertyId], references: [id])
-  syncRuns          IcalSyncRun[]
+  property Property      @relation(fields: [propertyId], references: [id])
+  syncRuns IcalSyncRun[]
 }
 
 model IcalSyncRun {
-  id            String      @id @default(cuid())
+  id            String    @id @default(cuid())
   integrationId String
   propertyId    String
   triggeredById String?
   revertedById  String?
-  mode          String      @default("MANUAL")
-  status        String      @default("RUNNING")
+  mode          String    @default("MANUAL")
+  status        String    @default("RUNNING")
   summary       Json?
   snapshot      Json?
-  error         String?     @db.Text
-  createdAt     DateTime    @default(now())
+  error         String?   @db.Text
+  createdAt     DateTime  @default(now())
   completedAt   DateTime?
   revertedAt    DateTime?
 
-  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  property      Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  triggeredBy   User?       @relation("IcalSyncTriggeredBy", fields: [triggeredById], references: [id])
-  revertedBy    User?       @relation("IcalSyncRevertedBy", fields: [revertedById], references: [id])
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  triggeredBy User?       @relation("IcalSyncTriggeredBy", fields: [triggeredById], references: [id])
+  revertedBy  User?       @relation("IcalSyncRevertedBy", fields: [revertedById], references: [id])
 
   @@index([integrationId, createdAt])
   @@index([propertyId, createdAt])
 }
 
 model Reservation {
-  id          String   @id @default(cuid())
-  propertyId  String
-  uid         String   // iCal UID
-  startDate   DateTime // check-in (UTC)
-  endDate     DateTime // check-out (UTC)
-  summary     String?
-  guestName   String?
+  id              String    @id @default(cuid())
+  propertyId      String
+  uid             String // iCal UID
+  startDate       DateTime // check-in (UTC)
+  endDate         DateTime // check-out (UTC)
+  summary         String?
+  guestName       String?
   reservationCode String?
-  guestPhone  String?
-  guestEmail  String?
-  guestProfileUrl String? @db.Text
-  adults      Int?
-  children    Int?
-  infants     Int?
-  locationText String? @db.Text
-  geoLat      Float?
-  geoLng      Float?
-  checkinAtLocal DateTime?
+  guestPhone      String?
+  guestEmail      String?
+  guestProfileUrl String?   @db.Text
+  adults          Int?
+  children        Int?
+  infants         Int?
+  locationText    String?   @db.Text
+  geoLat          Float?
+  geoLng          Float?
+  checkinAtLocal  DateTime?
   checkoutAtLocal DateTime?
-  source      String?  @default("ical")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  source          String?   @default("ical")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  property    Property  @relation(fields: [propertyId], references: [id])
-  job         Job?
+  property Property @relation(fields: [propertyId], references: [id])
+  job      Job?
 
   @@unique([propertyId, uid])
 }
@@ -456,44 +482,54 @@ model Reservation {
 // ─────────────────────────────────────────────
 
 model Job {
-  id              String    @id @default(cuid())
-  jobNumber       String    @unique
-  propertyId      String
-  reservationId   String?   @unique
-  jobType         JobType
-  status          JobStatus @default(UNASSIGNED)
-  scheduledDate   DateTime  // date of cleaning (UTC start of day)
-  startTime       String?   // HH:mm (property local)
-  endTime         String?   // HH:mm (property local)
-  dueTime         String?   // latest completion HH:mm
-  estimatedHours  Float?
-  actualHours     Float?
-  notes           String?   @db.Text
-  internalNotes   String?   @db.Text
-  priorityBucket  Int       @default(4)
-  priorityReason  String?
-  sameDayCheckin  Boolean   @default(false)
-  sameDayCheckinTime String?
+  id                    String    @id @default(cuid())
+  jobNumber             String    @unique
+  propertyId            String
+  reservationId         String?   @unique
+  jobType               JobType
+  status                JobStatus @default(UNASSIGNED)
+  scheduledDate         DateTime // date of cleaning (UTC start of day)
+  startTime             String? // HH:mm (property local)
+  endTime               String? // HH:mm (property local)
+  dueTime               String? // latest completion HH:mm
+  estimatedHours        Float?
+  actualHours           Float?
+  notes                 String?   @db.Text
+  internalNotes         String?   @db.Text
+  priorityBucket        Int       @default(4)
+  priorityReason        String?
+  sameDayCheckin        Boolean   @default(false)
+  sameDayCheckinTime    String?
   // reminder overrides (null = use system defaults)
-  reminder24hSent Boolean   @default(false)
-  reminder2hSent  Boolean   @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  reminder24hSent       Boolean   @default(false)
+  reminder2hSent        Boolean   @default(false)
+  gpsCheckInLat         Float?
+  gpsCheckInLng         Float?
+  gpsCheckInAt          DateTime?
+  gpsCheckOutLat        Float?
+  gpsCheckOutLng        Float?
+  gpsCheckOutAt         DateTime?
+  gpsDistanceMeters     Int?
+  requiresSafetyCheckin Boolean   @default(false)
+  safetyCheckinAt       DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  property        Property        @relation(fields: [propertyId], references: [id])
-  reservation     Reservation?    @relation(fields: [reservationId], references: [id])
-  assignments     JobAssignment[]
-  timeLogs        TimeLog[]
-  formSubmissions FormSubmission[]
-  qaReviews       QAReview[]
-  laundryTask     LaundryTask?
-  report          Report?
-  issueTickets    IssueTicket[]
-  payAdjustments  CleanerPayAdjustment[]
+  property               Property                   @relation(fields: [propertyId], references: [id])
+  reservation            Reservation?               @relation(fields: [reservationId], references: [id])
+  assignments            JobAssignment[]
+  timeLogs               TimeLog[]
+  formSubmissions        FormSubmission[]
+  qaReviews              QAReview[]
+  laundryTask            LaundryTask?
+  report                 Report?
+  issueTickets           IssueTicket[]
+  payAdjustments         CleanerPayAdjustment[]
   timeAdjustmentRequests TimeLogAdjustmentRequest[]
-  auditLogs       AuditLog[]      @relation("AuditJob")
-  invoiceLines    ClientInvoiceLine[]
-  jobTasks        JobTask[]
+  auditLogs              AuditLog[]                 @relation("AuditJob")
+  invoiceLines           ClientInvoiceLine[]
+  jobTasks               JobTask[]
+  satisfactionRating     ClientSatisfactionRating?
 }
 
 model CleanerPayAdjustment {
@@ -518,10 +554,10 @@ model CleanerPayAdjustment {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  job             Job?                @relation(fields: [jobId], references: [id])
-  property        Property?           @relation(fields: [propertyId], references: [id])
-  cleaner         User                @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
-  reviewedBy      User?               @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
+  job        Job?      @relation(fields: [jobId], references: [id])
+  property   Property? @relation(fields: [propertyId], references: [id])
+  cleaner    User      @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
+  reviewedBy User?     @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
 
   @@index([cleanerId, status])
   @@index([jobId, status])
@@ -529,55 +565,61 @@ model CleanerPayAdjustment {
 }
 
 model JobAssignment {
-  id          String   @id @default(cuid())
-  jobId       String
-  userId      String
-  isPrimary   Boolean  @default(false)
-  payRate     Float?   // hourly rate at time of assignment
-  assignedAt  DateTime @default(now())
-  removedAt   DateTime?
+  id                       String                      @id @default(cuid())
+  jobId                    String
+  userId                   String
+  isPrimary                Boolean                     @default(false)
+  payRate                  Float? // hourly rate at time of assignment
+  assignedAt               DateTime                    @default(now())
+  offeredAt                DateTime                    @default(now())
+  removedAt                DateTime?
+  responseStatus           JobAssignmentResponseStatus @default(PENDING)
+  respondedAt              DateTime?
+  responseNote             String?                     @db.Text
+  assignedById             String?
+  transferredFromUserId    String?
 
-  job         Job  @relation(fields: [jobId], references: [id])
-  user        User @relation(fields: [userId], references: [id])
+  job  Job  @relation(fields: [jobId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([jobId, userId])
 }
 
 model TimeLog {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   jobId     String
   userId    String
   startedAt DateTime
   stoppedAt DateTime?
-  durationM Int?     // minutes (computed on stop)
+  durationM Int? // minutes (computed on stop)
   notes     String?
 
-  job       Job  @relation(fields: [jobId], references: [id])
-  user      User @relation(fields: [userId], references: [id])
+  job                Job                        @relation(fields: [jobId], references: [id])
+  user               User                       @relation(fields: [userId], references: [id])
   adjustmentRequests TimeLogAdjustmentRequest[]
 }
 
 model TimeLogAdjustmentRequest {
-  id                String               @id @default(cuid())
-  timeLogId         String
-  jobId             String
-  cleanerId         String
+  id                 String               @id @default(cuid())
+  timeLogId          String
+  jobId              String
+  cleanerId          String
   requestedDurationM Int
   requestedStoppedAt DateTime?
-  originalDurationM Int
-  originalStoppedAt DateTime?
-  reason            String?              @db.Text
-  status            TimeAdjustmentStatus @default(PENDING)
-  reviewedById      String?
-  reviewedAt        DateTime?
-  adminNote         String?              @db.Text
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  originalDurationM  Int
+  originalStoppedAt  DateTime?
+  reason             String?              @db.Text
+  status             TimeAdjustmentStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  adminNote          String?              @db.Text
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
-  timeLog           TimeLog              @relation(fields: [timeLogId], references: [id], onDelete: Cascade)
-  job               Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  cleaner           User                 @relation("TimeAdjustmentRequestedBy", fields: [cleanerId], references: [id], onDelete: Cascade)
-  reviewedBy        User?                @relation("TimeAdjustmentReviewedBy", fields: [reviewedById], references: [id])
+  timeLog    TimeLog @relation(fields: [timeLogId], references: [id], onDelete: Cascade)
+  job        Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  cleaner    User    @relation("TimeAdjustmentRequestedBy", fields: [cleanerId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("TimeAdjustmentReviewedBy", fields: [reviewedById], references: [id])
 
   @@index([status, createdAt])
   @@index([jobId, status])
@@ -594,7 +636,7 @@ model FormTemplate {
   serviceType JobType
   version     Int      @default(1)
   isActive    Boolean  @default(true)
-  schema      Json     // full template JSON (sections → fields → logic)
+  schema      Json // full template JSON (sections → fields → logic)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -602,28 +644,28 @@ model FormTemplate {
 }
 
 model FormSubmission {
-  id             String   @id @default(cuid())
-  jobId          String
-  templateId     String
-  submittedById  String
-  data           Json     // cleaner's answers keyed by field id
-  laundryReady   Boolean?
-  laundryOutcome LaundryOutcome?
-  laundrySkipReasonCode String?
-  laundrySkipReasonNote String? @db.Text
-  laundryAdminOverrideNote String? @db.Text
+  id                       String          @id @default(cuid())
+  jobId                    String
+  templateId               String
+  submittedById            String
+  data                     Json // cleaner's answers keyed by field id
+  laundryReady             Boolean?
+  laundryOutcome           LaundryOutcome?
+  laundrySkipReasonCode    String?
+  laundrySkipReasonNote    String?         @db.Text
+  laundryAdminOverrideNote String?         @db.Text
   laundryAdminOverrideById String?
-  laundryAdminOverrideAt DateTime?
-  bagLocation    String?
-  autoQaScore    Float?   // computed on submission
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  laundryAdminOverrideAt   DateTime?
+  bagLocation              String?
+  autoQaScore              Float? // computed on submission
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
 
-  job            Job          @relation(fields: [jobId], references: [id])
-  template       FormTemplate @relation(fields: [templateId], references: [id])
-  submittedBy    User         @relation(fields: [submittedById], references: [id])
-  media          SubmissionMedia[]
-  stockTxs       StockTx[]
+  job         Job               @relation(fields: [jobId], references: [id])
+  template    FormTemplate      @relation(fields: [templateId], references: [id])
+  submittedBy User              @relation(fields: [submittedById], references: [id])
+  media       SubmissionMedia[]
+  stockTxs    StockTx[]
 }
 
 model SubmissionMedia {
@@ -638,47 +680,47 @@ model SubmissionMedia {
   label        String?
   createdAt    DateTime  @default(now())
 
-  submission   FormSubmission @relation(fields: [submissionId], references: [id])
+  submission FormSubmission @relation(fields: [submissionId], references: [id])
 }
 
 model QAReview {
   id           String   @id @default(cuid())
   jobId        String
-  reviewedById String?  // null if auto-generated
+  reviewedById String? // null if auto-generated
   score        Float
   passed       Boolean
   notes        String?  @db.Text
-  flags        Json?    // array of field ids that failed
+  flags        Json? // array of field ids that failed
   createdAt    DateTime @default(now())
 
-  job          Job  @relation(fields: [jobId], references: [id])
+  job Job @relation(fields: [jobId], references: [id])
 }
 
 model IssueTicket {
-  id          String   @id @default(cuid())
-  jobId       String?
-  clientId    String?
-  propertyId  String?
-  reportId    String?
-  title       String
-  description String?  @db.Text
-  caseType    String   @default("OPS")
-  source      String?
-  severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
-  status      String   @default("OPEN")   // OPEN | IN_PROGRESS | RESOLVED
+  id               String   @id @default(cuid())
+  jobId            String?
+  clientId         String?
+  propertyId       String?
+  reportId         String?
+  title            String
+  description      String?  @db.Text
+  caseType         String   @default("OPS")
+  source           String?
+  severity         String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED
   assignedToUserId String?
-  clientVisible Boolean @default(false)
-  clientCanReply Boolean @default(true)
-  resolutionNote String? @db.Text
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  clientVisible    Boolean  @default(false)
+  clientCanReply   Boolean  @default(true)
+  resolutionNote   String?  @db.Text
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  job         Job?    @relation(fields: [jobId], references: [id])
-  client      Client? @relation(fields: [clientId], references: [id])
-  property    Property? @relation(fields: [propertyId], references: [id])
-  report      Report? @relation(fields: [reportId], references: [id])
-  assignedTo  User? @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
+  job         Job?             @relation(fields: [jobId], references: [id])
+  client      Client?          @relation(fields: [clientId], references: [id])
+  property    Property?        @relation(fields: [propertyId], references: [id])
+  report      Report?          @relation(fields: [reportId], references: [id])
+  assignedTo  User?            @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
   comments    CaseComment[]
   attachments CaseAttachment[]
 }
@@ -705,15 +747,15 @@ model JobTask {
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
-  job               Job?                   @relation(fields: [jobId], references: [id])
-  property          Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  client            Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  requestedBy       User?                  @relation("JobTaskRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  approvedBy        User?                  @relation("JobTaskApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
-  parentTask        JobTask?               @relation("JobTaskParent", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  childTasks        JobTask[]              @relation("JobTaskParent")
-  attachments       JobTaskAttachment[]
-  events            JobTaskEvent[]
+  job         Job?                @relation(fields: [jobId], references: [id])
+  property    Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  client      Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  requestedBy User?               @relation("JobTaskRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approvedBy  User?               @relation("JobTaskApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  parentTask  JobTask?            @relation("JobTaskParent", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks  JobTask[]           @relation("JobTaskParent")
+  attachments JobTaskAttachment[]
+  events      JobTaskEvent[]
 
   @@index([jobId, approvalStatus, executionStatus])
   @@index([propertyId, approvalStatus, executionStatus])
@@ -722,33 +764,33 @@ model JobTask {
 }
 
 model JobTaskAttachment {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   taskId           String
   uploadedByUserId String?
   mediaType        MediaType @default(PHOTO)
   kind             String
-  url              String   @db.Text
+  url              String    @db.Text
   s3Key            String
   label            String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
-  task             JobTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploadedBy       User?    @relation("JobTaskAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  task       JobTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("JobTaskAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
 
   @@index([taskId, kind])
 }
 
 model JobTaskEvent {
   id          String   @id @default(cuid())
-  taskId       String
-  actorUserId  String?
-  action       String
-  note         String?  @db.Text
-  metadata     Json?
-  createdAt    DateTime @default(now())
+  taskId      String
+  actorUserId String?
+  action      String
+  note        String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
 
-  task         JobTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  actor        User?    @relation("JobTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  task  JobTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor User?   @relation("JobTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([taskId, createdAt])
 }
@@ -758,49 +800,49 @@ model JobTaskEvent {
 // ─────────────────────────────────────────────
 
 model InventoryItem {
-  id              String   @id @default(cuid())
-  name            String
-  sku             String?  @unique
-  category        String
-  location        String   @default("CLEANERS_CUPBOARD")
-  unit            String   @default("unit")
-  supplier        String?
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  sku       String?  @unique
+  category  String
+  location  String   @default("CLEANERS_CUPBOARD")
+  unit      String   @default("unit")
+  supplier  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  propertyStocks  PropertyStock[]
+  propertyStocks   PropertyStock[]
   shoppingRunLines ShoppingRunLine[]
 }
 
 model PropertyStock {
-  id                String   @id @default(cuid())
-  propertyId        String
-  itemId            String
-  onHand            Float    @default(0)
-  parLevel          Float    @default(0)
-  reorderThreshold  Float    @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id               String   @id @default(cuid())
+  propertyId       String
+  itemId           String
+  onHand           Float    @default(0)
+  parLevel         Float    @default(0)
+  reorderThreshold Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  property          Property      @relation(fields: [propertyId], references: [id])
-  item              InventoryItem @relation(fields: [itemId], references: [id])
-  transactions      StockTx[]
-  stockRunLines     StockRunLine[]
+  property      Property       @relation(fields: [propertyId], references: [id])
+  item          InventoryItem  @relation(fields: [itemId], references: [id])
+  transactions  StockTx[]
+  stockRunLines StockRunLine[]
 
   @@unique([propertyId, itemId])
 }
 
 model StockTx {
-  id            String      @id @default(cuid())
+  id              String      @id @default(cuid())
   propertyStockId String
-  submissionId  String?
-  txType        StockTxType
-  quantity      Float       // positive = add, negative = deduct
-  notes         String?
-  createdAt     DateTime    @default(now())
+  submissionId    String?
+  txType          StockTxType
+  quantity        Float // positive = add, negative = deduct
+  notes           String?
+  createdAt       DateTime    @default(now())
 
-  propertyStock PropertyStock  @relation(fields: [propertyStockId], references: [id])
+  propertyStock PropertyStock   @relation(fields: [propertyStockId], references: [id])
   submission    FormSubmission? @relation(fields: [submissionId], references: [id])
 }
 
@@ -809,30 +851,35 @@ model StockTx {
 // ─────────────────────────────────────────────
 
 model LaundryTask {
-  id              String        @id @default(cuid())
-  jobId           String        @unique
-  propertyId      String
-  pickupDate      DateTime      // UTC date
-  dropoffDate     DateTime      // UTC date
-  status          LaundryStatus @default(PENDING)
-  flagReason      LaundryFlag?
-  flagNotes       String?
-  confirmedAt     DateTime?
-  pickedUpAt      DateTime?
-  droppedAt       DateTime?
-  notifyLaundry   Boolean       @default(false)
-  noPickupRequired Boolean      @default(false)
-  skipReasonCode  String?
-  skipReasonNote  String?       @db.Text
-  adminOverrideNote String?     @db.Text
+  id                String        @id @default(cuid())
+  jobId             String        @unique
+  propertyId        String
+  pickupDate        DateTime // UTC date
+  dropoffDate       DateTime // UTC date
+  status            LaundryStatus @default(PENDING)
+  flagReason        LaundryFlag?
+  flagNotes         String?
+  confirmedAt       DateTime?
+  pickedUpAt        DateTime?
+  droppedAt         DateTime?
+  notifyLaundry     Boolean       @default(false)
+  noPickupRequired  Boolean       @default(false)
+  skipReasonCode    String?
+  skipReasonNote    String?       @db.Text
+  adminOverrideNote String?       @db.Text
   adminOverrideById String?
-  adminOverrideAt DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  adminOverrideAt   DateTime?
+  bagWeightKg       Float?
+  dropoffCostAud    Float?
+  receiptImageUrl   String?
+  supplierId        String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  job             Job               @relation(fields: [jobId], references: [id])
-  property        Property          @relation(fields: [propertyId], references: [id])
-  confirmations   LaundryConfirmation[]
+  job           Job                   @relation(fields: [jobId], references: [id])
+  property      Property              @relation(fields: [propertyId], references: [id])
+  supplier      LaundrySupplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  confirmations LaundryConfirmation[]
 }
 
 model LaundryConfirmation {
@@ -846,7 +893,7 @@ model LaundryConfirmation {
   notes         String?
   createdAt     DateTime @default(now())
 
-  laundryTask   LaundryTask @relation(fields: [laundryTaskId], references: [id])
+  laundryTask LaundryTask @relation(fields: [laundryTaskId], references: [id])
 }
 
 // ─────────────────────────────────────────────
@@ -854,52 +901,52 @@ model LaundryConfirmation {
 // ─────────────────────────────────────────────
 
 model Report {
-  id          String   @id @default(cuid())
-  jobId       String   @unique
-  htmlContent String?  @db.Text
-  pdfUrl      String?  @db.Text
-  s3Key       String?
-  generatedAt DateTime?
-  sentToClient Boolean @default(false)
-  sentAt      DateTime?
-  clientVisible Boolean @default(true)
-  cleanerVisible Boolean @default(true)
-  laundryVisible Boolean @default(false)
-  visibilityNote String? @db.Text
-  visibilityUpdatedAt DateTime?
+  id                    String    @id @default(cuid())
+  jobId                 String    @unique
+  htmlContent           String?   @db.Text
+  pdfUrl                String?   @db.Text
+  s3Key                 String?
+  generatedAt           DateTime?
+  sentToClient          Boolean   @default(false)
+  sentAt                DateTime?
+  clientVisible         Boolean   @default(true)
+  cleanerVisible        Boolean   @default(true)
+  laundryVisible        Boolean   @default(false)
+  visibilityNote        String?   @db.Text
+  visibilityUpdatedAt   DateTime?
   visibilityUpdatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  job         Job @relation(fields: [jobId], references: [id])
-  issueTickets IssueTicket[]
-  visibilityUpdatedBy User? @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+  job                 Job           @relation(fields: [jobId], references: [id])
+  issueTickets        IssueTicket[]
+  visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
 }
 
 model CaseComment {
-  id          String   @id @default(cuid())
+  id           String   @id @default(cuid())
   caseId       String
   authorUserId String
   body         String   @db.Text
   isInternal   Boolean  @default(false)
   createdAt    DateTime @default(now())
 
-  issueTicket  IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  author       User        @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+  issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author      User        @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
 }
 
 model CaseAttachment {
-  id              String   @id @default(cuid())
-  caseId          String
+  id               String   @id @default(cuid())
+  caseId           String
   uploadedByUserId String
-  s3Key           String
-  url             String   @db.Text
-  mimeType        String?
-  label           String?
-  createdAt       DateTime @default(now())
+  s3Key            String
+  url              String   @db.Text
+  mimeType         String?
+  label            String?
+  createdAt        DateTime @default(now())
 
-  issueTicket     IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  uploadedBy      User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy  User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────
@@ -914,8 +961,8 @@ model PriceBook {
   baseRate         Float
   pricingModel     String?
   pricingVariables Json?
-  addOns           Json     // { oven, fridge, balcony, heavyMess, sameDay, ... }
-  multipliers      Json     // { conditionLevel: { light, standard, heavy } }
+  addOns           Json // { oven, fridge, balcony, heavyMess, sameDay, ... }
+  multipliers      Json // { conditionLevel: { light, standard, heavy } }
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -924,21 +971,21 @@ model PriceBook {
 }
 
 model DiscountCampaign {
-  id            String   @id @default(cuid())
-  code          String   @unique
+  id            String    @id @default(cuid())
+  code          String    @unique
   title         String
-  description   String?  @db.Text
-  discountType  String   @default("PERCENT")
+  description   String?   @db.Text
+  discountType  String    @default("PERCENT")
   discountValue Float
   minSubtotal   Float?
   jobTypes      Json?
   usageLimit    Int?
-  usageCount    Int      @default(0)
+  usageCount    Int       @default(0)
   startsAt      DateTime?
   endsAt        DateTime?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model SubscriptionPlan {
@@ -962,71 +1009,71 @@ model SubscriptionPlan {
 }
 
 model QuoteLead {
-  id            String     @id @default(cuid())
-  clientId      String?
-  serviceType   JobType
-  name          String
-  email         String
-  phone         String?
-  address       String?
-  suburb        String?
-  bedrooms      Int?
-  bathrooms     Int?
-  hasBalcony    Boolean    @default(false)
-  notes         String?    @db.Text
-  estimateMin   Float?
-  estimateMax   Float?
+  id                    String     @id @default(cuid())
+  clientId              String?
+  serviceType           JobType
+  name                  String
+  email                 String
+  phone                 String?
+  address               String?
+  suburb                String?
+  bedrooms              Int?
+  bathrooms             Int?
+  hasBalcony            Boolean    @default(false)
+  notes                 String?    @db.Text
+  estimateMin           Float?
+  estimateMax           Float?
   requestedServiceLabel String?
-  promoCode     String?
-  structuredContext Json?
-  status        LeadStatus @default(NEW)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  promoCode             String?
+  structuredContext     Json?
+  status                LeadStatus @default(NEW)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
-  client        Client? @relation(fields: [clientId], references: [id])
-  quotes        Quote[]
+  client Client? @relation(fields: [clientId], references: [id])
+  quotes Quote[]
 }
 
 model Quote {
-  id            String      @id @default(cuid())
-  leadId        String?
-  clientId      String?
-  serviceType   JobType
-  lineItems     Json        // array of { label, unitPrice, qty, total }
-  subtotal      Float
-  gstAmount     Float
-  totalAmount   Float
-  notes         String?     @db.Text
-  validUntil    DateTime?
-  status        QuoteStatus @default(DRAFT)
+  id             String      @id @default(cuid())
+  leadId         String?
+  clientId       String?
+  serviceType    JobType
+  lineItems      Json // array of { label, unitPrice, qty, total }
+  subtotal       Float
+  gstAmount      Float
+  totalAmount    Float
+  notes          String?     @db.Text
+  validUntil     DateTime?
+  status         QuoteStatus @default(DRAFT)
   convertedJobId String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-  lead          QuoteLead? @relation(fields: [leadId], references: [id])
-  client        Client?    @relation(fields: [clientId], references: [id])
+  lead   QuoteLead? @relation(fields: [leadId], references: [id])
+  client Client?    @relation(fields: [clientId], references: [id])
 }
 
 model ShoppingRun {
-  id          String            @id @default(cuid())
-  ownerUserId String
-  clientId    String?
-  status      ShoppingRunStatus @default(DRAFT)
-  title       String
-  notes       String?           @db.Text
-  startedAt   DateTime?
-  submittedAt DateTime?
-  approvedAt  DateTime?
-  closedAt    DateTime?
+  id           String            @id @default(cuid())
+  ownerUserId  String
+  clientId     String?
+  status       ShoppingRunStatus @default(DRAFT)
+  title        String
+  notes        String?           @db.Text
+  startedAt    DateTime?
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  closedAt     DateTime?
   legacySource Json?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
-  owner       User              @relation("ShoppingRunOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  client      Client?           @relation(fields: [clientId], references: [id])
-  lines       ShoppingRunLine[]
-  receipts    ShoppingReceipt[]
-  settlements ShoppingSettlement[]
+  owner        User                 @relation("ShoppingRunOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  client       Client?              @relation(fields: [clientId], references: [id])
+  lines        ShoppingRunLine[]
+  receipts     ShoppingReceipt[]
+  settlements  ShoppingSettlement[]
   invoiceLines ClientInvoiceLine[]
 }
 
@@ -1048,116 +1095,119 @@ model ShoppingRunLine {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  shoppingRun   ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
-  property      Property    @relation(fields: [propertyId], references: [id])
-  item          InventoryItem? @relation(fields: [itemId], references: [id])
+  shoppingRun ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  property    Property       @relation(fields: [propertyId], references: [id])
+  item        InventoryItem? @relation(fields: [itemId], references: [id])
 }
 
 model ShoppingReceipt {
-  id              String   @id @default(cuid())
-  shoppingRunId   String
+  id               String   @id @default(cuid())
+  shoppingRunId    String
   uploadedByUserId String
-  s3Key           String
-  url             String   @db.Text
-  mimeType        String?
-  fileName        String
-  amount          Float?
-  createdAt       DateTime @default(now())
+  s3Key            String
+  url              String   @db.Text
+  mimeType         String?
+  fileName         String
+  amount           Float?
+  createdAt        DateTime @default(now())
 
-  shoppingRun     ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
-  uploadedBy      User        @relation("ShoppingReceiptUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  shoppingRun ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  uploadedBy  User        @relation("ShoppingReceiptUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
 }
 
 model ShoppingSettlement {
-  id                String               @id @default(cuid())
-  shoppingRunId     String
-  paymentMethod     ShoppingPaymentMethod
-  paidByScope       ShoppingPaidByScope
-  paidByUserId      String?
-  note              String?              @db.Text
-  clientBillable    Boolean              @default(false)
-  adminApprovedForClient Boolean         @default(false)
-  adminApprovedForCleanerReimbursement Boolean @default(false)
-  includeInCleanerInvoice Boolean        @default(false)
-  includedInClientInvoiceId String?
-  includedInCleanerInvoiceReference String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id                                   String                @id @default(cuid())
+  shoppingRunId                        String
+  paymentMethod                        ShoppingPaymentMethod
+  paidByScope                          ShoppingPaidByScope
+  paidByUserId                         String?
+  note                                 String?               @db.Text
+  clientBillable                       Boolean               @default(false)
+  adminApprovedForClient               Boolean               @default(false)
+  adminApprovedForCleanerReimbursement Boolean               @default(false)
+  includeInCleanerInvoice              Boolean               @default(false)
+  includedInClientInvoiceId            String?
+  includedInCleanerInvoiceReference    String?
+  createdAt                            DateTime              @default(now())
+  updatedAt                            DateTime              @updatedAt
 
-  shoppingRun       ShoppingRun          @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
-  paidByUser        User?                @relation("ShoppingSettlementPaidBy", fields: [paidByUserId], references: [id])
-  clientInvoice     ClientInvoice?       @relation(fields: [includedInClientInvoiceId], references: [id])
+  shoppingRun   ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  paidByUser    User?          @relation("ShoppingSettlementPaidBy", fields: [paidByUserId], references: [id])
+  clientInvoice ClientInvoice? @relation(fields: [includedInClientInvoiceId], references: [id])
 }
 
 model StockRun {
-  id              String         @id @default(cuid())
-  propertyId      String
+  id                String         @id @default(cuid())
+  propertyId        String
   requestedByUserId String
-  status          StockRunStatus @default(DRAFT)
-  title           String
-  notes           String?        @db.Text
-  requestedByAdmin Boolean       @default(false)
-  startedAt       DateTime?
-  submittedAt     DateTime?
-  appliedAt       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  status            StockRunStatus @default(DRAFT)
+  title             String
+  notes             String?        @db.Text
+  requestedByAdmin  Boolean        @default(false)
+  startedAt         DateTime?
+  submittedAt       DateTime?
+  appliedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  property        Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  requestedBy     User           @relation("StockRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
-  lines           StockRunLine[]
+  property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  requestedBy User           @relation("StockRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  lines       StockRunLine[]
 }
 
 model StockRunLine {
-  id            String   @id @default(cuid())
-  stockRunId    String
-  propertyStockId String
-  expectedOnHand Float
-  countedOnHand Float?
-  parLevel      Float?
+  id               String   @id @default(cuid())
+  stockRunId       String
+  propertyStockId  String
+  expectedOnHand   Float
+  countedOnHand    Float?
+  parLevel         Float?
   reorderThreshold Float?
-  note          String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  note             String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   stockRun      StockRun      @relation(fields: [stockRunId], references: [id], onDelete: Cascade)
   propertyStock PropertyStock @relation(fields: [propertyStockId], references: [id], onDelete: Cascade)
 }
 
 model PropertyClientRate {
-  id               String   @id @default(cuid())
-  propertyId       String
-  jobType          JobType
-  baseCharge       Float
-  billingUnit      String   @default("PER_JOB")
+  id                 String   @id @default(cuid())
+  propertyId         String
+  jobType            JobType
+  baseCharge         Float
+  billingUnit        String   @default("PER_JOB")
   defaultDescription String?
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@unique([propertyId, jobType])
 }
 
 model ClientInvoice {
-  id            String              @id @default(cuid())
-  clientId      String
-  invoiceNumber String              @unique
-  status        ClientInvoiceStatus @default(DRAFT)
-  periodStart   DateTime?
-  periodEnd     DateTime?
-  subtotal      Float               @default(0)
-  gstAmount     Float               @default(0)
-  totalAmount   Float               @default(0)
-  xeroExportedAt DateTime?
-  sentAt        DateTime?
-  metadata      Json?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id                    String              @id @default(cuid())
+  clientId              String
+  invoiceNumber         String              @unique
+  status                ClientInvoiceStatus @default(DRAFT)
+  periodStart           DateTime?
+  periodEnd             DateTime?
+  subtotal              Float               @default(0)
+  gstAmount             Float               @default(0)
+  totalAmount           Float               @default(0)
+  xeroExportedAt        DateTime?
+  xeroInvoiceId         String?
+  sentAt                DateTime?
+  paidAt                DateTime?
+  stripePaymentIntentId String?
+  metadata              Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
-  client        Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  lines         ClientInvoiceLine[]
+  client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines               ClientInvoiceLine[]
   shoppingSettlements ShoppingSettlement[]
 }
 
@@ -1174,18 +1224,159 @@ model ClientInvoiceLine {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  invoice       ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  job           Job?          @relation(fields: [jobId], references: [id])
-  shoppingRun   ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
+  invoice     ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  job         Job?          @relation(fields: [jobId], references: [id])
+  shoppingRun ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
 }
 
 model UserNotificationPreference {
-  userId      String   @id
-  categories  Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  userId     String   @id
+  categories Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BlogPost {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  title         String
+  excerpt       String
+  body          String    @db.Text
+  coverImageUrl String?
+  galleryImageUrls String[] @default([])
+  tags          String[]
+  isPublished   Boolean   @default(false)
+  publishedAt   DateTime?
+  authorName    String    @default("sNeek Team")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model ClientSatisfactionRating {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  clientId  String
+  score     Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model LoyaltyAccount {
+  id        String   @id @default(cuid())
+  clientId  String   @unique
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client       Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+}
+
+model LoyaltyTransaction {
+  id          String   @id @default(cuid())
+  accountId   String
+  points      Int
+  reason      String
+  referenceId String?
+  createdAt   DateTime @default(now())
+
+  account LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model Referral {
+  id                     String    @id @default(cuid())
+  referrerId             String
+  refereeEmail           String
+  refereeClientId        String?
+  code                   String    @unique
+  status                 String    @default("pending")
+  referrerRewardPoints   Int       @default(0)
+  refereeDiscountPercent Int       @default(10)
+  convertedAt            DateTime?
+  expiresAt              DateTime?
+  createdAt              DateTime  @default(now())
+
+  referrer      Client  @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  refereeClient Client? @relation("ReferralReferee", fields: [refereeClientId], references: [id], onDelete: SetNull)
+
+  @@index([referrerId, createdAt])
+  @@index([refereeEmail])
+}
+
+model ClientMessage {
+  id          String   @id @default(cuid())
+  clientId    String
+  sentById    String
+  body        String   @db.Text
+  isFromAdmin Boolean  @default(false)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sentBy User   @relation("ClientMessageSender", fields: [sentById], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@index([clientId, isRead])
+}
+
+model EmailCampaign {
+  id             String    @id @default(cuid())
+  name           String
+  subject        String
+  htmlBody       String    @db.Text
+  audience       Json
+  status         String    @default("draft")
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  recipientCount Int?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+model LaundrySupplier {
+  id               String   @id @default(cuid())
+  name             String
+  phone            String?
+  email            String?
+  address          String?
+  pricePerKg       Float?
+  avgTurnaround    Int?
+  reliabilityScore Float?
+  notes            String?  @db.Text
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  laundryTasks LaundryTask[]
+}
+
+model CleanerAvailability {
+  id          String    @id @default(cuid())
+  userId      String
+  dayOfWeek   Int?
+  date        DateTime?
+  startTime   String
+  endTime     String
+  isAvailable Boolean   @default(true)
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation("CleanerAvailabilityUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayOfWeek])
+  @@index([userId, date])
 }
 
 // ─────────────────────────────────────────────
@@ -1193,51 +1384,51 @@ model UserNotificationPreference {
 // ─────────────────────────────────────────────
 
 model Notification {
-  id          String              @id @default(cuid())
-  userId      String?
-  jobId       String?
-  channel     NotificationChannel
-  subject     String?
-  body        String              @db.Text
-  status      NotificationStatus  @default(PENDING)
-  sentAt      DateTime?
-  errorMsg    String?
-  createdAt   DateTime            @default(now())
+  id        String              @id @default(cuid())
+  userId    String?
+  jobId     String?
+  channel   NotificationChannel
+  subject   String?
+  body      String              @db.Text
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?
+  errorMsg  String?
+  createdAt DateTime            @default(now())
 
-  user        User?               @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 }
 
 model UserPushDevice {
-  id          String   @id @default(cuid())
-  userId      String
-  token       String   @unique
-  platform    String
-  appVersion  String?
-  provider    String   @default("expo")
-  isActive    Boolean  @default(true)
-  lastSeenAt  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  appVersion String?
+  provider   String   @default("expo")
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isActive])
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String
-  jobId       String?
-  action      String
-  entity      String   // e.g. "Job", "PriceBook", "User"
-  entityId    String
-  before      Json?
-  after       Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  jobId     String?
+  action    String
+  entity    String // e.g. "Job", "PriceBook", "User"
+  entityId  String
+  before    Json?
+  after     Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
 
-  user        User @relation("AuditUser", fields: [userId], references: [id])
-  job         Job? @relation("AuditJob", fields: [jobId], references: [id])
+  user User @relation("AuditUser", fields: [userId], references: [id])
+  job  Job? @relation("AuditJob", fields: [jobId], references: [id])
 }
 
 model TeamGroup {
@@ -1251,50 +1442,50 @@ model TeamGroup {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  createdBy      User     @relation("TeamGroupCreatedBy", fields: [createdById], references: [id])
-  members        TeamGroupMember[]
-  chatChannels   ChatChannel[]
+  createdBy    User              @relation("TeamGroupCreatedBy", fields: [createdById], references: [id])
+  members      TeamGroupMember[]
+  chatChannels ChatChannel[]
 }
 
 model TeamGroupMember {
-  id         String   @id @default(cuid())
-  groupId    String
-  userId     String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  groupId   String
+  userId    String
+  createdAt DateTime @default(now())
 
-  group      TeamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user       User      @relation("TeamGroupMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  group TeamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation("TeamGroupMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, userId])
 }
 
 model WorkforcePost {
-  id            String   @id @default(cuid())
-  type          String   @default("ANNOUNCEMENT")
-  title         String
-  body          String   @db.Text
-  coverImageUrl String?
-  attachments   Json?
-  audience      Json?
-  pinned        Boolean  @default(false)
-  publishAt     DateTime?
+  id                        String    @id @default(cuid())
+  type                      String    @default("ANNOUNCEMENT")
+  title                     String
+  body                      String    @db.Text
+  coverImageUrl             String?
+  attachments               Json?
+  audience                  Json?
+  pinned                    Boolean   @default(false)
+  publishAt                 DateTime?
   notificationsDispatchedAt DateTime?
-  createdById   String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdById               String
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
-  createdBy     User     @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
-  reads         WorkforcePostRead[]
+  createdBy User                @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
+  reads     WorkforcePostRead[]
 }
 
 model WorkforcePostRead {
-  id        String   @id @default(cuid())
-  postId    String
-  userId    String
-  readAt    DateTime @default(now())
+  id     String   @id @default(cuid())
+  postId String
+  userId String
+  readAt DateTime @default(now())
 
-  post      WorkforcePost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user      User          @relation("WorkforcePostReadUser", fields: [userId], references: [id], onDelete: Cascade)
+  post WorkforcePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User          @relation("WorkforcePostReadUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
 }
@@ -1310,25 +1501,25 @@ model ChatChannel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  group         TeamGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  createdBy     User       @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
-  messages      ChatMessage[]
-  reads         ChatChannelRead[]
+  group     TeamGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy User              @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
+  messages  ChatMessage[]
+  reads     ChatChannelRead[]
 }
 
 model ChatMessage {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   channelId   String
   senderId    String
-  body        String   @db.Text
+  body        String    @db.Text
   attachments Json?
-  isPinned    Boolean  @default(false)
+  isPinned    Boolean   @default(false)
   pinnedAt    DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  sender      User        @relation("ChatMessageSender", fields: [senderId], references: [id])
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender  User        @relation("ChatMessageSender", fields: [senderId], references: [id])
 }
 
 model ChatChannelRead {
@@ -1337,8 +1528,8 @@ model ChatChannelRead {
   userId     String
   lastReadAt DateTime @default(now())
 
-  channel    ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  user       User        @relation("ChatChannelReadUser", fields: [userId], references: [id], onDelete: Cascade)
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User        @relation("ChatChannelReadUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, userId])
 }
@@ -1358,72 +1549,72 @@ model LearningPath {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  createdBy     User     @relation("LearningPathCreatedBy", fields: [createdById], references: [id])
-  assignments   LearningAssignment[]
+  createdBy   User                 @relation("LearningPathCreatedBy", fields: [createdById], references: [id])
+  assignments LearningAssignment[]
 }
 
 model LearningAssignment {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   pathId       String
   userId       String
   assignedById String?
-  status       String   @default("ASSIGNED")
+  status       String    @default("ASSIGNED")
   score        Float?
   starRating   Float?
   answers      Json?
   evaluation   Json?
   startedAt    DateTime?
   completedAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  path         LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
-  user         User         @relation("LearningAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  path LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
+  user User         @relation("LearningAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([pathId, userId])
 }
 
 model StaffDocument {
-  id           String   @id @default(cuid())
-  userId       String
-  uploadedById String
-  verifiedById String?
-  category     String
-  title        String
-  fileName     String
-  url          String   @db.Text
-  s3Key        String
-  mimeType     String?
-  notes        String?  @db.Text
-  status       String   @default("PENDING")
-  requiresSignature Boolean @default(false)
-  expiresAt    DateTime?
-  verifiedAt   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String    @id @default(cuid())
+  userId            String
+  uploadedById      String
+  verifiedById      String?
+  category          String
+  title             String
+  fileName          String
+  url               String    @db.Text
+  s3Key             String
+  mimeType          String?
+  notes             String?   @db.Text
+  status            String    @default("PENDING")
+  requiresSignature Boolean   @default(false)
+  expiresAt         DateTime?
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user         User     @relation("StaffDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
-  uploadedBy   User     @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
-  verifiedBy   User?    @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
+  user              User                   @relation("StaffDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  uploadedBy        User                   @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
+  verifiedBy        User?                  @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
   fulfilledRequests StaffDocumentRequest[] @relation("StaffDocumentRequestFulfilledDocument")
 }
 
 model StaffDocumentRequest {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   userId              String
   requestedById       String
   fulfilledDocumentId String?
   category            String
   title               String
-  notes               String?  @db.Text
+  notes               String?   @db.Text
   dueAt               DateTime?
-  status              String   @default("REQUESTED")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status              String    @default("REQUESTED")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  user                User          @relation("StaffDocumentRequestUser", fields: [userId], references: [id], onDelete: Cascade)
-  requestedBy         User          @relation("StaffDocumentRequestCreatedBy", fields: [requestedById], references: [id], onDelete: Cascade)
-  fulfilledDocument   StaffDocument? @relation("StaffDocumentRequestFulfilledDocument", fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
+  user              User           @relation("StaffDocumentRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  requestedBy       User           @relation("StaffDocumentRequestCreatedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  fulfilledDocument StaffDocument? @relation("StaffDocumentRequestFulfilledDocument", fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
 
   @@index([userId, status])
   @@index([requestedById, status])
@@ -1440,8 +1631,8 @@ model StaffRecognition {
   isPublic         Boolean  @default(true)
   createdAt        DateTime @default(now())
 
-  user             User     @relation("RecognitionReceivedBy", fields: [userId], references: [id], onDelete: Cascade)
-  sentBy           User     @relation("RecognitionSentBy", fields: [sentById], references: [id])
+  user   User @relation("RecognitionReceivedBy", fields: [userId], references: [id], onDelete: Cascade)
+  sentBy User @relation("RecognitionSentBy", fields: [sentById], references: [id])
 }
 
 model HiringPosition {
@@ -1459,35 +1650,35 @@ model HiringPosition {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  createdBy         User     @relation("HiringPositionCreatedBy", fields: [createdById], references: [id])
-  applications      HiringApplication[]
+  createdBy    User                @relation("HiringPositionCreatedBy", fields: [createdById], references: [id])
+  applications HiringApplication[]
 }
 
 model HiringApplication {
-  id             String   @id @default(cuid())
-  positionId     String
-  fullName       String
-  email          String
-  phone          String?
-  status         String   @default("NEW")
-  answers        Json?
-  screeningScore Float?
-  evaluation     Json?
-  resumeUrl      String?  @db.Text
-  resumeKey      String?
-  coverLetter    String?  @db.Text
-  interviewNotes String?  @db.Text
-  interviewDate  DateTime?
-  offerDetails   Json?
-  rejectionReason String? @db.Text
-  reviewedById   String?
-  hiredUserId    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String    @id @default(cuid())
+  positionId      String
+  fullName        String
+  email           String
+  phone           String?
+  status          String    @default("NEW")
+  answers         Json?
+  screeningScore  Float?
+  evaluation      Json?
+  resumeUrl       String?   @db.Text
+  resumeKey       String?
+  coverLetter     String?   @db.Text
+  interviewNotes  String?   @db.Text
+  interviewDate   DateTime?
+  offerDetails    Json?
+  rejectionReason String?   @db.Text
+  reviewedById    String?
+  hiredUserId     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  position       HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  reviewedBy     User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
-  hiredUser      User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
+  position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
+  hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
 }
 
 model AppSetting {

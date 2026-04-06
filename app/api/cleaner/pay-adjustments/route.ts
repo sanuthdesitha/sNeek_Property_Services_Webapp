@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
         suburb: linkedJob.property.suburb,
         clientId: linkedJob.property.clientId,
       };
-      if (linkedJob.status === JobStatus.UNASSIGNED) {
+      if (linkedJob.status === JobStatus.UNASSIGNED || linkedJob.status === JobStatus.OFFERED) {
         return NextResponse.json(
           { error: "Job-linked pay requests are available only after the job is assigned." },
           { status: 400 }

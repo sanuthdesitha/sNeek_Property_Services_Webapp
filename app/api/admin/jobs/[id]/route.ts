@@ -66,6 +66,7 @@ export async function GET(
       include: {
         property: { include: { client: true, integration: true } },
         assignments: {
+          where: { removedAt: null },
           include: {
             user: { select: { id: true, name: true, email: true, phone: true, role: true } },
           },
@@ -86,7 +87,35 @@ export async function GET(
           },
         },
         qaReviews: true,
-        laundryTask: true,
+        laundryTask: {
+          include: {
+            supplier: {
+              select: {
+                id: true,
+                name: true,
+                pricePerKg: true,
+                avgTurnaround: true,
+              },
+            },
+            confirmations: {
+              orderBy: { createdAt: "asc" },
+            },
+            property: {
+              select: {
+                id: true,
+                name: true,
+                suburb: true,
+                client: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         report: true,
         issueTickets: true,
         jobTasks: {
@@ -232,7 +261,10 @@ export async function PATCH(
     let job;
     if (body.status === JobStatus.UNASSIGNED) {
       job = await db.$transaction(async (tx) => {
-        await tx.jobAssignment.deleteMany({ where: { jobId: params.id } });
+        await tx.jobAssignment.updateMany({
+          where: { jobId: params.id, removedAt: null },
+          data: { removedAt: new Date(), isPrimary: false },
+        });
         return tx.job.update({
           where: { id: params.id },
           data,

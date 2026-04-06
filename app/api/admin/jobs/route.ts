@@ -9,6 +9,7 @@ import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
+import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
 function normalizeRule(
   rule:
@@ -100,6 +101,11 @@ export async function POST(req: NextRequest) {
       propertyId: job.propertyId,
       scheduledDate: job.scheduledDate,
       startTime: job.startTime,
+    });
+    await assignPreferredCleanerIfAvailable({
+      jobId: job.id,
+      propertyId: job.propertyId,
+      jobType: job.jobType,
     });
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {

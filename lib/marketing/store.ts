@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { canUseNodePrisma } from "@/lib/database-runtime";
 import { DEFAULT_PUBLIC_SUBSCRIPTION_PLANS } from "@/lib/marketing/default-subscription-plans";
 import { MARKETED_JOB_TYPE_VALUES, type MarketedJobTypeValue } from "@/lib/marketing/job-types";
 
@@ -62,10 +63,6 @@ const DEFAULT_CAMPAIGNS: MarketingCampaignRecord[] = [
     updatedAt: new Date().toISOString(),
   },
 ];
-
-function hasDatabaseUrl() {
-  return typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.trim().length > 0;
-}
 
 function sanitizeJobTypes(value: unknown): MarketedJobTypeValue[] | null {
   if (!Array.isArray(value)) return null;
@@ -133,7 +130,7 @@ function sanitizePlans(value: unknown): MarketingSubscriptionPlanRecord[] {
 }
 
 async function readJsonSetting<T>(key: string, fallback: T, sanitizer: (value: unknown) => T): Promise<T> {
-  if (!hasDatabaseUrl()) {
+  if (!canUseNodePrisma()) {
     return fallback;
   }
 

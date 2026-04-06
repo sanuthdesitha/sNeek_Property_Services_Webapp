@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CaseAttachmentsGallery } from "@/components/cases/case-attachments-gallery";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -150,9 +151,17 @@ export function AdminCasesWorkspace() {
   const [viewer, setViewer] = useState<{ id: string; name: string | null; email: string | null; role: string | null } | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [selected, setSelected] = useState<CaseItem | null>(null);
+  const [selectedPersistedStatus, setSelectedPersistedStatus] = useState<CaseStatus | null>(null);
   const [filters, setFilters] = useState(() => parseFilters(searchParams));
   const [createDraft, setCreateDraft] = useState({ title: "", description: "", caseType: "OPS" as CaseType, severity: "MEDIUM" as Severity, clientVisible: false, clientCanReply: true });
   const [commentDraft, setCommentDraft] = useState({ body: "", isInternal: false });
+  const [statusChangeDialog, setStatusChangeDialog] = useState<{
+    caseId: string;
+    nextStatus: CaseStatus;
+    patch: Record<string, unknown>;
+    successTitle: string;
+  } | null>(null);
+  const [statusChangeNote, setStatusChangeNote] = useState("");
 
   async function loadList() {
     setLoadingList(true);
@@ -204,6 +213,7 @@ export function AdminCasesWorkspace() {
       const body = (await res.json().catch(() => ({}))) as CaseItem & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not load case.");
       setSelected(body);
+      setSelectedPersistedStatus(body.status);
     } catch (error: any) {
       toast({ title: "Case failed", description: error?.message ?? "Could not load case details.", variant: "destructive" });
     } finally {
@@ -275,30 +285,29 @@ export function AdminCasesWorkspace() {
     }
   }
 
-  async function saveCase() {
-    if (!selected) return;
+  async function submitCasePatch(
+    caseId: string,
+    patch: Record<string, unknown>,
+    successTitle: string,
+    options?: { syncSelected?: boolean }
+  ) {
+    const syncSelected = options?.syncSelected !== false;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/cases/${selected.id}`, {
+      const res = await fetch(`/api/admin/cases/${caseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: selected.title,
-          description: selected.description,
-          severity: selected.severity,
-          status: selected.status,
-          caseType: selected.caseType,
-          assignedToUserId: selected.assignedTo?.id ?? null,
-          clientVisible: selected.clientVisible,
-          clientCanReply: selected.clientCanReply,
-          resolutionNote: selected.resolutionNote ?? null,
-        }),
+        body: JSON.stringify(patch),
       });
       const body = (await res.json().catch(() => ({}))) as CaseItem & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not save case.");
-      setSelected(body);
+      if (syncSelected) {
+        setSelected(body);
+      }
+      setSelectedPersistedStatus(body.status);
+      setItems((current) => current.map((row) => (row.id === body.id ? body : row)));
       await loadList();
-      toast({ title: "Case updated" });
+      toast({ title: successTitle });
     } catch (error: any) {
       toast({ title: "Save failed", description: error?.message ?? "Could not save case.", variant: "destructive" });
     } finally {
@@ -306,26 +315,68 @@ export function AdminCasesWorkspace() {
     }
   }
 
+  async function saveCase() {
+    if (!selected) return;
+    const patch = {
+      title: selected.title,
+      description: selected.description,
+      severity: selected.severity,
+      status: selected.status,
+      caseType: selected.caseType,
+      assignedToUserId: selected.assignedTo?.id ?? null,
+      clientVisible: selected.clientVisible,
+      clientCanReply: selected.clientCanReply,
+      resolutionNote: selected.resolutionNote ?? null,
+    };
+    if (selectedPersistedStatus && selected.status !== selectedPersistedStatus) {
+      setStatusChangeNote("");
+      setStatusChangeDialog({
+        caseId: selected.id,
+        nextStatus: selected.status,
+        patch,
+        successTitle: "Case updated",
+      });
+      return;
+    }
+    await submitCasePatch(selected.id, patch, "Case updated");
+  }
+
   async function runQuickUpdate(
     item: CaseItem,
     patch: Partial<{ status: CaseStatus; assignedToUserId: string | null }>,
     successTitle: string
   ) {
-    try {
-      const res = await fetch(`/api/admin/cases/${item.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+    if (patch.status && patch.status !== item.status) {
+      setStatusChangeNote("");
+      setStatusChangeDialog({
+        caseId: item.id,
+        nextStatus: patch.status,
+        patch,
+        successTitle,
       });
-      const body = (await res.json().catch(() => ({}))) as CaseItem & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not update case.");
-      setItems((current) => current.map((row) => (row.id === body.id ? body : row)));
-      if (selectedId === body.id) setSelected(body);
-      toast({ title: successTitle });
-      await loadList();
-    } catch (error: any) {
-      toast({ title: "Update failed", description: error?.message ?? "Could not update case.", variant: "destructive" });
+      return;
     }
+    await submitCasePatch(item.id, patch as Record<string, unknown>, successTitle, { syncSelected: selectedId === item.id });
+  }
+
+  async function submitStatusChange() {
+    if (!statusChangeDialog) return;
+    const note = statusChangeNote.trim();
+    if (!note) {
+      toast({ title: "Status note required", description: "Add a note explaining the status change.", variant: "destructive" });
+      return;
+    }
+    await submitCasePatch(
+      statusChangeDialog.caseId,
+      {
+        ...statusChangeDialog.patch,
+        statusChangeNote: note,
+      },
+      statusChangeDialog.successTitle,
+      { syncSelected: selectedId === statusChangeDialog.caseId }
+    );
+    setStatusChangeDialog(null);
+    setStatusChangeNote("");
   }
 
   async function postComment() {
@@ -549,6 +600,41 @@ export function AdminCasesWorkspace() {
         loading={deleting}
         onConfirm={deleteCase}
       />
+
+      <Dialog open={Boolean(statusChangeDialog)} onOpenChange={(open) => !open && setStatusChangeDialog(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Update case status</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-muted/30 p-3 text-sm">
+              <p className="font-medium">
+                {selected?.title || items.find((item) => item.id === statusChangeDialog?.caseId)?.title || "Selected case"}
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                Status will change to {prettify(statusChangeDialog?.nextStatus || "")}.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Reason / note</Label>
+              <Textarea
+                rows={4}
+                value={statusChangeNote}
+                onChange={(event) => setStatusChangeNote(event.target.value)}
+                placeholder="Explain why this case is moving to the new status."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setStatusChangeDialog(null)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button onClick={() => void submitStatusChange()} disabled={saving}>
+                {saving ? "Saving..." : "Save status change"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

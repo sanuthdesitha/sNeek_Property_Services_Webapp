@@ -3,6 +3,8 @@ import { publicQuoteSchema } from "@/lib/validations/quote";
 import { calculateQuote } from "@/lib/pricing/calculator";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const body = publicQuoteSchema.parse(await req.json());

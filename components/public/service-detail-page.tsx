@@ -13,7 +13,7 @@ import {
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { MarketedService } from "@/lib/marketing/catalog";
 import type { WebsiteServicePage } from "@/lib/public-site/content";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import { ClientImage } from "@/components/public/client-image";
 
 interface ServiceDetailPageProps {
@@ -238,3 +238,4 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
     </div>
   );
 }
+

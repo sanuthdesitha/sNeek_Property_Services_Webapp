@@ -11,6 +11,7 @@ import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions 
 import { refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
 import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
+import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -694,6 +695,11 @@ async function syncTurnoverJobsForReservations(params: {
         propertyId: created.propertyId,
         scheduledDate: created.scheduledDate,
         startTime: created.startTime,
+      });
+      await assignPreferredCleanerIfAvailable({
+        jobId: created.id,
+        propertyId: created.propertyId,
+        jobType: created.jobType,
       });
       const after = jobState(created);
       if (after) {

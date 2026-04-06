@@ -8,6 +8,7 @@ export const size = {
 
 export const contentType = "image/svg+xml";
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function initialsFromName(value: string) {
   return value

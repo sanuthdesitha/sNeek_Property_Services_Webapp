@@ -13,6 +13,7 @@ const TZ = "Australia/Sydney";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
+  JobStatus.OFFERED,
   JobStatus.ASSIGNED,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
@@ -270,6 +271,7 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
           status: {
             in: [
               JobStatus.ASSIGNED,
+              JobStatus.OFFERED,
               JobStatus.IN_PROGRESS,
               JobStatus.PAUSED,
               JobStatus.WAITING_CONTINUATION_APPROVAL,
@@ -287,7 +289,7 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
           status: "OPEN",
           title: { startsWith: "Carry-forward task" },
           job: {
-            status: { in: [JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL] },
+            status: { in: [JobStatus.OFFERED, JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL] },
             assignments: { some: { userId: cleanerId, removedAt: null } },
           },
         },

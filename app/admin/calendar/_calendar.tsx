@@ -6,16 +6,20 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import type { EventContentArg } from "@fullcalendar/core";
+import type { EventContentArg, EventDropArg } from "@fullcalendar/core";
+import type { EventResizeDoneArg } from "@fullcalendar/interaction";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { CalendarClock, Clock3, MapPin, RefreshCw } from "lucide-react";
+import { CalendarClock, Clock3, MapPin, RefreshCw, Undo2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 
 const STATUS_META: Record<
   string,
   { color: string; soft: string; badge: any; label: string }
 > = {
   UNASSIGNED: { color: "#f59e0b", soft: "rgba(245,158,11,0.14)", badge: "warning", label: "Unassigned" },
+  OFFERED: { color: "#d97706", soft: "rgba(217,119,6,0.14)", badge: "warning", label: "Awaiting Confirmation" },
   ASSIGNED: { color: "#2563eb", soft: "rgba(37,99,235,0.14)", badge: "secondary", label: "Assigned" },
   IN_PROGRESS: { color: "#0f766e", soft: "rgba(15,118,110,0.14)", badge: "default", label: "In Progress" },
   PAUSED: { color: "#d97706", soft: "rgba(217,119,6,0.16)", badge: "warning", label: "Paused" },
@@ -76,6 +80,10 @@ export default function CalendarView() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
+  const [undoState, setUndoState] = useState<null | {
+    jobId: string;
+    payload: { scheduledDate: string; startTime: string | null; endTime: string | null };
+  }>(null);
 
   function loadJobs() {
     setLoading(true);
@@ -131,6 +139,12 @@ export default function CalendarView() {
     media.addEventListener("change", syncViewport);
     return () => media.removeEventListener("change", syncViewport);
   }, []);
+
+  useEffect(() => {
+    if (!undoState) return;
+    const timeout = window.setTimeout(() => setUndoState(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [undoState]);
 
   const counts = useMemo(() => {
     return events.reduce<Record<string, number>>((acc, event) => {
@@ -248,6 +262,82 @@ export default function CalendarView() {
     );
   }
 
+  async function persistCalendarMove(input: {
+    jobId: string;
+    scheduledDate: string;
+    startTime: string | null;
+    endTime: string | null;
+  }) {
+    const res = await fetch(`/api/admin/jobs/${input.jobId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(body?.error ?? "Could not update the job schedule.");
+    }
+  }
+
+  async function handleEventMove(arg: EventDropArg | EventResizeDoneArg) {
+    const start = arg.event.start;
+    if (!start) {
+      arg.revert();
+      return;
+    }
+    const previousStart = arg.oldEvent.start ?? start;
+    const previousEnd = arg.oldEvent.end ?? null;
+    const nextEnd = arg.event.end ?? null;
+    const payload = {
+      jobId: arg.event.id,
+      scheduledDate: start.toISOString().slice(0, 10),
+      startTime: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      endTime: nextEnd
+        ? `${String(nextEnd.getHours()).padStart(2, "0")}:${String(nextEnd.getMinutes()).padStart(2, "0")}`
+        : null,
+    };
+    const undoPayload = {
+      scheduledDate: previousStart.toISOString().slice(0, 10),
+      startTime: `${String(previousStart.getHours()).padStart(2, "0")}:${String(previousStart.getMinutes()).padStart(2, "0")}`,
+      endTime: previousEnd
+        ? `${String(previousEnd.getHours()).padStart(2, "0")}:${String(previousEnd.getMinutes()).padStart(2, "0")}`
+        : null,
+    };
+    try {
+      await persistCalendarMove(payload);
+      setUndoState({ jobId: arg.event.id, payload: undoPayload });
+      toast({ title: "Job schedule updated", description: "Drag-and-drop changes were saved." });
+    } catch (error: any) {
+      arg.revert();
+      toast({
+        title: "Schedule update failed",
+        description: error?.message ?? "Could not save the new job time.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function undoCalendarMove() {
+    if (!undoState) return;
+    try {
+      await persistCalendarMove({
+        jobId: undoState.jobId,
+        scheduledDate: undoState.payload.scheduledDate,
+        startTime: undoState.payload.startTime,
+        endTime: undoState.payload.endTime,
+      });
+      setUndoState(null);
+      loadJobs();
+      toast({ title: "Schedule change reverted" });
+    } catch (error: any) {
+      toast({
+        title: "Undo failed",
+        description: error?.message ?? "Could not restore the previous schedule.",
+        variant: "destructive",
+      });
+    }
+  }
+
   return (
     <div className="space-y-4 p-4 sm:p-5">
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -306,6 +396,17 @@ export default function CalendarView() {
       </div>
 
       <div className="relative overflow-visible rounded-[calc(var(--radius)+6px)] border border-white/70 bg-white/75 shadow-sm">
+        {undoState ? (
+          <div className="border-b border-border/60 bg-amber-50/80 px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-amber-900">Schedule moved. You can undo this change for the next 5 seconds.</p>
+              <Button type="button" size="sm" variant="outline" onClick={undoCalendarMove}>
+                <Undo2 className="mr-2 h-4 w-4" />
+                Undo
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView="dayGridMonth"
@@ -323,6 +424,9 @@ export default function CalendarView() {
           events={events}
           eventContent={renderEventContent}
           eventClick={({ event }) => router.push(`/admin/jobs/${event.id}`)}
+          editable
+          eventDrop={handleEventMove}
+          eventResize={handleEventMove}
           height="auto"
           stickyHeaderDates
           dayMaxEventRows={4}

@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
+import { GoogleAddressInput } from "@/components/shared/google-address-input";
 
 type Mode = "public" | "client";
 
@@ -357,30 +358,33 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className={mode === "public" ? `${PUBLIC_PAGE_CONTAINER} py-8 lg:py-10` : "space-y-6"}>
-      <div className="grid gap-5 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)] xl:gap-8 2xl:gap-10">
-        <div className="space-y-5">
+    <div className={mode === "public" ? "page-fade relative min-h-[calc(100vh-160px)] py-8 sm:py-12 lg:py-16" : "space-y-6"}>
+      {mode === "public" && (
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(37,169,184,0.08),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(255,177,95,0.10),transparent_40%)]" />
+      )}
+      <div className={`mx-auto grid max-w-6xl gap-5 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] xl:gap-8 2xl:gap-10 ${mode === "public" ? "px-4 sm:px-6 lg:px-8 xl:px-10" : ""}`}>
+        <div className="min-w-0 space-y-5">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               <Quote className="h-3.5 w-3.5" />
               {mode === "client" ? "Quote request" : "Instant quote"}
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Quote the service properly before you send the request.</h1>
+            <h1 className="max-w-3xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">Quote the service properly before you send the request.</h1>
             <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
               Start with the service family, then refine the details so the estimate reflects the actual property, access, and condition instead of forcing you into a vague flat rate.
             </p>
           </div>
 
-          <Card className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] xl:sticky xl:top-24">
+          <Card className="min-w-0 overflow-hidden rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] xl:sticky xl:top-24">
             <CardContent className="space-y-4 p-6">
               <div className="flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <span>Step {stepIndex + 1} of {wizardSteps.length}</span>
                 <span>{wizardSteps[stepIndex]}</span>
               </div>
               <Progress value={progress} />
-              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 sm:mx-0 sm:grid sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-2 xl:grid-cols-4">
+              <div className="max-w-full -mx-1 flex gap-2 overflow-x-auto px-1 pb-2 sm:mx-0 sm:grid sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-2 xl:grid-cols-4">
                 {wizardSteps.map((label, index) => (
-                  <div key={label} className={`min-w-[132px] rounded-2xl border px-3 py-3 text-xs sm:min-w-0 ${index === stepIndex ? "border-primary/40 bg-primary/5 text-primary" : "border-border/70 text-muted-foreground"}`}>
+                  <div key={label} className={`min-w-[112px] rounded-2xl border px-3 py-3 text-xs sm:min-w-0 ${index === stepIndex ? "border-primary/40 bg-primary/5 text-primary" : "border-border/70 text-muted-foreground"}`}>
                     <p className="font-semibold">{index + 1}</p>
                     <p className="mt-1 leading-5">{label}</p>
                   </div>
@@ -389,7 +393,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+          <Card className="min-w-0 overflow-hidden rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
             <CardContent className="space-y-3 p-6">
               <div className={`inline-flex rounded-2xl bg-gradient-to-br ${currentService?.cardColor ?? "from-primary/90 to-primary/70"} p-3 text-white shadow-sm`}>
                 <Sparkles className="h-5 w-5" />
@@ -401,14 +405,14 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 {(currentService?.highlights ?? []).map((item) => (
-                  <span key={item} className="rounded-full border border-border/70 px-3 py-1">{item}</span>
+                  <span key={item} className="break-words rounded-full border border-border/70 px-3 py-1">{item}</span>
                 ))}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Card className="rounded-[2rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+        <Card className="min-w-0 overflow-hidden rounded-[2rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
           <CardHeader>
             <CardTitle>{wizardSteps[stepIndex]}</CardTitle>
             <CardDescription>
@@ -427,7 +431,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                         setSelectedFamily(family);
                         setServiceType(defaultServiceForFamily(family));
                       }}
-                      className={`rounded-[1.5rem] border p-5 text-left transition-colors ${selectedFamily === family ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
+                      className={`min-w-0 rounded-[1.5rem] border p-5 text-left transition-colors ${selectedFamily === family ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
                     >
                       <p className="font-semibold">{SERVICE_FAMILY_META[family].label}</p>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">{SERVICE_FAMILY_META[family].description}</p>
@@ -455,14 +459,14 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
             {stepIndex === 1 ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {familyServices.map((service) => (
-                  <button
-                    type="button"
-                    key={service.jobType}
-                    onClick={() => setServiceType(service.jobType)}
-                    className={`rounded-[1.5rem] border p-5 text-left transition-colors ${serviceType === service.jobType ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
-                  >
-                    <p className="font-semibold">{service.label}</p>
-                    <p className="mt-1 text-sm font-medium text-primary">{service.tagline}</p>
+                    <button
+                      type="button"
+                      key={service.jobType}
+                      onClick={() => setServiceType(service.jobType)}
+                      className={`min-w-0 rounded-[1.5rem] border p-5 text-left transition-colors ${serviceType === service.jobType ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
+                    >
+                      <p className="font-semibold">{service.label}</p>
+                      <p className="mt-1 text-sm font-medium text-primary">{service.tagline}</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{service.summary}</p>
                     <p className="mt-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">{service.autoPricingMode === "estimate" ? "Instant estimate path" : "Manual review path"}</p>
                   </button>
@@ -538,10 +542,10 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
                 {areaBasedServices.has(serviceType) ? (
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2"><Label>Estimated service area (sqm)</Label><Input value={form.areaSqm} onChange={(event) => setForm((current) => ({ ...current, areaSqm: event.target.value }))} placeholder="Optional if unknown" /></div>
-                    <div className="space-y-2">
-                      <Label>Area band</Label>
-                      <Select value={form.areaBand} onValueChange={(value) => setForm((current) => ({ ...current, areaBand: value }))}>
+                  <div className="min-w-0 space-y-2"><Label>Estimated service area (sqm)</Label><Input value={form.areaSqm} onChange={(event) => setForm((current) => ({ ...current, areaSqm: event.target.value }))} placeholder="Optional if unknown" /></div>
+                  <div className="space-y-2">
+                    <Label>Area band</Label>
+                    <Select value={form.areaBand} onValueChange={(value) => setForm((current) => ({ ...current, areaBand: value }))}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>{AREA_BANDS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                       </Select>
@@ -551,10 +555,10 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
                 {unitBasedServices.has(serviceType) ? (
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2"><Label>{unitPromptForService(serviceType).label}</Label><Input value={serviceType === "WINDOW_CLEAN" ? form.windowCount : form.serviceUnits} onChange={(event) => setForm((current) => serviceType === "WINDOW_CLEAN" ? { ...current, windowCount: event.target.value } : { ...current, serviceUnits: event.target.value })} placeholder={unitPromptForService(serviceType).placeholder} /></div>
-                    <div className="space-y-2"><Label>Floors / storeys</Label><Input value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
-                  </div>
-                ) : null}
+                  <div className="min-w-0 space-y-2"><Label>{unitPromptForService(serviceType).label}</Label><Input value={serviceType === "WINDOW_CLEAN" ? form.windowCount : form.serviceUnits} onChange={(event) => setForm((current) => serviceType === "WINDOW_CLEAN" ? { ...current, windowCount: event.target.value } : { ...current, serviceUnits: event.target.value })} placeholder={unitPromptForService(serviceType).placeholder} /></div>
+                  <div className="space-y-2"><Label>Floors / storeys</Label><Input value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
+                </div>
+              ) : null}
 
                 <div className="space-y-2">
                   <Label>Anything the estimator should know?</Label>
@@ -665,8 +669,8 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                       <div className="space-y-2 text-sm">
                         {(result.lineItems ?? []).map((item) => (
                           <div key={`${item.label}-${item.total}`} className="flex items-center justify-between gap-4">
-                            <span className="text-muted-foreground">{item.label}</span>
-                            <span className="font-medium">{item.total < 0 ? `-${formatCurrency(Math.abs(item.total))}` : formatCurrency(item.total)}</span>
+                            <span className="min-w-0 text-muted-foreground">{item.label}</span>
+                            <span className="shrink-0 font-medium">{item.total < 0 ? `-${formatCurrency(Math.abs(item.total))}` : formatCurrency(item.total)}</span>
                           </div>
                         ))}
                       </div>
@@ -689,7 +693,21 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                   <div className="space-y-2"><Label>Phone</Label><Input value={lead.phone} onChange={(event) => setLead((current) => ({ ...current, phone: event.target.value }))} placeholder="0451217210 or +61451217210" /></div>
                   <div className="space-y-2"><Label>Suburb</Label><Input value={lead.suburb} onChange={(event) => setLead((current) => ({ ...current, suburb: event.target.value }))} /></div>
                 </div>
-                <div className="space-y-2"><Label>Address</Label><Input value={lead.address} onChange={(event) => setLead((current) => ({ ...current, address: event.target.value }))} placeholder="Optional but useful for accurate review" /></div>
+                <div className="space-y-2">
+                  <Label>Address</Label>
+                  <GoogleAddressInput
+                    value={lead.address}
+                    placeholder="Start typing your address…"
+                    onChange={(value) => setLead((current) => ({ ...current, address: value }))}
+                    onResolved={(parts) =>
+                      setLead((current) => ({
+                        ...current,
+                        address: parts.address || current.address,
+                        suburb: parts.suburb || current.suburb,
+                      }))
+                    }
+                  />
+                </div>
               </div>
             ) : null}
 

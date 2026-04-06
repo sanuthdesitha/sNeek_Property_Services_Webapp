@@ -15,6 +15,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
+const ANNOUNCEMENT_PREVIEW_THEME_CLASSES: Record<WebsiteContent["announcementBar"]["bgStyle"], string> = {
+  subtle: "border-primary/30 bg-gradient-to-r from-primary via-[#1b727c] to-[#d9a848] text-white",
+  accent: "border-amber-300 bg-gradient-to-r from-amber-500 via-[#f0a53a] to-[#f97316] text-white",
+  dark: "border-white/10 bg-gradient-to-r from-[#0c2329] via-[#163b41] to-[#24545d] text-white",
+  warning: "border-red-300 bg-gradient-to-r from-red-600 via-[#e04f4f] to-rose-500 text-white",
+};
+
 function cloneContent<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
@@ -23,13 +30,26 @@ function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({
+  title,
+  description,
+  className,
+  contentClassName,
+  children,
+}: {
+  title: string;
+  description?: string;
+  className?: string;
+  contentClassName?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <Card className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+    <Card className={`rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] ${className ?? ""}`}>
       <CardHeader>
         <CardTitle className="text-lg">{title}</CardTitle>
+        {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
+      <CardContent className={`space-y-4 ${contentClassName ?? ""}`}>{children}</CardContent>
     </Card>
   );
 }
@@ -219,6 +239,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [rawJson, setRawJson] = useState(() => JSON.stringify(initialContent, null, 2));
   const [selectedServiceSlug, setSelectedServiceSlug] = useState(MARKETED_SERVICES[0]?.slug ?? "");
+  const [activeTab, setActiveTab] = useState("home");
 
   const previewLinks = useMemo(
     () => [
@@ -226,11 +247,42 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
       { href: "/services", label: "Services" },
       { href: "/airbnb-hosting", label: "Airbnb page" },
       { href: "/subscriptions", label: "Subscriptions" },
+      { href: "/why-us", label: "Why us" },
+      { href: "/compare", label: "Compare" },
+      { href: "/blog", label: "Blog" },
+      { href: "/careers", label: "Careers" },
       { href: "/contact", label: "Contact" },
       { href: "/terms", label: "Terms" },
       { href: "/privacy", label: "Privacy" },
     ],
     []
+  );
+
+  const editorTabs = useMemo(
+    () => [
+      { value: "home", label: "Home", summary: "Hero, calls to action, benefit cards, testimonials, and homepage imagery." },
+      { value: "services", label: "Services", summary: "Main services landing-page copy and positioning." },
+      { value: "airbnb", label: "Airbnb", summary: "Dedicated Airbnb hosting-support page content and imagery." },
+      { value: "subscriptions", label: "Subscriptions", summary: "Subscription plan page copy and customer-facing offer framing." },
+      { value: "contact", label: "Contact", summary: "Public contact details, suburb coverage, and lead-recipient settings." },
+      { value: "terms", label: "Terms", summary: "Terms and conditions sections and service-policy wording." },
+      { value: "privacy", label: "Privacy", summary: "Privacy-policy sections and data-handling wording." },
+      { value: "why-us", label: "Why Us", summary: "Trust messaging and reasons clients choose sNeek." },
+      { value: "faq", label: "FAQ", summary: "Common customer questions shown on the public website." },
+      { value: "partners", label: "Partners", summary: "Partner logos and trust-strip presentation." },
+      { value: "gallery", label: "Gallery", summary: "Website photo gallery and before/after media presentation." },
+      { value: "social", label: "Social", summary: "Social links and public-facing connection points." },
+      { value: "service-pages", label: "Service Pages", summary: "Detailed copy for each service detail page and local SEO content." },
+      { value: "layout", label: "Layout", summary: "Page visibility, maintenance mode, announcement bar, and site-wide layout settings." },
+      { value: "json", label: "Raw JSON", summary: "Advanced full-object editing for bulk changes and restores." },
+    ],
+    []
+  );
+
+  const activeTabMeta = editorTabs.find((tab) => tab.value === activeTab) ?? editorTabs[0];
+  const enabledPageCount = useMemo(
+    () => Object.values(content.pageVisibility ?? {}).filter((value) => value !== false).length,
+    [content.pageVisibility]
   );
 
   async function uploadWebsiteImage(file: File) {
@@ -280,46 +332,113 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
     }
   }
 
+  function resetDraftToLastSaved() {
+    const restored = cloneContent(initialContent);
+    setContent(restored);
+    setRawJson(JSON.stringify(restored, null, 2));
+    toast({ title: "Draft reset", description: "Unsaved website changes were cleared." });
+  }
+
   return (
     <AdminPageShell
       eyebrow="Website"
       title="Public website editor"
       description="Edit customer-facing page content, public images, and contact-recipient emails without changing the operational portals."
-      actions={
-        <div className="flex flex-wrap gap-2">
-          {previewLinks.map((link) => (
-            <Button key={link.href} type="button" variant="outline" className="rounded-full" asChild>
-              <a href={link.href} target="_blank" rel="noreferrer">
-                <Eye className="mr-2 h-4 w-4" />
-                {link.label}
-              </a>
-            </Button>
-          ))}
-          <Button type="button" className="rounded-full" onClick={() => saveContent()} disabled={saving}>
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? "Saving..." : "Save website"}
-          </Button>
-        </div>
-      }
     >
-      <Tabs defaultValue="home" className="space-y-5">
-        <TabsList className="flex h-auto flex-wrap justify-start gap-2 rounded-[1.2rem] bg-transparent p-0">
-          <TabsTrigger value="home">Home</TabsTrigger>
-          <TabsTrigger value="services">Services</TabsTrigger>
-          <TabsTrigger value="airbnb">Airbnb</TabsTrigger>
-          <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-          <TabsTrigger value="contact">Contact</TabsTrigger>
-          <TabsTrigger value="terms">Terms</TabsTrigger>
-          <TabsTrigger value="privacy">Privacy</TabsTrigger>
-          <TabsTrigger value="why-us">Why Us</TabsTrigger>
-          <TabsTrigger value="faq">FAQ</TabsTrigger>
-          <TabsTrigger value="partners">Partners</TabsTrigger>
-          <TabsTrigger value="gallery">Gallery</TabsTrigger>
-          <TabsTrigger value="social">Social</TabsTrigger>
-          <TabsTrigger value="service-pages">Service Pages</TabsTrigger>
-          <TabsTrigger value="layout">Layout</TabsTrigger>
-          <TabsTrigger value="json">Raw JSON</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_340px]">
+        <SectionCard
+          title="Editor workspace"
+          description="Use the tabs below to update public pages, then preview the result in a new tab before saving."
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div className="rounded-[1.5rem] border border-primary/10 bg-primary/[0.04] p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Currently editing</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight">{activeTabMeta.label}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{activeTabMeta.summary}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Public pages</p>
+                  <p className="mt-2 text-2xl font-semibold">{previewLinks.length}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Direct preview shortcuts available.</p>
+                </div>
+                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Visible pages</p>
+                  <p className="mt-2 text-2xl font-semibold">{enabledPageCount}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Currently enabled in public navigation.</p>
+                </div>
+                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Blog tools</p>
+                  <p className="mt-2 text-2xl font-semibold">Live</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Create and manage posts from the blog manager.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-border/70 bg-white/92 p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Preview shortcuts</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Open customer-facing pages in a new tab while you edit.</p>
+                </div>
+                <Button type="button" variant="outline" className="rounded-full" asChild>
+                  <a href="/admin/website/blog">
+                    <Globe className="mr-2 h-4 w-4" />
+                    Manage blog
+                  </a>
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {previewLinks.map((link) => (
+                  <Button
+                    key={link.href}
+                    type="button"
+                    variant="outline"
+                    className="h-auto justify-start rounded-[1rem] border-border/70 bg-white px-4 py-3 text-left"
+                    asChild
+                  >
+                    <a href={link.href} target="_blank" rel="noreferrer">
+                      <Eye className="mr-2 h-4 w-4 shrink-0" />
+                      {link.label}
+                    </a>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Publishing controls"
+          description="Reset the current draft or save all structured changes to the live website content."
+          className="h-fit xl:sticky xl:top-24"
+        >
+          <div className="space-y-3">
+            <Button type="button" variant="outline" className="w-full rounded-full" onClick={resetDraftToLastSaved}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset draft
+            </Button>
+            <Button type="button" className="w-full rounded-full" onClick={() => saveContent()} disabled={saving}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving..." : "Save website"}
+            </Button>
+            <div className="rounded-[1.2rem] border border-primary/10 bg-primary/[0.04] p-4 text-sm leading-6 text-muted-foreground">
+              Structured tabs are safer for normal editing. Use the raw JSON tab only for bulk updates or full restores.
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="flex min-w-max flex-nowrap justify-start gap-2 rounded-[1.2rem] bg-white/70 p-1">
+            {editorTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value} className="rounded-full px-4">
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <TabsContent value="home" className="space-y-5">
           <SectionCard title="Hero and call to action">
@@ -565,7 +684,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
               {(content.gallery?.items ?? []).map((item: WebsiteGalleryItem, index: number) => (
                 <div key={item.id} className="space-y-3 rounded-[1.2rem] border border-border/70 p-4">
                   <ImageField
-                    label="Gallery image"
+                    label="Primary gallery image"
                     value={item.imageUrl}
                     alt={item.imageAlt}
                     onChange={(url) => setContent({ ...content, gallery: { ...content.gallery, items: content.gallery.items.map((row, i) => i === index ? { ...row, imageUrl: url } : row) } })}
@@ -573,6 +692,90 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                     onUpload={(file) => handleCardUpload(`gallery-${item.id}`, file, (url) => setContent({ ...content, gallery: { ...content.gallery, items: content.gallery.items.map((row, i) => i === index ? { ...row, imageUrl: url } : row) } }))}
                     uploading={uploadingKey === `gallery-${item.id}`}
                   />
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <ImageField
+                      label="Before image"
+                      value={item.beforeImageUrl ?? ""}
+                      alt={item.imageAlt}
+                      onChange={(url) =>
+                        setContent({
+                          ...content,
+                          gallery: {
+                            ...content.gallery,
+                            items: content.gallery.items.map((row, i) =>
+                              i === index ? { ...row, beforeImageUrl: url } : row
+                            ),
+                          },
+                        })
+                      }
+                      onAltChange={(alt) =>
+                        setContent({
+                          ...content,
+                          gallery: {
+                            ...content.gallery,
+                            items: content.gallery.items.map((row, i) =>
+                              i === index ? { ...row, imageAlt: alt } : row
+                            ),
+                          },
+                        })
+                      }
+                      onUpload={(file) =>
+                        handleCardUpload(`gallery-before-${item.id}`, file, (url) =>
+                          setContent({
+                            ...content,
+                            gallery: {
+                              ...content.gallery,
+                              items: content.gallery.items.map((row, i) =>
+                                i === index ? { ...row, beforeImageUrl: url } : row
+                              ),
+                            },
+                          })
+                        )
+                      }
+                      uploading={uploadingKey === `gallery-before-${item.id}`}
+                    />
+                    <ImageField
+                      label="After image"
+                      value={item.afterImageUrl ?? ""}
+                      alt={item.imageAlt}
+                      onChange={(url) =>
+                        setContent({
+                          ...content,
+                          gallery: {
+                            ...content.gallery,
+                            items: content.gallery.items.map((row, i) =>
+                              i === index ? { ...row, afterImageUrl: url } : row
+                            ),
+                          },
+                        })
+                      }
+                      onAltChange={(alt) =>
+                        setContent({
+                          ...content,
+                          gallery: {
+                            ...content.gallery,
+                            items: content.gallery.items.map((row, i) =>
+                              i === index ? { ...row, imageAlt: alt } : row
+                            ),
+                          },
+                        })
+                      }
+                      onUpload={(file) =>
+                        handleCardUpload(`gallery-after-${item.id}`, file, (url) =>
+                          setContent({
+                            ...content,
+                            gallery: {
+                              ...content.gallery,
+                              items: content.gallery.items.map((row, i) =>
+                                i === index ? { ...row, afterImageUrl: url } : row
+                              ),
+                            },
+                          })
+                        )
+                      }
+                      uploading={uploadingKey === `gallery-after-${item.id}`}
+                    />
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input value={item.caption} onChange={(e) => setContent({ ...content, gallery: { ...content.gallery, items: content.gallery.items.map((row, i) => i === index ? { ...row, caption: e.target.value } : row) } })} placeholder="Caption" />
                     <Input value={item.serviceType} onChange={(e) => setContent({ ...content, gallery: { ...content.gallery, items: content.gallery.items.map((row, i) => i === index ? { ...row, serviceType: e.target.value } : row) } })} placeholder="Service type label" />
@@ -654,6 +857,102 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
         </TabsContent>
 
         <TabsContent value="layout" className="space-y-5">
+          <SectionCard title="Page visibility">
+            <p className="text-sm text-muted-foreground">Enable or hide public website pages. Hidden pages disappear from navigation and return a not-found response on the public site.</p>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[
+                { key: "home", label: "Home" },
+                { key: "services", label: "Services" },
+                { key: "whyUs", label: "Why Us" },
+                { key: "airbnbHosting", label: "Airbnb Hosting" },
+                { key: "subscriptions", label: "Subscriptions" },
+                { key: "compareServices", label: "Compare Services" },
+                { key: "blog", label: "Blog" },
+                { key: "careers", label: "Careers" },
+                { key: "faq", label: "FAQ" },
+                { key: "contact", label: "Contact" },
+                { key: "quote", label: "Instant Quote" },
+                { key: "terms", label: "Terms" },
+                { key: "privacy", label: "Privacy" },
+              ].map((item) => (
+                <div key={item.key} className="flex items-center justify-between rounded-[1.2rem] border border-border/70 px-4 py-3">
+                  <span className="text-sm font-medium">{item.label}</span>
+                  <Switch
+                    checked={content.pageVisibility[item.key as keyof typeof content.pageVisibility] !== false}
+                    onCheckedChange={(checked) =>
+                      setContent({
+                        ...content,
+                        pageVisibility: {
+                          ...content.pageVisibility,
+                          [item.key]: checked,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Maintenance mode">
+            <p className="text-sm text-muted-foreground">Use this when you need to pause the public website while still optionally leaving portal login available.</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-[1.2rem] border border-border/70 px-4 py-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Enable maintenance mode</p>
+                  <p className="text-xs text-muted-foreground">Replace the public site with a maintenance notice.</p>
+                </div>
+                <Switch
+                  checked={content.maintenanceMode.enabled}
+                  onCheckedChange={(checked) =>
+                    setContent({
+                      ...content,
+                      maintenanceMode: { ...content.maintenanceMode, enabled: checked },
+                    })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-[1.2rem] border border-border/70 px-4 py-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Allow login while in maintenance</p>
+                  <p className="text-xs text-muted-foreground">Admin and portal users can still access `/login`.</p>
+                </div>
+                <Switch
+                  checked={content.maintenanceMode.allowLogin}
+                  onCheckedChange={(checked) =>
+                    setContent({
+                      ...content,
+                      maintenanceMode: { ...content.maintenanceMode, allowLogin: checked },
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <Field label="Maintenance headline">
+              <Input
+                value={content.maintenanceMode.message}
+                onChange={(event) =>
+                  setContent({
+                    ...content,
+                    maintenanceMode: { ...content.maintenanceMode, message: event.target.value },
+                  })
+                }
+              />
+            </Field>
+            <Field label="Support message">
+              <Textarea
+                rows={3}
+                value={content.maintenanceMode.supportMessage}
+                onChange={(event) =>
+                  setContent({
+                    ...content,
+                    maintenanceMode: { ...content.maintenanceMode, supportMessage: event.target.value },
+                  })
+                }
+              />
+            </Field>
+          </SectionCard>
+
           <SectionCard title="Page container width">
             <p className="text-sm text-muted-foreground">Controls the maximum width of the centered content area on all public pages. Use a percentage (e.g. <code className="rounded bg-muted px-1 text-xs">80%</code>) or a pixel value (e.g. <code className="rounded bg-muted px-1 text-xs">1200px</code>).</p>
             <Field label="Container max-width">
@@ -665,12 +964,12 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                   className="max-w-[200px]"
                 />
                 <div className="flex flex-wrap gap-2">
-                  {["60%","70%","75%","80%","85%","90%","1100px","1200px","1400px"].map((preset) => (
+                  {["1080px","1160px","1240px","1320px","1400px","1480px"].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => setContent({ ...content, containerWidth: preset })}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${(content.containerWidth ?? "80%") === preset ? "border-primary bg-primary text-primary-foreground" : "border-border bg-white/80 text-muted-foreground hover:border-primary hover:text-primary"}`}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${(content.containerWidth ?? "1320px") === preset ? "border-primary bg-primary text-primary-foreground" : "border-border bg-white/80 text-muted-foreground hover:border-primary hover:text-primary"}`}
                     >
                       {preset}
                     </button>
@@ -787,16 +1086,20 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
 
             <div className="rounded-[1.4rem] border border-dashed border-border/70 bg-muted/20 p-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Preview</p>
-              <div className="overflow-hidden rounded-[1.2rem] border border-border/70 bg-white">
+              <div
+                className={`overflow-hidden rounded-[1.2rem] border ${
+                  ANNOUNCEMENT_PREVIEW_THEME_CLASSES[content.announcementBar.bgStyle] ?? ANNOUNCEMENT_PREVIEW_THEME_CLASSES.subtle
+                }`}
+              >
                 {content.announcementBar.enabled ? (
                   <>
                     {content.announcementBar.promoMessage ? (
-                      <div className="border-b border-border/70 px-4 py-2 text-sm font-medium">
+                      <div className="border-b border-current/15 px-4 py-2 text-sm font-medium">
                         {content.announcementBar.promoMessage}
                         {content.announcementBar.promoLink ? ` ${content.announcementBar.promoLinkLabel || "Book now →"}` : ""}
                       </div>
                     ) : null}
-                    <div className="flex flex-wrap gap-x-4 gap-y-2 px-4 py-3 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2 px-4 py-3 text-xs text-white/95">
                       {content.announcementBar.showPhone ? <span>{content.contact.displayPhone}</span> : null}
                       {content.announcementBar.showLocation ? <span>{content.contact.addressLine}</span> : null}
                       {content.announcementBar.showHours ? <span>Mon-Sat 7am - 6pm</span> : null}
@@ -804,7 +1107,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                     </div>
                   </>
                 ) : (
-                  <div className="px-4 py-3 text-sm text-muted-foreground">Announcement bar is disabled.</div>
+                  <div className="bg-white px-4 py-3 text-sm text-muted-foreground">Announcement bar is disabled.</div>
                 )}
               </div>
             </div>
@@ -861,6 +1164,23 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
           </SectionCard>
         </TabsContent>
       </Tabs>
+
+      <div className="sticky bottom-4 z-20 flex justify-end">
+        <div className="flex flex-wrap items-center gap-3 rounded-[1.3rem] border border-white/80 bg-white/92 px-4 py-3 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur-md">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Editing</p>
+            <p className="text-sm font-medium">{activeTabMeta.label}</p>
+          </div>
+          <Button type="button" variant="outline" className="rounded-full" onClick={resetDraftToLastSaved}>
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset draft
+          </Button>
+          <Button type="button" className="rounded-full" onClick={() => saveContent()} disabled={saving}>
+            <Save className="mr-2 h-4 w-4" />
+            {saving ? "Saving..." : "Save website"}
+          </Button>
+        </div>
+      </div>
     </AdminPageShell>
   );
 }

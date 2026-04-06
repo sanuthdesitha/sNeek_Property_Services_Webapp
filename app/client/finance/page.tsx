@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
+import { PayNowButton } from "@/components/client/pay-now-button";
 
 const TZ = "Australia/Sydney";
 
@@ -171,6 +172,11 @@ export default async function ClientFinancePage() {
                         <Badge variant={invoice.status === "PAID" ? "success" : invoice.status === "SENT" ? "default" : "secondary"}>
                           {invoice.status.replace(/_/g, " ")}
                         </Badge>
+                        {invoice.status === "SENT" || invoice.status === "APPROVED" ? (
+                          <div className="mt-2">
+                            <PayNowButton invoiceId={invoice.id} />
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>

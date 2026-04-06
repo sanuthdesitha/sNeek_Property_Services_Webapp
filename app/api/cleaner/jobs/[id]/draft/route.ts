@@ -15,8 +15,12 @@ const draftSchema = z.object({
 });
 
 async function assertCleanerAssignment(jobId: string, userId: string) {
-  const assignment = await db.jobAssignment.findUnique({
-    where: { jobId_userId: { jobId, userId } },
+  const assignment = await db.jobAssignment.findFirst({
+    where: {
+      jobId,
+      userId,
+      removedAt: null,
+    },
     select: { id: true },
   });
   return Boolean(assignment);

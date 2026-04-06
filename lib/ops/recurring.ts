@@ -1,8 +1,9 @@
-import { JobType, Role } from "@prisma/client";
+import { JobAssignmentResponseStatus, JobType, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAppSettings } from "@/lib/settings";
+import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
 const RECURRING_RULES_KEY = "recurring_job_rules_v1";
 
@@ -243,18 +244,36 @@ export async function generateRecurringJobs(input: {
 
       const assigneeIds = rule.assigneeIds.filter((id) => activeCleanerIds.has(id));
       if (assigneeIds.length > 0) {
-        await db.jobAssignment.createMany({
-          data: assigneeIds.map((userId, index) => ({
-            jobId: createdJob.id,
-            userId,
-            isPrimary: index === 0,
-            payRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType] ?? undefined,
-          })),
-          skipDuplicates: true,
-        });
+        const changedAt = new Date();
+        for (let index = 0; index < assigneeIds.length; index += 1) {
+          const userId = assigneeIds[index];
+          await db.jobAssignment.upsert({
+            where: { jobId_userId: { jobId: createdJob.id, userId } },
+            create: {
+              jobId: createdJob.id,
+              userId,
+              isPrimary: index === 0,
+              payRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType] ?? undefined,
+              offeredAt: changedAt,
+              responseStatus: JobAssignmentResponseStatus.PENDING,
+              assignedById: input.actorUserId,
+            },
+            update: {
+              removedAt: null,
+              isPrimary: index === 0,
+              payRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType] ?? undefined,
+              offeredAt: changedAt,
+              responseStatus: JobAssignmentResponseStatus.PENDING,
+              respondedAt: null,
+              responseNote: null,
+              assignedById: input.actorUserId,
+              transferredFromUserId: null,
+            },
+          });
+        }
         await db.job.update({
           where: { id: createdJob.id },
-          data: { status: "ASSIGNED" },
+          data: { status: "OFFERED" },
         });
       }
 
@@ -270,6 +289,12 @@ export async function generateRecurringJobs(input: {
           },
         });
       }
+
+      await assignPreferredCleanerIfAvailable({
+        jobId: createdJob.id,
+        propertyId: rule.propertyId,
+        jobType: createdJob.jobType,
+      });
 
       existingBaseKeys.add(baseKey);
       existingRuleKeys.add(dedupeKey);

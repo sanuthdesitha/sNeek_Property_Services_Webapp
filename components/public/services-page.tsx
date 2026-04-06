@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MARKETED_SERVICES, SERVICE_FAMILY_META, getServicesByFamily, type ServiceFamily } from "@/lib/marketing/catalog";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 
 interface ServicesPageProps {
   content: {
@@ -125,6 +125,9 @@ export function ServicesPage({ content }: ServicesPageProps) {
             <Link href="/quote">Get an instant quote</Link>
           </Button>
           <Button asChild variant="outline" className="rounded-full">
+            <Link href="/compare">Compare services</Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-full">
             <Link href="/contact">
               Request a tailored quote
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -135,3 +138,4 @@ export function ServicesPage({ content }: ServicesPageProps) {
     </div>
   );
 }
+

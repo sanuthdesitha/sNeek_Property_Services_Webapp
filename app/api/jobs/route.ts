@@ -25,19 +25,32 @@ export async function GET(req: NextRequest) {
 
     // Cleaners only see their own jobs
     if (role === Role.CLEANER) {
-      where.assignments = { some: { userId: session.user.id } };
+      where.assignments = { some: { userId: session.user.id, removedAt: null } };
     }
 
     const jobs = await db.job.findMany({
       where,
       include: {
-        property: { select: { name: true, suburb: true, address: true, client: { select: { id: true, name: true, email: true } } } },
-        assignments: { include: { user: { select: { id: true, name: true } } } },
+        property: {
+          select: {
+            name: true,
+            suburb: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+            client: { select: { id: true, name: true, email: true } },
+          },
+        },
+        assignments: {
+          where: { removedAt: null },
+          include: { user: { select: { id: true, name: true } } },
+        },
         qaReviews: {
           select: { id: true, score: true, passed: true, createdAt: true },
           orderBy: { createdAt: "desc" },
           take: 1,
         },
+        report: { select: { id: true } },
         issueTickets: {
           where: { caseType: "DAMAGE", status: { not: "RESOLVED" } },
           select: { id: true, status: true, severity: true, title: true },

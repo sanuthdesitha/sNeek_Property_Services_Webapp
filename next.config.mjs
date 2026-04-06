@@ -1,3 +1,5 @@
+import withPWAInit from "@ducanh2912/next-pwa";
+
 function normalizeAllowedOrigin(value) {
   if (!value || typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -43,6 +45,7 @@ const nextConfig = {
     serverActions: {
       allowedOrigins,
     },
+    serverComponentsExternalPackages: ["@prisma/client", "prisma", "pino"],
   },
   webpack: (config) => {
     // Windows + Node 22 can throw EISDIR on fs.readlink during filesystem cache snapshots.
@@ -52,4 +55,31 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const withPWA = withPWAInit({
+  dest: "public",
+  cacheOnFrontEndNav: true,
+  aggressiveFrontEndNavCaching: true,
+  reloadOnOnline: true,
+  disable: process.env.NODE_ENV === "development",
+  extendDefaultRuntimeCaching: true,
+  workboxOptions: {
+    disableDevLogs: true,
+    runtimeCaching: [
+      {
+        urlPattern: /^\/api\/cleaner\/jobs/i,
+        handler: "NetworkFirst",
+        method: "GET",
+        options: {
+          cacheName: "cleaner-jobs-cache",
+          expiration: {
+            maxEntries: 32,
+            maxAgeSeconds: 60 * 60,
+          },
+          networkTimeoutSeconds: 5,
+        },
+      },
+    ],
+  },
+});
+
+export default withPWA(nextConfig);

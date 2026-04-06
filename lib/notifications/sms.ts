@@ -11,6 +11,24 @@ export interface SmsSendResult {
   error?: string;
 }
 
+function normalizeSmsDestination(to: string) {
+  const compact = String(to ?? "").replace(/[\s()-]/g, "").trim();
+  if (!compact) return null;
+  if (compact.startsWith("+")) {
+    return /^\+\d{8,15}$/.test(compact) ? compact : null;
+  }
+  if (/^04\d{8}$/.test(compact)) {
+    return `+61${compact.slice(1)}`;
+  }
+  if (/^61\d{9}$/.test(compact)) {
+    return `+${compact}`;
+  }
+  if (/^\d{8,15}$/.test(compact)) {
+    return `+${compact}`;
+  }
+  return null;
+}
+
 function getConfiguredSmsProvider(provider: SmsProvider) {
   if (provider === "twilio") {
     return Boolean(
@@ -29,6 +47,10 @@ async function sendViaTwilio(to: string, body: string): Promise<SmsSendResult> {
   if (!getConfiguredSmsProvider("twilio")) {
     return { ok: false, status: "not_configured", provider: "twilio", error: "Twilio is not configured." };
   }
+  const normalizedTo = normalizeSmsDestination(to);
+  if (!normalizedTo) {
+    return { ok: false, status: "failed", provider: "twilio", error: "Invalid SMS recipient number." };
+  }
 
   try {
     const client = twilio(
@@ -37,12 +59,12 @@ async function sendViaTwilio(to: string, body: string): Promise<SmsSendResult> {
     );
     await client.messages.create({
       from: process.env.TWILIO_PHONE_NUMBER!.trim(),
-      to,
+      to: normalizedTo,
       body,
     });
     return { ok: true, status: "sent", provider: "twilio" };
   } catch (err) {
-    logger.error({ err, to }, "Failed to send SMS via Twilio");
+    logger.error({ err, to: normalizedTo }, "Failed to send SMS via Twilio");
     return { ok: false, status: "failed", provider: "twilio", error: "Twilio failed to send SMS." };
   }
 }
@@ -54,12 +76,16 @@ async function sendViaCellcast(to: string, body: string): Promise<SmsSendResult>
   }
 
   const endpoint = process.env.CELLCAST_API_URL?.trim() || "https://cellcast.com.au/api/v3/send-sms";
+  const normalizedTo = normalizeSmsDestination(to);
+  if (!normalizedTo) {
+    return { ok: false, status: "failed", provider: "cellcast", error: "Invalid SMS recipient number." };
+  }
 
   try {
     const configuredFrom = process.env.CELLCAST_FROM?.trim();
     const payload: Record<string, unknown> = {
       sms_text: body,
-      numbers: [to],
+      numbers: [normalizedTo],
     };
 
     // Cellcast sender IDs are heavily constrained. If no explicit sender is configured,
@@ -103,7 +129,7 @@ async function sendViaCellcast(to: string, body: string): Promise<SmsSendResult>
           : typeof parsed?.error === "string"
             ? parsed.error
             : `Cellcast HTTP ${response.status}`;
-      logger.error({ to, status: response.status, error }, "Failed to send SMS via Cellcast");
+      logger.error({ to: normalizedTo, status: response.status, error }, "Failed to send SMS via Cellcast");
       return { ok: false, status: "failed", provider: "cellcast", error };
     }
 
@@ -125,13 +151,13 @@ async function sendViaCellcast(to: string, body: string): Promise<SmsSendResult>
           : typeof parsed?.error === "string"
             ? parsed.error
             : "Cellcast did not accept the SMS.";
-      logger.warn({ to, response: parsed }, "Cellcast rejected SMS");
+      logger.warn({ to: normalizedTo, response: parsed }, "Cellcast rejected SMS");
       return { ok: false, status: "failed", provider: "cellcast", error };
     }
 
     return { ok: true, status: "sent", provider: "cellcast" };
   } catch (err) {
-    logger.error({ err, to }, "Failed to send SMS via Cellcast");
+    logger.error({ err, to: normalizedTo }, "Failed to send SMS via Cellcast");
     return { ok: false, status: "failed", provider: "cellcast", error: "Cellcast failed to send SMS." };
   }
 }

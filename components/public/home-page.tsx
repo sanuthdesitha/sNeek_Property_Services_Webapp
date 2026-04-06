@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   ArrowRight,
   BadgeCheck,
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Leaf,
+  Loader2,
   MapPin,
   Quote,
   ShieldCheck,
@@ -27,7 +29,8 @@ import {
 } from "@/components/ui/accordion";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { WebsiteContent, WebsiteWhyItem } from "@/lib/public-site/content";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
+import type { ServiceSuburb } from "@/lib/public-site/suburbs";
 
 const WHATSAPP_HREF = "https://wa.me/61451217210";
 
@@ -67,15 +70,222 @@ const TRUST_PILLS = [
 
 const featuredServices = MARKETED_SERVICES.slice(0, 6);
 
-export function HomePage({ content }: { content: WebsiteContent }) {
+type QuoteEstimatorState = {
+  serviceType: string;
+  bedrooms: number;
+  bathrooms: number;
+};
+
+type LiveQuoteState = {
+  total: number;
+  subtotal: number;
+  pricingMode: "exact" | "fallback";
+  requiresAdminApproval: boolean;
+} | null;
+
+type AvailabilityState =
+  | { available?: boolean; nextSlot?: string | null; message?: string | null; error?: string | null }
+  | null;
+
+type GoogleReviewCard = {
+  author_name: string;
+  text: string;
+  rating: number;
+  relative_time_description?: string | null;
+};
+
+type GoogleReviewsState = {
+  rating: number | null;
+  user_ratings_total: number | null;
+  reviews: GoogleReviewCard[];
+  source?: string;
+} | null;
+
+function hasAvailabilityError(value: AvailabilityState) {
+  return Boolean(value && typeof value === "object" && "error" in value && value.error);
+}
+
+export function HomePage({
+  content,
+  latestBlogPosts = [],
+}: {
+  content: WebsiteContent;
+  latestBlogPosts?: Array<{
+    id: string;
+    slug: string;
+    title: string;
+    excerpt: string;
+    coverImageUrl: string | null;
+    publishedAt: string | Date | null;
+    updatedAt?: string | Date;
+    authorName?: string | null;
+  }>;
+}) {
   const faqPreview = content.faq?.items?.slice(0, 6) ?? [];
   const whyItems = content.whyChooseUs?.items ?? [];
   const galleryItems = content.gallery?.items ?? [];
   const partnerItems = content.partners?.items ?? [];
   const hasPartners = partnerItems.some((p) => p.name || p.logoUrl);
+  const estimatorOptions = useMemo(
+    () => MARKETED_SERVICES.filter((service) => service.autoPricingMode === "estimate"),
+    []
+  );
+  const [estimator, setEstimator] = useState<QuoteEstimatorState>(() => ({
+    serviceType: estimatorOptions[0]?.jobType ?? "GENERAL_CLEAN",
+    bedrooms: 2,
+    bathrooms: 1,
+  }));
+  const [liveQuote, setLiveQuote] = useState<LiveQuoteState>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [suburb, setSuburb] = useState("");
+  const [availability, setAvailability] = useState<AvailabilityState>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilitySuggestions, setAvailabilitySuggestions] = useState<ServiceSuburb[]>([]);
+  const [nextSlot, setNextSlot] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<GoogleReviewsState>(null);
+  const [compareIndex, setCompareIndex] = useState(-1);
+  const scrollRef = useScrollReveal();
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setQuoteLoading(true);
+      try {
+        const response = await fetch("/api/public/quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            serviceType: estimator.serviceType,
+            bedrooms: estimator.bedrooms,
+            bathrooms: estimator.bathrooms,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (response.ok) {
+          setLiveQuote({
+            total: Number(body.total ?? 0),
+            subtotal: Number(body.subtotal ?? 0),
+            pricingMode: body.pricingMode === "exact" ? "exact" : "fallback",
+            requiresAdminApproval: body.requiresAdminApproval !== false,
+          });
+        } else {
+          setLiveQuote(null);
+        }
+      } finally {
+        if (active) setQuoteLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [estimator.bathrooms, estimator.bedrooms, estimator.serviceType]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadLivePublicData() {
+      try {
+        const [slotRes, reviewRes] = await Promise.all([
+          fetch("/api/public/next-slot", { cache: "no-store" }),
+          fetch("/api/public/google-reviews", { cache: "no-store" }),
+        ]);
+        const slotBody = await slotRes.json().catch(() => ({}));
+        const reviewBody = await reviewRes.json().catch(() => ({}));
+        if (!active) return;
+        setNextSlot(typeof slotBody?.nextSlot === "string" ? slotBody.nextSlot : null);
+        setReviews({
+          rating:
+            typeof reviewBody?.rating === "number" ? reviewBody.rating : null,
+          user_ratings_total:
+            typeof reviewBody?.user_ratings_total === "number"
+              ? reviewBody.user_ratings_total
+              : null,
+          reviews: Array.isArray(reviewBody?.reviews) ? reviewBody.reviews.slice(0, 6) : [],
+          source: typeof reviewBody?.source === "string" ? reviewBody.source : undefined,
+        });
+      } catch {
+        if (!active) return;
+        setNextSlot(null);
+        setReviews(null);
+      }
+    }
+
+    loadLivePublicData();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const query = suburb.trim();
+    if (query.length < 2) {
+      setAvailabilitySuggestions([]);
+      return;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/public/availability/suggestions?q=${encodeURIComponent(query)}`, {
+          cache: "no-store",
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!active) return;
+        setAvailabilitySuggestions(Array.isArray(body?.items) ? body.items : []);
+      } catch {
+        if (!active) return;
+        setAvailabilitySuggestions([]);
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [suburb]);
+
+  const displayedTestimonials =
+    reviews?.reviews && reviews.reviews.length > 0
+      ? reviews.reviews.map((item) => ({
+          quote: item.text,
+          author: item.author_name,
+          meta: item.relative_time_description || "Google Review",
+          rating: item.rating,
+        }))
+      : content.home.testimonials.map((item) => ({ ...item, rating: 5 }));
+
+  async function handleAvailabilityCheck() {
+    if (!suburb.trim()) {
+      setAvailability({ error: "Enter your suburb to check availability." });
+      return;
+    }
+    setAvailabilityLoading(true);
+    try {
+      const response = await fetch(`/api/public/availability?suburb=${encodeURIComponent(suburb.trim())}`, {
+        cache: "no-store",
+      });
+      const body = await response.json().catch(() => ({}));
+      setAvailability(
+        response.ok
+          ? {
+              available: body.available !== false,
+              nextSlot: typeof body.nextSlot === "string" ? body.nextSlot : null,
+              message: typeof body.message === "string" ? body.message : null,
+            }
+          : {
+              error: body.error ?? "Could not check availability right now.",
+            }
+      );
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  }
 
   return (
-    <div>
+    <div ref={scrollRef as React.RefObject<HTMLDivElement>}>
       {/* ─────────────────────────────────────────────────
           SECTION 1 — HERO
       ───────────────────────────────────────────────── */}
@@ -120,6 +330,13 @@ export function HomePage({ content }: { content: WebsiteContent }) {
                 </Link>
               </Button>
             </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/6 px-3 py-1.5 font-medium text-primary">
+                <CheckCircle2 className="h-4 w-4" />
+                {nextSlot ? `Next available: ${nextSlot}` : "Next available slots refreshed live"}
+              </span>
+              <span className="text-muted-foreground">Fast quote for standard jobs. Tailored review for unusual scope.</span>
+            </div>
 
             {/* Stats */}
             <div className="grid gap-3 sm:grid-cols-3">
@@ -149,11 +366,11 @@ export function HomePage({ content }: { content: WebsiteContent }) {
                   onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; }}
                 />
                 {/* Floating trust pills over image */}
-                <div className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded-full bg-white/92 px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm">
+                <div className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 bg-white/96 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                   500+ Cleans Completed
                 </div>
-                <div className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-white/92 px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm">
+                <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 bg-white/96 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
                   <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                   4.9 Rated
                 </div>
@@ -186,6 +403,177 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       {/* ─────────────────────────────────────────────────
           SECTION 2 — TRUST STRIP (marquee)
       ───────────────────────────────────────────────── */}
+      <section className={`${PUBLIC_PAGE_CONTAINER} -mt-2 pb-4`}>
+        <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+          <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
+            <CardContent className="space-y-4 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Instant estimator</p>
+                  <h2 className="mt-1 text-xl font-semibold">Get a live price guide before you enquire.</h2>
+                </div>
+                <Badge variant="outline" className="rounded-full border-primary/20 bg-primary/6 text-primary">
+                  Estimate only
+                </Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="space-y-1.5 text-sm">
+                  <span className="text-muted-foreground">Service</span>
+                  <select
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+                    value={estimator.serviceType}
+                    onChange={(event) =>
+                      setEstimator((current) => ({ ...current, serviceType: event.target.value }))
+                    }
+                  >
+                    {estimatorOptions.map((service) => (
+                      <option key={service.jobType} value={service.jobType}>
+                        {service.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-sm">
+                  <span className="text-muted-foreground">Bedrooms</span>
+                  <select
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+                    value={estimator.bedrooms}
+                    onChange={(event) =>
+                      setEstimator((current) => ({ ...current, bedrooms: Number(event.target.value) }))
+                    }
+                  >
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <option key={`bed-${index + 1}`} value={index + 1}>
+                        {index + 1}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-sm">
+                  <span className="text-muted-foreground">Bathrooms</span>
+                  <select
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+                    value={estimator.bathrooms}
+                    onChange={(event) =>
+                      setEstimator((current) => ({ ...current, bathrooms: Number(event.target.value) }))
+                    }
+                  >
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <option key={`bath-${index + 1}`} value={index + 1}>
+                        {index + 1}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="rounded-[1.4rem] border border-primary/12 bg-primary/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Live result</p>
+                {quoteLoading ? (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Calculating estimate...
+                  </div>
+                ) : liveQuote ? (
+                  <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <p className="text-3xl font-semibold text-foreground">From ${liveQuote.total.toFixed(2)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        GST included. {liveQuote.pricingMode === "exact" ? "Matched from active pricing." : "Condition-based guide pending final review."}
+                      </p>
+                    </div>
+                    <Button asChild className="rounded-full">
+                      <Link href="/quote">Open full instant quote</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Choose the service and room counts above to load a live starting estimate.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
+            <CardContent className="space-y-4 p-6">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Availability checker</p>
+                <h2 className="mt-1 text-xl font-semibold">Check your suburb and see the next likely slot.</h2>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative flex-1">
+                  <input
+                    value={suburb}
+                    onChange={(event) => setSuburb(event.target.value)}
+                    placeholder="Enter suburb or postcode"
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary"
+                  />
+                  {availabilitySuggestions.length > 0 ? (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/70 bg-white shadow-[0_18px_48px_-28px_rgba(22,63,70,0.32)]">
+                      {availabilitySuggestions.map((item) => (
+                        <button
+                          key={`${item.slug}-${item.postcode}`}
+                          type="button"
+                          onClick={() => {
+                            setSuburb(item.name);
+                            setAvailabilitySuggestions([]);
+                          }}
+                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-primary/6"
+                        >
+                          <span className="font-medium text-foreground">
+                            {item.name} <span className="font-normal text-muted-foreground">{item.postcode}</span>
+                          </span>
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.coverage === "standard" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-900"}`}>
+                            {item.coverage === "standard" ? "Within 50km" : "Contact team"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  onClick={handleAvailabilityCheck}
+                  disabled={availabilityLoading}
+                  className="rounded-full"
+                >
+                  {availabilityLoading ? "Checking..." : "Check availability"}
+                </Button>
+              </div>
+              <div className="rounded-[1.4rem] border border-border/70 bg-muted/20 p-4">
+                {hasAvailabilityError(availability) ? (
+                  <p className="text-sm text-destructive">{availability?.error}</p>
+                ) : availability ? (
+                  <div className="space-y-2 text-sm">
+                    <p className={`font-medium ${availability?.available === false ? "text-amber-900" : "text-foreground"}`}>
+                      {availability?.message || "We cover your area and can review the next suitable window."}
+                    </p>
+                    {availability?.nextSlot ? (
+                      <p className="text-muted-foreground">Next likely slot: {availability.nextSlot}</p>
+                    ) : null}
+                    <p className="text-muted-foreground">
+                      {availability?.available === false
+                        ? "Your suburb is outside our main Parramatta service radius, so call or message the team for a manual availability check."
+                        : "If the job is urgent, use WhatsApp or call for the fastest response."}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Enter your suburb or postcode to check local coverage and likely next availability.
+                  </p>
+                )}
+              </div>
+              <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Good for short notice</p>
+                <p className="mt-1 text-sm text-amber-900">
+                  Airbnb turnovers, inspection prep, move cleans, and recovery work can be triaged quickly when you send the address and required outcome.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       <div className="public-section-full border-y border-primary/8 bg-primary/4 py-4 overflow-hidden">
         <div className="flex" aria-hidden="true">
           <div className="flex shrink-0 gap-4 animate-marquee pr-4">
@@ -212,7 +600,7 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       ───────────────────────────────────────────────── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-8 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
-          <div className="space-y-5 xl:sticky xl:top-28 xl:self-start">
+          <div className="scroll-reveal-left space-y-5 xl:sticky xl:top-28 xl:self-start">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Why clients book sNeek</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">{content.home.servicesTitle}</h2>
             <p className="text-sm leading-7 text-muted-foreground">{content.home.servicesIntro}</p>
@@ -221,8 +609,8 @@ export function HomePage({ content }: { content: WebsiteContent }) {
             </Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {content.home.serviceBenefits.map((card) => (
-              <Card key={card.id} className="overflow-hidden rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]">
+            {content.home.serviceBenefits.map((card, i) => (
+              <Card key={card.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} overflow-hidden rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]`}>
                 <img
                   src={card.imageUrl}
                   alt={card.imageAlt}
@@ -246,7 +634,7 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       <div className="public-section-full bg-primary/4">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           <div className="grid gap-10 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14 lg:items-start">
-            <div className="space-y-5">
+            <div className="scroll-reveal-left space-y-5">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Why choose sNeek</p>
               <h2 className="text-2xl font-semibold sm:text-3xl">
                 {content.whyChooseUs?.title ?? "The sNeek difference"}
@@ -265,8 +653,7 @@ export function HomePage({ content }: { content: WebsiteContent }) {
               {whyItems.map((item: WebsiteWhyItem, idx: number) => (
                 <div
                   key={item.id}
-                  className="animate-fade-up rounded-[1.6rem] border border-white/80 bg-white/80 p-5 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]"
-                  style={{ animationDelay: `${idx * 80}ms` }}
+                  className={`scroll-reveal scroll-delay-${[100, 200, 300, 400][idx % 4] ?? 100} rounded-[1.6rem] border border-white/80 bg-white/80 p-5 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
                 >
                   <div className={`mb-4 inline-flex rounded-2xl p-3 ${idx % 2 === 0 ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
                     <WhyIcon iconName={item.icon} className="h-5 w-5" />
@@ -328,7 +715,7 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       ───────────────────────────────────────────────── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-8 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
-          <div className="space-y-5 xl:sticky xl:top-28 xl:self-start">
+          <div className="scroll-reveal-left space-y-5 xl:sticky xl:top-28 xl:self-start">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Popular services</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">
               Book the clean you need now, then scale into recurring care.
@@ -374,34 +761,70 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       ───────────────────────────────────────────────── */}
       <div className="public-section-full bg-primary/3">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-          <div className="space-y-2 text-center">
+          <div className="scroll-reveal space-y-2 text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Our work</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">{content.gallery?.title ?? "Before &amp; after results"}</h2>
             <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">{content.gallery?.intro ?? "Real results from real jobs across residential, Airbnb, and specialty cleaning projects."}</p>
           </div>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
             {galleryItems.length > 0
-              ? galleryItems.slice(0, 6).map((item) => (
-                  <div key={item.id} className="group relative overflow-hidden rounded-[1.6rem] bg-muted shadow-sm">
-                    {item.imageUrl ? (
-                      <img
-                        src={item.imageUrl}
-                        alt={item.imageAlt || item.caption}
-                        className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        loading="lazy"
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      />
-                    ) : (
-                      <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
-                    )}
-                    <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/10 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                      <p className="text-sm font-semibold text-white">{item.caption}</p>
-                      {item.serviceType && (
-                        <span className="mt-1 w-fit rounded-full bg-white/20 px-2.5 py-0.5 text-xs text-white backdrop-blur-sm">{item.serviceType}</span>
+              ? galleryItems.slice(0, 6).map((item, index) => {
+                  const beforeUrl = item.beforeImageUrl || item.imageUrl;
+                  const afterUrl = item.afterImageUrl || item.imageUrl;
+                  const showingAfter = compareIndex === index;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="group relative overflow-hidden rounded-[1.6rem] bg-muted text-left shadow-sm"
+                      onClick={() => setCompareIndex((current) => (current === index ? -1 : index))}
+                    >
+                      {showingAfter ? (
+                        afterUrl ? (
+                          <img
+                            src={afterUrl}
+                            alt={item.imageAlt || item.caption}
+                            className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
+                        )
+                      ) : beforeUrl ? (
+                        <img
+                          src={beforeUrl}
+                          alt={item.imageAlt || item.caption}
+                          className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
                       )}
-                    </div>
-                  </div>
-                ))
+                      <div className="absolute left-4 top-4 inline-flex rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-foreground shadow-sm">
+                        {showingAfter ? "After" : "Before"}
+                      </div>
+                      <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/10 to-transparent p-4 opacity-100 transition-opacity duration-300">
+                        <p className="text-sm font-semibold text-white">{item.caption}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          {item.serviceType ? (
+                            <span className="w-fit rounded-full bg-white/20 px-2.5 py-0.5 text-xs text-white backdrop-blur-sm">{item.serviceType}</span>
+                          ) : null}
+                          {(item.beforeImageUrl || item.afterImageUrl) ? (
+                            <span className="w-fit rounded-full bg-black/35 px-2.5 py-0.5 text-xs text-white backdrop-blur-sm">
+                              Click to compare
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
               : Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="h-56 rounded-[1.6rem] bg-gradient-to-br from-muted/60 to-secondary/40 skeleton" />
                 ))}
@@ -460,17 +883,28 @@ export function HomePage({ content }: { content: WebsiteContent }) {
           SECTION 8/9 — TESTIMONIALS
       ───────────────────────────────────────────────── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="space-y-2 mb-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">What clients say</p>
-          <h2 className="text-2xl font-semibold sm:text-3xl">Don't just take our word for it.</h2>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div className="scroll-reveal space-y-2">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">What clients say</p>
+            <h2 className="text-2xl font-semibold sm:text-3xl">Trusted by clients across Sydney.</h2>
+          </div>
+          {reviews?.rating ? (
+            <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm shadow-sm">
+              <p className="font-semibold text-amber-900">
+                {reviews.rating.toFixed(1)} stars
+                {reviews.user_ratings_total ? ` from ${reviews.user_ratings_total}+ reviews` : ""}
+              </p>
+              <p className="text-amber-800">Live Google review snapshot</p>
+            </div>
+          ) : null}
         </div>
         <div className="grid gap-5 md:grid-cols-3">
-          {content.home.testimonials.map((item) => (
-            <Card key={`${item.author}-${item.meta}`} className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_14px_40px_-24px_rgba(22,63,70,0.32)] transition-transform duration-300 hover:-translate-y-1">
+          {displayedTestimonials.map((item, i) => (
+            <Card key={`${item.author}-${item.meta}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_14px_40px_-24px_rgba(22,63,70,0.32)] transition-transform duration-300 hover:-translate-y-1`}>
               <CardContent className="space-y-4 p-6">
                 {/* Stars */}
                 <div className="flex gap-0.5">
-                  {Array.from({ length: 5 }).map((_, i) => (
+                  {Array.from({ length: Math.max(1, Math.min(5, Number((item as any).rating ?? 5))) }).map((_, i) => (
                     <Star key={i} className="h-4 w-4 fill-amber-400 text-amber-400" />
                   ))}
                 </div>
@@ -488,11 +922,47 @@ export function HomePage({ content }: { content: WebsiteContent }) {
       {/* ─────────────────────────────────────────────────
           SECTION 9/10 — FAQ ACCORDION
       ───────────────────────────────────────────────── */}
+      {content.pageVisibility.blog !== false && latestBlogPosts.length > 0 ? (
+        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+          <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
+            <div className="scroll-reveal-left min-w-0 space-y-4">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Latest from the blog</p>
+              <h2 className="text-2xl font-semibold sm:text-3xl">Helpful cleaning, hosting, and property-care notes.</h2>
+              <p className="text-sm leading-7 text-muted-foreground">
+                Practical articles for owners, hosts, and property managers who want cleaner operations and fewer surprises.
+              </p>
+              <Button asChild variant="outline" className="rounded-full">
+                <Link href="/blog">Visit the blog</Link>
+              </Button>
+            </div>
+            <div className="min-w-0 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {latestBlogPosts.map((post, i) => (
+                <Link key={post.id} href={`/blog/${post.slug}`} className="group block min-w-0">
+                  <Card className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} h-full overflow-hidden rounded-[1.5rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)] sm:rounded-[1.8rem]`}>
+                    {post.coverImageUrl ? (
+                      <img src={post.coverImageUrl} alt={post.title} className="h-40 w-full object-cover sm:h-48" loading="lazy" />
+                    ) : null}
+                    <CardContent className="space-y-3 p-5 sm:p-6">
+                      <p className="line-clamp-2 text-base font-semibold group-hover:text-primary sm:text-lg">{post.title}</p>
+                      <p className="line-clamp-3 text-sm leading-6 text-muted-foreground sm:line-clamp-4">{post.excerpt}</p>
+                      <span className="inline-flex items-center text-sm font-medium text-primary">
+                        Read article
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </span>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {faqPreview.length > 0 && (
         <div className="public-section-full bg-primary/4">
           <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
             <div className="grid gap-10 xl:grid-cols-[360px_minmax(0,1fr)] xl:gap-14 xl:items-start">
-              <div className="space-y-4">
+              <div className="scroll-reveal-left space-y-4">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Frequently asked</p>
                 <h2 className="text-2xl font-semibold sm:text-3xl">{content.faq?.title ?? "Got questions?"}</h2>
                 <p className="text-sm leading-7 text-muted-foreground">{content.faq?.intro ?? "Everything you need to know before booking."}</p>
@@ -556,3 +1026,5 @@ export function HomePage({ content }: { content: WebsiteContent }) {
     </div>
   );
 }
+
+

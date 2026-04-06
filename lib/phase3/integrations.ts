@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { canUseNodePrisma } from "@/lib/database-runtime";
 
 const INTEGRATIONS_KEY = "phase3_integrations_v1";
 
@@ -17,11 +18,15 @@ export interface Phase3IntegrationsSettings {
     trackingCategory: string;
     contactFallbackEmail: string;
   };
+  googlePlaces: {
+    placeId: string;
+  };
 }
 
 export interface Phase3IntegrationsPatch {
   stripe?: Partial<Phase3IntegrationsSettings["stripe"]>;
   xero?: Partial<Phase3IntegrationsSettings["xero"]>;
+  googlePlaces?: Partial<Phase3IntegrationsSettings["googlePlaces"]>;
 }
 
 export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
@@ -38,6 +43,9 @@ export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
     defaultAccountCode: "200",
     trackingCategory: "Branch",
     contactFallbackEmail: "",
+  },
+  googlePlaces: {
+    placeId: "",
   },
 };
 
@@ -66,6 +74,10 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
   const xeroRaw =
     row.xero && typeof row.xero === "object" && !Array.isArray(row.xero)
       ? (row.xero as Record<string, unknown>)
+      : {};
+  const googlePlacesRaw =
+    row.googlePlaces && typeof row.googlePlaces === "object" && !Array.isArray(row.googlePlaces)
+      ? (row.googlePlaces as Record<string, unknown>)
       : {};
 
   return {
@@ -99,12 +111,29 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
           ? xeroRaw.contactFallbackEmail.trim().toLowerCase().slice(0, 200)
           : "",
     },
+    googlePlaces: {
+      placeId:
+        typeof googlePlacesRaw.placeId === "string"
+          ? googlePlacesRaw.placeId.trim().slice(0, 300)
+          : "",
+    },
   };
 }
 
 export async function getPhase3IntegrationsSettings() {
-  const row = await db.appSetting.findUnique({ where: { key: INTEGRATIONS_KEY } });
-  return sanitize(row?.value);
+  if (!canUseNodePrisma()) {
+    return DEFAULT_PHASE3_INTEGRATIONS;
+  }
+
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: INTEGRATIONS_KEY } });
+    return sanitize(row?.value);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[phase3/integrations] Falling back to defaults:", error);
+    }
+    return DEFAULT_PHASE3_INTEGRATIONS;
+  }
 }
 
 export async function savePhase3IntegrationsSettings(
@@ -116,6 +145,9 @@ export async function savePhase3IntegrationsSettings(
     ...patch,
     stripe: patch.stripe ? { ...current.stripe, ...patch.stripe } : current.stripe,
     xero: patch.xero ? { ...current.xero, ...patch.xero } : current.xero,
+    googlePlaces: patch.googlePlaces
+      ? { ...current.googlePlaces, ...patch.googlePlaces }
+      : current.googlePlaces,
   });
 
   await db.appSetting.upsert({

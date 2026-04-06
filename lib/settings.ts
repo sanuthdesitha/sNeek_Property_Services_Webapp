@@ -1,5 +1,6 @@
 import { JobType, Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { canUseNodePrisma } from "@/lib/database-runtime";
 import {
   getDefaultEmailTemplates,
   sanitizeEmailTemplates,
@@ -27,6 +28,7 @@ export interface ProfileEditPolicy {
 export interface ClientPortalVisibility {
   showProperties: boolean;
   showJobs: boolean;
+  showBooking: boolean;
   showCalendar: boolean;
   showReports: boolean;
   showInventory: boolean;
@@ -157,6 +159,8 @@ export interface QaAutomationSettings {
 
 export type PropertyFormTemplateOverrides = Record<string, Partial<Record<JobType, string>>>;
 
+export type PortalTheme = "dark" | "light" | "public";
+
 export interface AppSettings {
   companyName: string;
   projectName: string;
@@ -164,6 +168,7 @@ export interface AppSettings {
   accountsEmail: string;
   timezone: string;
   websiteContent: WebsiteContent;
+  portalTheme: PortalTheme;
   smsProvider: SmsProvider;
   reminder24hHours: number;
   reminder2hHours: number;
@@ -226,6 +231,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
   websiteContent: DEFAULT_WEBSITE_CONTENT,
+  portalTheme: "dark",
   smsProvider: "twilio",
   reminder24hHours: 24,
   reminder2hHours: 2,
@@ -263,6 +269,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   clientPortalVisibility: {
     showProperties: true,
     showJobs: true,
+    showBooking: true,
     showCalendar: true,
     showReports: true,
     showInventory: true,
@@ -428,6 +435,7 @@ function sanitizeClientPortalVisibility(
   return {
     showProperties: typeof row.showProperties === "boolean" ? row.showProperties : fallback.showProperties,
     showJobs: typeof row.showJobs === "boolean" ? row.showJobs : fallback.showJobs,
+    showBooking: typeof row.showBooking === "boolean" ? row.showBooking : fallback.showBooking,
     showCalendar: typeof row.showCalendar === "boolean" ? row.showCalendar : fallback.showCalendar,
     showReports: typeof row.showReports === "boolean" ? row.showReports : fallback.showReports,
     showInventory: typeof row.showInventory === "boolean" ? row.showInventory : fallback.showInventory,
@@ -830,6 +838,9 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).websiteContent,
       DEFAULT_SETTINGS.websiteContent
     ),
+    portalTheme: (parsed as any).portalTheme === "dark" || (parsed as any).portalTheme === "light" || (parsed as any).portalTheme === "public"
+      ? (parsed as any).portalTheme as PortalTheme
+      : DEFAULT_SETTINGS.portalTheme,
     smsProvider:
       parsed.smsProvider === "none" || parsed.smsProvider === "twilio" || parsed.smsProvider === "cellcast"
         ? parsed.smsProvider
@@ -917,7 +928,7 @@ function sanitizeSettings(input: unknown): AppSettings {
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  if (typeof process.env.DATABASE_URL !== "string" || process.env.DATABASE_URL.trim().length === 0) {
+  if (!canUseNodePrisma()) {
     return DEFAULT_SETTINGS;
   }
 

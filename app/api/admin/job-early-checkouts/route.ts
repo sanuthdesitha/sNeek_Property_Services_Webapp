@@ -11,7 +11,8 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 
 const createSchema = z.object({
   jobId: z.string().trim().min(1),
-  requestedStartTime: z.string().trim().regex(/^\d{2}:\d{2}$/).optional(),
+  requestType: z.enum(["EARLY_CHECKIN", "LATE_CHECKOUT"]),
+  requestedTime: z.string().trim().regex(/^\d{2}:\d{2}$/).optional(),
   note: z.string().trim().max(2000).optional(),
 });
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     const rows = await listEarlyCheckoutRequests({
       jobId: jobId || undefined,
       status:
-        statusRaw === "PENDING" || statusRaw === "ACKNOWLEDGED" || statusRaw === "CANCELLED"
+        statusRaw === "PENDING" || statusRaw === "APPROVED" || statusRaw === "DECLINED" || statusRaw === "CANCELLED"
           ? statusRaw
           : undefined,
     });
@@ -43,10 +44,12 @@ export async function POST(req: NextRequest) {
     const job = await db.job.findUnique({
       where: { id: body.jobId },
       select: {
-        id: true,
-        jobNumber: true,
-        propertyId: true,
-        property: { select: { name: true } },
+      id: true,
+      jobNumber: true,
+      propertyId: true,
+      startTime: true,
+      dueTime: true,
+      property: { select: { name: true } },
         assignments: {
           where: { removedAt: null },
           select: {
@@ -63,7 +66,8 @@ export async function POST(req: NextRequest) {
       jobId: job.id,
       propertyId: job.propertyId,
       requestedById: session.user.id,
-      requestedStartTime: body.requestedStartTime,
+      requestType: body.requestType,
+      requestedTime: body.requestedTime,
       note: body.note,
     });
 
@@ -75,31 +79,36 @@ export async function POST(req: NextRequest) {
       const detail = [
         job.jobNumber ? `${job.jobNumber}` : null,
         job.property.name,
-        body.requestedStartTime ? `Requested start ${body.requestedStartTime}` : null,
+        body.requestType === "LATE_CHECKOUT"
+          ? `Late checkout until ${body.requestedTime || job.startTime || "time TBD"}`
+          : `Early check-in due by ${body.requestedTime || job.dueTime || "time TBD"}`,
         body.note?.trim() || null,
       ]
         .filter(Boolean)
         .join(" | ");
+      const reviewUrl = `${req.nextUrl.origin}/cleaner/jobs/${job.id}?timingRequest=${created.id}`;
 
       await deliverNotificationToRecipients({
         recipients: cleanerRecipients,
         category: "jobs",
         jobId: job.id,
         web: {
-          subject: "Early checkout update requested",
+          subject: "Timing update approval requested",
           body: detail,
         },
         email: {
-          subject: `Early checkout update requested - ${job.jobNumber || job.property.name}`,
+          subject: `Timing update approval requested - ${job.jobNumber || job.property.name}`,
           html: `
             <p>Hello,</p>
-            <p>An early checkout update was requested for <strong>${job.property.name}</strong>.</p>
-            ${body.requestedStartTime ? `<p><strong>Requested earlier start:</strong> ${body.requestedStartTime}</p>` : ""}
+            <p>An admin timing update needs your approval for <strong>${job.property.name}</strong>.</p>
+            <p><strong>Update type:</strong> ${body.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}</p>
+            ${body.requestedTime ? `<p><strong>Requested time:</strong> ${body.requestedTime}</p>` : ""}
             ${body.note?.trim() ? `<p><strong>Admin note:</strong> ${body.note.trim().replace(/</g, "&lt;")}</p>` : ""}
+            <p><a href="${reviewUrl}">Review and respond</a></p>
           `,
           logBody: detail,
         },
-        sms: detail,
+        sms: `${detail} Review: ${reviewUrl}`,
       });
     }
 

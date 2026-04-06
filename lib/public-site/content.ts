@@ -51,6 +51,8 @@ export interface WebsiteGalleryItem {
   imageAlt: string;
   caption: string;
   serviceType: string;
+  beforeImageUrl?: string;
+  afterImageUrl?: string;
 }
 
 export interface WebsiteServicePage {
@@ -75,8 +77,33 @@ export interface WebsiteAnnouncementBar {
   showEmail: boolean;
 }
 
+export interface WebsitePageVisibility {
+  home: boolean;
+  services: boolean;
+  whyUs: boolean;
+  airbnbHosting: boolean;
+  subscriptions: boolean;
+  compareServices: boolean;
+  blog: boolean;
+  careers: boolean;
+  faq: boolean;
+  contact: boolean;
+  quote: boolean;
+  terms: boolean;
+  privacy: boolean;
+}
+
+export interface WebsiteMaintenanceMode {
+  enabled: boolean;
+  allowLogin: boolean;
+  message: string;
+  supportMessage: string;
+}
+
 export interface WebsiteContent {
   announcementBar: WebsiteAnnouncementBar;
+  pageVisibility: WebsitePageVisibility;
+  maintenanceMode: WebsiteMaintenanceMode;
   home: {
     eyebrow: string;
     title: string;
@@ -197,14 +224,35 @@ const BLANK_SERVICE_PAGE: WebsiteServicePage = {
 export const DEFAULT_WEBSITE_CONTENT: WebsiteContent = {
   announcementBar: {
     enabled: true,
-    promoMessage: "",
-    promoLink: "",
-    promoLinkLabel: "Book now →",
+    promoMessage: "✨ Serving Parramatta & Greater Sydney — Book your clean today and get a free property assessment",
+    promoLink: "/quote",
+    promoLinkLabel: "Get instant quote →",
     bgStyle: "subtle",
     showPhone: true,
     showLocation: true,
     showHours: true,
     showEmail: true,
+  },
+  pageVisibility: {
+    home: true,
+    services: true,
+    whyUs: true,
+    airbnbHosting: true,
+    subscriptions: true,
+    compareServices: true,
+    blog: true,
+    careers: true,
+    faq: true,
+    contact: true,
+    quote: true,
+    terms: true,
+    privacy: true,
+  },
+  maintenanceMode: {
+    enabled: false,
+    allowLogin: true,
+    message: "We are making a few updates to the website right now.",
+    supportMessage: "If you need an urgent clean, turnover, or booking update, call or message the sNeek team directly.",
   },
   home: {
     eyebrow: "Parramatta & Greater Sydney",
@@ -1094,6 +1142,16 @@ function sanitizeGalleryItems(value: unknown, fallback: WebsiteGalleryItem[]) {
       imageAlt: sanitizeText((row as any)?.imageAlt, fallback[index]?.imageAlt ?? "", 240),
       caption: sanitizeText((row as any)?.caption, fallback[index]?.caption ?? "", 300),
       serviceType: sanitizeText((row as any)?.serviceType, fallback[index]?.serviceType ?? "", 120),
+      beforeImageUrl: sanitizeText(
+        (row as any)?.beforeImageUrl,
+        (fallback[index]?.beforeImageUrl as string | undefined) ?? "",
+        2000
+      ),
+      afterImageUrl: sanitizeText(
+        (row as any)?.afterImageUrl,
+        (fallback[index]?.afterImageUrl as string | undefined) ?? "",
+        2000
+      ),
     }));
   return rows.length > 0 ? rows : fallback;
 }
@@ -1154,6 +1212,41 @@ function sanitizeAnnouncementBar(value: unknown, fallback: WebsiteAnnouncementBa
   };
 }
 
+function sanitizePageVisibility(value: unknown, fallback: WebsitePageVisibility): WebsitePageVisibility {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    home: sanitizeBoolean(source.home, fallback.home),
+    services: sanitizeBoolean(source.services, fallback.services),
+    whyUs: sanitizeBoolean(source.whyUs, fallback.whyUs),
+    airbnbHosting: sanitizeBoolean(source.airbnbHosting, fallback.airbnbHosting),
+    subscriptions: sanitizeBoolean(source.subscriptions, fallback.subscriptions),
+    compareServices: sanitizeBoolean(source.compareServices, fallback.compareServices),
+    blog: sanitizeBoolean(source.blog, fallback.blog),
+    careers: sanitizeBoolean(source.careers, fallback.careers),
+    faq: sanitizeBoolean(source.faq, fallback.faq),
+    contact: sanitizeBoolean(source.contact, fallback.contact),
+    quote: sanitizeBoolean(source.quote, fallback.quote),
+    terms: sanitizeBoolean(source.terms, fallback.terms),
+    privacy: sanitizeBoolean(source.privacy, fallback.privacy),
+  };
+}
+
+function sanitizeMaintenanceMode(value: unknown, fallback: WebsiteMaintenanceMode): WebsiteMaintenanceMode {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    enabled: sanitizeBoolean(source.enabled, fallback.enabled),
+    allowLogin: sanitizeBoolean(source.allowLogin, fallback.allowLogin),
+    message: sanitizeText(source.message, fallback.message, 240),
+    supportMessage: sanitizeText(source.supportMessage, fallback.supportMessage, 500),
+  };
+}
+
 export function sanitizeWebsiteContent(input: unknown, fallback: WebsiteContent = DEFAULT_WEBSITE_CONTENT): WebsiteContent {
   if (!input || typeof input !== "object") return fallback;
   const value = input as Record<string, any>;
@@ -1173,6 +1266,8 @@ export function sanitizeWebsiteContent(input: unknown, fallback: WebsiteContent 
 
   return {
     announcementBar: sanitizeAnnouncementBar(value.announcementBar, fallback.announcementBar),
+    pageVisibility: sanitizePageVisibility(value.pageVisibility, fallback.pageVisibility),
+    maintenanceMode: sanitizeMaintenanceMode(value.maintenanceMode, fallback.maintenanceMode),
     home: {
       eyebrow: sanitizeText(home.eyebrow, fallback.home.eyebrow, 120),
       title: sanitizeText(home.title, fallback.home.title, 240),

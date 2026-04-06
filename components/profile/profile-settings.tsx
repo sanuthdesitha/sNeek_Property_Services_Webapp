@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { Moon, Sun, Palette } from "lucide-react";
+import type { PortalTheme } from "@/lib/settings";
 
 interface ProfilePayload {
   user: {
@@ -60,6 +63,7 @@ export function ProfileSettings() {
     pin: "",
     confirmPin: "",
   });
+  const [portalTheme, setPortalTheme] = useState<PortalTheme>("light");
 
   async function load() {
     setLoading(true);
@@ -83,6 +87,10 @@ export function ProfileSettings() {
 
   useEffect(() => {
     load();
+    const saved = localStorage.getItem("portal-theme-override") as PortalTheme | null;
+    if (saved === "dark" || saved === "light" || saved === "public") {
+      setPortalTheme(saved);
+    }
   }, []);
 
   useEffect(() => {
@@ -435,6 +443,48 @@ export function ProfileSettings() {
             <Button onClick={changePassword} disabled={savingPassword}>
               {savingPassword ? "Updating..." : "Update password"}
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Appearance</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Choose your preferred portal theme. This setting is saved in your browser.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                { value: "dark" as PortalTheme, label: "Dark", description: "Charcoal & teal — low-light mode", Icon: Moon },
+                { value: "light" as PortalTheme, label: "Light", description: "Clean white brand colours", Icon: Sun },
+                { value: "public" as PortalTheme, label: "Match Site", description: "Teal sidebar, light content", Icon: Palette },
+              ] as const
+            ).map(({ value, label, description, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setPortalTheme(value);
+                  localStorage.setItem("portal-theme-override", value);
+                  // Propagate to the live portal shell by dispatching a storage event
+                  window.dispatchEvent(new StorageEvent("storage", { key: "portal-theme-override", newValue: value }));
+                  toast({ title: `Theme set to ${label}` });
+                }}
+                className={cn(
+                  "flex flex-col items-start gap-1.5 rounded-xl border-2 p-4 text-left transition-all",
+                  portalTheme === value
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : "border-border hover:border-primary/40"
+                )}
+              >
+                <Icon className={cn("h-5 w-5", portalTheme === value ? "text-primary" : "text-muted-foreground")} />
+                <span className="text-sm font-semibold">{label}</span>
+                <span className="text-xs text-muted-foreground">{description}</span>
+              </button>
+            ))}
           </div>
         </CardContent>
       </Card>

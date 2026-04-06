@@ -16,11 +16,17 @@ import {
   buildGoogleMapsDirectionsUrl,
   compareCleanerJobsBySchedule,
 } from "@/lib/jobs/schedule-order";
+import {
+  formatAssignmentResponseLabel,
+  formatJobStatusLabel,
+} from "@/lib/jobs/assignment-workflow";
+import { CleanerJobOfferActions } from "@/components/cleaner/job-offer-actions";
 
 const TZ = "Australia/Sydney";
 
 const STATUS_BADGE: Record<string, any> = {
   UNASSIGNED: "warning",
+  OFFERED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
   PAUSED: "warning",
@@ -67,7 +73,7 @@ export default async function CleanerJobsPage({
   const now = new Date();
 
   const where: any = {
-    assignments: { some: { userId: session.user.id } },
+    assignments: { some: { userId: session.user.id, removedAt: null } },
   };
 
   if (status !== "ALL") where.status = status;
@@ -109,8 +115,8 @@ export default async function CleanerJobsPage({
       property: { select: { name: true, suburb: true, address: true } },
       report: { select: { id: true } },
       assignments: {
-        where: { userId: session.user.id },
-        select: { payRate: true },
+        where: { userId: session.user.id, removedAt: null },
+        select: { payRate: true, responseStatus: true },
         take: 1,
       },
     },
@@ -151,7 +157,7 @@ export default async function CleanerJobsPage({
 
   const total = sortedJobs.length;
   const completedCount = sortedJobs.filter((j) => ["COMPLETED", "INVOICED"].includes(j.status)).length;
-  const activeCount = sortedJobs.filter((j) => ["ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"].includes(j.status)).length;
+  const activeCount = sortedJobs.filter((j) => ["OFFERED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"].includes(j.status)).length;
 
   return (
     <div className="space-y-5">
@@ -259,6 +265,7 @@ export default async function CleanerJobsPage({
                 const hasCleanerNotes = Boolean(
                   jobMeta.internalNoteText && jobMeta.internalNoteText.trim()
                 );
+                const assignmentResponseStatus = job.assignments[0]?.responseStatus ?? null;
                 return (
                   <div key={job.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
@@ -310,10 +317,16 @@ export default async function CleanerJobsPage({
                           ) : null}
                         </div>
                       ) : null}
+                      {assignmentResponseStatus === "PENDING" ? (
+                        <div className="mt-2 space-y-2">
+                          <Badge variant="warning">{formatAssignmentResponseLabel(assignmentResponseStatus)}</Badge>
+                          <CleanerJobOfferActions jobId={job.id} responseStatus={assignmentResponseStatus} compact />
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
-                        {job.status.replace(/_/g, " ")}
+                        {formatJobStatusLabel(job.status)}
                       </Badge>
                       {mapsUrl ? (
                         <Button size="sm" variant="outline" asChild>

@@ -18,14 +18,14 @@ export default async function ClientLayout({ children }: { children: React.React
       portalLabel="Client Portal"
       portalTitle="Properties, reports, and service updates"
       settingsHref="/client/settings"
-      maxWidthClass="max-w-6xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
-      hideHeaderOnScroll
+      portalTheme={settings.portalTheme}
       navItems={[
         { href: "/client", label: "Dashboard", exact: true },
         ...(visibility.showProperties ? [{ href: "/client/properties", label: "Properties" }] : []),
         ...(visibility.showJobs ? [{ href: "/client/jobs", label: "Jobs" }] : []),
+        ...(visibility.showBooking ? [{ href: "/client/booking", label: "Booking" }] : []),
         ...(visibility.showCalendar ? [{ href: "/client/calendar", label: "Calendar" }] : []),
         ...(visibility.showLaundryUpdates ? [{ href: "/client/laundry", label: "Laundry" }] : []),
         ...(visibility.showInventory ? [{ href: "/client/inventory", label: "Inventory" }] : []),
@@ -34,6 +34,8 @@ export default async function ClientLayout({ children }: { children: React.React
           ? [{ href: "/client/stock-runs", label: "Stock Counts" }]
           : []),
         ...(visibility.showFinanceDetails ? [{ href: "/client/finance", label: "Finance" }] : []),
+        { href: "/client/messages", label: "Messages" },
+        { href: "/client/referrals", label: "Rewards" },
         ...(visibility.showReports ? [{ href: "/client/reports", label: "Reports" }] : []),
         ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Quotes" }] : []),
         ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),

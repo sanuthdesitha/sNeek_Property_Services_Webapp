@@ -186,6 +186,10 @@ export default function LaundryPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false);
   const [replacingConfirmationId, setReplacingConfirmationId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [propertyFilter, setPropertyFilter] = useState<string>("ALL");
+  const [clientFilter, setClientFilter] = useState<string>("ALL");
   const [editForm, setEditForm] = useState({
     pickupDate: "",
     dropoffDate: "",
@@ -263,6 +267,19 @@ export default function LaundryPage() {
           id: task.property.id,
           name: task.property.name,
           suburb: task.property.suburb,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasks]);
+
+  const clientOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    for (const task of tasks) {
+      if (task?.property?.client?.id && !map.has(task.property.client.id)) {
+        map.set(task.property.client.id, {
+          id: task.property.client.id,
+          name: task.property.client.name || task.property.client.email || "Client",
         });
       }
     }
@@ -585,7 +602,37 @@ export default function LaundryPage() {
     fetchTasks();
   }
 
-  const confirmedTasks = tasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP");
+  const filteredTasks = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    return tasks.filter((task) => {
+      if (statusFilter !== "ALL" && task.status !== statusFilter) return false;
+      if (propertyFilter !== "ALL" && task?.property?.id !== propertyFilter) return false;
+      if (clientFilter !== "ALL" && task?.property?.client?.id !== clientFilter) return false;
+      if (!needle) return true;
+      const searchable = [
+        task?.property?.name,
+        task?.property?.suburb,
+        task?.property?.client?.name,
+        task?.property?.client?.email,
+        task?.flagNotes,
+        task?.skipReasonNote,
+        task?.adminOverrideNote,
+        task?.skipReasonCode,
+        task?.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(needle);
+    });
+  }, [clientFilter, propertyFilter, searchQuery, statusFilter, tasks]);
+
+  const filteredAlerts = useMemo(() => {
+    const filteredIds = new Set(filteredTasks.map((task) => task.id));
+    return alerts.filter((alert) => filteredIds.has(alert.id));
+  }, [alerts, filteredTasks]);
+
+  const confirmedTasks = filteredTasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP");
 
   return (
     <div className="space-y-6">
@@ -610,17 +657,17 @@ export default function LaundryPage() {
         </div>
       </div>
 
-      {alerts.length > 0 && (
-        <Card className="border-destructive/50 bg-destructive/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm text-destructive">
-              <AlertTriangle className="h-4 w-4" />
-              {alerts.length} flagged laundry task{alerts.length > 1 ? "s" : ""} needing attention
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="rounded-md border bg-background p-3 text-sm">
+        {filteredAlerts.length > 0 && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                {filteredAlerts.length} flagged laundry task{filteredAlerts.length > 1 ? "s" : ""} needing attention
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {filteredAlerts.map((alert) => (
+                <div key={alert.id} className="rounded-md border bg-background p-3 text-sm">
                 {(() => {
                   const pendingFailedPickup = getPendingFailedPickupRequest(alert);
                   const requestedAction = String(pendingFailedPickup?.requestedAction ?? "");
@@ -686,7 +733,88 @@ export default function LaundryPage() {
             ))}
           </CardContent>
         </Card>
-      )}
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Filter Laundry Tasks</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="space-y-1.5 xl:col-span-2">
+              <Label>Search</Label>
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Property, suburb, client, notes, skip reason"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  {Object.keys(STATUS_COLORS).map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Property</Label>
+              <Select value={propertyFilter} onValueChange={setPropertyFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All properties</SelectItem>
+                  {propertyOptions.map((property) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Client</Label>
+              <Select value={clientFilter} onValueChange={setClientFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All clients</SelectItem>
+                  {clientOptions.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:col-span-2 xl:col-span-5 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              <span>
+                Showing {filteredTasks.length} of {tasks.length} task{tasks.length === 1 ? "" : "s"}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setStatusFilter("ALL");
+                  setPropertyFilter("ALL");
+                  setClientFilter("ALL");
+                }}
+              >
+                Clear filters
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
       {pendingSyncDraft && pendingSyncDraft.itemCount > 0 ? (
         <Card className="border-amber-300 bg-amber-50/70">
@@ -906,7 +1034,9 @@ export default function LaundryPage() {
         </CardHeader>
         <CardContent>
           {confirmedTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No confirmed pickups this week.</p>
+            <p className="text-sm text-muted-foreground">
+              {tasks.length === 0 ? "No confirmed pickups this week." : "No confirmed pickups matched the current filters."}
+            </p>
           ) : (
             <div className="space-y-2">
               {confirmedTasks.map((task) => (
@@ -1019,11 +1149,13 @@ export default function LaundryPage() {
           <CardTitle className="text-base">Week Schedule</CardTitle>
         </CardHeader>
         <CardContent>
-          {tasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No laundry tasks this week. Generate plan first.</p>
+          {filteredTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {tasks.length === 0 ? "No laundry tasks this week. Generate plan first." : "No laundry tasks matched the current filters."}
+            </p>
           ) : (
             <div className="space-y-2">
-              {tasks.map((task) => (
+              {filteredTasks.map((task) => (
                 <div key={task.id} className="rounded-md border p-3 text-sm">
                   {(() => {
                     const cleanerConfirmation = getCleanerLaundryConfirmation(task);

@@ -6,6 +6,7 @@ import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/
 
 const STATUS_COLORS: Record<string, { border: string; bg: string; label: string }> = {
   UNASSIGNED: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "UNASSIGNED" },
+  OFFERED: { border: "#d97706", bg: "rgba(217,119,6,0.14)", label: "AWAITING CONFIRMATION" },
   ASSIGNED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "ASSIGNED" },
   IN_PROGRESS: { border: "#0f766e", bg: "rgba(15,118,110,0.14)", label: "IN PROGRESS" },
   PAUSED: { border: "#d97706", bg: "rgba(217,119,6,0.16)", label: "PAUSED" },
@@ -22,7 +23,7 @@ export default async function CleanerCalendarPage() {
 
   const jobs = await db.job.findMany({
     where: {
-      assignments: { some: { userId: session.user.id } },
+      assignments: { some: { userId: session.user.id, removedAt: null } },
     },
     select: {
       id: true,
@@ -32,6 +33,11 @@ export default async function CleanerCalendarPage() {
       startTime: true,
       endTime: true,
       dueTime: true,
+      assignments: {
+        where: { userId: session.user.id, removedAt: null },
+        select: { responseStatus: true },
+        take: 1,
+      },
       property: { select: { name: true, suburb: true } },
     },
     orderBy: [{ scheduledDate: "asc" }],
@@ -54,10 +60,11 @@ export default async function CleanerCalendarPage() {
       borderColor: colors.border,
       textColor: "#0f172a",
       extendedProps: {
-        badgeLabel: job.status.replace(/_/g, " "),
+        badgeLabel: colors.label,
         subtitle: job.jobType.replace(/_/g, " "),
         meta: [job.property.suburb, job.startTime, job.dueTime].filter(Boolean).join(" | "),
         href: `/cleaner/jobs/${job.id}`,
+        assignmentResponseStatus: job.assignments[0]?.responseStatus ?? null,
       },
     };
   });
@@ -69,6 +76,7 @@ export default async function CleanerCalendarPage() {
       events={events}
       legendItems={Object.values(STATUS_COLORS).map((item) => ({ label: item.label.replace(/_/g, " "), color: item.border }))}
       emptyMessage="No assigned jobs available on your calendar."
+      viewPreferenceKey="sneek_cleaner_calendar_view_v1"
     />
   );
 }

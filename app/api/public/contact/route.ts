@@ -36,6 +36,8 @@ const serviceTypeMap: Record<z.infer<typeof contactSchema>["inquiryType"], Marke
   "custom-project": "GENERAL_CLEAN",
 };
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const body = contactSchema.parse(await req.json());

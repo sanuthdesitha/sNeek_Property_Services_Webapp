@@ -19,9 +19,29 @@ const campaignSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+function buildCampaignValidationResponse(result: z.SafeParseError<unknown>) {
+  const flattened = result.error.flatten();
+  const fieldErrorEntries = Object.entries(flattened.fieldErrors as Record<string, string[] | undefined>);
+  const fieldErrors = Object.fromEntries(
+    fieldErrorEntries.map(([key, value]) => [key, value?.[0] ?? null])
+  );
+  return NextResponse.json(
+    {
+      error: "Please correct the campaign details and try again.",
+      fieldErrors,
+    },
+    { status: 400 }
+  );
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   await requireRole([Role.ADMIN]);
-  const body = campaignSchema.parse(await req.json());
+  const payload = await req.json();
+  const parsed = campaignSchema.safeParse(payload);
+  if (!parsed.success) {
+    return buildCampaignValidationResponse(parsed);
+  }
+  const body = parsed.data;
   const current = await getMarketingCampaigns();
   const index = current.findIndex((campaign) => campaign.id === params.id);
   if (index < 0) {

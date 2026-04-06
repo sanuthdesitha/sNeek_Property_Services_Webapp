@@ -48,3 +48,26 @@ export function buildGoogleMapsDirectionsUrl(input: {
   const query = encodeURIComponent(parts.join(", "));
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
+
+export function buildGoogleMapsMultiStopUrl(addresses: Array<string | null | undefined>) {
+  const clean = addresses
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (clean.length === 0) return null;
+  if (clean.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clean[0])}`;
+  }
+  const origin = clean[0];
+  const destination = clean[clean.length - 1];
+  const waypoints = clean.slice(1, -1).slice(0, 8);
+  const params = new URLSearchParams({
+    api: "1",
+    origin,
+    destination,
+    travelmode: "driving",
+  });
+  if (waypoints.length > 0) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}

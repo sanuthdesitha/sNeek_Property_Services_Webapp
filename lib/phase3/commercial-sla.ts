@@ -305,7 +305,7 @@ export async function evaluateCommercialSla(input?: {
         const delay = Math.round((startedAt.getTime() - scheduledStartAt.getTime()) / 60_000);
         startDelayMinutes = delay;
         if (delay > rule.maxStartDelayMinutes) breachTypes.push("START_DELAY");
-      } else if (scheduledStartAt && job.status !== JobStatus.UNASSIGNED && job.status !== JobStatus.ASSIGNED) {
+      } else if (scheduledStartAt && job.status !== JobStatus.UNASSIGNED && job.status !== JobStatus.OFFERED && job.status !== JobStatus.ASSIGNED) {
         // Job progressed without logged start; treat as unknown start breach candidate.
         const delay = Math.round((now.getTime() - scheduledStartAt.getTime()) / 60_000);
         startDelayMinutes = delay;
@@ -376,4 +376,3 @@ export async function evaluateCommercialSla(input?: {
     breaches,
   };
 }
-

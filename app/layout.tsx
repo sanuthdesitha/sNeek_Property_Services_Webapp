@@ -3,7 +3,10 @@ import { kickWebScheduledOps } from "@/lib/ops/web-scheduler";
 import "./globals.css";
 import { Providers } from "./providers";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "sNeek Property Services",
     template: "%s | sNeek Property Services",
@@ -11,9 +14,12 @@ export const metadata: Metadata = {
   description: "Professional cleaning, Airbnb turnovers, property reports, laundry coordination, and practical property support across Sydney.",
   manifest: "/manifest.json",
   icons: {
-    icon: [{ url: "/icon", type: "image/svg+xml", sizes: "64x64" }],
-    apple: [{ url: "/icon", type: "image/svg+xml", sizes: "64x64" }],
-    shortcut: ["/icon"],
+    icon: [
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/icon-192.png", type: "image/png", sizes: "192x192" }],
+    shortcut: ["/icon-192.png"],
   },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "sNeek Property Services" },
 };

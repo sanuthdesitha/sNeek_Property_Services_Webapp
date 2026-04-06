@@ -18,6 +18,7 @@ export default async function ClientJobsPage() {
       jobs={jobs}
       showCleanerNames={portal.visibility.showCleanerNames}
       showClientTaskRequests={portal.visibility.showClientTaskRequests}
+      showLaundryUpdates={portal.visibility.showLaundryUpdates}
     />
   );
 }

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { WorkforcePostCard } from "@/components/workforce/workforce-post-card";
+import { WorkforceHubTabNav } from "@/components/workforce/hub-tab-nav";
 
 function splitCsv(value: string) {
   return Array.from(new Set(value.split(",").map((item) => item.trim()).filter(Boolean)));
@@ -478,6 +479,18 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
       }),
     [data, docFilters]
   );
+  const hubTabs = useMemo(
+    () => [
+      { value: "groups", label: "Groups" },
+      { value: "updates", label: "Updates" },
+      { value: "chat", label: "Chat" },
+      { value: "learning", label: "Learning" },
+      { value: "documents", label: "Documents" },
+      { value: "recognition", label: "Recognition" },
+      { value: "hiring", label: "Hiring" },
+    ],
+    []
+  );
   const hiringStatuses = ["NEW", "SCREENING", "INTERVIEW", "OFFER", "HIRED", "REJECTED", "WITHDRAWN"];
 
   if (loading) {
@@ -504,15 +517,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
-        <TabsList className="flex w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-          <TabsTrigger value="groups">Groups</TabsTrigger>
-          <TabsTrigger value="updates">Updates</TabsTrigger>
-          <TabsTrigger value="chat">Chat</TabsTrigger>
-          <TabsTrigger value="learning">Learning</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="recognition">Recognition</TabsTrigger>
-          <TabsTrigger value="hiring">Hiring</TabsTrigger>
-        </TabsList>
+        <WorkforceHubTabNav tabs={hubTabs} activeTab={selectedTab} onChange={setSelectedTab} />
         <TabsContent value="groups" className="grid gap-4 xl:grid-cols-[440px,1fr]">
           <Card>
             <CardHeader>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import { ClientImage, ClientImageCover } from "@/components/public/client-image";
 
 interface AirbnbHostingPageProps {
@@ -132,3 +132,4 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
     </div>
   );
 }
+

@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 type Summary = {
   start: string;
@@ -73,6 +74,15 @@ export default function FinancePage() {
         <p className="text-sm text-muted-foreground">
           Revenue, operational costs, and gross margin by client.
         </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" asChild>
+          <Link href="/admin/finance/dashboard">Open analytics</Link>
+        </Button>
+        <Button asChild>
+          <Link href="/admin/finance/payroll">Open payroll</Link>
+        </Button>
       </div>
 
       <Card>

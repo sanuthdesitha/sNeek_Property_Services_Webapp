@@ -7,6 +7,8 @@ import { getAppSettings } from "@/lib/settings";
 import { leadSchema } from "@/lib/validations/quote";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const body = leadSchema.parse(await req.json());

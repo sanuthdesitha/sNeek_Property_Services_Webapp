@@ -4,6 +4,7 @@ import { getAppSettings } from "@/lib/settings";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
+  JobStatus.OFFERED,
   JobStatus.ASSIGNED,
   JobStatus.IN_PROGRESS,
   JobStatus.SUBMITTED,

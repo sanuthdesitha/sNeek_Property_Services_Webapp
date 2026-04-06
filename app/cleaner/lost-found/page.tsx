@@ -13,7 +13,7 @@ export default async function CleanerLostFoundRoutePage() {
   const session = await requireRole([Role.CLEANER]);
   const jobs = await db.job.findMany({
     where: {
-      assignments: { some: { userId: session.user.id } },
+      assignments: { some: { userId: session.user.id, removedAt: null } },
     },
     include: { property: { select: { name: true } } },
     orderBy: { scheduledDate: "desc" },

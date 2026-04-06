@@ -5,6 +5,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
+  JobStatus.OFFERED,
   JobStatus.ASSIGNED,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
@@ -151,11 +152,12 @@ export async function getClientPropertyDetailForUser(
       inventoryEnabled: true,
       notes: true,
       accessInfo: true,
+      preferredCleanerUserId: true,
     },
   });
   if (!property) return null;
 
-  const [reports, jobs, laundryTasks, stocks, checklistTemplates, jobTasks] = await Promise.all([
+  const [reports, jobs, laundryTasks, stocks, checklistTemplates, jobTasks, conditionTimeline, preferredCleanerOptions] = await Promise.all([
     visibility.showReports
       ? db.report.findMany({
           where: {
@@ -286,6 +288,61 @@ export async function getClientPropertyDetailForUser(
           take: 20,
         })
       : Promise.resolve([]),
+    visibility.showReports
+      ? db.submissionMedia.findMany({
+          where: {
+            submission: {
+              job: {
+                propertyId,
+                status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+              },
+            },
+          },
+          select: {
+            id: true,
+            mediaType: true,
+            url: true,
+            createdAt: true,
+            label: true,
+            submission: {
+              select: {
+                createdAt: true,
+                job: {
+                  select: {
+                    id: true,
+                    jobNumber: true,
+                    jobType: true,
+                    scheduledDate: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: [{ submission: { job: { scheduledDate: "desc" } } }, { createdAt: "desc" }],
+          take: 120,
+        })
+      : Promise.resolve([]),
+    db.user.findMany({
+      where: {
+        role: "CLEANER",
+        isActive: true,
+        jobAssignments: {
+          some: {
+            job: {
+              propertyId,
+            },
+            removedAt: null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+      orderBy: { name: "asc" },
+      take: 50,
+    }),
   ]);
 
   const activity = [
@@ -331,6 +388,8 @@ export async function getClientPropertyDetailForUser(
     stocks,
     checklistTemplates,
     jobTasks,
+    conditionTimeline,
+    preferredCleanerOptions,
     activity,
   };
 }
@@ -339,47 +398,96 @@ export async function listClientJobsForUser(userId: string) {
   const clientId = await getClientIdForUser(userId);
   if (!clientId) return [];
 
-  return db.job.findMany({
-    where: {
-      property: { clientId },
-    },
-    select: {
-      id: true,
-      jobNumber: true,
-      jobType: true,
-      status: true,
-      scheduledDate: true,
-      startTime: true,
-      dueTime: true,
-      property: {
-        select: {
-          id: true,
-          name: true,
-          suburb: true,
-        },
+  return db.job
+    .findMany({
+      where: {
+        property: { clientId },
       },
-      assignments: {
-        select: {
-          user: {
-            select: {
-              id: true,
-              name: true,
+      select: {
+        id: true,
+        jobNumber: true,
+        jobType: true,
+        status: true,
+        scheduledDate: true,
+        startTime: true,
+        dueTime: true,
+        property: {
+          select: {
+            id: true,
+            name: true,
+            suburb: true,
+          },
+        },
+        assignments: {
+          select: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
             },
           },
         },
-      },
-      jobTasks: {
-        select: {
-          id: true,
-          source: true,
-          approvalStatus: true,
-          executionStatus: true,
+        jobTasks: {
+          select: {
+            id: true,
+            source: true,
+            approvalStatus: true,
+            executionStatus: true,
+          },
+        },
+        laundryTask: {
+          select: {
+            id: true,
+            status: true,
+            pickupDate: true,
+            dropoffDate: true,
+            updatedAt: true,
+            noPickupRequired: true,
+            skipReasonCode: true,
+            skipReasonNote: true,
+            adminOverrideNote: true,
+            pickedUpAt: true,
+            droppedAt: true,
+            confirmations: {
+              orderBy: { createdAt: "desc" },
+              take: 3,
+              select: {
+                id: true,
+                createdAt: true,
+                laundryReady: true,
+                bagLocation: true,
+                photoUrl: true,
+                notes: true,
+              },
+            },
+          },
+        },
+        satisfactionRating: {
+          select: {
+            score: true,
+            comment: true,
+            createdAt: true,
+          },
         },
       },
-    },
-    orderBy: [{ scheduledDate: "desc" }, { startTime: "desc" }, { dueTime: "desc" }],
-    take: 100,
-  });
+      orderBy: [{ scheduledDate: "desc" }, { startTime: "desc" }, { dueTime: "desc" }],
+      take: 100,
+    })
+    .then((rows) =>
+      rows.map((row) => ({
+        ...row,
+        laundryTask: row.laundryTask
+          ? {
+              ...row.laundryTask,
+              confirmations: row.laundryTask.confirmations.map((confirmation) => ({
+                ...confirmation,
+                meta: parseConfirmationMeta(confirmation.notes),
+              })),
+            }
+          : null,
+      }))
+    );
 }
 
 export async function listClientLaundryForUser(userId: string) {

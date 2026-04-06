@@ -16,10 +16,9 @@ export default async function LaundryLayout({ children }: { children: React.Reac
       portalLabel="Laundry Portal"
       portalTitle="Pickups, returns, and laundry costs"
       settingsHref="/laundry/settings"
-      maxWidthClass="max-w-6xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
-      hideHeaderOnScroll
+      portalTheme={settings.portalTheme}
       navItems={[
         { href: "/laundry", label: "Dashboard", exact: true },
         { href: "/laundry/hub", label: "Team Hub" },

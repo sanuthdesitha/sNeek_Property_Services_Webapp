@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { Button } from "@/components/ui/button";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
+import { PreferredCleanerCard } from "@/components/client/preferred-cleaner-card";
 
 const TZ = "Australia/Sydney";
 
@@ -25,7 +26,17 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
 
   if (!detail) notFound();
 
-  const { property, reports, jobs, laundryTasks, stocks, checklistTemplates, activity } = detail;
+  const {
+    property,
+    reports,
+    jobs,
+    laundryTasks,
+    stocks,
+    checklistTemplates,
+    activity,
+    conditionTimeline,
+    preferredCleanerOptions,
+  } = detail;
   const lowStock = stocks.filter((row) => Number(row.onHand) <= Number(row.reorderThreshold));
 
   return (
@@ -319,6 +330,57 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                     </div>
                     <p className="mt-2 text-sm font-medium">{item.label}</p>
                     <p className="text-xs text-muted-foreground">{item.detail}</p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <PreferredCleanerCard
+            propertyId={property.id}
+            currentCleanerId={property.preferredCleanerUserId}
+            options={preferredCleanerOptions}
+          />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Condition timeline</CardTitle>
+              <CardDescription>
+                Visual history from previous cleans for this property.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {conditionTimeline.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No media history is available for this property yet.</p>
+              ) : (
+                conditionTimeline.map((item) => (
+                  <div key={item.id} className="rounded-xl border p-4">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">
+                          {item.submission.job.jobNumber ? `Job ${item.submission.job.jobNumber}` : "Completed job"} •{" "}
+                          {item.submission.job.jobType.replace(/_/g, " ")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {format(toZonedTime(item.submission.job.scheduledDate, TZ), "dd MMM yyyy")}
+                        </p>
+                      </div>
+                      <span className="rounded-full border px-2 py-1 text-xs font-medium">
+                        {item.mediaType}
+                      </span>
+                    </div>
+                    <MediaGallery
+                      items={[
+                        {
+                          id: item.id,
+                          url: item.url,
+                          label: item.label || "Property history media",
+                          mediaType: item.mediaType,
+                        },
+                      ]}
+                      title={item.label || "Property history"}
+                      className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+                    />
                   </div>
                 ))
               )}

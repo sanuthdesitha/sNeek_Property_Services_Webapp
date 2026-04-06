@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
 import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
@@ -26,10 +28,14 @@ import {
   type InventoryLocation,
 } from "@/lib/inventory/locations";
 import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
+import {
+  formatAssignmentResponseLabel,
+  formatJobStatusLabel,
+} from "@/lib/jobs/assignment-workflow";
 
-type Step = "overview" | "checklist" | "uploads" | "laundry" | "submit";
+type Step = "briefing" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
-type RenderableFormStep = Exclude<Step, "overview">;
+type RenderableFormStep = Step;
 type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 type SavedLaundryUpdate = {
   outcome: LaundryOutcome;
@@ -253,7 +259,7 @@ function hasServerProgress(body: any) {
 function shouldDiscardLocalDraft(draft: Record<string, any> | null, body: any) {
   if (!draft) return false;
   if (hasServerProgress(body)) return false;
-  if (draft.step && draft.step !== "overview") return true;
+  if (draft.step && draft.step !== "briefing") return true;
   if (hasMeaningfulDraftValue(draft.formData)) return true;
   if (hasMeaningfulDraftValue(draft.uploads)) return true;
   if (hasMeaningfulDraftValue(draft.savedLaundryUpdate)) return true;
@@ -294,7 +300,8 @@ export default function CleanerJobPage() {
   const [clockAdjustmentMinutes, setClockAdjustmentMinutes] = useState("");
   const [clockAdjustmentReason, setClockAdjustmentReason] = useState("");
   const [pendingSubmitPayload, setPendingSubmitPayload] = useState<Record<string, unknown> | null>(null);
-  const [step, setStep] = useState<Step>("overview");
+  const [step, setStep] = useState<Step>("briefing");
+  const [briefing, setBriefing] = useState<any>(null);
   const [verificationDate, setVerificationDate] = useState("");
   const [confirmOnSite, setConfirmOnSite] = useState(false);
   const [confirmChecklist, setConfirmChecklist] = useState(false);
@@ -324,6 +331,11 @@ export default function CleanerJobPage() {
   const [previewSrc, setPreviewSrc] = useState("");
   const [previewLabel, setPreviewLabel] = useState("Image preview");
   const [showJobNotes, setShowJobNotes] = useState(false);
+  const [sendingSafetyCheckin, setSendingSafetyCheckin] = useState(false);
+  const [assignmentNote, setAssignmentNote] = useState("");
+  const [transferCleanerId, setTransferCleanerId] = useState("");
+  const [showTransferForm, setShowTransferForm] = useState(false);
+  const [assignmentActionLoading, setAssignmentActionLoading] = useState<"ACCEPT" | "DECLINE" | "TRANSFER" | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hydratedRef = useRef(false);
@@ -468,7 +480,11 @@ export default function CleanerJobPage() {
         : options.bagLocationOptions[0] ?? "__custom"
     );
     setBagLocationCustom(draft.bagLocationCustom ?? "");
-    setStep((draft.step as Step) ?? options.fallbackStep);
+    const nextStep =
+      draft.step === "overview"
+        ? options.fallbackStep
+        : ((draft.step as Step | undefined) ?? options.fallbackStep);
+    setStep(nextStep);
     setVerificationDate(draft.verificationDate ?? options.expectedDate ?? "");
     setConfirmOnSite(Boolean(draft.confirmOnSite));
     setConfirmChecklist(Boolean(draft.confirmChecklist));
@@ -860,6 +876,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
     setPayload(body);
+    const briefingRes = await fetch(`/api/cleaner/jobs/${jobId}/briefing`, { cache: "no-store" });
+    const briefingBody = await briefingRes.json().catch(() => null);
+    setBriefing(briefingRes.ok ? briefingBody : null);
     const options = Array.isArray(body?.laundryBagLocationOptions) ? body.laundryBagLocationOptions : [];
     const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(body?.job?.status ?? "");
     let draft = !finishedState ? readDraftState() : null;
@@ -883,7 +902,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     if (draft) {
       applyDraftSnapshot(draft, {
         bagLocationOptions: options,
-        fallbackStep: body?.timeState?.isRunning ? "checklist" : "overview",
+        fallbackStep: body?.timeState?.isRunning ? "checklist" : "briefing",
         expectedDate: body?.startVerification?.expectedDate ?? "",
       });
     } else {
@@ -944,7 +963,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           ? "checklist"
           : carryoverSnapshot
             ? "checklist"
-            : "overview"
+            : "briefing"
       );
       setVerificationDate(body?.startVerification?.expectedDate ?? "");
       setConfirmOnSite(false);
@@ -1052,7 +1071,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             },
             {
               bagLocationOptions: options,
-              fallbackStep: body?.timeState?.isRunning ? "checklist" : "overview",
+              fallbackStep: body?.timeState?.isRunning ? "checklist" : "briefing",
               expectedDate: body?.startVerification?.expectedDate ?? "",
             }
           );
@@ -1085,20 +1104,71 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     hydratedRef.current = true;
   }
 
-  async function acknowledgeEarlyCheckout(requestId: string) {
+  async function respondToTimingRequest(requestId: string, decision: "APPROVE" | "DECLINE") {
     const res = await fetch(`/api/cleaner/job-early-checkouts/${requestId}`, {
       method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       toast({
-        title: "Could not acknowledge update",
+        title: "Could not update timing request",
         description: body.error ?? "Please retry.",
         variant: "destructive",
       });
       return;
     }
-    toast({ title: "Early checkout update acknowledged" });
+    toast({ title: decision === "APPROVE" ? "Timing update approved" : "Timing update declined" });
+    await load();
+  }
+
+  async function handleAssignmentResponse(action: "ACCEPT" | "DECLINE" | "TRANSFER") {
+    if (action === "TRANSFER" && !transferCleanerId) {
+      toast({
+        title: "Choose a cleaner",
+        description: "Select the cleaner you want to transfer this job to.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAssignmentActionLoading(action);
+    const res = await fetch(`/api/cleaner/jobs/${jobId}/assignment-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        note: assignmentNote.trim() || undefined,
+        targetCleanerId: action === "TRANSFER" ? transferCleanerId : undefined,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setAssignmentActionLoading(null);
+    if (!res.ok) {
+      toast({
+        title: "Could not update assignment",
+        description: body.error ?? "Please retry.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAssignmentNote("");
+    setTransferCleanerId("");
+    setShowTransferForm(false);
+    toast({
+      title:
+        action === "ACCEPT"
+          ? "Job accepted"
+          : action === "DECLINE"
+            ? "Job declined"
+            : "Transfer sent",
+      description:
+        action === "TRANSFER"
+          ? "The new cleaner now needs to confirm the job."
+          : undefined,
+    });
     await load();
   }
 
@@ -1232,7 +1302,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         },
         {
           bagLocationOptions: Array.isArray(payload?.laundryBagLocationOptions) ? payload.laundryBagLocationOptions : [],
-          fallbackStep: payload?.timeState?.isRunning ? "checklist" : "overview",
+          fallbackStep: payload?.timeState?.isRunning ? "checklist" : "briefing",
           expectedDate: payload?.startVerification?.expectedDate ?? "",
         }
       );
@@ -1608,15 +1678,40 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     setPendingSubmitPayload(null);
   }
 
+  function sendGpsSnapshot(path: string, successMessage?: (distanceMeters: number) => string) {
+    if (typeof window === "undefined" || !("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const res = await fetch(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+            }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (res.ok && typeof body?.distanceMeters === "number" && body.distanceMeters >= 500 && successMessage) {
+            showPopupNotification("GPS check-in recorded", successMessage(body.distanceMeters), "destructive");
+          }
+        } catch {
+          // Silent. GPS logging is advisory only.
+        }
+      },
+      () => {
+        // Silent. GPS logging is advisory only.
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  }
+
   async function handleStart() {
     async function submitStart(allowFutureStart: boolean) {
       const res = await fetch(`/api/cleaner/jobs/${params.id}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          verificationDate,
-          confirmOnSite,
-          confirmChecklist,
           allowFutureStart,
         }),
       });
@@ -1644,6 +1739,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         return;
       }
       await load();
+      sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
       showPopupNotification("Job started", "Timer is now running.");
       setStep("checklist");
       return;
@@ -1671,6 +1767,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
 
     await load();
+    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
     showPopupNotification("Job started", "Timer is now running.");
     setStep("checklist");
   }
@@ -1683,9 +1780,30 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
     await load();
+    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`);
     setConfirmOnSite(false);
     setConfirmChecklist(false);
     showPopupNotification("Timer stopped", "You can now start another assigned job.");
+  }
+
+  async function handleSafetyCheckin() {
+    setSendingSafetyCheckin(true);
+    try {
+      const res = await fetch(`/api/cleaner/jobs/${params.id}/safety-checkin`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showPopupNotification(
+          "Safety check-in failed",
+          body?.error ?? "Could not record safety check-in.",
+          "destructive"
+        );
+        return;
+      }
+      await load();
+      showPopupNotification("Safety check-in recorded", "Admin has your safety confirmation.");
+    } finally {
+      setSendingSafetyCheckin(false);
+    }
   }
 
   function pushUploadedKeys(fieldId: string, keys: string[]) {
@@ -2451,6 +2569,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     clearDraftState();
     void clearSharedDraftState();
     stopTicking();
+    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`);
     router.push("/cleaner");
     return true;
   }
@@ -3048,6 +3167,16 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     suburb: job?.property?.suburb,
     name: job?.property?.name,
   });
+  const assignmentState = payload?.assignmentState ?? null;
+  const assignmentResponseStatus = String(assignmentState?.responseStatus ?? "");
+  const assignmentResponseLabel = assignmentResponseStatus
+    ? formatAssignmentResponseLabel(assignmentResponseStatus as any)
+    : null;
+  const canManageAssignment =
+    Boolean(assignmentState) &&
+    !finished &&
+    ["UNASSIGNED", "OFFERED", "ASSIGNED"].includes(job?.status ?? "");
+  const transferCandidates = Array.isArray(payload?.transferCandidates) ? payload.transferCandidates : [];
 
   return (
     <div className="space-y-4">
@@ -3072,7 +3201,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </a>
           </Button>
         ) : null}
-        <Badge>{job?.status?.replace(/_/g, " ")}</Badge>
+        <Badge variant={job?.status === "OFFERED" ? "warning" : "secondary"}>
+          {formatJobStatusLabel(job?.status)}
+        </Badge>
       </div>
 
       {(cleanerTags.length > 0 || Boolean(cleanerInstructionText) || hasJobNotes) ? (
@@ -3117,30 +3248,159 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         </div>
       ) : null}
 
+      {canManageAssignment ? (
+        <Card className={assignmentResponseStatus === "PENDING" ? "border-amber-300 bg-amber-50/80" : "border-blue-200 bg-blue-50/70"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              {assignmentResponseStatus === "PENDING" ? "Job Confirmation Required" : "Assignment Status"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={assignmentResponseStatus === "PENDING" ? "warning" : "secondary"}>
+                {assignmentResponseLabel ?? "Awaiting confirmation"}
+              </Badge>
+              <p className="text-sm text-muted-foreground">
+                {assignmentResponseStatus === "PENDING"
+                  ? "Accept, decline, or transfer this job before the team relies on your schedule."
+                  : "You have already confirmed this job. You can still transfer it before the work starts."}
+              </p>
+            </div>
+
+            {(assignmentResponseStatus === "PENDING" || showTransferForm) ? (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Note for admin</Label>
+                <Textarea
+                  value={assignmentNote}
+                  onChange={(event) => setAssignmentNote(event.target.value)}
+                  placeholder={
+                    showTransferForm
+                      ? "Explain why this job should move to another cleaner"
+                      : "Optional note"
+                  }
+                />
+              </div>
+            ) : null}
+
+            {showTransferForm ? (
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Transfer to cleaner</Label>
+                  <Select value={transferCleanerId} onValueChange={setTransferCleanerId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose cleaner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {transferCandidates.map((candidate: any) => (
+                        <SelectItem key={candidate.id} value={candidate.id}>
+                          {candidate.name || candidate.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowTransferForm(false);
+                      setTransferCleanerId("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void handleAssignmentResponse("TRANSFER")}
+                    disabled={assignmentActionLoading === "TRANSFER"}
+                  >
+                    {assignmentActionLoading === "TRANSFER" ? "Sending..." : "Transfer job"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {assignmentResponseStatus === "PENDING" ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleAssignmentResponse("DECLINE")}
+                      disabled={Boolean(assignmentActionLoading)}
+                    >
+                      {assignmentActionLoading === "DECLINE" ? "Declining..." : "Decline"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowTransferForm(true)}
+                      disabled={Boolean(assignmentActionLoading)}
+                    >
+                      Transfer
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void handleAssignmentResponse("ACCEPT")}
+                      disabled={Boolean(assignmentActionLoading)}
+                    >
+                      {assignmentActionLoading === "ACCEPT" ? "Accepting..." : "Accept job"}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowTransferForm(true)}
+                    disabled={Boolean(assignmentActionLoading)}
+                  >
+                    Transfer to another cleaner
+                  </Button>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {latestEarlyCheckoutRequest ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Early Checkout Update</p>
-              <p className="mt-2 text-sm text-rose-950">
-                {pendingEarlyCheckoutRequest ? "Admin requested an earlier start/update for this job." : "This job had an early checkout update."}
-              </p>
-              {latestEarlyCheckoutRequest.requestedStartTime ? (
-                <p className="mt-1 text-xs text-rose-900">Requested earlier start: {latestEarlyCheckoutRequest.requestedStartTime}</p>
-              ) : null}
-              {latestEarlyCheckoutRequest.note ? (
-                <p className="mt-1 text-xs text-rose-900">Admin note: {latestEarlyCheckoutRequest.note}</p>
-              ) : null}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Timing Update</p>
+                <p className="mt-2 text-sm text-rose-950">
+                  {pendingEarlyCheckoutRequest
+                    ? "Admin requested your approval for a timing change on this job."
+                    : "This job had a timing update request."}
+                </p>
+                <p className="mt-1 text-xs text-rose-900">
+                  Type: {latestEarlyCheckoutRequest.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}
+                </p>
+                {latestEarlyCheckoutRequest.requestedTime ? (
+                  <p className="mt-1 text-xs text-rose-900">
+                    Requested time: {latestEarlyCheckoutRequest.requestedTime}
+                  </p>
+                ) : null}
+                {latestEarlyCheckoutRequest.note ? (
+                  <p className="mt-1 text-xs text-rose-900">Admin note: {latestEarlyCheckoutRequest.note}</p>
+                ) : null}
+              </div>
+              {pendingEarlyCheckoutRequest ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => respondToTimingRequest(pendingEarlyCheckoutRequest.id, "DECLINE")}>
+                    Decline
+                  </Button>
+                  <Button size="sm" onClick={() => respondToTimingRequest(pendingEarlyCheckoutRequest.id, "APPROVE")}>
+                    Approve
+                  </Button>
+                </div>
+              ) : (
+                <Badge variant={latestEarlyCheckoutRequest.status === "APPROVED" ? "success" : "secondary"}>
+                  {latestEarlyCheckoutRequest.status === "APPROVED" ? "Approved" : latestEarlyCheckoutRequest.status}
+                </Badge>
+              )}
             </div>
-            {pendingEarlyCheckoutRequest ? (
-              <Button size="sm" variant="outline" onClick={() => acknowledgeEarlyCheckout(pendingEarlyCheckoutRequest.id)}>
-                Acknowledge
-              </Button>
-            ) : (
-              <Badge variant="success">Acknowledged</Badge>
-            )}
           </div>
-        </div>
       ) : null}
 
       {jobTimingHighlights.length > 0 ? (
@@ -3342,63 +3602,136 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         </Card>
       ) : null}
 
+      {payload?.job?.requiresSafetyCheckin ? (
+        <Card className={payload?.job?.safetyCheckinAt ? "border-emerald-300 bg-emerald-50/60" : "border-amber-300 bg-amber-50/70"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              {payload?.job?.safetyCheckinAt ? "Safety check-in confirmed" : "Safety check-in required"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm">
+              {payload?.job?.safetyCheckinAt ? (
+                <p>
+                  Recorded at {formatDateTimeLabel(payload.job.safetyCheckinAt) ?? payload.job.safetyCheckinAt}.
+                </p>
+              ) : (
+                <p>
+                  This job is marked as a solo property visit. Tap <span className="font-medium">I&apos;m safe</span> after arrival.
+                </p>
+              )}
+            </div>
+            {!payload?.job?.safetyCheckinAt ? (
+              <Button type="button" size="sm" variant="outline" onClick={handleSafetyCheckin} disabled={sendingSafetyCheckin}>
+                {sendingSafetyCheckin ? "Saving..." : "I'm safe"}
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="flex gap-1 text-xs">
-        {["overview", "checklist", "uploads", "laundry", "submit"].map((item, i) => (
+        {["briefing", "checklist", "uploads", "laundry", "submit"].map((item, i) => (
           <div
             key={item}
             className={`h-1.5 flex-1 rounded-full ${
-              step === item ? "bg-primary" : i < ["overview", "checklist", "uploads", "laundry", "submit"].indexOf(step) ? "bg-primary/40" : "bg-muted"
+              step === item ? "bg-primary" : i < ["briefing", "checklist", "uploads", "laundry", "submit"].indexOf(step) ? "bg-primary/40" : "bg-muted"
             }`}
           />
         ))}
       </div>
 
-      {step === "overview" && (
+      {step === "briefing" && (
         <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">{job?.jobType?.replace(/_/g, " ")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Review timing, notes, and any admin-requested tasks above before starting.
-            </p>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Job Briefing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {briefing?.lastPhotos?.length ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Recent property photos</p>
+                <MediaGallery items={briefing.lastPhotos} emptyText="No previous photos yet." />
+              </div>
+            ) : null}
 
-            <div className="mt-4 space-y-3 rounded-md border p-3">
-              <p className="text-sm font-medium">Start verification</p>
-              {startVerification?.requireDateMatch && (
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Enter scheduled date ({startVerification?.timezone ?? "Australia/Sydney"})
-                  </Label>
-                  <Input type="date" value={verificationDate} onChange={(e) => setVerificationDate(e.target.value)} />
-                </div>
-              )}
-              {startVerification?.requireChecklistConfirm && (
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={confirmOnSite} onChange={(e) => setConfirmOnSite(e.target.checked)} />
-                    I confirm I am on site and have property access.
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={confirmChecklist}
-                      onChange={(e) => setConfirmChecklist(e.target.checked)}
-                    />
-                    I confirm I checked notes and safety requirements.
-                  </label>
-                </div>
-              )}
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-3 rounded-md border p-3">
+                <p className="text-sm font-medium">Access details</p>
+                {briefing?.accessCode ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Access code</p>
+                    <p className="font-medium">{briefing.accessCode}</p>
+                  </div>
+                ) : null}
+                {briefing?.alarmCode ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Alarm code</p>
+                    <p className="font-medium">{briefing.alarmCode}</p>
+                  </div>
+                ) : null}
+                {briefing?.keyLocation ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Key location</p>
+                    <p>{briefing.keyLocation}</p>
+                  </div>
+                ) : null}
+                {briefing?.accessNotes ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Access notes</p>
+                    <p className="whitespace-pre-wrap text-sm">{briefing.accessNotes}</p>
+                  </div>
+                ) : null}
+                {!briefing?.accessCode && !briefing?.alarmCode && !briefing?.keyLocation && !briefing?.accessNotes ? (
+                  <p className="text-xs text-muted-foreground">No extra access vault details saved for this property.</p>
+                ) : null}
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <p className="text-sm font-medium">Operational notes</p>
+                {briefing?.jobNotes ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Job notes</p>
+                    <p className="whitespace-pre-wrap text-sm">{briefing.jobNotes}</p>
+                  </div>
+                ) : null}
+                {Array.isArray(briefing?.previousFlags) && briefing.previousFlags.length > 0 ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Previous QA flags</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {briefing.previousFlags.map((flag: string) => (
+                        <Badge key={flag} variant="warning">
+                          {flag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {briefing?.laundryInstructions ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Laundry schedule</p>
+                    <p className="text-sm">
+                      {briefing.laundryInstructions.status.replace(/_/g, " ")}
+                      {briefing.laundryInstructions.pickupDate
+                        ? ` · Pickup ${format(new Date(briefing.laundryInstructions.pickupDate), "dd MMM")}`
+                        : ""}
+                      {briefing.laundryInstructions.dropoffDate
+                        ? ` · Drop-off ${format(new Date(briefing.laundryInstructions.dropoffDate), "dd MMM")}`
+                        : ""}
+                    </p>
+                  </div>
+                ) : null}
+                {!briefing?.jobNotes && (!Array.isArray(briefing?.previousFlags) || briefing.previousFlags.length === 0) && !briefing?.laundryInstructions ? (
+                  <p className="text-xs text-muted-foreground">No extra briefing notes for this job.</p>
+                ) : null}
+              </div>
             </div>
 
-            {finished && (
-              <p className="mt-3 text-xs text-destructive">
-                This job is already submitted/completed. Admin must reset status before it can start again.
-              </p>
-            )}
-
-            <Button className="mt-4 w-full" onClick={handleStart} disabled={finished}>
-              <Play className="mr-2 h-4 w-4" />
-              {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume Job" : "Start Job"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleStart} disabled={finished}>
+                <Play className="mr-2 h-4 w-4" />
+                {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume job" : "Begin job"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

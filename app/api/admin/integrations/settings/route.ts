@@ -27,6 +27,11 @@ const schema = z.object({
       contactFallbackEmail: z.string().trim().max(200).optional(),
     })
     .optional(),
+  googlePlaces: z
+    .object({
+      placeId: z.string().trim().max(300).optional(),
+    })
+    .optional(),
 });
 
 export async function GET() {
@@ -64,4 +69,3 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: err.message ?? "Update failed." }, { status });
   }
 }
-

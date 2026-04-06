@@ -140,11 +140,11 @@ export async function PATCH(
 
       const confirmationEvent =
         decisionAction === "APPROVE_FAILED_PICKUP_SKIP" ? "FAILED_PICKUP_SKIP_APPROVED" : "FAILED_PICKUP_REQUEST_REJECTED";
-      const nextStatus = decisionAction === "APPROVE_FAILED_PICKUP_SKIP" ? "FLAGGED" : previousStatus;
-      const nextFlagNotes =
-        decisionAction === "APPROVE_FAILED_PICKUP_SKIP"
-          ? `Failed pickup approved to skip.${reason ? ` Reason: ${reason}` : ""}`
-          : null;
+      // On approval → move to SKIPPED_PICKUP so it leaves the FLAGGED queue.
+      // On rejection → restore previous status so cleaner can retry.
+      const nextStatus = decisionAction === "APPROVE_FAILED_PICKUP_SKIP" ? "SKIPPED_PICKUP" : previousStatus;
+      // Clear flagNotes in both cases: approved moves to SKIPPED_PICKUP, rejected restores previous
+      const nextFlagNotes: string | null = null;
 
       if (decisionAction === "APPROVE_FAILED_PICKUP_SKIP" && requestAction !== "SKIP") {
         return NextResponse.json({ error: "This request is not waiting for skip approval." }, { status: 409 });

@@ -3,7 +3,7 @@
 import { Mail, MessageSquareMore, PhoneCall } from "lucide-react";
 import { ContactForm } from "@/components/public/contact-form";
 import { Card, CardContent } from "@/components/ui/card";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 
 function WhatsAppIcon({ className }: Readonly<{ className?: string }>) {
   return (
@@ -128,3 +128,4 @@ export function ContactPage({ content }: ContactPageProps) {
     </div>
   );
 }
+

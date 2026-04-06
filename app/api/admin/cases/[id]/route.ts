@@ -12,6 +12,7 @@ const patchSchema = z.object({
   description: z.string().trim().max(6000).optional().nullable(),
   severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
   status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED"]).optional(),
+  statusChangeNote: z.string().trim().max(4000).optional(),
   assignedToUserId: z.string().trim().optional().nullable(),
   clientVisible: z.boolean().optional(),
   clientCanReply: z.boolean().optional(),
@@ -46,15 +47,38 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const before = await getCaseById(params.id);
+    if (!before) {
+      return NextResponse.json({ error: "Case not found." }, { status: 404 });
+    }
+    const statusChanged = Boolean(body.status && body.status !== before.status);
+    if (statusChanged && !body.statusChangeNote?.trim()) {
+      return NextResponse.json({ error: "A note is required when changing case status." }, { status: 400 });
+    }
     const updated = await updateCase(params.id, body);
     if (!updated) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
+    if (statusChanged) {
+      const fromLabel = before.status.replace(/_/g, " ");
+      const toLabel = updated.status.replace(/_/g, " ");
+      const note = body.statusChangeNote?.trim();
+      await db.caseComment.create({
+        data: {
+          caseId: updated.id,
+          authorUserId: session.user.id,
+          isInternal: true,
+          body: `Status changed from ${fromLabel} to ${toLabel}.\n\n${note}`,
+        },
+      });
+    }
     await notifyCaseUpdated({
       caseItem: updated,
       actorLabel: session.user.name || session.user.email || "Admin",
-      updateNote: body.status
-        ? `Status updated to ${body.status.replace(/_/g, " ")}`
+      updateNote: statusChanged
+        ? `Status updated to ${updated.status.replace(/_/g, " ")}${body.statusChangeNote?.trim() ? `: ${body.statusChangeNote.trim()}` : ""}`
+        : body.status
+          ? `Status reviewed as ${updated.status.replace(/_/g, " ")}`
         : "Case details updated",
       notifyClient: body.clientVisible === true || updated.clientVisible === true,
     });

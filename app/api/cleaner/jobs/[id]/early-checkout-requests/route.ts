@@ -7,10 +7,14 @@ import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const assignment = await db.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: params.id, userId: session.user.id } },
+    const assignment = await db.jobAssignment.findFirst({
+      where: {
+        jobId: params.id,
+        userId: session.user.id,
+        removedAt: null,
+      },
     });
-    if (!assignment || assignment.removedAt) {
+    if (!assignment) {
       return NextResponse.json({ error: "You are not assigned to this job." }, { status: 403 });
     }
 

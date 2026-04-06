@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { Role, QuoteStatus } from "@prisma/client";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
 const schema = z.object({
   propertyId: z.string().min(1),
@@ -41,6 +42,11 @@ export async function POST(
     await db.quote.update({
       where: { id: params.id },
       data: { status: QuoteStatus.CONVERTED, convertedJobId: job.id },
+    });
+    await assignPreferredCleanerIfAvailable({
+      jobId: job.id,
+      propertyId,
+      jobType: job.jobType,
     });
 
     return NextResponse.json({ job });

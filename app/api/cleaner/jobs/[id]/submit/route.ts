@@ -126,8 +126,12 @@ export async function POST(
     const session = await requireRole([Role.CLEANER]);
     const body = submitJobSchema.parse(await req.json());
 
-    const assignment = await db.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: params.id, userId: session.user.id } },
+    const assignment = await db.jobAssignment.findFirst({
+      where: {
+        jobId: params.id,
+        userId: session.user.id,
+        removedAt: null,
+      },
     });
     if (!assignment) {
       return NextResponse.json({ error: "Not assigned to this job" }, { status: 403 });

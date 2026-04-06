@@ -5,7 +5,7 @@ import { ArrowRight, MapPin, Briefcase } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import { cn } from "@/lib/utils";
 
 type CareerPosition = {
@@ -108,3 +108,4 @@ export function CareersPage({ positions }: { positions: CareerPosition[] }) {
     </div>
   );
 }
+

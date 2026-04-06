@@ -26,9 +26,14 @@ import {
   type JobTimingPreset,
 } from "@/lib/jobs/meta";
 import { downloadFromApi } from "@/lib/client/download";
+import {
+  formatAssignmentResponseLabel,
+  formatJobStatusLabel,
+} from "@/lib/jobs/assignment-workflow";
 
 const STATUS_COLORS: Record<string, any> = {
   UNASSIGNED: "warning",
+  OFFERED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
   PAUSED: "warning",
@@ -109,6 +114,48 @@ function createSpecialRequestTask(): JobSpecialRequestTask {
   };
 }
 
+function parseLaundryEventNotes(notes: string | null | undefined) {
+  if (!notes) return null;
+  try {
+    return JSON.parse(notes);
+  } catch {
+    return null;
+  }
+}
+
+function getLaundryConfirmationLabel(confirmation: any) {
+  const meta = parseLaundryEventNotes(confirmation?.notes);
+  if (meta?.event === "PICKED_UP") return "Picked up";
+  if (meta?.event === "DROPPED") return "Dropped off";
+  if (meta?.event === "FAILED_PICKUP_REQUEST") return "Failed pickup request";
+  if (meta?.event === "FAILED_PICKUP_RESCHEDULE") return "Failed pickup reschedule";
+  if (meta?.event === "FAILED_PICKUP_SKIP_APPROVED") return "Skip approved";
+  if (meta?.event === "FAILED_PICKUP_REQUEST_REJECTED") return "Failed pickup rejected";
+  return confirmation?.laundryReady ? "Cleaner marked ready" : "Cleaner update";
+}
+
+function buildLaundryMediaItems(laundryTask: any) {
+  const items: Array<{ id: string; url: string; label: string; mediaType: "PHOTO" }> = [];
+  for (const confirmation of Array.isArray(laundryTask?.confirmations) ? laundryTask.confirmations : []) {
+    if (!confirmation?.photoUrl) continue;
+    items.push({
+      id: confirmation.id,
+      url: confirmation.photoUrl,
+      label: getLaundryConfirmationLabel(confirmation),
+      mediaType: "PHOTO",
+    });
+  }
+  if (laundryTask?.receiptImageUrl) {
+    items.push({
+      id: `${laundryTask.id}-receipt`,
+      url: laundryTask.receiptImageUrl,
+      label: "Laundry receipt",
+      mediaType: "PHOTO",
+    });
+  }
+  return items;
+}
+
 function renderFieldValue(field: any, submission: any) {
   const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
   const uploads = answers?.uploads && typeof answers.uploads === "object" ? answers.uploads : {};
@@ -161,7 +208,8 @@ export default function JobDetailPage() {
   const [earlyCheckoutDialogOpen, setEarlyCheckoutDialogOpen] = useState(false);
   const [earlyCheckoutSubmitting, setEarlyCheckoutSubmitting] = useState(false);
   const [earlyCheckoutForm, setEarlyCheckoutForm] = useState({
-    requestedStartTime: "",
+    requestType: "EARLY_CHECKIN",
+    requestedTime: "",
     note: "",
   });
   const [continuationDialog, setContinuationDialog] = useState<{ request: any; decision: "APPROVE" | "REJECT" } | null>(null);
@@ -680,8 +728,8 @@ export default function JobDetailPage() {
   }
 
   async function submitEarlyCheckoutRequest() {
-    if (!earlyCheckoutForm.requestedStartTime) {
-      toast({ title: "Requested start time is required.", variant: "destructive" });
+    if (!earlyCheckoutForm.requestedTime) {
+      toast({ title: "Requested time is required.", variant: "destructive" });
       return;
     }
     setEarlyCheckoutSubmitting(true);
@@ -690,7 +738,8 @@ export default function JobDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jobId: params.id,
-        requestedStartTime: earlyCheckoutForm.requestedStartTime,
+        requestType: earlyCheckoutForm.requestType,
+        requestedTime: earlyCheckoutForm.requestedTime,
         note: earlyCheckoutForm.note || undefined,
       }),
     });
@@ -704,9 +753,13 @@ export default function JobDetailPage() {
       });
       return;
     }
-    toast({ title: "Early checkout update sent to assigned cleaners" });
+    toast({ title: "Timing update sent to assigned cleaners" });
     setEarlyCheckoutDialogOpen(false);
-    setEarlyCheckoutForm({ requestedStartTime: job?.startTime ?? "", note: "" });
+    setEarlyCheckoutForm({
+      requestType: "EARLY_CHECKIN",
+      requestedTime: job?.dueTime ?? "",
+      note: "",
+    });
     await loadEarlyCheckoutRequests();
   }
 
@@ -826,13 +879,17 @@ export default function JobDetailPage() {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => {
-            setEarlyCheckoutForm({ requestedStartTime: editForm.startTime || job.startTime || "", note: "" });
-            setEarlyCheckoutDialogOpen(true);
-          }}
-        >
-          Request Early Checkout Update
-        </Button>
+            onClick={() => {
+              setEarlyCheckoutForm({
+                requestType: "EARLY_CHECKIN",
+                requestedTime: editForm.dueTime || job.dueTime || "",
+                note: "",
+              });
+              setEarlyCheckoutDialogOpen(true);
+            }}
+          >
+            Request Timing Update
+          </Button>
         {job.status === "SUBMITTED" && (
           <Button size="sm" variant="outline" onClick={() => setQaOpen(true)}>
             <Star className="mr-2 h-4 w-4" /> QA Review
@@ -867,35 +924,45 @@ export default function JobDetailPage() {
         <CardContent>
           {earlyCheckoutLoading ? (
             <p className="text-sm text-muted-foreground">Loading requests...</p>
-          ) : earlyCheckoutRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No early checkout updates sent for this job.</p>
-          ) : (
-            <div className="space-y-2">
-              {earlyCheckoutRows.map((row) => (
+            ) : earlyCheckoutRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No timing updates sent for this job.</p>
+            ) : (
+              <div className="space-y-2">
+                {earlyCheckoutRows.map((row) => (
                 <div key={row.id} className="rounded-md border p-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">
-                        Requested {row.requestedStartTime || "earlier start"} on{" "}
-                        {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
-                      </p>
-                      {row.note ? <p className="mt-1 text-xs text-muted-foreground">{row.note}</p> : null}
-                      {row.acknowledgedAt ? (
-                        <p className="mt-1 text-xs text-emerald-700">
-                          Acknowledged {format(new Date(row.acknowledgedAt), "dd MMM yyyy HH:mm")}
+                      <div>
+                        <p className="font-medium">
+                          {row.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"} request{" "}
+                          {row.requestedTime ? `for ${row.requestedTime}` : ""} on{" "}
+                          {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
                         </p>
-                      ) : null}
-                      {row.cancelledAt ? (
+                        {row.note ? <p className="mt-1 text-xs text-muted-foreground">{row.note}</p> : null}
+                        {row.decidedAt ? (
+                          <p className="mt-1 text-xs text-emerald-700">
+                            {row.status === "APPROVED" ? "Approved" : row.status === "DECLINED" ? "Declined" : "Updated"}{" "}
+                            {format(new Date(row.decidedAt), "dd MMM yyyy HH:mm")}
+                          </p>
+                        ) : null}
+                        {row.cancelledAt ? (
                         <p className="mt-1 text-xs text-muted-foreground">
                           Cancelled {format(new Date(row.cancelledAt), "dd MMM yyyy HH:mm")}
                         </p>
                       ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={row.status === "PENDING" ? ("warning" as any) : row.status === "ACKNOWLEDGED" ? "success" : "secondary"}>
-                        {row.status}
-                      </Badge>
-                      {row.status === "PENDING" ? (
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            row.status === "PENDING"
+                              ? ("warning" as any)
+                              : row.status === "APPROVED"
+                                ? "success"
+                                : "secondary"
+                          }
+                        >
+                          {row.status}
+                        </Badge>
+                        {row.status === "PENDING" ? (
                         <Button size="sm" variant="ghost" onClick={() => cancelEarlyCheckoutRequest(row.id)}>
                           Cancel
                         </Button>
@@ -1554,6 +1621,9 @@ export default function JobDetailPage() {
                           </Badge>
                         )}
                         {a.user.name} - {a.user.email}
+                        <Badge variant={a.responseStatus === "PENDING" ? "warning" : "outline"}>
+                          {formatAssignmentResponseLabel(a.responseStatus)}
+                        </Badge>
                         {Number(jobMeta.transportAllowances?.[a.userId] ?? 0) > 0 ? (
                           <Badge variant="secondary">
                             Transport ${Number(jobMeta.transportAllowances[a.userId]).toFixed(2)}
@@ -1712,25 +1782,126 @@ export default function JobDetailPage() {
         <TabsContent value="laundry">
           {job.laundryTask ? (
             <Card>
-              <CardContent className="space-y-2 pt-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Status</span>
-                  <Badge>{job.laundryTask.status}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Pickup</span>
-                  <span>{format(new Date(job.laundryTask.pickupDate), "EEE dd MMM yyyy")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Drop-off</span>
-                  <span>{format(new Date(job.laundryTask.dropoffDate), "EEE dd MMM yyyy")}</span>
-                </div>
-                {job.laundryTask.flagReason && (
-                  <div className="mt-3 rounded-lg bg-destructive/10 p-3">
-                    <p className="font-medium text-destructive">{job.laundryTask.flagReason.replace(/_/g, " ")}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{job.laundryTask.flagNotes}</p>
+              <CardContent className="space-y-4 pt-4 text-sm">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <div className="mt-1">
+                      <Badge>{job.laundryTask.status.replace(/_/g, " ")}</Badge>
+                    </div>
                   </div>
-                )}
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Pickup</p>
+                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.pickupDate), "EEE dd MMM yyyy")}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Drop-off</p>
+                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.dropoffDate), "EEE dd MMM yyyy")}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Supplier</p>
+                    <p className="mt-1 font-medium">{job.laundryTask.supplier?.name || "Not assigned"}</p>
+                  </div>
+                </div>
+
+                {job.laundryTask.flagReason || job.laundryTask.status === "SKIPPED_PICKUP" ? (
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      job.laundryTask.status === "SKIPPED_PICKUP"
+                        ? "border-amber-300 bg-amber-50"
+                        : "border-destructive/30 bg-destructive/10"
+                    }`}
+                  >
+                    {job.laundryTask.flagReason ? (
+                      <p className="font-medium text-destructive">{job.laundryTask.flagReason.replace(/_/g, " ")}</p>
+                    ) : null}
+                    {job.laundryTask.flagNotes ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{job.laundryTask.flagNotes}</p>
+                    ) : null}
+                    {job.laundryTask.status === "SKIPPED_PICKUP" ? (
+                      <div className="mt-2 space-y-1 text-xs text-amber-900">
+                        <p>
+                          Skip reason: {String(job.laundryTask.skipReasonCode || "Not set").replace(/_/g, " ")}
+                        </p>
+                        {job.laundryTask.skipReasonNote ? <p>Cleaner note: {job.laundryTask.skipReasonNote}</p> : null}
+                        {job.laundryTask.adminOverrideNote ? <p>Admin note: {job.laundryTask.adminOverrideNote}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {(job.laundryTask.bagWeightKg != null ||
+                  job.laundryTask.dropoffCostAud != null ||
+                  job.laundryTask.receiptImageUrl) ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Bag weight</p>
+                      <p className="mt-1 font-medium">
+                        {job.laundryTask.bagWeightKg != null ? `${Number(job.laundryTask.bagWeightKg).toFixed(2)} kg` : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Drop-off cost</p>
+                      <p className="mt-1 font-medium">
+                        {job.laundryTask.dropoffCostAud != null ? `$${Number(job.laundryTask.dropoffCostAud).toFixed(2)}` : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Receipt</p>
+                      {job.laundryTask.receiptImageUrl ? (
+                        <a href={job.laundryTask.receiptImageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-primary hover:underline">
+                          Open receipt image
+                        </a>
+                      ) : (
+                        <p className="mt-1 font-medium">-</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {buildLaundryMediaItems(job.laundryTask).length > 0 ? (
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry evidence</p>
+                    <MediaGallery
+                      items={buildLaundryMediaItems(job.laundryTask)}
+                      emptyText="No laundry evidence yet."
+                      title="Laundry Evidence"
+                      className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="rounded-lg border p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry timeline</p>
+                  {Array.isArray(job.laundryTask.confirmations) && job.laundryTask.confirmations.length > 0 ? (
+                    <div className="space-y-2">
+                      {job.laundryTask.confirmations.map((confirmation: any) => {
+                        const meta = parseLaundryEventNotes(confirmation?.notes);
+                        return (
+                          <div key={confirmation.id} className="rounded-md border bg-muted/20 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium">{getLaundryConfirmationLabel(confirmation)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}
+                              </p>
+                            </div>
+                            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                              {confirmation.bagLocation ? <p>Bag location: {confirmation.bagLocation}</p> : null}
+                              {confirmation.notes && !meta?.event ? <p>Note: {confirmation.notes}</p> : null}
+                              {meta?.dropoffLocation ? <p>Drop-off location: {meta.dropoffLocation}</p> : null}
+                              {meta?.bagCount ? <p>Bag count: {meta.bagCount}</p> : null}
+                              {typeof meta?.totalPrice === "number" ? <p>Total price: ${Number(meta.totalPrice).toFixed(2)}</p> : null}
+                              {meta?.reason ? <p>Reason: {meta.reason}</p> : null}
+                              {meta?.resolutionNotes ? <p>Resolution: {meta.resolutionNotes}</p> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No laundry confirmations recorded yet.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ) : (
@@ -1862,15 +2033,39 @@ export default function JobDetailPage() {
       <Dialog open={earlyCheckoutDialogOpen} onOpenChange={setEarlyCheckoutDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Request Early Checkout Update</DialogTitle>
+            <DialogTitle>Request Timing Update</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Requested earlier start time</Label>
+              <Label>Update type</Label>
+              <Select
+                value={earlyCheckoutForm.requestType}
+                onValueChange={(value) =>
+                  setEarlyCheckoutForm((prev) => ({
+                    ...prev,
+                    requestType: value,
+                    requestedTime:
+                      value === "LATE_CHECKOUT"
+                        ? editForm.startTime || job.startTime || prev.requestedTime
+                        : editForm.dueTime || job.dueTime || prev.requestedTime,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EARLY_CHECKIN">Early check-in</SelectItem>
+                  <SelectItem value="LATE_CHECKOUT">Late checkout</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>{earlyCheckoutForm.requestType === "LATE_CHECKOUT" ? "Revised start time" : "Revised due time"}</Label>
               <Input
                 type="time"
-                value={earlyCheckoutForm.requestedStartTime}
-                onChange={(e) => setEarlyCheckoutForm((prev) => ({ ...prev, requestedStartTime: e.target.value }))}
+                value={earlyCheckoutForm.requestedTime}
+                onChange={(e) => setEarlyCheckoutForm((prev) => ({ ...prev, requestedTime: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
@@ -1882,7 +2077,7 @@ export default function JobDetailPage() {
               />
             </div>
             <Button className="w-full" onClick={submitEarlyCheckoutRequest} disabled={earlyCheckoutSubmitting}>
-              {earlyCheckoutSubmitting ? "Sending..." : "Send to Assigned Cleaners"}
+              {earlyCheckoutSubmitting ? "Sending..." : "Send approval request"}
             </Button>
           </div>
         </DialogContent>

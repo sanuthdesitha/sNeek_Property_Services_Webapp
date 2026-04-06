@@ -53,12 +53,11 @@ export async function GET(
     }
 
     if (session.user.role === Role.CLEANER) {
-      const assignment = await db.jobAssignment.findUnique({
+      const assignment = await db.jobAssignment.findFirst({
         where: {
-          jobId_userId: {
-            jobId: params.jobId,
-            userId: session.user.id,
-          },
+          jobId: params.jobId,
+          userId: session.user.id,
+          removedAt: null,
         },
         select: { jobId: true },
       });

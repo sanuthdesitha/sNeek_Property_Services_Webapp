@@ -1,30 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
-  acknowledgeEarlyCheckoutRequest,
+  decideEarlyCheckoutRequest,
   listEarlyCheckoutRequests,
 } from "@/lib/jobs/early-checkout-requests";
 
-export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
+const schema = z.object({
+  decision: z.enum(["APPROVE", "DECLINE"]).default("APPROVE"),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
+    const body = schema.parse(await req.json().catch(() => ({})));
     const request = (await listEarlyCheckoutRequests()).find((row) => row.id === params.id);
     if (!request) {
       return NextResponse.json({ error: "Request not found." }, { status: 404 });
     }
 
-    const assignment = await db.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: request.jobId, userId: session.user.id } },
+    const assignment = await db.jobAssignment.findFirst({
+      where: {
+        jobId: request.jobId,
+        userId: session.user.id,
+        removedAt: null,
+      },
     });
     if (!assignment || assignment.removedAt) {
       return NextResponse.json({ error: "You are not assigned to this job." }, { status: 403 });
     }
 
-    const updated = await acknowledgeEarlyCheckoutRequest({
+    const updated = await decideEarlyCheckoutRequest({
       id: params.id,
-      acknowledgedById: session.user.id,
+      decidedById: session.user.id,
+      decision: body.decision,
+      decisionNote: body.note,
     });
 
     const admins = await db.user.findMany({
@@ -37,8 +50,8 @@ export async function PATCH(_req: NextRequest, { params }: { params: { id: strin
           userId: admin.id,
           jobId: request.jobId,
           channel: NotificationChannel.PUSH,
-          subject: "Early checkout update acknowledged",
-          body: `${session.user.name ?? session.user.email ?? "Cleaner"} acknowledged the early checkout update for job ${request.jobId}.`,
+          subject: "Timing update reviewed",
+          body: `${session.user.name ?? session.user.email ?? "Cleaner"} ${body.decision === "APPROVE" ? "approved" : "declined"} the timing update for job ${request.jobId}.`,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),

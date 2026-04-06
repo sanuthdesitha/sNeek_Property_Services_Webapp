@@ -18,6 +18,8 @@ import { PUBLIC_SITE_NAV } from "@/lib/rebuild/navigation";
 import { MARKETED_SERVICES, SERVICE_FAMILY_META } from "@/lib/marketing/catalog";
 import type { ServiceFamily } from "@/lib/marketing/catalog";
 import type { WebsiteContent } from "@/lib/public-site/content";
+import { ADMIN_RECOVERY_LOGIN_URL, isWebsiteInMaintenance, isWebsiteLoginAllowed } from "@/lib/public-site/routing";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
@@ -26,15 +28,13 @@ interface PublicSiteShellProps {
   content: WebsiteContent;
 }
 
-export const PUBLIC_PAGE_CONTAINER = "public-page-container w-full mx-auto px-5 sm:px-8 lg:px-12 xl:px-16";
-
 const WHATSAPP_FALLBACK_NUMBER = "61451217210";
 const SERVICE_FAMILIES: ServiceFamily[] = ["short_stay", "residential", "specialty", "exterior", "commercial"];
 const ANNOUNCEMENT_BAR_THEME_CLASSES: Record<WebsiteContent["announcementBar"]["bgStyle"], string> = {
-  subtle: "border-primary/10 bg-primary/6 text-foreground/70",
-  accent: "border-amber-200 bg-amber-50 text-amber-900",
-  dark: "border-white/10 bg-[#0c2329] text-white/80",
-  warning: "border-red-200 bg-red-50 text-red-800",
+  subtle: "border-primary/30 bg-gradient-to-r from-primary via-[#1b727c] to-[#d9a848] text-white shadow-[0_14px_36px_-22px_rgba(15,77,84,0.8)]",
+  accent: "border-amber-300 bg-gradient-to-r from-amber-500 via-[#f0a53a] to-[#f97316] text-white shadow-[0_14px_36px_-22px_rgba(180,108,20,0.65)]",
+  dark: "border-white/10 bg-gradient-to-r from-[#0c2329] via-[#163b41] to-[#24545d] text-white shadow-[0_14px_36px_-22px_rgba(8,20,24,0.85)]",
+  warning: "border-red-300 bg-gradient-to-r from-red-600 via-[#e04f4f] to-rose-500 text-white shadow-[0_14px_36px_-22px_rgba(153,27,27,0.75)]",
 };
 
 const familyFirstSlug: Record<ServiceFamily, string> = SERVICE_FAMILIES.reduce(
@@ -110,6 +110,13 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
   );
 
   const navItems = PUBLIC_SITE_NAV.filter((item) => item.href !== "/login" && item.href !== "/quote");
+  const visibleNavItems = navItems.filter(
+    (item) =>
+      !item.pageKey ||
+      content.pageVisibility[item.pageKey as keyof typeof content.pageVisibility] !== false
+  );
+  const loginAllowed = isWebsiteLoginAllowed(content);
+  const maintenanceEnabled = isWebsiteInMaintenance(content);
   const hideWhatsApp = pathname === "/quote" || pathname === "/contact";
   const announcementBar = content.announcementBar;
   const announcementBarThemeClass = ANNOUNCEMENT_BAR_THEME_CLASSES[announcementBar.bgStyle] ?? ANNOUNCEMENT_BAR_THEME_CLASSES.subtle;
@@ -135,6 +142,33 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Global scroll-reveal observer for all public pages
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    function observe() {
+      const targets = document.querySelectorAll<HTMLElement>(
+        ".scroll-reveal:not(.is-visible), .scroll-reveal-left:not(.is-visible), .scroll-reveal-right:not(.is-visible), .scroll-reveal-scale:not(.is-visible)"
+      );
+      if (targets.length === 0) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              observer.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.1 }
+      );
+      targets.forEach((el) => observer.observe(el));
+      return observer;
+    }
+    // Re-observe whenever the pathname changes (new page rendered)
+    const observer = observe();
+    return () => observer?.disconnect();
+  }, [pathname]);
+
   const toggleFamily = (family: ServiceFamily) => {
     setExpandedFamilies((current) => {
       const next = new Set(current);
@@ -148,20 +182,23 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
   };
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground" style={{ "--container-max-w": content.containerWidth || "80%" } as React.CSSProperties}>
+    <div
+      className="relative min-h-screen overflow-x-hidden bg-background text-foreground"
+      style={{ "--container-max-w": content.containerWidth || "1320px" } as React.CSSProperties}
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(255,177,95,0.16),transparent_28%),radial-gradient(circle_at_92%_6%,rgba(37,169,184,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.95),rgba(249,246,240,0.94))]" />
       <div className="pointer-events-none absolute left-[4%] top-24 h-40 w-40 rounded-full bg-primary/10 blur-3xl motion-safe:animate-float-slow" />
       <div className="pointer-events-none absolute right-[5%] top-52 h-56 w-56 rounded-full bg-accent/70 blur-3xl motion-safe:animate-float-slower" />
 
       {announcementBar.enabled ? (
-        <div className={cn("hidden border-b sm:block", announcementBarThemeClass)}>
+        <div className={cn("border-b backdrop-blur-sm", announcementBarThemeClass)}>
           {announcementBar.promoMessage ? (
-            <div className="border-b border-current/10">
+            <div className="border-b border-current/15">
               <div className={cn(PUBLIC_PAGE_CONTAINER, "flex items-center justify-center py-2 text-center text-sm font-medium")}>
                 {announcementBar.promoLink ? (
-                  <a href={announcementBar.promoLink} className="inline-flex flex-wrap items-center justify-center gap-2 hover:opacity-90">
+                  <a href={announcementBar.promoLink} className="inline-flex flex-wrap items-center justify-center gap-2 text-white hover:opacity-90">
                     <span>{announcementBar.promoMessage}</span>
-                    <span className="font-semibold">{announcementBar.promoLinkLabel || "Book now ->"}</span>
+                    <span className="font-semibold text-white">{announcementBar.promoLinkLabel || "Book now ->"}</span>
                   </a>
                 ) : (
                   <span>{announcementBar.promoMessage}</span>
@@ -172,23 +209,23 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
           <div className={cn(PUBLIC_PAGE_CONTAINER, "flex items-center justify-between gap-3 py-2")}>
             <div className="flex flex-wrap items-center gap-5 text-xs">
               {announcementBar.showPhone ? (
-                <a href={telHref} className="flex items-center gap-1.5 transition-colors hover:text-primary">
-                  <Phone className="h-3 w-3" />
+                <a href={telHref} className="flex items-center gap-1.5 text-white/95 transition-opacity hover:opacity-85">
+                  <Phone className="h-3 w-3 opacity-80" />
                   {displayPhone}
                 </a>
               ) : null}
               {announcementBar.showLocation ? (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="h-3 w-3 text-primary" />
+                <span className="flex items-center gap-1.5 text-white/95">
+                  <MapPin className="h-3 w-3 opacity-80" />
                   {displayLocation}
                 </span>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3 text-xs">
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-white/95">
               {announcementBar.showHours ? <span>Mon-Sat 7am - 6pm</span> : null}
               {announcementBar.showEmail ? (
-                <a href={`mailto:${displayEmail}`} className="flex items-center gap-1 transition-colors hover:text-primary">
-                  <Mail className="h-3 w-3" />
+                <a href={`mailto:${displayEmail}`} className="flex items-center gap-1 text-white/95 transition-opacity hover:opacity-85">
+                  <Mail className="h-3 w-3 opacity-80" />
                   {displayEmail}
                 </a>
               ) : null}
@@ -215,7 +252,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
             </Link>
 
             <nav className="hidden items-center gap-0.5 xl:flex">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 if (item.href === "/services") {
                   const isActive = pathname === "/services" || pathname.startsWith("/services/");
                   return (
@@ -233,8 +270,9 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                       </Link>
 
                       {servicesOpen ? (
-                        <div className="absolute left-0 top-full z-50 mt-1.5 w-[22rem] max-h-[70vh] overflow-y-auto rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_-20px_rgba(23,73,78,0.3)] backdrop-blur-xl">
-                          <div className="space-y-2 p-3">
+                        <div className="absolute left-0 top-full z-50 w-[22rem] pt-2">
+                          <div className="max-h-[70vh] overflow-y-auto rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_-20px_rgba(23,73,78,0.3)] backdrop-blur-xl">
+                            <div className="space-y-2 p-3">
                             {serviceGroups.map(({ family, meta, services }) => {
                               const isExpanded = expandedFamilies.has(family);
                               return (
@@ -270,10 +308,11 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                                 </div>
                               );
                             })}
-                            <div className="mt-1 border-t border-border/50 pt-2">
-                              <Link href="/services" className="flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/6">
-                                View all 15 services -&gt;
-                              </Link>
+                              <div className="mt-1 border-t border-border/50 pt-2">
+                                <Link href="/services" className="flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/6">
+                                  View all 15 services -&gt;
+                                </Link>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -300,10 +339,20 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
           </div>
 
           <div className="hidden items-center gap-2 lg:flex">
-            <Button variant="ghost" asChild className="rounded-full text-sm" size="sm">
-              <Link href="/login">Login</Link>
-            </Button>
-            <Button asChild className="rounded-full shadow-sm transition-transform duration-200 hover:-translate-y-0.5" size="sm">
+            {loginAllowed ? (
+              <Button variant="ghost" asChild className="rounded-full text-sm" size="sm">
+                <Link href="/login">Login</Link>
+              </Button>
+            ) : maintenanceEnabled ? (
+              <Button variant="outline" asChild className="rounded-full text-sm" size="sm">
+                <Link href={ADMIN_RECOVERY_LOGIN_URL}>Admin access</Link>
+              </Button>
+            ) : null}
+            <Button
+              asChild
+              className="rounded-full bg-gradient-to-r from-primary to-[#e9a349] px-5 text-white shadow-[0_14px_36px_-14px_rgba(18,120,128,0.68)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_44px_-16px_rgba(18,120,128,0.78)]"
+              size="sm"
+            >
               <Link href="/quote">Instant Quote</Link>
             </Button>
           </div>
@@ -322,7 +371,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
               </a>
             </div>
             <nav className="space-y-1.5">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const active = pathname === item.href || (item.href === "/services" && pathname.startsWith("/services"));
                 return (
                   <Link
@@ -338,9 +387,17 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                 );
               })}
               <div className="grid grid-cols-2 gap-2 pt-2">
-                <Button variant="outline" asChild className="rounded-2xl">
-                  <Link href="/login">Login</Link>
-                </Button>
+                {loginAllowed ? (
+                  <Button variant="outline" asChild className="rounded-2xl">
+                    <Link href="/login">Login</Link>
+                  </Button>
+                ) : maintenanceEnabled ? (
+                  <Button variant="outline" asChild className="rounded-2xl">
+                    <Link href={ADMIN_RECOVERY_LOGIN_URL}>Admin access</Link>
+                  </Button>
+                ) : (
+                  <div />
+                )}
                 <Button asChild className="rounded-2xl">
                   <Link href="/quote">Instant Quote</Link>
                 </Button>
@@ -362,6 +419,14 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
       <main className="relative z-10 page-fade">{children}</main>
 
       <footer className="relative z-10 bg-[#0c2329] text-white">
+        {maintenanceEnabled ? (
+          <div className="border-b border-white/10 bg-amber-100/95 text-amber-950">
+            <div className={cn(PUBLIC_PAGE_CONTAINER, "flex flex-col gap-2 py-3 text-sm sm:flex-row sm:items-center sm:justify-between")}>
+              <p className="font-medium">{content.maintenanceMode.message}</p>
+              <p className="text-amber-900/80">{content.maintenanceMode.supportMessage}</p>
+            </div>
+          </div>
+        ) : null}
         <div className={cn(PUBLIC_PAGE_CONTAINER, "grid gap-10 py-12 sm:py-14 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:gap-12")}>
           <div className="space-y-5">
             <div className="flex items-center gap-3">
@@ -441,17 +506,21 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
           <div>
             <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Quick Links</p>
             <div className="space-y-2.5 text-sm text-white/65">
-              <Link href="/" className="block transition-colors hover:text-white">Home</Link>
-              <Link href="/faq" className="block transition-colors hover:text-white">FAQ</Link>
-              <Link href="/quote" className="block transition-colors hover:text-white">Instant quote</Link>
-              <Link href="/subscriptions" className="block transition-colors hover:text-white">Subscriptions</Link>
-              <Link href="/airbnb-hosting" className="block transition-colors hover:text-white">Airbnb hosting support</Link>
-              <Link href="/contact" className="block transition-colors hover:text-white">Contact us</Link>
-              <Link href="/careers" className="block transition-colors hover:text-white">Careers</Link>
-              <Link href="/register" className="block transition-colors hover:text-white">Create account</Link>
-              <Link href="/login" className="block transition-colors hover:text-white">Portal login</Link>
-              <Link href="/terms" className="block transition-colors hover:text-white">Terms &amp; conditions</Link>
-              <Link href="/privacy" className="block transition-colors hover:text-white">Privacy policy</Link>
+              {content.pageVisibility.home !== false ? <Link href="/" className="block transition-colors hover:text-white">Home</Link> : null}
+              {content.pageVisibility.services !== false ? <Link href="/services" className="block transition-colors hover:text-white">Services</Link> : null}
+              {content.pageVisibility.whyUs !== false ? <Link href="/why-us" className="block transition-colors hover:text-white">Why us</Link> : null}
+              {content.pageVisibility.airbnbHosting !== false ? <Link href="/airbnb-hosting" className="block transition-colors hover:text-white">Airbnb hosting support</Link> : null}
+              {content.pageVisibility.subscriptions !== false ? <Link href="/subscriptions" className="block transition-colors hover:text-white">Subscriptions</Link> : null}
+              {content.pageVisibility.compareServices !== false ? <Link href="/compare" className="block transition-colors hover:text-white">Compare services</Link> : null}
+              {content.pageVisibility.blog !== false ? <Link href="/blog" className="block transition-colors hover:text-white">Blog</Link> : null}
+              {content.pageVisibility.careers !== false ? <Link href="/careers" className="block transition-colors hover:text-white">Careers</Link> : null}
+              {content.pageVisibility.faq !== false ? <Link href="/faq" className="block transition-colors hover:text-white">FAQ</Link> : null}
+              {content.pageVisibility.contact !== false ? <Link href="/contact" className="block transition-colors hover:text-white">Contact us</Link> : null}
+              {content.pageVisibility.quote !== false ? <Link href="/quote" className="block transition-colors hover:text-white">Instant quote</Link> : null}
+              {loginAllowed ? <Link href="/register" className="block transition-colors hover:text-white">Create account</Link> : null}
+              {loginAllowed ? <Link href="/login" className="block transition-colors hover:text-white">Portal login</Link> : null}
+              {content.pageVisibility.terms !== false ? <Link href="/terms" className="block transition-colors hover:text-white">Terms &amp; conditions</Link> : null}
+              {content.pageVisibility.privacy !== false ? <Link href="/privacy" className="block transition-colors hover:text-white">Privacy policy</Link> : null}
             </div>
           </div>
 

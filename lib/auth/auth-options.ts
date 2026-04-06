@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
 
 function getConfiguredAuthBaseUrl() {
   const raw =
@@ -154,6 +155,17 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
 
           const valid = await bcrypt.compare(credentials.password, user.passwordHash);
           if (!valid) return null;
+
+          const settings = await getAppSettings();
+          const maintenanceMode = settings.websiteContent.maintenanceMode;
+          if (
+            maintenanceMode.enabled === true &&
+            maintenanceMode.allowLogin === false &&
+            user.role !== Role.ADMIN &&
+            user.role !== Role.OPS_MANAGER
+          ) {
+            return null;
+          }
 
           return {
             id: user.id,

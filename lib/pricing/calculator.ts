@@ -324,21 +324,33 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
     return calculateLocalMarketingQuote(input);
   }
 
-  const allRows = await db.priceBook.findMany({
-    where: {
-      jobType: input.serviceType as JobType,
-      isActive: true,
-    },
-    orderBy: [{ bedrooms: "asc" }, { bathrooms: "asc" }, { baseRate: "asc" }],
-    take: 50,
-    select: {
-      bedrooms: true,
-      bathrooms: true,
-      baseRate: true,
-      addOns: true,
-      multipliers: true,
-    },
-  });
+  let allRows: Array<{
+    bedrooms: number | null;
+    bathrooms: number | null;
+    baseRate: number;
+    addOns: unknown;
+    multipliers: unknown;
+  }> = [];
+
+  try {
+    allRows = await db.priceBook.findMany({
+      where: {
+        jobType: input.serviceType as JobType,
+        isActive: true,
+      },
+      orderBy: [{ bedrooms: "asc" }, { bathrooms: "asc" }, { baseRate: "asc" }],
+      take: 50,
+      select: {
+        bedrooms: true,
+        bathrooms: true,
+        baseRate: true,
+        addOns: true,
+        multipliers: true,
+      },
+    });
+  } catch {
+    return calculateLocalMarketingQuote(input);
+  }
 
   let entry =
     allRows.find(

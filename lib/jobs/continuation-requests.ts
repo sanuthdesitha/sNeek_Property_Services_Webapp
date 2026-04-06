@@ -457,7 +457,7 @@ export async function decideContinuationRequest(input: {
         jobNumber,
         propertyId: currentJob.propertyId,
         jobType: currentJob.jobType,
-        status: assignedCleanerExists ? JobStatus.ASSIGNED : JobStatus.UNASSIGNED,
+        status: assignedCleanerExists ? JobStatus.OFFERED : JobStatus.UNASSIGNED,
         scheduledDate,
         startTime: currentJob.startTime,
         endTime: currentJob.endTime,
@@ -476,10 +476,19 @@ export async function decideContinuationRequest(input: {
           userId: nextCleanerId,
           isPrimary: true,
           payRate: cleanerPayRate ?? undefined,
+          responseStatus: "PENDING",
+          assignedById: input.decidedByUserId,
         },
         update: {
           isPrimary: true,
           payRate: cleanerPayRate ?? undefined,
+          removedAt: null,
+          offeredAt: new Date(),
+          responseStatus: "PENDING",
+          respondedAt: null,
+          responseNote: null,
+          assignedById: input.decidedByUserId,
+          transferredFromUserId: null,
         },
       });
     }

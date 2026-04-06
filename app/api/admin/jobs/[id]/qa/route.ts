@@ -6,6 +6,9 @@ import { Role, JobStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
+import { scheduleJobFollowUps } from "@/lib/ops/follow-up-sequences";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -41,6 +44,7 @@ export async function POST(
 
     const passed = body.score >= settings.qaAutomation.failureThreshold;
 
+    let reworkJobId: string | null = null;
     const qa = await db.$transaction(async (tx) => {
       const createdReview = await tx.qAReview.create({
         data: {
@@ -110,7 +114,7 @@ export async function POST(
               tags: ["auto-rework", reworkTag],
             });
             const jobNumber = await reserveJobNumber(tx);
-            await tx.job.create({
+            const reworkJob = await tx.job.create({
               data: {
                 jobNumber,
                 propertyId: job.propertyId,
@@ -124,6 +128,7 @@ export async function POST(
                 internalNotes: notes,
               },
             });
+            reworkJobId = reworkJob.id;
           }
         }
       }
@@ -146,6 +151,20 @@ export async function POST(
 
       return createdReview;
     });
+
+    if (passed) {
+      await Promise.allSettled([
+        awardLoyaltyForCompletedJob(params.id),
+        scheduleJobFollowUps(params.id),
+      ]);
+    }
+    if (reworkJobId) {
+      await assignPreferredCleanerIfAvailable({
+        jobId: reworkJobId,
+        propertyId: job.propertyId,
+        jobType: job.jobType,
+      }).catch(() => null);
+    }
 
     return NextResponse.json(qa);
   } catch (err: any) {

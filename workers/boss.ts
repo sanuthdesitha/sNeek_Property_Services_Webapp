@@ -8,14 +8,20 @@ import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { syncAllIcal } from "@/lib/ical/sync";
 import { autoApprovePendingClientJobTasks } from "@/lib/job-tasks/service";
+import { sendStaleCaseFollowUps } from "@/lib/cases/follow-up";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { logger } from "@/lib/logger";
+import { sendDailyOpsBriefing } from "@/lib/ops/daily-briefing";
+import { dispatchJobFollowUp } from "@/lib/ops/follow-up-sequences";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
 import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
 import { generateRecurringJobs } from "@/lib/ops/recurring";
+import { runSafetyCheckinAlerts } from "@/lib/ops/safety-checkins";
 import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
+import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
+import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
@@ -45,6 +51,14 @@ async function main() {
   await boss.schedule("job-task-auto-approve", "*/5 * * * *", {});
   await boss.work("job-task-auto-approve", async () => {
     await autoApprovePendingClientJobTasks(new Date());
+  });
+
+  await boss.schedule("case-follow-up", "0 * * * *", {});
+  await boss.work("case-follow-up", async () => {
+    const result = await sendStaleCaseFollowUps(new Date());
+    if (result.alertedCases > 0) {
+      logger.warn({ ...result }, "Stale case follow-up alerts sent");
+    }
   });
 
   await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});
@@ -86,11 +100,27 @@ async function main() {
     }
   });
 
+  await boss.schedule("email-campaign-dispatch", "*/5 * * * *", {});
+  await boss.work("email-campaign-dispatch", async () => {
+    const result = await dispatchScheduledEmailCampaigns(new Date());
+    if (result.campaigns > 0) {
+      logger.info({ ...result }, "Scheduled email campaigns dispatched");
+    }
+  });
+
   await boss.schedule("sla-escalation", "*/15 * * * *", {});
   await boss.work("sla-escalation", async () => {
     const result = await runSlaEscalation(new Date());
     if (result.warned > 0 || result.escalated > 0) {
       logger.warn({ ...result }, "SLA escalation run");
+    }
+  });
+
+  await boss.schedule("safety-checkin-alerts", "*/10 * * * *", {});
+  await boss.work("safety-checkin-alerts", async () => {
+    const result = await runSafetyCheckinAlerts(new Date());
+    if (result.alerted > 0) {
+      logger.warn({ ...result }, "Safety check-in alerts sent");
     }
   });
 
@@ -128,6 +158,35 @@ async function main() {
     if (!job?.data?.jobId) return;
     logger.info({ jobId: job.data.jobId }, "Generating report");
     await generateJobReport(job.data.jobId);
+  });
+
+  await boss.schedule("daily-ops-briefing", "0 7 * * *", {});
+  await boss.work("daily-ops-briefing", async () => {
+    const result = await sendDailyOpsBriefing(new Date());
+    if ((result.sent ?? 0) > 0) {
+      logger.info({ ...result }, "Daily ops briefing sent");
+    }
+  });
+
+  await boss.work<{ jobId: string }>("follow-up-1d", async (job) => {
+    if (!job?.data?.jobId) return;
+    await dispatchJobFollowUp(job.data.jobId, "1d");
+  });
+  await boss.work<{ jobId: string }>("follow-up-3d", async (job) => {
+    if (!job?.data?.jobId) return;
+    await dispatchJobFollowUp(job.data.jobId, "3d");
+  });
+  await boss.work<{ jobId: string }>("follow-up-14d", async (job) => {
+    if (!job?.data?.jobId) return;
+    await dispatchJobFollowUp(job.data.jobId, "14d");
+  });
+
+  await boss.schedule("google-reviews-refresh", "0 3 * * *", {});
+  await boss.work("google-reviews-refresh", async () => {
+    const payload = await refreshGoogleReviewsCache();
+    if (payload) {
+      logger.info({ updatedAt: payload.updatedAt, reviews: payload.reviews.length }, "Google reviews cache refreshed");
+    }
   });
 
   logger.info("All workers registered. Listening for jobs.");

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
-import { PUBLIC_PAGE_CONTAINER } from "@/components/public/public-site-shell";
+import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 
 interface SubscriptionsPageProps {
   plans: any[];
@@ -132,3 +132,4 @@ export function SubscriptionsPage({ plans, content }: SubscriptionsPageProps) {
     </div>
   );
 }
+

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -32,6 +32,7 @@ import {
   Users,
 } from "lucide-react";
 import { WorkforcePostCard } from "@/components/workforce/workforce-post-card";
+import { WorkforceHubTabNav } from "@/components/workforce/hub-tab-nav";
 
 async function uploadPrivateFile(file: File, folder: string) {
   const form = new FormData();
@@ -253,6 +254,16 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
     () => (data?.documents ?? []).filter((doc: any) => doc.expiryStatus === "EXPIRING_SOON" || doc.expiryStatus === "EXPIRED"),
     [data]
   );
+  const hubTabs = useMemo(
+    () => [
+      { value: "feed", label: "Feed" },
+      { value: "chat", label: "Chat" },
+      { value: "learning", label: "Learning" },
+      { value: "documents", label: "Documents" },
+      { value: "recognition", label: "Recognition" },
+    ],
+    []
+  );
 
   function updateAssignmentAnswers(mutator: (current: Record<string, any>) => Record<string, any>) {
     if (!selectedAssignmentId) return;
@@ -350,13 +361,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-          <TabsTrigger value="feed">Feed</TabsTrigger>
-          <TabsTrigger value="chat">Chat</TabsTrigger>
-          <TabsTrigger value="learning">Learning</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="recognition">Recognition</TabsTrigger>
-        </TabsList>
+        <WorkforceHubTabNav tabs={hubTabs} activeTab={activeTab} onChange={setActiveTab} />
         <TabsContent value="feed" className="space-y-4">
           {(data?.posts ?? []).map((post: any) => (
             <WorkforcePostCard key={post.id} post={post} />

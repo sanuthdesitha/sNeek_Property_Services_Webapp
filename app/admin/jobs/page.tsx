@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, Kanban, List, Plus, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, Kanban, List, Plus, Settings2, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,12 +13,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
 
 const JOB_STATUSES = [
   "UNASSIGNED",
+  "OFFERED",
   "ASSIGNED",
   "IN_PROGRESS",
   "PAUSED",
@@ -30,6 +32,7 @@ const JOB_STATUSES = [
 ];
 const STATUS_COLORS: Record<string, string> = {
   UNASSIGNED: "warning",
+  OFFERED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
   PAUSED: "warning",
@@ -41,6 +44,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 const STATUS_LABELS: Record<string, string> = {
   UNASSIGNED: "Unassigned",
+  OFFERED: "Awaiting Confirmation",
   ASSIGNED: "Assigned",
   IN_PROGRESS: "In Progress",
   PAUSED: "Paused",
@@ -60,6 +64,7 @@ const JOB_FILTER_DEFAULTS = {
   dateTo: "",
   invoiced: "all",
 };
+const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
 
 type JobFilters = typeof JOB_FILTER_DEFAULTS;
 
@@ -83,6 +88,9 @@ export default function JobsPage() {
   const [filters, setFilters] = useState<JobFilters>(() => parseJobFilters(searchParams));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, setView] = useState<"list" | "kanban">("list");
+  const [savedView, setSavedView] = useState<"list" | "kanban">("list");
+  const [viewPreferenceDraft, setViewPreferenceDraft] = useState<"list" | "kanban">("list");
+  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -102,6 +110,12 @@ export default function JobsPage() {
   const [quickAssignSelected, setQuickAssignSelected] = useState<string[]>([]);
   const [quickAssignSubmitting, setQuickAssignSubmitting] = useState(false);
   const [pendingContinuationRows, setPendingContinuationRows] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkCleanerId, setBulkCleanerId] = useState("");
+  const [bulkStatusValue, setBulkStatusValue] = useState("ASSIGNED");
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   async function loadJobs() {
     setLoading(true);
@@ -120,6 +134,19 @@ export default function JobsPage() {
   useEffect(() => {
     loadJobs();
     loadPendingContinuations();
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(JOB_VIEW_STORAGE_KEY);
+      if (saved === "list" || saved === "kanban") {
+        setView(saved);
+        setSavedView(saved);
+        setViewPreferenceDraft(saved);
+      }
+    } catch {
+      // Ignore storage failures.
+    }
   }, []);
 
   useEffect(() => {
@@ -247,6 +274,11 @@ export default function JobsPage() {
     setQaSelectedIds((prev) => prev.filter((id) => qaQueueJobs.some((job) => job.id === id)));
   }, [qaQueueJobs]);
 
+  useEffect(() => {
+    const allowedIds = new Set(filteredJobs.map((job) => job.id));
+    setSelectedIds((current) => current.filter((id) => allowedIds.has(id)));
+  }, [filteredJobs]);
+
   function toggleQaSelection(jobId: string) {
     setQaSelectedIds((prev) => {
       if (prev.includes(jobId)) return prev.filter((id) => id !== jobId);
@@ -361,6 +393,111 @@ export default function JobsPage() {
     }
   }
 
+  function toggleSelectedJob(jobId: string) {
+    setSelectedIds((current) => (current.includes(jobId) ? current.filter((id) => id !== jobId) : [...current, jobId]));
+  }
+
+  function toggleAllSelectedJobs() {
+    if (filteredJobs.length === 0) return;
+    setSelectedIds((current) => (current.length === filteredJobs.length ? [] : filteredJobs.map((job) => job.id)));
+  }
+
+  function clearBulkSelection() {
+    setSelectedIds([]);
+  }
+
+  function savePreferredView() {
+    try {
+      window.localStorage.setItem(JOB_VIEW_STORAGE_KEY, viewPreferenceDraft);
+    } catch {
+      // Ignore storage failures.
+    }
+    setSavedView(viewPreferenceDraft);
+    setView(viewPreferenceDraft);
+    setViewOptionsOpen(false);
+    toast({
+      title: "Default view saved",
+      description: `${viewPreferenceDraft === "list" ? "List" : "Board"} view will now load by default.`,
+    });
+  }
+
+  function getSlaStatus(job: any): "overdue" | "due-soon" | null {
+    if (!job?.dueTime || ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"].includes(String(job?.status ?? ""))) {
+      return null;
+    }
+    const dueDate = new Date(job.scheduledDate);
+    if (Number.isNaN(dueDate.getTime())) return null;
+    const [hours, minutes] = String(job.dueTime)
+      .split(":")
+      .map((part) => Number(part));
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    dueDate.setHours(hours, minutes, 0, 0);
+    const deltaMs = dueDate.getTime() - Date.now();
+    if (deltaMs < 0) return "overdue";
+    if (deltaMs <= 30 * 60 * 1000) return "due-soon";
+    return null;
+  }
+
+  async function submitBulkAssign() {
+    if (selectedIds.length === 0 || !bulkCleanerId) {
+      toast({ title: "Select jobs and a cleaner first.", variant: "destructive" });
+      return;
+    }
+    setBulkSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/jobs/bulk-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds: selectedIds, cleanerUserId: bulkCleanerId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not bulk assign jobs.");
+      toast({ title: "Bulk assignment complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
+      setBulkAssignOpen(false);
+      clearBulkSelection();
+      await loadJobs();
+      router.refresh();
+    } catch (error: any) {
+      toast({
+        title: "Bulk assign failed",
+        description: error?.message ?? "Could not bulk assign jobs.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }
+
+  async function submitBulkStatus() {
+    if (selectedIds.length === 0 || !bulkStatusValue) {
+      toast({ title: "Select jobs and a status first.", variant: "destructive" });
+      return;
+    }
+    setBulkSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/jobs/bulk-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds: selectedIds, status: bulkStatusValue }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not bulk update job statuses.");
+      toast({ title: "Bulk status update complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
+      setBulkStatusOpen(false);
+      clearBulkSelection();
+      await loadJobs();
+      router.refresh();
+    } catch (error: any) {
+      toast({
+        title: "Bulk status update failed",
+        description: error?.message ?? "Could not bulk update job statuses.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }
+
   function openQuickAssign(job: any) {
     if (!job?.id || job?.status !== "UNASSIGNED") return;
     setQuickAssignJob(job);
@@ -418,6 +555,14 @@ export default function JobsPage() {
     acc[status] = filteredJobs.filter((job) => job.status === status);
     return acc;
   }, {} as Record<string, any[]>);
+  const statusCounts = useMemo(
+    () =>
+      JOB_STATUSES.reduce<Record<string, number>>((acc, status) => {
+        acc[status] = jobs.filter((job) => job.status === status).length;
+        return acc;
+      }, {}),
+    [jobs]
+  );
 
   function getAssignmentNames(job: any) {
     const names = Array.isArray(job?.assignments)
@@ -431,6 +576,9 @@ export default function JobsPage() {
   function hasActiveDamageCase(job: any) {
     return Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   }
+
+  const allFilteredSelected =
+    filteredJobs.length > 0 && filteredJobs.every((job) => selectedIds.includes(job.id));
 
   return (
     <div className="space-y-6">
@@ -451,9 +599,9 @@ export default function JobsPage() {
               </span>
             ) : null}
           </Button>
-          <div className="flex rounded-md border">
-            <Button
-              variant={view === "list" ? "default" : "ghost"}
+            <div className="flex rounded-md border">
+              <Button
+                variant={view === "list" ? "default" : "ghost"}
               size="icon"
               className="rounded-r-none"
               onClick={() => setView("list")}
@@ -465,12 +613,26 @@ export default function JobsPage() {
               size="icon"
               className="rounded-l-none"
               onClick={() => setView("kanban")}
+              >
+                <Kanban className="h-4 w-4" />
+              </Button>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                setViewPreferenceDraft(view);
+                setViewOptionsOpen(true);
+              }}
+              aria-label="Jobs view options"
             >
-              <Kanban className="h-4 w-4" />
+              <Settings2 className="h-4 w-4" />
             </Button>
-          </div>
-          <Button asChild>
-            <Link href="/admin/jobs/new">
+            <span className="hidden text-xs text-muted-foreground xl:inline">
+              Default view: {savedView === "list" ? "List" : "Board"}
+            </span>
+            <Button asChild>
+              <Link href="/admin/jobs/new">
               <Plus className="mr-2 h-4 w-4" />
               New / Bulk
             </Link>
@@ -484,11 +646,36 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {filtersOpen ? (
-        <Card>
-          <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Search</p>
+        {filtersOpen ? (
+          <Card>
+            <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="md:col-span-2 xl:col-span-4 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant={filters.status === "all" ? "default" : "outline"}
+                  onClick={() => setFilters((current) => ({ ...current, status: "all" }))}
+                >
+                  All
+                  <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
+                    {jobs.length}
+                  </span>
+                </Button>
+                {JOB_STATUSES.map((status) => (
+                  <Button
+                    key={status}
+                    size="sm"
+                    variant={filters.status === status ? "default" : "outline"}
+                    onClick={() => setFilters((current) => ({ ...current, status }))}
+                  >
+                    {STATUS_LABELS[status]}
+                    <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
+                      {statusCounts[status] ?? 0}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Search</p>
               <Input
                 value={filters.search}
                 onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
@@ -793,6 +980,7 @@ export default function JobsPage() {
                 {filteredJobs.map((job) => (
                   (() => {
                     const assignmentNames = getAssignmentNames(job);
+                    const slaStatus = getSlaStatus(job);
                     return (
                   <div
                     key={job.id}
@@ -800,6 +988,13 @@ export default function JobsPage() {
                       pendingContinuationJobIds.has(job.id) ? "bg-amber-50/50" : ""
                     }`}
                   >
+                    <div className="flex items-start gap-3">
+                      <div className="pt-1">
+                        <Checkbox
+                          checked={selectedIds.includes(job.id)}
+                          onCheckedChange={() => toggleSelectedJob(job.id)}
+                        />
+                      </div>
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
@@ -827,6 +1022,16 @@ export default function JobsPage() {
                         {format(new Date(job.scheduledDate), "dd MMM yyyy")}
                         {job.startTime ? ` - ${job.startTime}` : ""}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {job.gpsDistanceMeters != null ? (
+                          <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
+                            {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
+                          </Badge>
+                        ) : null}
+                        {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
+                        {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
+                      </div>
+                    </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {assignmentNames.length > 0 ? (
@@ -879,7 +1084,7 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
+          {["UNASSIGNED", "OFFERED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
             <div key={status} className="min-w-[260px] flex-shrink-0">
               <div className="mb-3 flex items-center gap-2">
                 <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>
@@ -889,6 +1094,7 @@ export default function JobsPage() {
                 {groupedByStatus[status]?.map((job) => (
                   (() => {
                     const assignmentNames = getAssignmentNames(job);
+                    const slaStatus = getSlaStatus(job);
                     return (
                   <Card
                     key={job.id}
@@ -897,6 +1103,13 @@ export default function JobsPage() {
                     }`}
                   >
                     <CardContent className="p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Checkbox
+                          checked={selectedIds.includes(job.id)}
+                          onCheckedChange={() => toggleSelectedJob(job.id)}
+                        />
+                        <span className="text-xs text-muted-foreground">Select</span>
+                      </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
                           {job.property.name}
@@ -926,6 +1139,15 @@ export default function JobsPage() {
                           Continuation pending
                         </Badge>
                       ) : null}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {job.gpsDistanceMeters != null ? (
+                          <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
+                            {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
+                          </Badge>
+                        ) : null}
+                        {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
+                        {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
+                      </div>
                       {assignmentNames.length > 0 ? (
                         <p className="mt-1 text-xs text-muted-foreground">- {assignmentNames.join(", ")}</p>
                       ) : null}
@@ -971,6 +1193,87 @@ export default function JobsPage() {
           ))}
         </div>
       )}
+
+      {selectedIds.length > 0 ? (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border bg-background/95 px-4 py-3 shadow-xl backdrop-blur">
+          <div className="flex items-center gap-2">
+            <Checkbox checked={allFilteredSelected} onCheckedChange={toggleAllSelectedJobs} />
+            <span className="text-sm font-medium">{selectedIds.length} selected</span>
+          </div>
+          <Button size="sm" onClick={() => setBulkAssignOpen(true)}>
+            <UserPlus className="mr-2 h-4 w-4" />
+            Bulk assign
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setBulkStatusOpen(true)}>
+            Change status
+          </Button>
+          <Button size="sm" variant="ghost" onClick={clearBulkSelection}>
+            Clear
+          </Button>
+        </div>
+      ) : null}
+
+      <Dialog open={bulkAssignOpen} onOpenChange={setBulkAssignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Assign Cleaner</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Cleaner</Label>
+              <Select value={bulkCleanerId} onValueChange={setBulkCleanerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose cleaner" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cleaners.map((cleaner) => (
+                    <SelectItem key={cleaner.id} value={cleaner.id}>
+                      {cleaner.name || cleaner.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              This assigns the selected cleaner to {selectedIds.length} selected jobs and moves unassigned jobs to Assigned.
+            </p>
+            <Button onClick={submitBulkAssign} disabled={bulkSubmitting || !bulkCleanerId}>
+              {bulkSubmitting ? "Applying..." : "Apply assignment"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Change Status</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Status</Label>
+              <Select value={bulkStatusValue} onValueChange={setBulkStatusValue}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {JOB_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {STATUS_LABELS[status]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              This applies the selected status to {selectedIds.length} selected jobs.
+            </p>
+            <Button onClick={submitBulkStatus} disabled={bulkSubmitting || !bulkStatusValue}>
+              {bulkSubmitting ? "Applying..." : "Update status"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={quickAssignOpen}
@@ -1018,6 +1321,43 @@ export default function JobsPage() {
               </Button>
               <Button onClick={submitQuickAssign} disabled={quickAssignSubmitting}>
                 {quickAssignSubmitting ? "Assigning..." : "Assign"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={viewOptionsOpen} onOpenChange={setViewOptionsOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Jobs View Options</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Default view</Label>
+              <Select
+                value={viewPreferenceDraft}
+                onValueChange={(value: "list" | "kanban") => setViewPreferenceDraft(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="list">List</SelectItem>
+                  <SelectItem value="kanban">Board</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+              Current view:{" "}
+              <span className="font-medium text-foreground">{view === "list" ? "List" : "Board"}</span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setViewOptionsOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={savePreferredView}>
+                Save
               </Button>
             </div>
           </div>

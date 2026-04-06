@@ -4,6 +4,28 @@ const { spawnSync } = require("node:child_process");
 
 const mode = process.argv[2];
 
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function removePathSync(targetPath) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!error || !["ENOTEMPTY", "EPERM", "EBUSY"].includes(error.code)) {
+        throw error;
+      }
+      sleep(150 * (attempt + 1));
+    }
+  }
+
+  if (fs.existsSync(targetPath)) {
+    throw new Error(`Could not remove path: ${targetPath}`);
+  }
+}
+
 function movePathSync(sourcePath, targetPath) {
   try {
     fs.renameSync(sourcePath, targetPath);
@@ -29,20 +51,25 @@ if (!mode || !["build", "start", "dev"].includes(mode)) {
 
 const forwardedArgs = process.argv.slice(3);
 const env = { ...process.env };
-const requestedDistDir = env.NEXT_DIST_DIR || (mode === "build" || mode === "start" ? ".next-prod" : ".next");
+const requestedDistDir = env.NEXT_DIST_DIR || (mode === "build" || mode === "start" ? ".next-prod" : ".next-dev");
 const stagedBuildDistDir = `${requestedDistDir}.__build`;
 const tsconfigPath = path.resolve(process.cwd(), "tsconfig.json");
 const tsconfigSnapshot =
-  mode === "build" && fs.existsSync(tsconfigPath) ? fs.readFileSync(tsconfigPath, "utf8") : null;
+  (mode === "build" || mode === "dev") && fs.existsSync(tsconfigPath) ? fs.readFileSync(tsconfigPath, "utf8") : null;
 
-if (mode === "build" || mode === "start") {
+if (mode === "build" || mode === "start" || mode === "dev") {
   env.NEXT_DIST_DIR = requestedDistDir;
+}
+
+if (mode === "dev") {
+  const devDistDir = path.resolve(process.cwd(), requestedDistDir);
+  removePathSync(devDistDir);
 }
 
 if (mode === "build") {
   env.NEXT_DIST_DIR = stagedBuildDistDir;
   const stagedDistDir = path.resolve(process.cwd(), stagedBuildDistDir);
-  fs.rmSync(stagedDistDir, { recursive: true, force: true });
+  removePathSync(stagedDistDir);
 }
 
 const nextBin = path.resolve(process.cwd(), "node_modules", "next", "dist", "bin", "next");
@@ -67,14 +94,14 @@ if (mode === "build" && result.status === 0) {
   const stagedDistDir = path.resolve(process.cwd(), stagedBuildDistDir);
   const backupDistDir = path.resolve(process.cwd(), `${requestedDistDir}.__previous`);
 
-  fs.rmSync(backupDistDir, { recursive: true, force: true });
+  removePathSync(backupDistDir);
 
   try {
     if (fs.existsSync(finalDistDir)) {
       movePathSync(finalDistDir, backupDistDir);
     }
     movePathSync(stagedDistDir, finalDistDir);
-    fs.rmSync(backupDistDir, { recursive: true, force: true });
+    removePathSync(backupDistDir);
   } catch (error) {
     if (fs.existsSync(backupDistDir) && !fs.existsSync(finalDistDir)) {
       try {

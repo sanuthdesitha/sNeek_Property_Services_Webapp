@@ -12,6 +12,7 @@ import { DEFAULT_INVENTORY_ITEMS } from "../lib/inventory/default-items";
 import { DEFAULT_PUBLIC_SUBSCRIPTION_PLANS } from "../lib/marketing/default-subscription-plans";
 import { MARKETING_JOB_TYPES } from "../lib/marketing/job-types";
 import { DEFAULT_SETTINGS } from "../lib/settings";
+import { seedBlogPosts } from "./seed-blog";
 
 const db = new PrismaClient();
 const includeDemo = process.env.SEED_INCLUDE_DEMO === "1";
@@ -631,6 +632,9 @@ async function main() {
   });
 
   console.log("Ensured default app settings");
+
+  await seedBlogPosts(db);
+  console.log("Seeded blog posts");
 
   if (includeDemo) {
     await seedDemoData();

@@ -1,6 +1,9 @@
-import { Role } from "@prisma/client";
+import { JobAssignmentResponseStatus, JobStatus, Role } from "@prisma/client";
+import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
+import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { getAppSettings } from "@/lib/settings";
+import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -19,6 +22,50 @@ interface CleanerScoreRow {
   suburbHistoryCount: number;
   currentLoad: number;
   reasons: string[];
+}
+
+function toMinutes(value: string | null | undefined) {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hoursRaw, minutesRaw] = value.split(":");
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isCleanerAvailableForJob(input: {
+  profile:
+    | {
+        weekly: Record<string, Array<{ start: string; end: string }>>;
+        dateOverrides: Record<string, Array<{ start: string; end: string }>>;
+      }
+    | undefined;
+  scheduledDate: Date;
+  timezone: string;
+  startTime?: string | null;
+  dueTime?: string | null;
+}) {
+  const profile = input.profile;
+  if (!profile) return true;
+
+  const zonedDate = toZonedTime(input.scheduledDate, input.timezone);
+  const dateKey = `${zonedDate.getFullYear()}-${String(zonedDate.getMonth() + 1).padStart(2, "0")}-${String(
+    zonedDate.getDate()
+  ).padStart(2, "0")}`;
+  const weekdayKey = String(zonedDate.getDay());
+  const slots = profile.dateOverrides[dateKey] ?? profile.weekly[weekdayKey] ?? [];
+  if (!slots.length) return true;
+
+  const startMinutes = toMinutes(input.startTime) ?? toMinutes(input.dueTime) ?? 8 * 60;
+  const endMinutes =
+    toMinutes(input.dueTime) ??
+    (toMinutes(input.startTime) != null ? Math.min(24 * 60, (toMinutes(input.startTime) ?? 8 * 60) + 180) : 18 * 60);
+
+  return slots.some((slot) => {
+    const slotStart = toMinutes(slot.start) ?? 0;
+    const slotEnd = toMinutes(slot.end) ?? 24 * 60;
+    return startMinutes >= slotStart && endMinutes <= slotEnd;
+  });
 }
 
 async function getCleanerQaAverages() {
@@ -75,7 +122,7 @@ export async function suggestAutoAssignment(jobId: string) {
   const dayStart = toUtcDateOnly(scheduledKey);
   const nextDay = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [cleaners, assignmentsToday, suburbHistoryRows, qaAverages] = await Promise.all([
+  const [cleaners, assignmentsToday, suburbHistoryRows, qaAverages, cleanerAvailabilities] = await Promise.all([
     db.user.findMany({
       where: { role: Role.CLEANER, isActive: true },
       select: { id: true, name: true, email: true },
@@ -103,6 +150,7 @@ export async function suggestAutoAssignment(jobId: string) {
       orderBy: { updatedAt: "desc" },
     }),
     getCleanerQaAverages(),
+    listCleanerAvailabilities(),
   ]);
 
   const loadByCleaner = new Map<string, number>();
@@ -123,17 +171,27 @@ export async function suggestAutoAssignment(jobId: string) {
   const maxHistory = Math.max(1, ...Array.from(suburbHistoryByCleaner.values(), (value) => value));
   const maxDaily = Math.max(1, settings.autoAssign.maxDailyJobsPerCleaner);
 
+  const availabilityByCleaner = new Map(
+    cleanerAvailabilities.map((profile) => [profile.userId, profile])
+  );
+
   const scored: CleanerScoreRow[] = cleaners.map((cleaner) => {
     const currentLoad = loadByCleaner.get(cleaner.id) ?? 0;
     const qaScore = qaAverages.get(cleaner.id) ?? 70;
     const historyCount = suburbHistoryByCleaner.get(cleaner.id) ?? 0;
     const historyScore = Math.min(100, (historyCount / maxHistory) * 100);
     const loadScore = Math.max(0, 100 - (currentLoad / maxDaily) * 100);
+    const available = isCleanerAvailableForJob({
+      profile: availabilityByCleaner.get(cleaner.id),
+      scheduledDate: job.scheduledDate,
+      timezone: settings.timezone || "Australia/Sydney",
+    });
 
     const weighted =
       historyScore * (settings.autoAssign.weightSuburbHistory / 100) +
       qaScore * (settings.autoAssign.weightQaScore / 100) +
-      loadScore * (settings.autoAssign.weightCurrentLoad / 100);
+      loadScore * (settings.autoAssign.weightCurrentLoad / 100) +
+      (available ? 12 : -25);
 
     return {
       cleanerId: cleaner.id,
@@ -147,6 +205,7 @@ export async function suggestAutoAssignment(jobId: string) {
         `QA ${qaScore.toFixed(1)}`,
         `Suburb history ${historyCount}`,
         `Today's load ${currentLoad}/${maxDaily}`,
+        available ? "Availability fits schedule" : "Availability may not fit schedule",
       ],
     };
   });
@@ -160,29 +219,53 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
     getAppSettings(),
     db.job.findUnique({
       where: { id: jobId },
-      select: { id: true, jobType: true },
+      select: { id: true, jobType: true, status: true },
     }),
   ]);
   if (!job) throw new Error("Job not found.");
 
   const uniqueCleanerIds = Array.from(new Set(cleanerIds));
+  const changedAt = new Date();
   await db.$transaction(async (tx) => {
     await tx.jobAssignment.updateMany({
       where: { jobId, removedAt: null },
-      data: { removedAt: new Date() },
+      data: { removedAt: changedAt },
     });
-    await tx.jobAssignment.createMany({
-      data: uniqueCleanerIds.map((userId, index) => ({
-        jobId,
-        userId,
-        isPrimary: index === 0,
-        payRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? undefined,
-      })),
-      skipDuplicates: true,
+    for (let index = 0; index < uniqueCleanerIds.length; index += 1) {
+      const userId = uniqueCleanerIds[index];
+      await tx.jobAssignment.upsert({
+        where: { jobId_userId: { jobId, userId } },
+        create: {
+          jobId,
+          userId,
+          isPrimary: index === 0,
+          payRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? undefined,
+          offeredAt: changedAt,
+          responseStatus: JobAssignmentResponseStatus.PENDING,
+          assignedById: actorUserId,
+        },
+        update: {
+          removedAt: null,
+          isPrimary: index === 0,
+          payRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? undefined,
+          offeredAt: changedAt,
+          responseStatus: JobAssignmentResponseStatus.PENDING,
+          respondedAt: null,
+          responseNote: null,
+          assignedById: actorUserId,
+          transferredFromUserId: null,
+        },
+      });
+    }
+    const activeAssignments = await tx.jobAssignment.findMany({
+      where: { jobId, removedAt: null },
+      select: { removedAt: true, responseStatus: true },
     });
     await tx.job.update({
       where: { id: jobId },
-      data: { status: "ASSIGNED" },
+      data: {
+        status: derivePreStartJobStatus(job.status, activeAssignments),
+      },
     });
     await tx.auditLog.create({
       data: {

@@ -6,6 +6,7 @@ import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/
 
 const STATUS_COLORS: Record<string, { border: string; bg: string; label: string }> = {
   UNASSIGNED: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "UNASSIGNED" },
+  OFFERED: { border: "#d97706", bg: "rgba(217,119,6,0.14)", label: "AWAITING CONFIRMATION" },
   ASSIGNED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "ASSIGNED" },
   IN_PROGRESS: { border: "#0f766e", bg: "rgba(15,118,110,0.14)", label: "IN PROGRESS" },
   PAUSED: { border: "#d97706", bg: "rgba(217,119,6,0.16)", label: "PAUSED" },

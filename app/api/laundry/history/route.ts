@@ -19,10 +19,19 @@ export async function GET() {
       include: {
         property: {
           select: {
+            id: true,
             name: true,
             suburb: true,
             linenBufferSets: true,
             accessInfo: true,
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+            pricePerKg: true,
+            avgTurnaround: true,
           },
         },
         job: { select: { scheduledDate: true, status: true } },

@@ -102,6 +102,14 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
 
   const activeCampaignCount = useMemo(() => campaigns.filter((campaign) => campaign.isActive).length, [campaigns]);
   const publishedPlanCount = useMemo(() => plans.filter((plan) => plan.isPublished).length, [plans]);
+  const campaignFieldErrors = useMemo(
+    () => ({
+      code: campaignForm.code.trim().length >= 2 ? "" : "Code must be at least 2 characters.",
+      title: campaignForm.title.trim().length >= 2 ? "" : "Title must be at least 2 characters.",
+    }),
+    [campaignForm.code, campaignForm.title]
+  );
+  const canSaveCampaign = !campaignFieldErrors.code && !campaignFieldErrors.title && !campaignSaving;
 
   function resetCampaignForm() {
     setEditingCampaignId(null);
@@ -141,10 +149,18 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
   }
 
   async function saveCampaign() {
+    if (!canSaveCampaign) {
+      toast({
+        title: "Campaign save failed",
+        description: campaignFieldErrors.code || campaignFieldErrors.title || "Please complete the required campaign fields.",
+        variant: "destructive",
+      });
+      return;
+    }
     setCampaignSaving(true);
     const payload = {
-      code: campaignForm.code,
-      title: campaignForm.title,
+      code: campaignForm.code.trim(),
+      title: campaignForm.title.trim(),
       description: campaignForm.description || null,
       discountType: campaignForm.discountType,
       discountValue: Number(campaignForm.discountValue || 0),
@@ -291,8 +307,26 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2"><Label>Code</Label><Input value={campaignForm.code} onChange={(event) => setCampaignForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))} placeholder="WELCOME10" /></div>
-                <div className="space-y-2"><Label>Title</Label><Input value={campaignForm.title} onChange={(event) => setCampaignForm((current) => ({ ...current, title: event.target.value }))} placeholder="Welcome offer" /></div>
+                <div className="space-y-2">
+                  <Label>Code</Label>
+                  <Input
+                    value={campaignForm.code}
+                    onChange={(event) => setCampaignForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))}
+                    placeholder="WELCOME10"
+                    aria-invalid={Boolean(campaignFieldErrors.code)}
+                  />
+                  {campaignFieldErrors.code ? <p className="text-xs text-destructive">{campaignFieldErrors.code}</p> : null}
+                </div>
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <Input
+                    value={campaignForm.title}
+                    onChange={(event) => setCampaignForm((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Welcome offer"
+                    aria-invalid={Boolean(campaignFieldErrors.title)}
+                  />
+                  {campaignFieldErrors.title ? <p className="text-xs text-destructive">{campaignFieldErrors.title}</p> : null}
+                </div>
               </div>
               <div className="space-y-2"><Label>Description</Label><Textarea rows={3} value={campaignForm.description} onChange={(event) => setCampaignForm((current) => ({ ...current, description: event.target.value }))} /></div>
               <div className="grid gap-4 sm:grid-cols-3">
@@ -321,7 +355,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
                 <span>Campaign active</span>
               </label>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={saveCampaign} disabled={campaignSaving}>{campaignSaving ? "Saving..." : editingCampaignId ? "Save changes" : "Create campaign"}</Button>
+                <Button onClick={saveCampaign} disabled={!canSaveCampaign}>{campaignSaving ? "Saving..." : editingCampaignId ? "Save changes" : "Create campaign"}</Button>
                 <Button type="button" variant="outline" onClick={resetCampaignForm}>Reset</Button>
               </div>
             </CardContent>

@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { Role, JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
+import {
+  Role,
+  JobStatus,
+  NotificationChannel,
+  NotificationStatus,
+  JobAssignmentResponseStatus,
+} from "@prisma/client";
 import { z } from "zod";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -25,8 +31,16 @@ export async function POST(
     const settings = await getAppSettings();
 
     // Verify this cleaner is assigned
-    const assignment = await db.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: params.id, userId: session.user.id } },
+    const assignment = await db.jobAssignment.findFirst({
+      where: {
+        jobId: params.id,
+        userId: session.user.id,
+        removedAt: null,
+      },
+      select: {
+        id: true,
+        responseStatus: true,
+      },
     });
     if (!assignment)
       return NextResponse.json({ error: "Not assigned to this job" }, { status: 403 });
@@ -108,30 +122,6 @@ export async function POST(
       );
     }
 
-    if (isFirstStartForCleaner && settings.cleanerStartRequireDateMatch) {
-      let expected: string;
-      try {
-        expected = format(toZonedTime(job.scheduledDate, timezone), "yyyy-MM-dd");
-      } catch {
-        expected = format(toZonedTime(job.scheduledDate, "Australia/Sydney"), "yyyy-MM-dd");
-      }
-      if (body.verificationDate !== expected) {
-        return NextResponse.json(
-          { error: `Start verification failed. Enter scheduled date ${expected}.` },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (isFirstStartForCleaner && settings.cleanerStartRequireChecklistConfirm) {
-      if (!body.confirmChecklist || !body.confirmOnSite) {
-        return NextResponse.json(
-          { error: "Please complete start verification checks before starting the job." },
-          { status: 400 }
-        );
-      }
-    }
-
     const openOtherLogs = await db.timeLog.findMany({
       where: {
         userId: session.user.id,
@@ -148,7 +138,7 @@ export async function POST(
             startTime: true,
             property: { select: { name: true } },
             assignments: {
-              where: { userId: session.user.id },
+              where: { userId: session.user.id, removedAt: null },
               select: { id: true },
               take: 1,
             },
@@ -213,9 +203,22 @@ export async function POST(
       });
     }
 
-    await db.job.update({
-      where: { id: params.id },
-      data: { status: JobStatus.IN_PROGRESS },
+    await db.$transaction(async (tx) => {
+      if (assignment.responseStatus !== JobAssignmentResponseStatus.ACCEPTED) {
+        await tx.jobAssignment.update({
+          where: { id: assignment.id },
+          data: {
+            responseStatus: JobAssignmentResponseStatus.ACCEPTED,
+            respondedAt: new Date(),
+            responseNote: "Accepted on job start.",
+          },
+        });
+      }
+
+      await tx.job.update({
+        where: { id: params.id },
+        data: { status: JobStatus.IN_PROGRESS },
+      });
     });
 
     if (isFutureDate && body.allowFutureStart) {

@@ -20,6 +20,7 @@ export default function RegisterPage() {
   const [resendingOtp, setResendingOtp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branding, setBranding] = useState({ companyName: "sNeek Property Services", logoUrl: "" });
+  const [siteStatus, setSiteStatus] = useState({ maintenanceEnabled: false, allowLogin: true, message: "", supportMessage: "" });
   const [step, setStep] = useState<"register" | "verify">("register");
   const [registeredEmail, setRegisteredEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -44,11 +45,26 @@ export default function RegisterPage() {
         });
       })
       .catch(() => {});
+    fetch("/api/public/site-status")
+      .then((r) => r.json())
+      .then((data) =>
+        setSiteStatus({
+          maintenanceEnabled: data?.maintenanceEnabled === true,
+          allowLogin: data?.allowLogin !== false,
+          message: typeof data?.message === "string" ? data.message : "",
+          supportMessage: typeof data?.supportMessage === "string" ? data.supportMessage : "",
+        })
+      )
+      .catch(() => {});
   }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (siteStatus.maintenanceEnabled && !siteStatus.allowLogin) {
+      setError(siteStatus.message || "The website is currently under maintenance.");
+      return;
+    }
 
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match.");
@@ -186,6 +202,15 @@ export default function RegisterPage() {
             </Alert>
           )}
 
+          {siteStatus.maintenanceEnabled && !siteStatus.allowLogin ? (
+            <Alert className="mb-4 border-amber-300 bg-amber-50 text-amber-950">
+              <AlertDescription>
+                <strong>{siteStatus.message || "The website is currently under maintenance."}</strong>
+                {siteStatus.supportMessage ? <span className="block pt-1">{siteStatus.supportMessage}</span> : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {step === "register" ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -281,7 +306,7 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full" disabled={loading || (siteStatus.maintenanceEnabled && !siteStatus.allowLogin)}>
                 {loading ? "Creating account..." : "Create account"}
               </Button>
             </form>

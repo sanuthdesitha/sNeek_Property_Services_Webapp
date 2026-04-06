@@ -32,7 +32,7 @@ export async function POST(
       },
     });
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-    if (job.status === JobStatus.UNASSIGNED) {
+    if (job.status === JobStatus.UNASSIGNED || job.status === JobStatus.OFFERED) {
       return NextResponse.json(
         { error: "Extra payment requests are available only after the job is assigned." },
         { status: 400 }

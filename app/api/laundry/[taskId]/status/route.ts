@@ -24,6 +24,8 @@ const schema = z.object({
   pickupPhotoKey: z.string().trim().optional(),
   dropoffLocation: z.string().trim().optional(),
   dropoffPhotoKey: z.string().trim().optional(),
+  receiptImageKey: z.string().trim().optional(),
+  supplierId: z.string().trim().optional(),
   totalPrice: z.number().min(0).max(100000).optional(),
   earlyDropoffReason: z.string().trim().optional(),
   rescheduledPickupDate: z.string().datetime().optional(),
@@ -39,6 +41,8 @@ const editCompletedSchema = z.object({
   pickupPhotoKey: z.string().trim().optional(),
   dropoffLocation: z.string().trim().min(1).max(180).optional(),
   dropoffPhotoKey: z.string().trim().optional(),
+  receiptImageKey: z.string().trim().optional(),
+  supplierId: z.string().trim().optional(),
   totalPrice: z.number().min(0).max(100000).optional(),
   earlyDropoffReason: z.string().trim().max(1000).optional(),
   notes: z.string().trim().min(3).max(4000),
@@ -101,6 +105,8 @@ export async function POST(
       pickupPhotoKey,
       dropoffLocation,
       dropoffPhotoKey,
+      receiptImageKey,
+      supplierId,
       totalPrice,
       earlyDropoffReason,
       rescheduledPickupDate,
@@ -367,6 +373,10 @@ export async function POST(
         );
       }
       data.droppedAt = actualDroppedAt;
+      data.bagWeightKg = loadWeightKg ?? null;
+      data.dropoffCostAud = totalPrice ?? null;
+      data.receiptImageUrl = receiptImageKey?.trim() ? publicUrl(receiptImageKey.trim()) : existing.receiptImageUrl ?? null;
+      data.supplierId = supplierId?.trim() || null;
     }
     if (notes) data.flagNotes = notes;
 
@@ -403,6 +413,8 @@ export async function POST(
           totalPrice: nextStatus === "DROPPED" ? totalPrice : undefined,
           loadWeightKg: nextStatus === "DROPPED" ? loadWeightKg : undefined,
           dropoffPhotoKey: nextStatus === "DROPPED" ? dropoffPhotoKey?.trim() : undefined,
+          receiptImageKey: nextStatus === "DROPPED" ? receiptImageKey?.trim() : undefined,
+          supplierId: nextStatus === "DROPPED" ? supplierId?.trim() || undefined : undefined,
           intendedDropoffDate: nextStatus === "DROPPED" ? existing.dropoffDate.toISOString() : undefined,
           actualDroppedAt: nextStatus === "DROPPED" ? (actualDroppedAt ?? new Date()).toISOString() : undefined,
           earlyDropoffReason: nextStatus === "DROPPED" && isEarlyDropoff ? earlyDropoffReason?.trim() : undefined,
@@ -457,6 +469,8 @@ export async function PATCH(
       earlyDropoffReason: typeof droppedMeta.earlyDropoffReason === "string" ? droppedMeta.earlyDropoffReason : undefined,
       pickupPhotoKey: typeof pickupMeta.pickupPhotoKey === "string" ? pickupMeta.pickupPhotoKey : undefined,
       dropoffPhotoKey: typeof droppedMeta.dropoffPhotoKey === "string" ? droppedMeta.dropoffPhotoKey : undefined,
+      receiptImageKey: typeof droppedMeta.receiptImageKey === "string" ? droppedMeta.receiptImageKey : undefined,
+      supplierId: typeof droppedMeta.supplierId === "string" ? droppedMeta.supplierId : task.supplierId ?? undefined,
       notes: task.flagNotes ?? (typeof droppedMeta.notes === "string" ? droppedMeta.notes : undefined),
     };
 
@@ -468,6 +482,8 @@ export async function PATCH(
       earlyDropoffReason: body.earlyDropoffReason?.trim() || before.earlyDropoffReason,
       pickupPhotoKey: body.pickupPhotoKey?.trim() || before.pickupPhotoKey,
       dropoffPhotoKey: body.dropoffPhotoKey?.trim() || before.dropoffPhotoKey,
+      receiptImageKey: body.receiptImageKey?.trim() || before.receiptImageKey,
+      supplierId: body.supplierId?.trim() || before.supplierId,
       notes: body.notes.trim(),
     };
 
@@ -502,6 +518,8 @@ export async function PATCH(
       loadWeightKg: after.loadWeightKg,
       earlyDropoffReason: after.earlyDropoffReason,
       dropoffPhotoKey: after.dropoffPhotoKey,
+      receiptImageKey: after.receiptImageKey,
+      supplierId: after.supplierId,
       notes: after.notes,
       editedAt: new Date().toISOString(),
       editedById: session.user.id,
@@ -510,7 +528,13 @@ export async function PATCH(
     await db.$transaction(async (tx) => {
       await tx.laundryTask.update({
         where: { id: params.taskId },
-        data: { flagNotes: after.notes },
+        data: {
+          flagNotes: after.notes,
+          bagWeightKg: after.loadWeightKg ?? null,
+          dropoffCostAud: after.totalPrice ?? null,
+          receiptImageUrl: after.receiptImageKey ? publicUrl(after.receiptImageKey) : null,
+          supplierId: after.supplierId || null,
+        },
       });
 
       if (pickupConfirmation && (changedFields.includes("bagCount") || changedFields.includes("pickupPhotoKey"))) {
@@ -566,6 +590,7 @@ export async function PATCH(
       where: { id: params.taskId },
       include: {
         property: { select: { name: true, suburb: true, linenBufferSets: true } },
+        supplier: { select: { id: true, name: true, pricePerKg: true, avgTurnaround: true } },
         job: { select: { scheduledDate: true, status: true } },
         confirmations: { orderBy: { createdAt: "asc" } },
       },

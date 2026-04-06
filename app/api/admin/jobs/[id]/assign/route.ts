@@ -4,7 +4,13 @@ import { db } from "@/lib/db";
 import { assignJobSchema } from "@/lib/validations/job";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
-import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
+import {
+  Role,
+  NotificationChannel,
+  NotificationStatus,
+  JobAssignmentResponseStatus,
+  JobStatus,
+} from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
@@ -12,6 +18,10 @@ import { resolveNotificationRuleRecipients } from "@/lib/phase4/notification-rul
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
+import {
+  derivePreStartJobStatus,
+  formatAssignmentResponseLabel,
+} from "@/lib/jobs/assignment-workflow";
 
 export async function POST(
   req: NextRequest,
@@ -32,13 +42,24 @@ export async function POST(
         dueTime: true,
         internalNotes: true,
         property: { select: { name: true, suburb: true } },
-        assignments: { select: { userId: true } },
+        assignments: {
+          select: {
+            id: true,
+            userId: true,
+            removedAt: true,
+            responseStatus: true,
+          },
+        },
       },
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    const previousAssignedIds = job.assignments.map((assignment) => assignment.userId);
+    const activeAssignments = job.assignments.filter((assignment) => !assignment.removedAt);
+    const previousAssignedIds = activeAssignments.map((assignment) => assignment.userId);
+    const existingAssignmentsByUserId = new Map(
+      job.assignments.map((assignment) => [assignment.userId, assignment])
+    );
     const cleaners = await db.user.findMany({
       where: { id: { in: userIds }, role: Role.CLEANER, isActive: true },
       select: { id: true, name: true, email: true, phone: true },
@@ -55,16 +76,25 @@ export async function POST(
       return NextResponse.json({ error: "Primary cleaner must be in assignment list." }, { status: 400 });
     }
     const settings = await getAppSettings();
-
-    const nextStatus = job.status === "UNASSIGNED" && userIds.length > 0 ? "ASSIGNED" : job.status;
+    const assignmentChangedAt = new Date();
+    let nextStatus: JobStatus = job.status;
 
     await db.$transaction(async (tx) => {
-      await tx.jobAssignment.deleteMany({
-        where: userIds.length === 0 ? { jobId: params.id } : { jobId: params.id, userId: { notIn: userIds } },
+      await tx.jobAssignment.updateMany({
+        where:
+          userIds.length === 0
+            ? { jobId: params.id, removedAt: null }
+            : { jobId: params.id, removedAt: null, userId: { notIn: userIds } },
+        data: {
+          removedAt: assignmentChangedAt,
+          isPrimary: false,
+        },
       });
 
       for (const userId of userIds) {
         const configuredRate = settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? null;
+        const existing = existingAssignmentsByUserId.get(userId);
+        const isReoffered = !existing || Boolean(existing.removedAt);
         await tx.jobAssignment.upsert({
           where: { jobId_userId: { jobId: params.id, userId } },
           create: {
@@ -72,14 +102,33 @@ export async function POST(
             userId,
             isPrimary: userId === (primaryUserId ?? userIds[0]),
             payRate: configuredRate,
+            offeredAt: assignmentChangedAt,
+            responseStatus: JobAssignmentResponseStatus.PENDING,
+            assignedById: session.user.id,
           },
           update: {
             isPrimary: userId === (primaryUserId ?? userIds[0]),
             payRate: configuredRate,
             removedAt: null,
+            ...(isReoffered
+              ? {
+                  offeredAt: assignmentChangedAt,
+                  responseStatus: JobAssignmentResponseStatus.PENDING,
+                  respondedAt: null,
+                  responseNote: null,
+                  assignedById: session.user.id,
+                  transferredFromUserId: null,
+                }
+              : {}),
           },
         });
       }
+
+      const currentAssignments = await tx.jobAssignment.findMany({
+        where: { jobId: params.id, removedAt: null },
+        select: { removedAt: true, responseStatus: true },
+      });
+      nextStatus = derivePreStartJobStatus(job.status, currentAssignments);
 
       if (nextStatus !== job.status) {
         await tx.job.update({
@@ -123,20 +172,29 @@ export async function POST(
 
     for (const [userId, user] of Array.from(targetUsers.entries())) {
       const stillAssigned = currentAssignedIds.has(userId);
+      const previousAssignment = existingAssignmentsByUserId.get(userId);
+      const isNewOffer = stillAssigned && (!previousAssignment || Boolean(previousAssignment.removedAt));
+      const responseStatus =
+        stillAssigned && isNewOffer
+          ? JobAssignmentResponseStatus.PENDING
+          : previousAssignment?.responseStatus ?? null;
+      const responseLabel = formatAssignmentResponseLabel(responseStatus);
       const subject = stillAssigned
-        ? `${companyName}: Job assignment updated (${jobReference})`
+        ? isNewOffer
+          ? `${companyName}: New job offer (${jobReference})`
+          : `${companyName}: Job assignment updated (${jobReference})`
         : `${companyName}: Job removed from your schedule (${jobReference})`;
       const jobUrl = resolveAppUrl(`/cleaner/jobs/${job.id}`, req);
       const notificationTemplate = renderNotificationTemplate(
         settings,
         stillAssigned ? "jobAssigned" : "jobRemoved",
-        {
-          jobNumber: jobReference,
-          jobType: job.jobType.replace(/_/g, " "),
-          propertyName: jobLabel,
-          when,
-          timingFlags: timingText,
-        }
+          {
+            jobNumber: jobReference,
+            jobType: job.jobType.replace(/_/g, " "),
+            propertyName: jobLabel,
+            when,
+            timingFlags: stillAssigned ? `${timingText} | ${responseLabel}` : timingText,
+          }
       );
 
       await db.notification.create({
@@ -166,7 +224,7 @@ export async function POST(
             jobNumber: jobReference,
             when,
             jobUrl,
-            timingFlags: timingText,
+            timingFlags: stillAssigned ? `${timingText} | ${responseLabel}` : timingText,
           }
         );
         const emailResult = await sendEmailDetailed({
@@ -189,7 +247,7 @@ export async function POST(
         });
       }
 
-      if (user.phone && /^\+\d{8,15}$/.test(user.phone)) {
+      if (user.phone) {
         const smsResult = await sendSmsDetailed(user.phone, notificationTemplate.smsBody);
 
         if (smsResult.status === "sent" || smsResult.status === "failed") {

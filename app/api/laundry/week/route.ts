@@ -21,17 +21,36 @@ export async function GET(req: NextRequest) {
     const tasks = await db.laundryTask.findMany({
       where: {
         OR: [
+          // Tasks within the selected date range
           { pickupDate: { gte: weekStart, lt: weekEnd } },
           { dropoffDate: { gte: weekStart, lt: weekEnd } },
+          // Always include FLAGGED tasks regardless of week — they need attention
+          { status: "FLAGGED" },
         ],
       },
       include: {
         property: {
           select: {
+            id: true,
             name: true,
             suburb: true,
             linenBufferSets: true,
             accessInfo: true,
+            client: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+            pricePerKg: true,
+            avgTurnaround: true,
           },
         },
         job: { select: { scheduledDate: true, status: true } },

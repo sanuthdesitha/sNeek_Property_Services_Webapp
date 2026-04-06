@@ -1,376 +1,464 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
-import { CheckCircle2, Plus, XCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { format, parseISO } from "date-fns";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  RefreshCw,
+  Shirt,
+  XCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
-type ClientRow = {
-  id: string;
-  name: string;
-  email: string | null;
+// ── types ─────────────────────────────────────────────────────────────────────
+
+type AllApprovals = {
+  continuations: any[];
+  timingRequests: any[];
+  payAdjustments: any[];
+  timeAdjustments: any[];
+  clientApprovals: any[];
+  flaggedLaundry: any[];
+  counts: Record<string, number>;
 };
 
-type PropertyRow = {
-  id: string;
-  clientId: string;
-  name: string;
-  suburb: string;
-};
+const TABS = [
+  { key: "continuations",   label: "Job Continuations", icon: RefreshCw },
+  { key: "timingRequests",  label: "Timing Requests",   icon: Clock },
+  { key: "payAdjustments",  label: "Pay Requests",      icon: DollarSign },
+  { key: "timeAdjustments", label: "Clock Adjustments", icon: Clock },
+  { key: "clientApprovals", label: "Client Approvals",  icon: CheckCircle2 },
+  { key: "flaggedLaundry",  label: "Flagged Laundry",   icon: Shirt },
+] as const;
 
-type ApprovalRow = {
-  id: string;
-  clientId: string;
-  title: string;
-  description: string;
-  amount: number;
-  currency: string;
-  status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED";
-  requestedAt: string;
-  expiresAt: string | null;
-  client: { id: string; name: string; email: string | null } | null;
-  property: { id: string; name: string; suburb: string } | null;
-  responseNote: string | null;
-};
+type TabKey = typeof TABS[number]["key"];
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function fmt(dateStr: string | null | undefined) {
+  if (!dateStr) return "—";
+  try { return format(parseISO(dateStr), "dd MMM yyyy HH:mm"); } catch { return dateStr; }
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color =
+    status === "PENDING"   ? "bg-amber-100 text-amber-800 border-amber-200" :
+    status === "APPROVED"  ? "bg-green-100 text-green-800 border-green-200" :
+    status === "REJECTED" || status === "DECLINED" ? "bg-red-100 text-red-800 border-red-200" :
+    "bg-muted text-muted-foreground border-border";
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold", color)}>
+      {status}
+    </span>
+  );
+}
+
+// ── main component ────────────────────────────────────────────────────────────
 
 export default function AdminApprovalsPage() {
-  const [clients, setClients] = useState<ClientRow[]>([]);
-  const [properties, setProperties] = useState<PropertyRow[]>([]);
-  const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [data, setData] = useState<AllApprovals | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    clientId: "",
-    propertyId: "",
-    title: "",
-    description: "",
-    amount: "0",
-    currency: "AUD",
-    expiresAt: "",
-  });
+  const [activeTab, setActiveTab] = useState<TabKey>("continuations");
+  const [acting, setActing] = useState<string | null>(null);
 
-  const filteredProperties = useMemo(
-    () => properties.filter((property) => property.clientId === form.clientId),
-    [properties, form.clientId]
-  );
-
-  async function loadAll() {
+  const load = useCallback(async () => {
     setLoading(true);
-    const [clientsRes, propertiesRes, approvalsRes] = await Promise.all([
-      fetch("/api/admin/clients"),
-      fetch("/api/admin/properties"),
-      fetch("/api/admin/client-approvals"),
-    ]);
-    const [clientsBody, propertiesBody, approvalsBody] = await Promise.all([
-      clientsRes.json().catch(() => []),
-      propertiesRes.json().catch(() => []),
-      approvalsRes.json().catch(() => []),
-    ]);
-    setClients(Array.isArray(clientsBody) ? clientsBody : []);
-    setProperties(Array.isArray(propertiesBody) ? propertiesBody : []);
-    setRows(Array.isArray(approvalsBody) ? approvalsBody : []);
+    const res = await fetch("/api/admin/all-approvals");
+    const body = await res.json().catch(() => null);
     setLoading(false);
-  }
-
-  useEffect(() => {
-    loadAll();
+    if (res.ok && body) setData(body);
   }, []);
 
-  async function createApproval() {
-    if (!form.clientId || !form.title.trim()) {
-      toast({
-        title: "Missing fields",
-        description: "Client and title are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setSaving(true);
-    const payload = {
-      clientId: form.clientId,
-      propertyId: form.propertyId || null,
-      title: form.title.trim(),
-      description: form.description.trim(),
-      amount: Number(form.amount || 0),
-      currency: form.currency.trim() || "AUD",
-      expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
-    };
-    const res = await fetch("/api/admin/client-approvals", {
-      method: "POST",
+  useEffect(() => { load(); }, [load]);
+
+  // Switch to first tab with items once loaded
+  useEffect(() => {
+    if (!data) return;
+    const firstWithItems = TABS.find((t) => (data.counts[t.key] ?? 0) > 0);
+    if (firstWithItems) setActiveTab(firstWithItems.key);
+  }, [data]);
+
+  async function act(url: string, method: string, body: object, successMsg: string) {
+    setActing(url);
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
-    const body = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (!res.ok) {
-      toast({
-        title: "Create failed",
-        description: body.error ?? "Could not create approval request.",
-        variant: "destructive",
-      });
-      return;
-    }
-    toast({ title: "Approval request created" });
-    setForm((prev) => ({
-      ...prev,
-      propertyId: "",
-      title: "",
-      description: "",
-      amount: "0",
-      expiresAt: "",
-    }));
-    await loadAll();
+    const json = await res.json().catch(() => ({}));
+    setActing(null);
+    if (!res.ok) { toast({ title: "Failed", description: json.error ?? "Action failed", variant: "destructive" }); return; }
+    toast({ title: successMsg });
+    await load();
   }
 
-  async function updateStatus(id: string, status: ApprovalRow["status"]) {
-    setUpdatingId(id);
-    const res = await fetch(`/api/admin/client-approvals/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setUpdatingId(null);
-    if (!res.ok) {
-      toast({
-        title: "Update failed",
-        description: body.error ?? "Could not update approval status.",
-        variant: "destructive",
-      });
-      return;
-    }
-    await loadAll();
-  }
-
-  async function deleteApproval(id: string) {
-    if (!window.confirm("Delete this approval request?")) return;
-    setUpdatingId(id);
-    const res = await fetch(`/api/admin/client-approvals/${id}`, { method: "DELETE" });
-    const body = await res.json().catch(() => ({}));
-    setUpdatingId(null);
-    if (!res.ok) {
-      toast({
-        title: "Delete failed",
-        description: body.error ?? "Could not delete approval.",
-        variant: "destructive",
-      });
-      return;
-    }
-    await loadAll();
-  }
+  const total = data?.counts.total ?? 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Client Approval Queue</h2>
-        <p className="text-sm text-muted-foreground">
-          Track extras and decisions before billing.
-        </p>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Approvals Centre</h1>
+          <p className="text-sm text-muted-foreground">
+            All pending requests across jobs, pay, laundry, and client approvals in one place.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {total > 0 && (
+            <span className="rounded-full bg-destructive px-3 py-1 text-sm font-bold text-white">
+              {total} pending
+            </span>
+          )}
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={cn("mr-2 h-3.5 w-3.5", loading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Create Approval Request</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="text-xs text-muted-foreground">Client</label>
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={form.clientId}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    clientId: event.target.value,
-                    propertyId: "",
-                  }))
-                }
-              >
-                <option value="">Select client</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Property (optional)</label>
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={form.propertyId}
-                onChange={(event) => setForm((prev) => ({ ...prev, propertyId: event.target.value }))}
-                disabled={!form.clientId}
-              >
-                <option value="">None</option>
-                {filteredProperties.map((property) => (
-                  <option key={property.id} value={property.id}>
-                    {property.name} ({property.suburb})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+      {/* Tab bar */}
+      <div className="flex flex-wrap gap-1.5 rounded-2xl border border-border/60 bg-muted/40 p-1.5">
+        {TABS.map(({ key, label, icon: Icon }) => {
+          const count = data?.counts[key] ?? 0;
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={cn(
+                "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-150",
+                activeTab === key
+                  ? "bg-white shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+              {count > 0 && (
+                <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_140px_120px_180px]">
-            <div>
-              <label className="text-xs text-muted-foreground">Title</label>
-              <Input
-                value={form.title}
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                placeholder="Extra service approval"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Amount</label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.amount}
-                onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Currency</label>
-              <Input
-                value={form.currency}
-                onChange={(event) => setForm((prev) => ({ ...prev, currency: event.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Expires at (optional)</label>
-              <Input
-                type="datetime-local"
-                value={form.expiresAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground">Description</label>
-            <Textarea
-              rows={3}
-              value={form.description}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-              placeholder="Explain why approval is required..."
-            />
-          </div>
-
-          <div className="flex justify-end">
-            <Button onClick={createApproval} disabled={saving}>
-              <Plus className="mr-2 h-4 w-4" />
-              {saving ? "Creating..." : "Create request"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Approval Requests</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading approvals...</p>
-          ) : rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No approval requests found.</p>
-          ) : (
-            <div className="space-y-3">
-              {rows.map((row) => (
-                <div key={row.id} className="rounded-lg border p-3 text-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{row.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {row.client?.name ?? "Unknown client"}
-                        {row.property ? ` • ${row.property.name}` : ""}
-                        {" • "}
-                        {row.currency} {row.amount.toFixed(2)}
+      {/* Content */}
+      {loading ? (
+        <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>
+      ) : !data ? (
+        <div className="py-16 text-center text-sm text-destructive">Failed to load. <button onClick={load} className="underline">Retry</button></div>
+      ) : (
+        <div className="space-y-3">
+          {/* ── Continuations ── */}
+          {activeTab === "continuations" && (
+            data.continuations.length === 0 ? <Empty /> : data.continuations.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">
+                        Job #{row.job?.jobNumber ?? row.jobId.slice(0, 8)}
+                        {row.job?.property?.name ? ` — ${row.job.property.name}` : ""}
                       </p>
+                      <StatusBadge status={row.status} />
                     </div>
-                    <Badge
-                      variant={
-                        row.status === "APPROVED"
-                          ? "success"
-                          : row.status === "DECLINED"
-                            ? "destructive"
-                            : row.status === "PENDING"
-                              ? ("warning" as any)
-                              : "secondary"
-                      }
-                    >
-                      {row.status}
-                    </Badge>
-                  </div>
-
-                  {row.description ? <p className="mt-2">{row.description}</p> : null}
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Requested: {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
-                    {row.expiresAt
-                      ? ` • Expires: ${format(new Date(row.expiresAt), "dd MMM yyyy HH:mm")}`
-                      : ""}
-                  </p>
-                  {row.responseNote ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Response note: {row.responseNote}
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb} ·{" "}
+                      Scheduled: {row.job?.scheduledDate ? format(new Date(row.job.scheduledDate), "dd MMM yyyy") : "—"}
                     </p>
-                  ) : null}
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {row.status === "PENDING" ? (
-                      <>
-                        <Button
-                          size="sm"
-                          disabled={updatingId === row.id}
-                          onClick={() => updateStatus(row.id, "APPROVED")}
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          Mark approved
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={updatingId === row.id}
-                          onClick={() => updateStatus(row.id, "DECLINED")}
-                        >
-                          <XCircle className="mr-2 h-4 w-4" />
-                          Mark declined
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={updatingId === row.id}
-                          onClick={() => updateStatus(row.id, "CANCELLED")}
-                        >
-                          Cancel
-                        </Button>
-                      </>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      disabled={updatingId === row.id}
-                      onClick={() => deleteApproval(row.id)}
-                    >
-                      Delete
+                    <p className="text-sm">
+                      <span className="font-medium">Reason:</span> {row.reason}
+                    </p>
+                    {row.preferredDate && (
+                      <p className="text-xs text-muted-foreground">
+                        Preferred continuation: {format(new Date(row.preferredDate), "dd MMM yyyy")}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/admin/jobs/${row.jobId}`}>
+                        View job <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                      </Link>
                     </Button>
                   </div>
                 </div>
-              ))}
-            </div>
+              </Card>
+            ))
           )}
-        </CardContent>
-      </Card>
+
+          {/* ── Timing Requests ── */}
+          {activeTab === "timingRequests" && (
+            data.timingRequests.length === 0 ? <Empty /> : data.timingRequests.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">
+                        {row.requestType === "EARLY_CHECKIN" ? "Early check-in" : "Late checkout"} —{" "}
+                        {row.job?.property?.name ?? "Job " + (row.job?.jobNumber ?? row.jobId.slice(0, 8))}
+                      </p>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb} ·{" "}
+                      Job scheduled: {row.job?.scheduledDate ? format(new Date(row.job.scheduledDate), "dd MMM yyyy") : "—"}
+                    </p>
+                    {row.requestedTime && (
+                      <p className="text-sm">
+                        <span className="font-medium">Requested time:</span> {row.requestedTime}
+                      </p>
+                    )}
+                    {row.note && <p className="text-sm text-muted-foreground">{row.note}</p>}
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/job-early-checkouts/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/job-early-checkouts/${row.id}`, "PATCH", { status: "DECLINED" }, "Declined")}
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Decline
+                    </Button>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Pay Adjustments ── */}
+          {activeTab === "payAdjustments" && (
+            data.payAdjustments.length === 0 ? <Empty /> : data.payAdjustments.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">
+                        Pay request — {row.cleaner?.name ?? "Cleaner"}
+                      </p>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.name} · {row.job?.property?.suburb} ·{" "}
+                      Job #{row.job?.jobNumber ?? "—"}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Amount:</span>{" "}
+                      ${Number(row.amount ?? 0).toFixed(2)}
+                      {row.adjustmentType ? ` · ${row.adjustmentType}` : ""}
+                    </p>
+                    {row.reason && <p className="text-sm text-muted-foreground">{row.reason}</p>}
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    {row.jobId && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Time Adjustments ── */}
+          {activeTab === "timeAdjustments" && (
+            data.timeAdjustments.length === 0 ? <Empty /> : data.timeAdjustments.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">
+                        Clock adjustment — {row.cleaner?.name ?? "Cleaner"}
+                      </p>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.name} · {row.job?.property?.suburb} ·{" "}
+                      Job #{row.job?.jobNumber ?? "—"}
+                    </p>
+                    {row.reason && <p className="text-sm text-muted-foreground">{row.reason}</p>}
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    {row.jobId && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Client Approvals ── */}
+          {activeTab === "clientApprovals" && (
+            data.clientApprovals.length === 0 ? <Empty /> : data.clientApprovals.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{row.title}</p>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.client?.name ?? "Client"}
+                      {row.property ? ` · ${row.property.name}` : ""}
+                      {" · "}
+                      {row.currency} {Number(row.amount ?? 0).toFixed(2)}
+                    </p>
+                    {row.description && <p className="text-sm">{row.description}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Requested: {fmt(row.requestedAt)}
+                      {row.expiresAt ? ` · Expires: ${fmt(row.expiresAt)}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/client-approvals/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() => act(`/api/admin/client-approvals/${row.id}`, "PATCH", { status: "DECLINED" }, "Declined")}
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Flagged Laundry ── */}
+          {activeTab === "flaggedLaundry" && (
+            data.flaggedLaundry.length === 0 ? <Empty /> : data.flaggedLaundry.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      <p className="font-semibold">
+                        Flagged laundry — {row.job?.property?.name ?? "Unknown property"}
+                      </p>
+                      <StatusBadge status={row.status} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb}
+                      {row.job?.scheduledDate
+                        ? ` · Job date: ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}`
+                        : ""}
+                      {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+                    </p>
+                    {row.bagLocation && (
+                      <p className="text-sm">
+                        <span className="font-medium">Bag location:</span> {row.bagLocation}
+                      </p>
+                    )}
+                    {row.notes && <p className="text-sm text-muted-foreground">{row.notes}</p>}
+                    <p className="text-xs text-muted-foreground">Updated: {fmt(row.updatedAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href="/admin/laundry">
+                        Open laundry <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                    {row.job?.id && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/jobs/${row.job.id}`}>View job</Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-white/80 p-4 shadow-sm sm:p-5">
+      {children}
+    </div>
+  );
+}
+
+function Empty() {
+  return (
+    <div className="rounded-2xl border border-dashed border-border py-14 text-center text-sm text-muted-foreground">
+      No pending items in this category.
     </div>
   );
 }

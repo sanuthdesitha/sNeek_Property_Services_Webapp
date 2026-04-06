@@ -64,6 +64,7 @@
   html,
   body {
     min-height: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -106,7 +107,32 @@
   }
 
   .public-page-container {
-    max-width: var(--container-max-w, 80%);
+    width: min(100%, var(--container-max-w, 1320px));
+    max-width: none;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .public-page-container { padding-inline: 1.5rem; }
+  }
+
+  @media (min-width: 1024px) {
+    .public-page-container { padding-inline: 2rem; }
+  }
+
+  @media (min-width: 1280px) {
+    .public-page-container { padding-inline: 2.5rem; }
+  }
+
+  @media (min-width: 1536px) {
+    .public-page-container { padding-inline: 3rem; }
+  }
+
+  .public-page-frame {
+    width: min(100%, calc(var(--container-max-w, 1320px) - clamp(0rem, 4vw, 4rem)));
+    max-width: 100%;
+    margin-inline: auto;
   }
 
   .public-section-full {
@@ -166,6 +192,51 @@
   .animate-marquee {
     animation: marquee 28s linear infinite;
   }
+
+  /* ── Scroll-triggered reveal ── */
+  .scroll-reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .scroll-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .scroll-reveal-left {
+    opacity: 0;
+    transform: translateX(-32px);
+    transition: opacity 0.65s ease, transform 0.65s ease;
+  }
+  .scroll-reveal-left.is-visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .scroll-reveal-right {
+    opacity: 0;
+    transform: translateX(32px);
+    transition: opacity 0.65s ease, transform 0.65s ease;
+  }
+  .scroll-reveal-right.is-visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .scroll-reveal-scale {
+    opacity: 0;
+    transform: scale(0.94);
+    transition: opacity 0.55s ease, transform 0.55s ease;
+  }
+  .scroll-reveal-scale.is-visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+  /* Stagger delay helpers */
+  .scroll-delay-100 { transition-delay: 100ms; }
+  .scroll-delay-150 { transition-delay: 150ms; }
+  .scroll-delay-200 { transition-delay: 200ms; }
+  .scroll-delay-300 { transition-delay: 300ms; }
+  .scroll-delay-400 { transition-delay: 400ms; }
+  .scroll-delay-500 { transition-delay: 500ms; }
 
   .skeleton {
     background: linear-gradient(
@@ -263,6 +334,148 @@
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--border));
   border-radius: 8px;
+}
+
+/* ─── Portal theme system ─────────────────────────────────────── */
+/* Each theme overrides the global Tailwind CSS variables so all  */
+/* existing Tailwind classes (bg-background, text-foreground etc) */
+/* automatically inherit the portal theme with no extra changes.  */
+
+/* DARK theme — rich charcoal with teal accents */
+[data-portal-theme="dark"] {
+  /* Page background: deep warm-charcoal (not pure navy — feels less harsh) */
+  --background:          220 16% 10%;
+  --foreground:          210 20% 92%;
+
+  /* Cards: slightly lighter lift off the background */
+  --card:                220 14% 13%;
+  --card-foreground:     210 20% 92%;
+
+  --popover:             220 14% 13%;
+  --popover-foreground:  210 20% 92%;
+
+  /* Primary: brighter teal for dark bg — AA contrast */
+  --primary:             185 72% 52%;
+  --primary-foreground:  220 16% 8%;
+
+  /* Secondary: subtle raised surface */
+  --secondary:           218 14% 20%;
+  --secondary-foreground: 210 18% 85%;
+
+  /* Muted: for placeholders, timestamps */
+  --muted:               220 12% 17%;
+  --muted-foreground:    210 10% 56%;
+
+  /* Accent: warm amber tint for highlights */
+  --accent:              34 40% 20%;
+  --accent-foreground:   38 90% 82%;
+
+  --destructive:         0 68% 50%;
+  --destructive-foreground: 0 0% 98%;
+
+  /* Borders: subtle, not harsh */
+  --border:              220 12% 20%;
+  --input:               220 12% 20%;
+  --ring:                185 72% 52%;
+
+  /* Sidebar: deepest layer — pure dark with clear separation */
+  --portal-sidebar-bg:         220 18% 7%;
+  --portal-sidebar-fg:         210 12% 62%;
+  --portal-sidebar-active-bg:  185 72% 52%;
+  --portal-sidebar-active-fg:  220 18% 7%;
+  --portal-amber:              38 90% 60%;
+}
+
+/* LIGHT theme — clean white (matches brand defaults) */
+[data-portal-theme="light"] {
+  --background:          44 48% 97%;
+  --foreground:          195 26% 16%;
+  --card:                0 0% 100%;
+  --card-foreground:     195 26% 16%;
+  --popover:             0 0% 100%;
+  --popover-foreground:  195 26% 16%;
+  --primary:             188 78% 30%;
+  --primary-foreground:  43 100% 96%;
+  --secondary:           186 26% 90%;
+  --secondary-foreground: 193 31% 22%;
+  --muted:               38 34% 92%;
+  --muted-foreground:    196 12% 41%;
+  --accent:              24 84% 92%;
+  --accent-foreground:   20 55% 28%;
+  --destructive:         0 72% 52%;
+  --destructive-foreground: 0 0% 98%;
+  --border:              188 20% 83%;
+  --input:               188 20% 83%;
+  --ring:                188 78% 30%;
+
+  --portal-sidebar-bg:         0 0% 100%;
+  --portal-sidebar-fg:         196 12% 41%;
+  --portal-sidebar-active-bg:  188 78% 30%;
+  --portal-sidebar-active-fg:  43 100% 96%;
+  --portal-amber:              38 90% 46%;
+}
+
+/* PUBLIC theme — brand teal sidebar, light content */
+[data-portal-theme="public"] {
+  --background:          44 48% 97%;
+  --foreground:          195 26% 16%;
+  --card:                0 0% 100%;
+  --card-foreground:     195 26% 16%;
+  --popover:             0 0% 100%;
+  --popover-foreground:  195 26% 16%;
+  --primary:             188 78% 30%;
+  --primary-foreground:  43 100% 96%;
+  --secondary:           186 26% 90%;
+  --secondary-foreground: 193 31% 22%;
+  --muted:               38 34% 92%;
+  --muted-foreground:    196 12% 41%;
+  --accent:              24 84% 92%;
+  --accent-foreground:   20 55% 28%;
+  --destructive:         0 72% 52%;
+  --destructive-foreground: 0 0% 98%;
+  --border:              188 20% 83%;
+  --input:               188 20% 83%;
+  --ring:                188 78% 30%;
+
+  --portal-sidebar-bg:         188 78% 26%;
+  --portal-sidebar-fg:         43 100% 90%;
+  --portal-sidebar-active-bg:  43 100% 96%;
+  --portal-sidebar-active-fg:  188 78% 20%;
+  --portal-amber:              38 90% 46%;
+}
+
+/* Apply dark CSS vars to body when a dark portal is rendered,
+   so shadcn Radix portals (dropdowns, dialogs) also use dark vars */
+body:has([data-portal-theme="dark"]) {
+  --background:          220 16% 10%;
+  --foreground:          210 20% 92%;
+  --card:                220 14% 13%;
+  --card-foreground:     210 20% 92%;
+  --popover:             220 14% 13%;
+  --popover-foreground:  210 20% 92%;
+  --primary:             185 72% 52%;
+  --primary-foreground:  220 16% 8%;
+  --secondary:           218 14% 20%;
+  --secondary-foreground: 210 18% 85%;
+  --muted:               220 12% 17%;
+  --muted-foreground:    210 10% 56%;
+  --accent:              34 40% 20%;
+  --accent-foreground:   38 90% 82%;
+  --destructive:         0 68% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --border:              220 12% 20%;
+  --input:               220 12% 20%;
+  --ring:                185 72% 52%;
+}
+
+/* Sidebar slide-in animation */
+@keyframes sidebarSlideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.portal-sidebar-enter {
+  animation: sidebarSlideIn 200ms ease both;
 }
 
 /* FullCalendar overrides */

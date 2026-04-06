@@ -416,56 +416,60 @@ function inferActionLink(variables: Record<string, string>) {
   return null;
 }
 
+function infoBox(...rows: [string, string][]): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin:20px 0;">${rows.map(([label, val], i) => `<tr style="background:${i % 2 === 0 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 16px;font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;width:38%;vertical-align:top;">${label}</td><td style="padding:10px 16px;font-size:13.5px;color:#111827;vertical-align:top;">${val}</td></tr>`).join("")}</table>`;
+}
+
+function alertBox(message: string, variant: "warning" | "success" | "info" = "info"): string {
+  const colors: Record<string, { bg: string; border: string; text: string }> = {
+    warning: { bg: "#fffbeb", border: "#fcd34d", text: "#92400e" },
+    success: { bg: "#f0fdf4", border: "#86efac", text: "#14532d" },
+    info:    { bg: "#eff6ff", border: "#93c5fd", text: "#1e3a5f" },
+  };
+  const c = colors[variant];
+  return `<div style="margin:16px 0;padding:12px 16px;background:${c.bg};border-left:4px solid ${c.border};border-radius:6px;font-size:13px;color:${c.text};line-height:1.5;">${message}</div>`;
+}
+
 export function getDefaultEmailTemplates(): AppEmailTemplates {
   return {
     signupOtp: {
-      subject: "Verify your {companyName} account",
-      html: `
-        <h2 style="margin:0 0 12px;">Verify your email address</h2>
-        <p>Please use the one-time code below to complete your account verification.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;text-align:center;">
-          <div style="font-size:30px;font-weight:800;letter-spacing:0.24em;">{code}</div>
-        </div>
-        <p><strong>Valid for:</strong> {expiryMinutes} minutes</p>
-        <p>If you did not request this email, you can ignore it safely.</p>
-      `,
+      subject: "Verify your {companyName} account — {code}",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Verify your email address</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Use the one-time code below to complete your account verification. Do not share this code with anyone.</p>
+<div style="margin:24px 0;text-align:center;padding:24px;background:#f9fafb;border:2px dashed #d1d5db;border-radius:14px;">
+  <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;">Your verification code</p>
+  <div style="font-size:36px;font-weight:800;letter-spacing:0.28em;color:#111827;font-variant-numeric:tabular-nums;">{code}</div>
+  <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">Valid for {expiryMinutes} minutes</p>
+</div>
+<p style="margin:0;font-size:13px;color:#9ca3af;">If you did not request this, you can safely ignore this email. Your account will not be affected.</p>`,
     },
     resetPassword: {
       subject: "Your temporary {companyName} password",
-      html: `
-        <h2 style="margin:0 0 12px;">Temporary password issued</h2>
-        <p>Hello {userName},</p>
-        <p>An administrator reset your password. Use the temporary password below, then change it immediately after signing in.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <div style="font-size:24px;font-weight:800;letter-spacing:0.08em;">{tempPassword}</div>
-        </div>
-        <p><strong>Account:</strong> {email}</p>
-      `,
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Password reset</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {userName}, an administrator has reset your password. Use the temporary password below to sign in, then change it immediately from your settings.</p>
+<div style="margin:24px 0;padding:20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">
+  <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;">Temporary password</p>
+  <div style="font-size:20px;font-weight:800;letter-spacing:0.06em;color:#111827;font-family:monospace;">{tempPassword}</div>
+  <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">Account: {email}</p>
+</div>
+${alertBox("Change your password immediately after signing in — temporary passwords are not secure for long-term use.", "warning")}`,
     },
     welcomeAccount: {
-      subject: "Welcome to {companyName}",
-      html: `
-        <h2 style="margin:0 0 12px;">Welcome, {userName}</h2>
-        <p>Your account has been activated and is ready to use.</p>
-        <p><strong>Portal role:</strong> {role}</p>
-        <p><strong>Login email:</strong> {email}</p>
-        <p><strong>Temporary password:</strong> {tempPassword}</p>
-        <p>{welcomeNote}</p>
-        <p>Complete your profile details after signing in so notifications, invoices, and approvals keep working correctly.</p>
-      `,
+      subject: "Welcome to {companyName} — your account is ready",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Welcome, {userName}!</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Your {companyName} account is activated and ready. Sign in using the credentials below to get started.</p>
+${infoBox(["Role", "{role}"], ["Login email", "{email}"], ["Temporary password", "{tempPassword}"])}
+<p style="margin:16px 0;color:#4b5563;">{welcomeNote}</p>
+${alertBox("Sign in and update your password from your profile settings — temporary passwords expire.", "info")}
+<p style="margin:16px 0 0;color:#4b5563;">Complete your profile after signing in so notifications, invoices, and job assignments reach you correctly.</p>`,
     },
     accountInvite: {
-      subject: "You have been invited to {companyName}",
-      html: `
-        <h2 style="margin:0 0 12px;">Your portal account is ready</h2>
-        <p>Hello {userName},</p>
-        <p>An account has been created for you on <strong>{companyName}</strong>.</p>
-        <p><strong>Portal role:</strong> {role}</p>
-        <p><strong>Login email:</strong> {email}</p>
-        <p><strong>Temporary password:</strong> {tempPassword}</p>
-        <p>{welcomeNote}</p>
-        <p>Sign in and complete your setup from the button below.</p>
-      `,
+      subject: "You've been invited to {companyName}",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Your portal account is ready</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {userName}, an account has been created for you on <strong>{companyName}</strong>. Use the details below to sign in.</p>
+${infoBox(["Role", "{role}"], ["Login email", "{email}"], ["Temporary password", "{tempPassword}"])}
+<p style="margin:16px 0;color:#4b5563;">{welcomeNote}</p>
+${alertBox("Change your password immediately after your first sign-in.", "warning")}`,
     },
     newProfileCreated: {
       subject: "{companyName}: New profile created - {userName}",
@@ -482,59 +486,32 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     jobReminder24h: {
-      subject: "Tomorrow's job reminder - {jobNumber} - {propertyName}",
-      html: `
-        <h2 style="margin:0 0 12px;">Upcoming job reminder</h2>
-        <p>Hello {userName},</p>
-        <p>This is your scheduled reminder for tomorrow's job. Please review the details below and prepare before arrival.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
-          <p style="margin:0 0 6px;"><strong>Service:</strong> {jobType}</p>
-          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
-          <p style="margin:0 0 6px;"><strong>Address:</strong> {propertyAddress}</p>
-          <p style="margin:0;"><strong>Schedule:</strong> {when}</p>
-        </div>
-        <p><strong>Timing notes:</strong> {timingFlags}</p>
-        <p>Please check access instructions, equipment needs, stock expectations, and any special notes before attending the property.</p>
-      `,
+      subject: "Tomorrow: {jobType} at {propertyName} ({jobNumber})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Job reminder — tomorrow</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {userName}, this is your 24-hour reminder for the job below. Please review all details and prepare before arrival.</p>
+${infoBox(["Job #", "{jobNumber}"], ["Service", "{jobType}"], ["Property", "{propertyName}"], ["Address", "{propertyAddress}"], ["Scheduled", "{when}"])}
+<p style="margin:0 0 16px;color:#4b5563;"><strong>Timing notes:</strong> {timingFlags}</p>
+<p style="margin:0;font-size:13px;color:#4b5563;">Check access instructions, equipment requirements, stock levels, and any special notes before attending the property. Open the job in your portal for full details.</p>`,
     },
     jobAssigned: {
-      subject: "{companyName}: Job assignment updated ({jobNumber})",
-      html: `
-        <h2 style="margin:0 0 12px;">Job assignment updated</h2>
-        <p>Hello {userName},</p>
-        <p>You have been assigned to <strong>{jobType}</strong> at <strong>{propertyName}</strong>.</p>
-        <p><strong>Job number:</strong> {jobNumber}</p>
-        <p><strong>Scheduled:</strong> {when}</p>
-        <p><strong>Timing notes:</strong> {timingFlags}</p>
-      `,
+      subject: "Job assigned — {propertyName} ({jobNumber})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">New job assigned</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {userName}, you have been assigned to the job below. Open it in the Cleaner Portal to confirm and view all access details.</p>
+${infoBox(["Job #", "{jobNumber}"], ["Service", "{jobType}"], ["Property", "{propertyName}"], ["Scheduled", "{when}"], ["Timing notes", "{timingFlags}"])}`,
     },
     jobRemoved: {
-      subject: "{companyName}: Job removed from your schedule ({jobNumber})",
-      html: `
-        <h2 style="margin:0 0 12px;">Job removed from schedule</h2>
-        <p>Hello {userName},</p>
-        <p>You have been removed from <strong>{jobType}</strong> at <strong>{propertyName}</strong>.</p>
-        <p><strong>Job number:</strong> {jobNumber}</p>
-        <p><strong>Scheduled:</strong> {when}</p>
-        <p><strong>Timing notes:</strong> {timingFlags}</p>
-      `,
+      subject: "Job removed from your schedule ({jobNumber})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Job removed</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {userName}, you have been removed from the following job. No further action is required from you.</p>
+${infoBox(["Job #", "{jobNumber}"], ["Service", "{jobType}"], ["Property", "{propertyName}"], ["Was scheduled", "{when}"])}
+<p style="margin:0;font-size:13px;color:#9ca3af;">If you believe this was an error, please contact your scheduler.</p>`,
     },
     laundryReady: {
-      subject: "{companyName}: Laundry ready for pickup - {propertyName} ({jobNumber})",
-      html: `
-        <h2 style="margin:0 0 12px;">Laundry ready for pickup</h2>
-        <p>The cleaner has confirmed that laundry is ready for collection.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
-          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
-          <p style="margin:0 0 6px;"><strong>Clean date:</strong> {cleanDate}</p>
-          <p style="margin:0 0 6px;"><strong>Scheduled pickup date:</strong> {scheduledPickupDate}</p>
-          <p style="margin:0 0 6px;"><strong>Scheduled drop-off date:</strong> {scheduledDropoffDate}</p>
-          <p style="margin:0;"><strong>Bag location:</strong> {bagLocation}</p>
-        </div>
-        <p><a href="{laundryPhotoUrl}" target="_blank" rel="noopener noreferrer">View laundry photo</a></p>
-      `,
+      subject: "Laundry ready for pickup — {propertyName} ({jobNumber})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Laundry ready for pickup</h2>
+<p style="margin:0 0 16px;color:#4b5563;">The cleaner has confirmed laundry is bagged and ready for collection at the property below.</p>
+${infoBox(["Job #", "{jobNumber}"], ["Property", "{propertyName}"], ["Clean date", "{cleanDate}"], ["Pickup date", "{scheduledPickupDate}"], ["Drop-off date", "{scheduledDropoffDate}"], ["Bag location", "{bagLocation}"])}
+<p style="margin:0;font-size:13px;color:#4b5563;">Open the Laundry Portal to confirm pickup and log the bag count.</p>`,
     },
     laundrySkipRequested: {
       subject: "{companyName}: Laundry skip requested - {propertyName} ({jobNumber})",
@@ -566,18 +543,11 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     cleaningReportShared: {
-      subject: "{companyName} report for {propertyName} - {cleanDate} ({jobNumber})",
-      html: `
-        <h2 style="margin:0 0 12px;">Cleaning report ready</h2>
-        <p>Hello {clientName},</p>
-        <p>Your <strong>{jobType}</strong> report for <strong>{propertyName}</strong> is ready.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
-          <p style="margin:0 0 6px;"><strong>Cleaned date:</strong> {cleanDate}</p>
-          <p style="margin:0;"><strong>Property:</strong> {propertyName}</p>
-        </div>
-        <p>The PDF report is attached to this email. You can also open the client portal from the button below to review your latest service history.</p>
-      `,
+      subject: "Cleaning report ready — {propertyName} ({cleanDate})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Your cleaning report is ready</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {clientName}, your <strong>{jobType}</strong> report for <strong>{propertyName}</strong> has been completed and is attached to this email.</p>
+${infoBox(["Job #", "{jobNumber}"], ["Property", "{propertyName}"], ["Service date", "{cleanDate}"])}
+<p style="margin:0;font-size:13px;color:#4b5563;">The PDF report is attached. You can also open the Client Portal to review your full service history, download past reports, and track upcoming services.</p>`,
     },
     reportVisibilityChanged: {
       subject: "{companyName}: Report visibility updated for {propertyName}",
@@ -612,17 +582,11 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     clientInvoiceIssued: {
-      subject: "{companyName} invoice {invoiceNumber}",
-      html: `
-        <h2 style="margin:0 0 12px;">Invoice ready</h2>
-        <p>Hello {clientName},</p>
-        <p>Your invoice is ready.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Invoice number:</strong> {invoiceNumber}</p>
-          <p style="margin:0 0 6px;"><strong>Billing period:</strong> {periodLabel}</p>
-          <p style="margin:0;"><strong>Total:</strong> {totalAmount}</p>
-        </div>
-      `,
+      subject: "Invoice {invoiceNumber} from {companyName}",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Invoice ready</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {clientName}, your invoice is attached to this email. Please review and arrange payment at your earliest convenience.</p>
+${infoBox(["Invoice #", "{invoiceNumber}"], ["Billing period", "{periodLabel}"], ["Amount due", "<strong style='color:#0f766e;font-size:16px;'>{totalAmount}</strong>"])}
+<p style="margin:0;font-size:13px;color:#4b5563;">Open the Client Portal to view your invoice history and download a PDF copy. If you have questions about this invoice, please reply to this email.</p>`,
     },
     lostFoundAlert: {
       subject: "{companyName} - Lost & Found Case Opened",
@@ -636,45 +600,22 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     extraPayRequest: {
-      subject: "{companyName} - Extra Payment Request - {propertyName} ({jobNumber})",
-      html: `
-        <h2 style="margin:0 0 12px;">Extra payment request submitted</h2>
-        <p><strong>Cleaner:</strong> {cleanerName}</p>
-        <p><strong>Property:</strong> {propertyName}</p>
-        <p><strong>Job number:</strong> {jobNumber}</p>
-        <p><strong>Job:</strong> {jobType}</p>
-        <p><strong>Request type:</strong> {requestType}</p>
-        <p><strong>Requested amount:</strong> {requestedAmount}</p>
-        <p><strong>Cleaner note:</strong> {cleanerNote}</p>
-      `,
+      subject: "Pay request submitted — {propertyName} ({jobNumber})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Extra pay request submitted</h2>
+<p style="margin:0 0 16px;color:#4b5563;">A cleaner has submitted an extra pay request that requires admin review and approval.</p>
+${infoBox(["Cleaner", "{cleanerName}"], ["Property", "{propertyName}"], ["Job #", "{jobNumber}"], ["Service", "{jobType}"], ["Request type", "{requestType}"], ["Requested amount", "<strong style='color:#0f766e;'>{requestedAmount}</strong>"], ["Note", "{cleanerNote}"])}`,
     },
     caseCreated: {
-      subject: "{companyName}: New {caseType} case - {caseTitle}",
-      html: `
-        <h2 style="margin:0 0 12px;">New case created</h2>
-        <p>A new case has been opened in the system.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Type:</strong> {caseType}</p>
-          <p style="margin:0 0 6px;"><strong>Title:</strong> {caseTitle}</p>
-          <p style="margin:0 0 6px;"><strong>Property:</strong> {propertyName}</p>
-          <p style="margin:0 0 6px;"><strong>Job number:</strong> {jobNumber}</p>
-          <p style="margin:0 0 6px;"><strong>Status:</strong> {status}</p>
-          <p style="margin:0;"><strong>Priority:</strong> {priority}</p>
-        </div>
-      `,
+      subject: "New case opened — {caseTitle}",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">New case opened</h2>
+<p style="margin:0 0 16px;color:#4b5563;">A new case has been opened and requires attention. Open the Admin Portal to review and assign next steps.</p>
+${infoBox(["Type", "{caseType}"], ["Title", "{caseTitle}"], ["Property", "{propertyName}"], ["Job #", "{jobNumber}"], ["Status", "{status}"], ["Priority", "{priority}"])}`,
     },
     caseUpdated: {
-      subject: "{companyName}: Case updated - {caseTitle}",
-      html: `
-        <h2 style="margin:0 0 12px;">Case updated</h2>
-        <p>An existing case has been updated.</p>
-        <div style="margin:18px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="margin:0 0 6px;"><strong>Type:</strong> {caseType}</p>
-          <p style="margin:0 0 6px;"><strong>Title:</strong> {caseTitle}</p>
-          <p style="margin:0 0 6px;"><strong>Status:</strong> {status}</p>
-          <p style="margin:0;"><strong>Update:</strong> {updateNote}</p>
-        </div>
-      `,
+      subject: "Case updated — {caseTitle} ({status})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Case updated</h2>
+<p style="margin:0 0 16px;color:#4b5563;">An existing case has been updated. Please review the change below.</p>
+${infoBox(["Type", "{caseType}"], ["Title", "{caseTitle}"], ["New status", "{status}"], ["Update note", "{updateNote}"])}`,
     },
     shoppingRunSubmitted: {
       subject: "{companyName}: Shopping run submitted - {runTitle}",
@@ -763,24 +704,17 @@ export function getDefaultEmailTemplates(): AppEmailTemplates {
       `,
     },
     quoteApprovalRequest: {
-      subject: "{companyName}: Quote approval required - {serviceType}",
-      html: `
-        <h2 style="margin:0 0 12px;">Quote approval required</h2>
-        <p>A quote is ready for review.</p>
-        <p><strong>Client:</strong> {clientName}</p>
-        <p><strong>Service:</strong> {serviceType}</p>
-        <p><strong>Total:</strong> {quoteTotal}</p>
-      `,
+      subject: "Quote ready for approval — {clientName} ({serviceType})",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Quote pending approval</h2>
+<p style="margin:0 0 16px;color:#4b5563;">A new quote is ready for your review and approval before it is sent to the client.</p>
+${infoBox(["Client", "{clientName}"], ["Service", "{serviceType}"], ["Total", "<strong style='color:#0f766e;font-size:16px;'>{quoteTotal}</strong>"])}`,
     },
     quoteSentToClient: {
-      subject: "{companyName}: Your quote is ready",
-      html: `
-        <h2 style="margin:0 0 12px;">Your quote is ready</h2>
-        <p>Hello {clientName},</p>
-        <p>Your quote for <strong>{serviceType}</strong> is ready to review.</p>
-        <p><strong>Total:</strong> {quoteTotal}</p>
-        <p><strong>Valid until:</strong> {validUntil}</p>
-      `,
+      subject: "Your {companyName} quote is ready",
+      html: `<h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Your quote is ready</h2>
+<p style="margin:0 0 16px;color:#4b5563;">Hello {clientName}, we've prepared a quote for your requested service. Please review the details below and accept or request changes through the Client Portal.</p>
+${infoBox(["Service", "{serviceType}"], ["Quote total", "<strong style='color:#0f766e;font-size:16px;'>{quoteTotal}</strong>"], ["Valid until", "{validUntil}"])}
+<p style="margin:16px 0 0;font-size:13px;color:#4b5563;">Accept the quote online using the button below to confirm your booking. The quote will expire on <strong>{validUntil}</strong> — please respond before then to secure your preferred date.</p>`,
     },
   };
 }
@@ -867,24 +801,20 @@ export function sanitizeEmailTemplates(input: unknown, fallback: AppEmailTemplat
 }
 
 export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }, innerHtml: string, actionLink?: { url: string; label: string } | null) {
-  const logoHtml = settings.logoUrl
-    ? `
-      <div style="display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:16px;background:#ffffff;border:1px solid #dbe3ee;box-shadow:0 8px 18px rgba(15,23,42,0.12);">
-        <div style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:6px 10px;">
-          <img src="${escapeAttribute(settings.logoUrl)}" alt="${escapeHtml(settings.companyName)}" style="background:#ffffff;max-height:56px;max-width:220px;display:block;height:auto;width:auto;" />
-        </div>
-      </div>
-    `
-    : "";
+  const companyName = escapeHtml(settings.companyName);
+
+  const logoSection = settings.logoUrl
+    ? `<img src="${escapeAttribute(settings.logoUrl)}" alt="${companyName}" style="max-height:44px;max-width:180px;display:block;height:auto;width:auto;margin-bottom:10px;" />`
+    : `<div style="display:inline-block;background:rgba(255,255,255,0.18);border-radius:12px;padding:8px 14px;font-size:18px;font-weight:800;letter-spacing:0.04em;color:#ffffff;margin-bottom:10px;">${companyName.slice(0, 2).toUpperCase()}</div>`;
 
   const actionButtonHtml = actionLink
     ? `
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 8px 0;">
         <tr>
-          <td style="border-radius:12px;background:#0f766e;">
+          <td style="border-radius:10px;background:#0f766e;box-shadow:0 4px 12px rgba(15,118,110,0.35);">
             <a href="${escapeAttribute(actionLink.url)}" target="_blank" rel="noopener noreferrer"
-              style="display:inline-block;padding:12px 18px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;">
-              ${escapeHtml(actionLink.label)}
+              style="display:inline-block;padding:13px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.01em;">
+              ${escapeHtml(actionLink.label)} &rarr;
             </a>
           </td>
         </tr>
@@ -893,51 +823,73 @@ export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }
     : "";
 
   return `<!doctype html>
-  <html lang="en">
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <style>
-        @media only screen and (max-width: 620px) {
-          .container { width: 100% !important; }
-          .content { padding: 18px !important; }
-          .brand { font-size: 18px !important; }
-          .body-copy { font-size: 14px !important; }
-        }
-      </style>
-    </head>
-    <body style="margin:0;padding:18px;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td align="center">
-            <table role="presentation" class="container" width="680" cellpadding="0" cellspacing="0" border="0"
-              style="width:680px;max-width:100%;background:#ffffff;border:1px solid #dbe3ee;border-radius:18px;overflow:hidden;box-shadow:0 18px 50px rgba(15,23,42,0.08);">
-              <tr>
-                <td style="padding:20px 24px;background:linear-gradient(135deg,#0f766e,#155e75);color:#ffffff;">
-                  ${logoHtml || `<div style="font-size:22px;font-weight:800;letter-spacing:0.02em;">${escapeHtml(settings.companyName)}</div>`}
-                  <div class="brand" style="font-size:20px;font-weight:700;line-height:1.25;margin-top:${logoHtml ? "12px" : "8px"};">
-                    ${escapeHtml(settings.companyName)}
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td class="content" style="padding:24px;">
-                  <div class="body-copy" style="font-size:15px;line-height:1.7;color:#0f172a;">
-                    ${innerHtml}
-                  </div>
-                  ${actionButtonHtml}
-                  <div style="margin-top:22px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;line-height:1.6;">
-                    ${escapeHtml(settings.companyName)}<br />
-                    This is an automated email from your operations dashboard.
-                  </div>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-  </html>`;
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>${companyName}</title>
+    <style>
+      @media only screen and (max-width: 640px) {
+        .wrapper { padding: 12px !important; }
+        .card { border-radius: 14px !important; }
+        .header { padding: 22px 20px !important; }
+        .body { padding: 22px 20px !important; }
+        .h2 { font-size: 20px !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#edf2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1a202c;-webkit-text-size-adjust:100%;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="wrapper" style="padding:32px 16px;">
+      <tr>
+        <td align="center">
+
+          <!-- Card -->
+          <table role="presentation" class="card" width="600" cellpadding="0" cellspacing="0" border="0"
+            style="width:600px;max-width:100%;border-radius:18px;overflow:hidden;box-shadow:0 4px 32px rgba(0,0,0,0.08);border:1px solid #e2e8f0;">
+
+            <!-- Header -->
+            <tr>
+              <td class="header" style="padding:28px 32px;background:linear-gradient(140deg,#0f766e 0%,#0d9488 55%,#0e7490 100%);">
+                ${logoSection}
+                <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.01em;line-height:1.2;">${companyName}</div>
+                <div style="margin-top:4px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.72);letter-spacing:0.06em;text-transform:uppercase;">Operations Portal</div>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td class="body" style="padding:32px;background:#ffffff;">
+                <div style="font-size:15px;line-height:1.75;color:#374151;">
+                  ${innerHtml}
+                </div>
+                ${actionButtonHtml}
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:20px 32px;background:#f8fafc;border-top:1px solid #e9ecef;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;line-height:1.6;">
+                      <strong style="color:#374151;">${companyName}</strong><br />
+                      This is an automated notification from your operations dashboard.<br />
+                      If you received this in error, please disregard it.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+          <!-- /Card -->
+
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 export function renderEmailTemplate(

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, startOfDay, startOfWeek } from "date-fns";
 import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, Copy, FilePenLine, History, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
+import jsQR from "jsqr";
+import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -206,6 +208,16 @@ function getTaskCompletionDetails(task: any) {
       typeof droppedMeta.loadWeightKg === "number" && Number.isFinite(droppedMeta.loadWeightKg)
         ? droppedMeta.loadWeightKg
         : null,
+    supplierId:
+      typeof droppedMeta.supplierId === "string" && droppedMeta.supplierId.trim()
+        ? droppedMeta.supplierId.trim()
+        : typeof task?.supplierId === "string" && task.supplierId.trim()
+          ? task.supplierId.trim()
+          : "",
+    receiptImageUrl:
+      typeof task?.receiptImageUrl === "string" && task.receiptImageUrl.trim()
+        ? task.receiptImageUrl.trim()
+        : "",
     earlyDropoffReason:
       typeof droppedMeta.earlyDropoffReason === "string" ? droppedMeta.earlyDropoffReason : "",
     notes:
@@ -246,6 +258,7 @@ export default function LaundryPortal() {
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [dropoffOptions, setDropoffOptions] = useState<string[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [laundryConfig, setLaundryConfig] = useState({
     showHistoryTab: true,
     showCostTracking: true,
@@ -271,6 +284,8 @@ export default function LaundryPortal() {
   const [dropoffSelection, setDropoffSelection] = useState<string>("__custom");
   const [dropoffCustom, setDropoffCustom] = useState("");
   const [dropoffPhoto, setDropoffPhoto] = useState<File | null>(null);
+  const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
+  const [supplierSelection, setSupplierSelection] = useState<string>("__none");
   const [dropoffTotalPrice, setDropoffTotalPrice] = useState("");
   const [dropoffWeightKg, setDropoffWeightKg] = useState("");
   const [earlyDropoffReason, setEarlyDropoffReason] = useState("");
@@ -282,11 +297,15 @@ export default function LaundryPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [pickupPhotoPreviewUrl, setPickupPhotoPreviewUrl] = useState("");
   const [dropoffPhotoPreviewUrl, setDropoffPhotoPreviewUrl] = useState("");
+  const [receiptPhotoPreviewUrl, setReceiptPhotoPreviewUrl] = useState("");
   const [viewerName, setViewerName] = useState("Laundry Team");
   const [companyName, setCompanyName] = useState("sNeek Property Services");
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
   const [appTimezone, setAppTimezone] = useState("Australia/Sydney");
   const [teamPosts, setTeamPosts] = useState<any[]>([]);
+  const [qrTask, setQrTask] = useState<any | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [scanningQr, setScanningQr] = useState(false);
   const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
 
   function resetActionState() {
@@ -297,6 +316,8 @@ export default function LaundryPortal() {
     setDropoffSelection(dropoffOptions[0] ?? "__custom");
     setDropoffCustom("");
     setDropoffPhoto(null);
+    setReceiptPhoto(null);
+    setSupplierSelection("__none");
     setDropoffTotalPrice("");
     setDropoffWeightKg("");
     setEarlyDropoffReason("");
@@ -331,6 +352,18 @@ export default function LaundryPortal() {
     };
   }, [dropoffPhoto]);
 
+  useEffect(() => {
+    if (!receiptPhoto) {
+      setReceiptPhotoPreviewUrl("");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(receiptPhoto);
+    setReceiptPhotoPreviewUrl(objectUrl);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [receiptPhoto]);
+
   function openAction(task: any, type: ActionType) {
     setActionTask(task);
     setActionType(type);
@@ -350,6 +383,8 @@ export default function LaundryPortal() {
       setDropoffCustom("");
     }
     setDropoffPhoto(null);
+    setReceiptPhoto(null);
+    setSupplierSelection(type === "EDIT_COMPLETED" && completion.supplierId ? completion.supplierId : "__none");
     setDropoffTotalPrice(type === "EDIT_COMPLETED" && completion.totalPrice != null ? String(completion.totalPrice) : "");
     setDropoffWeightKg(type === "EDIT_COMPLETED" && completion.loadWeightKg != null ? String(completion.loadWeightKg) : "");
     setEarlyDropoffReason(type === "EDIT_COMPLETED" ? completion.earlyDropoffReason : "");
@@ -367,7 +402,9 @@ export default function LaundryPortal() {
     fetch(`/api/me/workforce`).then((r) => r.json()).then((data) => setTeamPosts(Array.isArray(data?.posts) ? data.posts.slice(0, 3) : []));
     fetch(`/api/laundry/options`).then((r) => r.json()).then((data) => {
       const options = Array.isArray(data?.dropoffLocationOptions) ? data.dropoffLocationOptions : [];
+      const supplierRows = Array.isArray(data?.suppliers) ? data.suppliers : [];
       setDropoffOptions(options);
+      setSuppliers(supplierRows);
       if (options.length > 0) setDropoffSelection(options[0]);
       setViewerName(typeof data?.viewerName === "string" && data.viewerName.trim() ? data.viewerName.trim() : "Laundry Team");
       setCompanyName(
@@ -436,6 +473,94 @@ export default function LaundryPortal() {
   useEffect(() => {
     logoImagePromiseRef.current = null;
   }, [companyLogoUrl]);
+
+  useEffect(() => {
+    if (!qrTask?.id) {
+      setQrCodeUrl("");
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(qrTask.id, { width: 280, margin: 1 })
+      .then((url: string) => {
+        if (!cancelled) setQrCodeUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrCodeUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [qrTask]);
+
+  async function decodeQrFromFile(file: File) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(reader.error ?? new Error("Could not read QR image."));
+      reader.readAsDataURL(file);
+    });
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("Could not load QR image."));
+      nextImage.src = dataUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not open QR scanner.");
+    context.drawImage(image, 0, 0);
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    const result = jsQR(imageData.data, imageData.width, imageData.height);
+    return result?.data?.trim() || null;
+  }
+
+  function openTaskFromQrValue(value: string) {
+    const target = [...tasks, ...historyTasks].find((task) => task.id === value);
+    if (!target) {
+      toast({ title: "QR code not recognised", description: "No laundry task matched that QR code.", variant: "destructive" });
+      return;
+    }
+
+    if (target.status === "CONFIRMED" || target.status === "PENDING") {
+      openAction(target, "PICKED_UP");
+      return;
+    }
+    if (target.status === "PICKED_UP") {
+      openAction(target, "RETURNED");
+      return;
+    }
+    if (target.status === "DROPPED") {
+      openAction(target, "EDIT_COMPLETED");
+      return;
+    }
+
+    toast({
+      title: "Task found",
+      description: `${target.property?.name ?? "Laundry task"} is currently ${String(target.status).replace(/_/g, " ").toLowerCase()}.`,
+    });
+  }
+
+  async function handleQrScanSelection(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setScanningQr(true);
+    try {
+      const value = await decodeQrFromFile(file);
+      if (!value) {
+        toast({ title: "Scan failed", description: "No QR code was detected in that image.", variant: "destructive" });
+        return;
+      }
+      openTaskFromQrValue(value);
+    } catch (error: any) {
+      toast({ title: "Scan failed", description: error?.message ?? "Could not scan the QR code.", variant: "destructive" });
+    } finally {
+      setScanningQr(false);
+    }
+  }
 
   function formatPhotoTimestamp() {
     try {
@@ -692,6 +817,9 @@ export default function LaundryPortal() {
         }
         payload.loadWeightKg = Number(weight.toFixed(2));
       }
+      if (supplierSelection !== "__none") {
+        payload.supplierId = supplierSelection;
+      }
 
       if (earlyDropoffReason.trim()) {
         payload.earlyDropoffReason = earlyDropoffReason.trim();
@@ -712,6 +840,15 @@ export default function LaundryPortal() {
           payload.dropoffPhotoKey = key;
         } catch (err: any) {
           toast({ title: "Photo upload failed", description: err.message ?? "Could not upload drop-off photo.", variant: "destructive" });
+          return;
+        }
+      }
+      if (receiptPhoto) {
+        try {
+          const key = await uploadOneFile(receiptPhoto, "laundry/receipt");
+          payload.receiptImageKey = key;
+        } catch (err: any) {
+          toast({ title: "Receipt upload failed", description: err.message ?? "Could not upload receipt photo.", variant: "destructive" });
           return;
         }
       }
@@ -839,6 +976,9 @@ export default function LaundryPortal() {
         }
         payload.loadWeightKg = Number(weight.toFixed(2));
       }
+      if (supplierSelection !== "__none") {
+        payload.supplierId = supplierSelection;
+      }
       if (laundryConfig.requireEarlyDropoffReason && isEarlyDropoffCandidate(actionTask)) {
         const reason = earlyDropoffReason.trim();
         if (!reason) {
@@ -857,6 +997,15 @@ export default function LaundryPortal() {
           payload.dropoffPhotoKey = key;
         } catch (err: any) {
           toast({ title: "Photo upload failed", description: err.message ?? "Could not upload photo.", variant: "destructive" });
+          return;
+        }
+      }
+      if (receiptPhoto) {
+        try {
+          const key = await uploadOneFile(receiptPhoto, "laundry/receipt");
+          payload.receiptImageKey = key;
+        } catch (err: any) {
+          toast({ title: "Receipt upload failed", description: err.message ?? "Could not upload receipt photo.", variant: "destructive" });
           return;
         }
       }
@@ -920,6 +1069,8 @@ export default function LaundryPortal() {
       if (readyFilter === "tomorrow") return pickupKey === tomorrowKey;
       return true;
     });
+  const confirmedTasks = sortedTasks.filter((task) => task.status === "CONFIRMED");
+  const pickedUpTasksList = sortedTasks.filter((task) => task.status === "PICKED_UP");
   const skippedTasks = sortedTasks.filter((task) => task.status === "SKIPPED_PICKUP");
   const allTasks = sortedTasks.filter((task) => !["FLAGGED", "SKIPPED_PICKUP"].includes(task.status));
   const scheduleActiveTasks = allTasks.filter((task) => task.status !== "DROPPED");
@@ -1084,21 +1235,35 @@ export default function LaundryPortal() {
                 >
                   Next
                 </Button>
+                <label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted">
+                  {scanningQr ? "Scanning..." : "Scan bag QR"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const input = e.currentTarget;
+                      await handleQrScanSelection(input.files);
+                      input.value = "";
+                    }}
+                  />
+                </label>
               </div>
             </div>
 
             <div className="grid gap-3 border-t border-border/60 bg-muted/20 p-5 sm:grid-cols-3 sm:p-6 lg:border-l lg:border-t-0 lg:grid-cols-1">
               <div>
-                <p className="text-xs text-muted-foreground">Ready queue</p>
-                <p className="text-2xl font-semibold">{readyQueue.length}</p>
+                <p className="text-xs text-muted-foreground">Confirmed</p>
+                <p className="text-2xl font-semibold">{confirmedTasks.length}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Picked up</p>
+                <p className="text-xs text-muted-foreground">At laundry</p>
                 <p className="text-2xl font-semibold">{pickedUpCount}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Returned total</p>
-                <p className="text-2xl font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(2)}` : "Hidden"}</p>
+                <p className="text-xs text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue" : "Returned"}</p>
+                <p className="text-2xl font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(2)}` : returnedCount}</p>
               </div>
             </div>
           </div>
@@ -1116,49 +1281,63 @@ export default function LaundryPortal() {
       <Card>
         <CardContent className="grid gap-3 p-4 text-sm text-muted-foreground md:grid-cols-3">
           <div>
-            <p className="font-semibold text-foreground">1. Review the ready queue</p>
-            <p className="mt-1">Open the Ready Queue tab first to confirm which cleaner-submitted bags are ready for pickup.</p>
+            <p className="font-semibold text-foreground">1. Active tab — confirmed pickups</p>
+            <p className="mt-1">Start here. Confirmed tasks are bags marked ready by cleaners waiting for you to collect.</p>
           </div>
           <div>
-            <p className="font-semibold text-foreground">2. Move through the planner</p>
-            <p className="mt-1">Use Previous and Next to change the viewed range, or switch the range filter to day, week, month, or all upcoming.</p>
+            <p className="font-semibold text-foreground">2. Mark picked up → returned</p>
+            <p className="mt-1">Tap "Mark Picked Up" once you have the bags. When dropped off, tap "Mark Returned" with photo and cost details.</p>
           </div>
           <div>
-            <p className="font-semibold text-foreground">3. Confirm pickup and return</p>
-            <p className="mt-1">Record pickup, then confirm the return with the final photo, location, and pricing details so the history stays accurate.</p>
+            <p className="font-semibold text-foreground">3. Returned tab tracks costs</p>
+            <p className="mt-1">Completed jobs move to the Returned tab. Edit details if the price or weight needs updating after the fact.</p>
           </div>
         </CardContent>
       </Card>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Loaded tasks</p>
-            <p className="text-2xl font-semibold">{allTasks.length}</p>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <Shirt className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Awaiting pickup</p>
+              <p className="text-2xl font-semibold">{confirmedTasks.length}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Returned jobs</p>
-            <p className="text-2xl font-semibold">{returnedCount}</p>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+              <Truck className="h-4 w-4 text-amber-700" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">At laundry</p>
+              <p className="text-2xl font-semibold">{pickedUpCount}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">History rows</p>
-            <p className="text-2xl font-semibold">{historyTasks.length}</p>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+              <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Returned</p>
+              <p className="text-2xl font-semibold">{returnedCount}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Current view</p>
-            <p className="text-2xl font-semibold capitalize">{rangeMode}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Skipped pickups</p>
-            <p className="text-2xl font-semibold">{skippedTasks.length}</p>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <AlertTriangle className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue tracked" : "Skipped pickups"}</p>
+              <p className="text-2xl font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(0)}` : skippedTasks.length}</p>
+            </div>
           </CardContent>
         </Card>
       </section>
@@ -1259,26 +1438,56 @@ export default function LaundryPortal() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="ready">
-        <TabsList className={`grid w-full ${laundryConfig.showHistoryTab ? "grid-cols-3" : "grid-cols-2"}`}>
-          <TabsTrigger value="ready" className="flex-1">
-            Ready Queue ({readyQueue.length})
+      <Tabs defaultValue="active">
+        <TabsList className={`grid w-full ${laundryConfig.showHistoryTab ? "grid-cols-3" : "grid-cols-2"} h-auto gap-1 p-1`}>
+          <TabsTrigger value="active" className="flex-1 py-2 text-xs sm:text-sm">
+            Active{readyQueue.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+                {confirmedTasks.length > 0 && pickedUpTasksList.length > 0
+                  ? `${confirmedTasks.length}+${pickedUpTasksList.length}`
+                  : readyQueue.length}
+              </span>
+            )}
           </TabsTrigger>
-          <TabsTrigger value="schedule" className="flex-1">
-            Schedule ({allTasks.length})
+          <TabsTrigger value="returned" className="flex-1 py-2 text-xs sm:text-sm">
+            Returned{completedScheduleTasks.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                {completedScheduleTasks.length}
+              </span>
+            )}
           </TabsTrigger>
           {laundryConfig.showHistoryTab && (
-            <TabsTrigger value="history" className="flex-1">
-              History ({historyTasks.length})
+            <TabsTrigger value="history" className="flex-1 py-2 text-xs sm:text-sm">
+              History{historyTasks.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {historyTasks.length}
+                </span>
+              )}
             </TabsTrigger>
           )}
         </TabsList>
 
-        <TabsContent value="ready" className="space-y-3">
+        <TabsContent value="active" className="space-y-3">
+          {confirmedTasks.length > 0 && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Awaiting Pickup — {confirmedTasks.length} task{confirmedTasks.length === 1 ? "" : "s"}
+              </p>
+            </div>
+          )}
+          {pickedUpTasksList.length > 0 && confirmedTasks.length === 0 && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                At Laundry — {pickedUpTasksList.length} task{pickedUpTasksList.length === 1 ? "" : "s"}
+              </p>
+            </div>
+          )}
           {readyQueue.length === 0 ? (
             <div className="py-10 text-center text-muted-foreground">
               <Shirt className="mx-auto mb-2 h-10 w-10 opacity-30" />
-              <p>No confirmed pickups yet.</p>
+              <p>No active laundry tasks.</p>
               <p className="mt-1 text-xs">Confirmed when cleaners mark laundry ready.</p>
             </div>
           ) : (
@@ -1397,6 +1606,28 @@ export default function LaundryPortal() {
                             <strong>Load weight:</strong> {Number(completion.loadWeightKg).toFixed(1)} kg
                           </p>
                         )}
+                        {task.supplier?.name ? (
+                          <p className="text-sm">
+                            <strong>Supplier:</strong> {task.supplier.name}
+                          </p>
+                        ) : null}
+                        {task.receiptImageUrl ? (
+                          <div className="mt-3">
+                            <p className="mb-1 text-xs font-medium text-muted-foreground">Receipt</p>
+                            <MediaGallery
+                              items={[
+                                {
+                                  id: `${task.id}-receipt`,
+                                  url: task.receiptImageUrl,
+                                  label: "Laundry receipt",
+                                  mediaType: "PHOTO",
+                                },
+                              ]}
+                              title="Laundry Receipt"
+                              className="grid grid-cols-1 gap-2"
+                            />
+                          </div>
+                        ) : null}
                         {droppedEarly && (
                           <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs">
                             <p>
@@ -1479,13 +1710,61 @@ export default function LaundryPortal() {
           )}
         </TabsContent>
 
-        <TabsContent value="schedule" className="space-y-3">
+        <TabsContent value="returned" className="space-y-3">
+          {completedScheduleTasks.length === 0 ? (
+            <div className="py-10 text-center text-muted-foreground">
+              <CheckCircle2 className="mx-auto mb-2 h-10 w-10 opacity-30" />
+              <p>No returned laundry in this range.</p>
+              <p className="mt-1 text-xs">Returned loads appear here once the drop-off is confirmed.</p>
+            </div>
+          ) : (
+            completedScheduleTasks.map((task) => {
+              const droppedConfirmation = getEventConfirmation(task, "DROPPED");
+              const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
+              const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
+              const completion = getTaskCompletionDetails(task);
+              return (
+                <Card key={task.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{task.property.name}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Pickup {format(new Date(task.pickupDate), "dd MMM")} → Drop {format(new Date(task.dropoffDate), "dd MMM")}
+                        </p>
+                        {droppedEarly && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Early return: planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
+                            {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
+                            {droppedMeta?.earlyDropoffReason ? ` — ${droppedMeta.earlyDropoffReason}` : ""}
+                          </p>
+                        )}
+                        {laundryConfig.showCostTracking && completion.totalPrice != null && (
+                          <p className="mt-1 text-xs font-medium text-primary">
+                            ${Number(completion.totalPrice).toFixed(2)}{completion.loadWeightKg != null ? ` · ${Number(completion.loadWeightKg).toFixed(1)} kg` : ""}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <Badge variant="success">Returned</Badge>
+                        <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
+                          <FilePenLine className="mr-1 h-3.5 w-3.5" />
+                          Edit
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+          {/* Schedule summary copy tool — still useful for route planning */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-base">Schedule Summary</CardTitle>
-                  <CardDescription>Copy this list into notes or messages when planning the route.</CardDescription>
+                  <CardDescription>Copy for route planning or messages.</CardDescription>
                 </div>
                 <Button
                   size="sm"
@@ -1500,132 +1779,13 @@ export default function LaundryPortal() {
                   }}
                 >
                   <Copy className="mr-1 h-4 w-4" />
-                  Copy Summary
+                  Copy
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              <Textarea value={scheduleSummaryText} readOnly rows={Math.min(12, Math.max(4, scheduleSummaryText.split("\n").length))} />
+              <Textarea value={scheduleSummaryText} readOnly rows={Math.min(8, Math.max(3, scheduleSummaryText.split("\n").length))} />
             </CardContent>
-          </Card>
-
-          {scheduleActiveTasks.map((task, idx) => {
-            const showGroupHeader =
-              idx === 0 || toDayKey(scheduleActiveTasks[idx - 1].pickupDate) !== toDayKey(task.pickupDate);
-            const droppedConfirmation = getEventConfirmation(task, "DROPPED");
-            const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
-            const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
-            if (viewMode === "compact") {
-              return (
-                <Card key={task.id}>
-                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div>
-                      <p className="font-medium text-sm">{task.property.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Pickup {format(new Date(task.pickupDate), "dd MMM")} · Drop {format(new Date(task.dropoffDate), "dd MMM")}
-                      </p>
-                    </div>
-                    <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
-                  </CardContent>
-                </Card>
-              );
-            }
-            return (
-              <div key={task.id}>
-                {showGroupHeader ? (
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Pickup Day: {format(new Date(task.pickupDate), "EEEE, dd MMM yyyy")}
-                  </p>
-                ) : null}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-medium text-sm">{task.property.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {"Pickup "}
-                          {format(new Date(task.pickupDate), "dd MMM")}
-                          {" -> Drop "}
-                          {format(new Date(task.dropoffDate), "dd MMM")}
-                        </p>
-                        <LaundryAccessInstructions task={task} />
-                      </div>
-                      <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
-                    </div>
-                    <div className="mt-2 rounded-md bg-muted/40 p-2">
-                      {droppedEarly && (
-                        <p className="mb-2 text-xs text-amber-700">
-                          Early return: planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
-                          {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
-                          {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
-                        </p>
-                      )}
-                      <p className="mb-1 text-xs font-medium">Timeline</p>
-                      <div className="space-y-1">
-                        {buildTimeline(task).map((event, index) => (
-                          <p key={index} className="text-xs text-muted-foreground">
-                            {format(event.at, "dd MMM HH:mm")} - {event.label}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            );
-          })}
-          {scheduleActiveTasks.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No active laundry tasks in this range.</p>}
-
-          <Card>
-            <CardHeader className="pb-3">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between text-left"
-                onClick={() => setCompletedExpanded((prev) => !prev)}
-              >
-                <div>
-                  <CardTitle className="text-base">Completed</CardTitle>
-                  <CardDescription>Returned loads stay here so the next upcoming work remains at the top.</CardDescription>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>{completedScheduleTasks.length}</span>
-                  {completedExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                </div>
-              </button>
-            </CardHeader>
-            {completedExpanded ? (
-              <CardContent className="space-y-2">
-                {completedScheduleTasks.map((task) => {
-                  const droppedConfirmation = getEventConfirmation(task, "DROPPED");
-                  const droppedMeta = parseEventNotes(droppedConfirmation?.notes);
-                  const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
-                  return (
-                    <Card key={task.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-medium text-sm">{task.property.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Pickup {format(new Date(task.pickupDate), "dd MMM")} {"->"} Drop {format(new Date(task.dropoffDate), "dd MMM")}
-                            </p>
-                            {droppedEarly ? (
-                              <p className="mt-1 text-xs text-amber-700">
-                                Early return: planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
-                                {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
-                              </p>
-                            ) : null}
-                          </div>
-                          <Badge variant="success">Returned</Badge>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-                {completedScheduleTasks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No completed laundry tasks in this range.</p>
-                ) : null}
-              </CardContent>
-            ) : null}
           </Card>
         </TabsContent>
 
@@ -1680,6 +1840,9 @@ export default function LaundryPortal() {
                       {completion.loadWeightKg != null && (
                         <p className="text-xs text-muted-foreground">Weight: {Number(completion.loadWeightKg).toFixed(1)} kg</p>
                       )}
+                      {task.supplier?.name ? (
+                        <p className="text-xs text-muted-foreground">Supplier: {task.supplier.name}</p>
+                      ) : null}
                       {droppedEarly && (
                         <p className="mt-1 text-xs text-amber-700">
                           Returned early. Planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
@@ -2039,6 +2202,101 @@ export default function LaundryPortal() {
                     onChange={(e) => setDropoffWeightKg(e.target.value)}
                     placeholder="0.0"
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Supplier (optional)</Label>
+                  <Select value={supplierSelection} onValueChange={setSupplierSelection}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select supplier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No supplier selected</SelectItem>
+                      {suppliers.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Receipt photo (optional)</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                      <Camera className="h-3.5 w-3.5" />
+                      Take photo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.currentTarget.files?.[0] ?? null;
+                          setReceiptPhoto(file);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                      Upload receipt
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.currentTarget.files?.[0] ?? null;
+                          setReceiptPhoto(file);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {actionType === "EDIT_COMPLETED" && actionTask?.receiptImageUrl ? (
+                    <div className="space-y-2 rounded-md border p-2">
+                      <p className="text-xs font-medium text-muted-foreground">Current receipt image</p>
+                      <MediaGallery
+                        items={[
+                          {
+                            id: `${actionTask.id}-receipt-current`,
+                            url: actionTask.receiptImageUrl,
+                            label: "Current receipt",
+                            mediaType: "PHOTO",
+                          },
+                        ]}
+                        title="Current Receipt"
+                        className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3"
+                      />
+                    </div>
+                  ) : null}
+                  {receiptPhoto && receiptPhotoPreviewUrl ? (
+                    <div className="space-y-2 rounded-md border border-primary/30 p-2">
+                      <p className="text-xs font-medium text-primary">Selected receipt image</p>
+                      <MediaGallery
+                        items={[
+                          {
+                            id: `${actionTask?.id ?? "receipt"}-selected`,
+                            url: receiptPhotoPreviewUrl,
+                            label: receiptPhoto.name,
+                            mediaType: "PHOTO",
+                          },
+                        ]}
+                        title="Receipt Preview"
+                        className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3"
+                      />
+                      <div className="flex justify-end">
+                        <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setReceiptPhoto(null)}>
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          Remove receipt
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {actionType === "EDIT_COMPLETED" && actionTask?.receiptImageUrl
+                        ? "Keep existing receipt image."
+                        : "No receipt image selected."}
+                    </p>
+                  )}
                 </div>
                 {laundryConfig.requireEarlyDropoffReason && earlyReturnCandidate && (
                   <div className="space-y-1.5">

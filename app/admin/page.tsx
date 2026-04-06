@@ -4,13 +4,14 @@ import { Role, JobStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase, AlertTriangle, Package, Shirt, Calendar } from "lucide-react";
-import { format } from "date-fns";
+import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { AdminDashboardGraphs } from "@/components/admin/admin-dashboard-graphs";
 
 const TZ = "Australia/Sydney";
 
@@ -44,6 +45,7 @@ async function getDashboardStats() {
     lowStockRows,
     activeSlaJobs,
     recentJobs,
+    chartRows,
   ] = await Promise.all([
     db.job.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
     db.job.count({ where: { status: JobStatus.UNASSIGNED } }),
@@ -56,6 +58,7 @@ async function getDashboardStats() {
         status: {
           in: [
             JobStatus.UNASSIGNED,
+            JobStatus.OFFERED,
             JobStatus.ASSIGNED,
             JobStatus.IN_PROGRESS,
             JobStatus.PAUSED,
@@ -85,6 +88,21 @@ async function getDashboardStats() {
         },
       },
     }),
+    db.job.findMany({
+      where: {
+        scheduledDate: {
+          gte: new Date(todayStart.getTime() - 30 * 86400_000),
+          lt: addDays(todayEnd, 7),
+        },
+      },
+      select: {
+        status: true,
+        scheduledDate: true,
+        jobType: true,
+      },
+      take: 2000,
+      orderBy: { scheduledDate: "asc" },
+    }),
   ]);
 
   const lowStockCount = lowStockRows.filter((row) => row.onHand <= row.reorderThreshold).length;
@@ -106,11 +124,50 @@ async function getDashboardStats() {
     }
   }
 
-  return { todayJobs, unassignedJobs, flaggedLaundry, lowStockCount, slaDueSoon, slaOverdue, recentJobs };
+  const jobsByStatus = Object.values(JobStatus).map((status) => ({
+    label: status.replace(/_/g, " "),
+    value: chartRows.filter((row) => row.status === status).length,
+  }));
+
+  const upcomingSevenDayLoad = Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(todayStart, index);
+    const key = day.toISOString().slice(0, 10);
+    const label = format(day, "EEE");
+    return {
+      date: key,
+      label,
+      jobs: chartRows.filter((row) => row.scheduledDate.toISOString().slice(0, 10) === key).length,
+    };
+  });
+
+  const jobTypeBreakdown = Array.from(
+    chartRows.reduce<Map<string, number>>((acc, row) => {
+      const key = row.jobType.replace(/_/g, " ");
+      acc.set(key, (acc.get(key) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>())
+  )
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+
+  return {
+    todayJobs,
+    unassignedJobs,
+    flaggedLaundry,
+    lowStockCount,
+    slaDueSoon,
+    slaOverdue,
+    recentJobs,
+    jobsByStatus,
+    upcomingSevenDayLoad,
+    jobTypeBreakdown,
+  };
 }
 
 const STATUS_COLORS: Record<JobStatus, string> = {
   UNASSIGNED: "warning",
+  OFFERED: "warning",
   ASSIGNED: "secondary",
   IN_PROGRESS: "default",
   PAUSED: "warning",
@@ -186,6 +243,12 @@ export default async function AdminDashboard() {
         title="Immediate Attention"
         description="Critical approvals, cases, and dispatch blockers."
         items={urgentItems}
+      />
+
+      <AdminDashboardGraphs
+        jobsByStatus={stats.jobsByStatus}
+        upcomingSevenDayLoad={stats.upcomingSevenDayLoad}
+        jobTypeBreakdown={stats.jobTypeBreakdown}
       />
 
       {pendingContinuations.length > 0 ? (

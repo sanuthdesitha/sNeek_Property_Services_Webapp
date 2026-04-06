@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ADMIN_RECOVERY_LOGIN_URL } from "@/lib/public-site/routing";
 
 async function signInWithCredentials(input: { email: string; password: string; callbackUrl: string }) {
   const csrfRes = await fetch("/api/auth/csrf", { cache: "no-store" });
@@ -50,10 +53,15 @@ async function signInWithCredentials(input: { email: string; password: string; c
 }
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branding, setBranding] = useState({ companyName: "sNeek Property Services", logoUrl: "" });
+  const [siteStatus, setSiteStatus] = useState({ maintenanceEnabled: false, allowLogin: true, message: "", supportMessage: "" });
   const [form, setForm] = useState({ email: "", password: "" });
+  const adminRecoveryMode = searchParams.get("admin") === "1";
+  const maintenanceLoginLocked = siteStatus.maintenanceEnabled && !siteStatus.allowLogin;
+  const signInBlocked = maintenanceLoginLocked && !adminRecoveryMode;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -69,14 +77,29 @@ export default function LoginPage() {
         });
       })
       .catch(() => {});
+    fetch("/api/public/site-status")
+      .then((r) => r.json())
+      .then((data) =>
+        setSiteStatus({
+          maintenanceEnabled: data?.maintenanceEnabled === true,
+          allowLogin: data?.allowLogin !== false,
+          message: typeof data?.message === "string" ? data.message : "",
+          supportMessage: typeof data?.supportMessage === "string" ? data.supportMessage : "",
+        })
+      )
+      .catch(() => {});
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (signInBlocked) {
+      setError(siteStatus.message || "The website is currently under maintenance.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const callbackUrl = `${window.location.origin}/`;
+      const callbackUrl = adminRecoveryMode ? `${window.location.origin}/admin` : `${window.location.origin}/`;
       const res = await signInWithCredentials({
         email: form.email,
         password: form.password,
@@ -141,6 +164,28 @@ export default function LoginPage() {
             </Alert>
           )}
 
+          {maintenanceLoginLocked ? (
+            <Alert className="mb-4 border-amber-300 bg-amber-50 text-amber-950">
+              <AlertDescription>
+                <strong>{siteStatus.message || "The website is currently under maintenance."}</strong>
+                {siteStatus.supportMessage ? <span className="block pt-1">{siteStatus.supportMessage}</span> : null}
+                {adminRecoveryMode ? (
+                  <span className="block pt-2 text-sm font-medium">
+                    Admin recovery mode is active. Only admin portal accounts can sign in while public login is disabled.
+                  </span>
+                ) : (
+                  <span className="block pt-2">
+                    Public login is disabled right now.
+                    <Link href={ADMIN_RECOVERY_LOGIN_URL} className="ml-1 inline-flex items-center gap-1 font-medium text-amber-950 underline-offset-4 hover:underline">
+                      <ShieldAlert className="h-4 w-4" />
+                      Admin recovery login
+                    </Link>
+                  </span>
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
@@ -164,8 +209,8 @@ export default function LoginPage() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
+            <Button type="submit" className="w-full" disabled={loading || signInBlocked}>
+              {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
             </Button>
           </form>
 

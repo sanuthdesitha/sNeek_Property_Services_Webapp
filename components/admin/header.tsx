@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Bell, CalendarDays, Menu } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, CheckCircle2, Clock, DollarSign, Menu, RefreshCw, Shirt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -37,6 +37,7 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [clearingNotifications, setClearingNotifications] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
+  const [pendingTotal, setPendingTotal] = useState(0);
   const realtimeRefreshLockRef = useRef(false);
   const initials = initialsFromName(companyName) || "SP";
 
@@ -84,6 +85,19 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
     toast({ title: "Notifications cleared" });
     setNotifications([]);
   }
+
+  useEffect(() => {
+    async function fetchPendingTotal() {
+      try {
+        const res = await fetch("/api/admin/all-approvals");
+        const body = await res.json().catch(() => null);
+        if (body?.counts?.total != null) setPendingTotal(body.counts.total);
+      } catch { /* silent */ }
+    }
+    fetchPendingTotal();
+    const pendingTimer = setInterval(fetchPendingTotal, 60_000);
+    return () => clearInterval(pendingTimer);
+  }, []);
 
   useEffect(() => {
     fetchNotifications({ silent: true }).catch(() => {});
@@ -199,9 +213,11 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
               aria-label="Open notifications"
             >
               <Bell className="h-4 w-4" />
-              <Badge className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center p-0 text-[10px]">
-                {Math.min(notifications.length || 0, 9)}
-              </Badge>
+              {(pendingTotal > 0 || notifications.length > 0) && (
+                <Badge className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center p-0.5 text-[10px]">
+                  {Math.min(pendingTotal + notifications.length, 99)}
+                </Badge>
+              )}
             </Button>
 
             <div className="flex items-center gap-2">
@@ -219,51 +235,66 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
       </header>
 
       <Dialog open={notificationsOpen} onOpenChange={setNotificationsOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Notifications</DialogTitle>
+            <DialogTitle>Notifications &amp; Attention</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-3">
-            {loadingNotifications ? (
-              <p className="text-sm text-muted-foreground">Loading notifications...</p>
-            ) : notificationError ? (
-              <p className="text-sm text-destructive">{notificationError}</p>
-            ) : notifications.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No notifications found.</p>
-            ) : (
-              <div className="max-h-[360px] space-y-2 overflow-auto">
-                {notifications.slice(0, 30).map((item) => (
-                  <Link
-                    key={item.id}
-                    href={item.href ?? "/admin/notifications"}
-                    onClick={() => setNotificationsOpen(false)}
-                    className="block rounded-lg border border-border/70 p-2 transition-colors hover:bg-muted/50"
-                  >
-                    <p className="text-xs font-medium">{item.channel}</p>
-                    <p className="text-sm">{item.subject ?? "Notification"}</p>
-                    <p className="line-clamp-2 text-xs text-muted-foreground">{item.body}</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      {new Date(item.createdAt).toLocaleString("en-AU")} - {item.status}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+          <div className="space-y-4">
+            {/* ── Pending approvals section ── */}
+            <AttentionSection onNavigate={() => setNotificationsOpen(false)} />
 
-            <div className="flex justify-end">
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={clearNotifications}
-                  disabled={clearingNotifications || notifications.length === 0}
-                >
-                  {clearingNotifications ? "Clearing..." : "Clear"}
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link href="/admin/notifications">Open full log</Link>
-                </Button>
-              </div>
+            {/* ── Email/system notification log ── */}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Recent system notifications
+              </p>
+              {loadingNotifications ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : notificationError ? (
+                <p className="text-sm text-destructive">{notificationError}</p>
+              ) : notifications.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No notifications found.</p>
+              ) : (
+                <div className="max-h-[220px] space-y-1.5 overflow-auto">
+                  {notifications.slice(0, 20).map((item) => (
+                    <Link
+                      key={item.id}
+                      href={item.href ?? "/admin/notifications"}
+                      onClick={() => setNotificationsOpen(false)}
+                      className="block rounded-xl border border-border/60 bg-muted/30 p-2.5 transition-colors hover:bg-muted/60"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium leading-snug">{item.subject ?? "Notification"}</p>
+                        <span className="shrink-0 rounded-full border border-border/50 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {item.channel}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{item.body}</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString("en-AU")}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between gap-2 border-t border-border/60 pt-3">
+              <Button variant="outline" asChild size="sm">
+                <Link href="/admin/notifications" onClick={() => setNotificationsOpen(false)}>
+                  Full log
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={clearNotifications}
+                disabled={clearingNotifications || notifications.length === 0}
+              >
+                {clearingNotifications ? "Clearing…" : "Clear notifications"}
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -305,5 +336,87 @@ export function AdminHeader({ title, companyName = "sNeek Property Services", lo
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// ── Attention section inside the notification panel ────────────────────────────
+
+type ApprovalCounts = {
+  continuations: number;
+  timingRequests: number;
+  payAdjustments: number;
+  timeAdjustments: number;
+  clientApprovals: number;
+  flaggedLaundry: number;
+  total: number;
+};
+
+const ATTENTION_ITEMS: Array<{
+  key: keyof ApprovalCounts;
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { key: "continuations",   label: "Job continuation requests", href: "/admin/approvals", icon: RefreshCw },
+  { key: "timingRequests",  label: "Timing requests (check-in/out)", href: "/admin/approvals", icon: Clock },
+  { key: "payAdjustments",  label: "Cleaner pay requests", href: "/admin/approvals", icon: DollarSign },
+  { key: "timeAdjustments", label: "Clock adjustments", href: "/admin/approvals", icon: Clock },
+  { key: "clientApprovals", label: "Client approvals awaiting response", href: "/admin/approvals", icon: CheckCircle2 },
+  { key: "flaggedLaundry",  label: "Flagged laundry tasks", href: "/admin/approvals", icon: Shirt },
+];
+
+function AttentionSection({ onNavigate }: { readonly onNavigate: () => void }) {
+  const [counts, setCounts] = useState<ApprovalCounts | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/all-approvals")
+      .then((r) => r.json().catch(() => null))
+      .then((body) => { if (body?.counts) setCounts(body.counts); })
+      .catch(() => {});
+  }, []);
+
+  const active = ATTENTION_ITEMS.filter((item) => (counts?.[item.key] ?? 0) > 0);
+
+  if (!counts || active.length === 0) {
+    return (
+      <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        {!counts ? "Loading attention items…" : "No pending approvals — all clear."}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Needs attention
+        </p>
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
+          {counts.total}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {active.map((item) => {
+          const count = counts[item.key] ?? 0;
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              onClick={onNavigate}
+              className="flex items-center gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 px-3 py-2.5 transition-colors hover:bg-amber-100/60"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-sm font-medium">{item.label}</span>
+              <span className="rounded-full bg-destructive px-2 py-0.5 text-[11px] font-bold text-white">
+                {count}
+              </span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }

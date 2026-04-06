@@ -29,8 +29,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Laundry outcome is required." }, { status: 400 });
     }
 
-    const assignment = await db.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: params.id, userId: session.user.id } },
+    const assignment = await db.jobAssignment.findFirst({
+      where: {
+        jobId: params.id,
+        userId: session.user.id,
+        removedAt: null,
+      },
       select: { id: true },
     });
     if (!assignment) {

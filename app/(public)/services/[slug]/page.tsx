@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getAppSettings } from "@/lib/settings";
 import { getMarketedServiceBySlug } from "@/lib/marketing/catalog";
 import { ServiceDetailPage } from "@/components/public/service-detail-page";
+import { requireWebsitePageEnabled } from "@/lib/public-site/routing";
 
 interface Props {
   params: { slug: string };
@@ -22,6 +23,7 @@ export default async function ServiceSlugPage({ params }: Props) {
   if (!service) notFound();
 
   const settings = await getAppSettings();
+  requireWebsitePageEnabled(settings.websiteContent, "services");
   const pageContent = settings.websiteContent.servicePages?.[params.slug] ?? {
     heroImageUrl: "",
     heroImageAlt: "",

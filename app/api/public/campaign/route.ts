@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateDiscountCampaign } from "@/lib/marketing/campaigns";
 import { isMarketedJobType } from "@/lib/marketing/job-types";
 
+export const runtime = "nodejs";
+
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code")?.trim() ?? "";
   const serviceType = req.nextUrl.searchParams.get("serviceType");

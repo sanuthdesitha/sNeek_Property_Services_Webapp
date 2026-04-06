@@ -16,6 +16,7 @@ type CleanerModule =
 type ClientModule =
   | "properties"
   | "jobs"
+  | "booking"
   | "laundry"
   | "calendar"
   | "inventory"
@@ -86,6 +87,7 @@ export function isClientModuleEnabled(
   return (
     (module === "properties" && visibility.showProperties) ||
     (module === "jobs" && visibility.showJobs) ||
+    (module === "booking" && visibility.showBooking) ||
     (module === "laundry" && visibility.showLaundryUpdates) ||
     (module === "calendar" && visibility.showCalendar) ||
     (module === "inventory" && visibility.showInventory) ||

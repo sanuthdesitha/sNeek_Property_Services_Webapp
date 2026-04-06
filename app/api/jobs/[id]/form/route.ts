@@ -37,7 +37,23 @@ export async function GET(
             inventoryEnabled: true,
           },
         },
-        assignments: { select: { userId: true } },
+        assignments: {
+          where: { removedAt: null },
+          select: {
+            id: true,
+            userId: true,
+            isPrimary: true,
+            responseStatus: true,
+            respondedAt: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
         laundryTask: {
           include: {
             confirmations: {
@@ -49,6 +65,12 @@ export async function GET(
       },
     });
     if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (
+      session.user.role === Role.CLEANER &&
+      !job.assignments.some((assignment) => assignment.userId === session.user.id)
+    ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const settings = await getAppSettings();
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
@@ -190,6 +212,27 @@ export async function GET(
       expectedStartDate = format(toZonedTime(job.scheduledDate, "Australia/Sydney"), "yyyy-MM-dd");
     }
     const continuationProgressSnapshot = await getApprovedContinuationProgressSnapshot(job.id);
+    const currentAssignment =
+      session.user.role === Role.CLEANER
+        ? job.assignments.find((assignment) => assignment.userId === session.user.id) ?? null
+        : null;
+    const transferCandidates =
+      session.user.role === Role.CLEANER
+        ? await db.user.findMany({
+            where: {
+              role: Role.CLEANER,
+              isActive: true,
+              id: { not: session.user.id },
+            },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+            orderBy: [{ name: "asc" }, { email: "asc" }],
+            take: 100,
+          })
+        : [];
 
     return NextResponse.json({
       job,
@@ -221,6 +264,14 @@ export async function GET(
         requireChecklistConfirm: settings.cleanerStartRequireChecklistConfirm,
         expectedDate: expectedStartDate,
       },
+      assignmentState: currentAssignment
+        ? {
+            id: currentAssignment.id,
+            responseStatus: currentAssignment.responseStatus,
+            respondedAt: currentAssignment.respondedAt,
+          }
+        : null,
+      transferCandidates,
       timeState: {
         completedSeconds,
         isRunning: Boolean(activeTimeLog),

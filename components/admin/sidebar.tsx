@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   HandCoins,
   FileBarChart,
   Bell,
+  MessageSquare,
   Settings,
   UserCircle2,
   LogOut,
@@ -34,40 +36,68 @@ import {
   Clock3,
   Rocket,
 } from "lucide-react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const ADMIN_NAV_ITEMS = [
-  { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
-  { label: "Accounts", href: "/admin/users", icon: Users },
-  { label: "Workforce", href: "/admin/workforce", icon: Users },
-  { label: "Clients", href: "/admin/clients", icon: Users },
-  { label: "Properties", href: "/admin/properties", icon: Building2 },
-  { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
-  { label: "Calendar", href: "/admin/calendar", icon: Calendar },
-  { label: "Forms", href: "/admin/forms", icon: FileText },
-  { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
-  { label: "Inventory", href: "/admin/inventory", icon: Package },
-  { label: "Stock Counts", href: "/admin/stock-runs", icon: ClipboardList },
-  { label: "Laundry", href: "/admin/laundry", icon: Shirt },
-  { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
-  { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
-  { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
-  { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
-  { label: "Delivery", href: "/admin/delivery-profiles", icon: SendToBack },
-  { label: "Shopping Runs", href: "/admin/shopping-runs", icon: ShoppingCart },
-  { label: "Suppliers", href: "/admin/suppliers", icon: Truck },
-  { label: "Invoices", href: "/admin/invoices", icon: Wallet },
-  { label: "Finance", href: "/admin/finance", icon: BarChart3 },
-  { label: "Marketing", href: "/admin/marketing", icon: Rocket },
-  { label: "Website", href: "/admin/website", icon: MonitorSmartphone },
-  { label: "Integrations", href: "/admin/integrations", icon: RefreshCw },
-  { label: "Reports", href: "/admin/reports", icon: FileBarChart },
-  { label: "Notifications", href: "/admin/notifications", icon: Bell },
-  { label: "Settings", href: "/admin/settings", icon: Settings },
-  { label: "Profile", href: "/admin/profile", icon: UserCircle2 },
-];
+export const ADMIN_NAV_GROUPS = [
+  {
+    label: "Overview",
+    items: [{ label: "Dashboard", href: "/admin", icon: LayoutDashboard }],
+  },
+  {
+    label: "Operations",
+    items: [
+      { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
+      { label: "Calendar", href: "/admin/calendar", icon: Calendar },
+      { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
+      { label: "Laundry", href: "/admin/laundry", icon: Shirt },
+      { label: "Inventory", href: "/admin/inventory", icon: Package },
+      { label: "Stock Counts", href: "/admin/stock-runs", icon: ClipboardList },
+      { label: "Shopping Runs", href: "/admin/shopping-runs", icon: ShoppingCart },
+      { label: "Delivery", href: "/admin/delivery-profiles", icon: SendToBack },
+      { label: "Suppliers", href: "/admin/suppliers", icon: Truck },
+      { label: "Forms", href: "/admin/forms", icon: FileText },
+      { label: "Integrations", href: "/admin/integrations", icon: RefreshCw },
+    ],
+  },
+  {
+    label: "People",
+    items: [
+      { label: "Workforce", href: "/admin/workforce", icon: Users },
+      { label: "Accounts", href: "/admin/users", icon: Users },
+      { label: "Clients", href: "/admin/clients", icon: Users },
+      { label: "Properties", href: "/admin/properties", icon: Building2 },
+      { label: "Messages", href: "/admin/messages", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Commercial",
+    items: [
+      { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
+      { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
+      { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
+      { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
+      { label: "Invoices", href: "/admin/invoices", icon: Wallet },
+      { label: "Finance", href: "/admin/finance", icon: BarChart3 },
+      { label: "Reports", href: "/admin/reports", icon: FileBarChart },
+    ],
+  },
+  {
+    label: "Growth",
+    items: [
+      { label: "Marketing", href: "/admin/marketing", icon: Rocket },
+      { label: "Website", href: "/admin/website", icon: MonitorSmartphone },
+      { label: "Notifications", href: "/admin/notifications", icon: Bell },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      { label: "Settings", href: "/admin/settings", icon: Settings },
+      { label: "Profile", href: "/admin/profile", icon: UserCircle2 },
+    ],
+  },
+] as const;
 
 interface AdminSidebarProps {
   companyName?: string;
@@ -172,37 +202,87 @@ export function AdminSidebar({
   );
 }
 
+// Hrefs that show a live pending count badge
+const BADGE_HREFS: Record<string, (counts: Record<string, number>) => number> = {
+  "/admin/approvals": (c) => c.total ?? 0,
+  "/admin/laundry":   (c) => c.flaggedLaundry ?? 0,
+  "/admin/jobs":      (c) => (c.continuations ?? 0) + (c.timingRequests ?? 0),
+  "/admin/pay-adjustments": (c) => c.payAdjustments ?? 0,
+  "/admin/time-adjustments": (c) => c.timeAdjustments ?? 0,
+};
+
 export function AdminNavLinks({
   collapsed = false,
   onNavigate,
 }: {
-  collapsed?: boolean;
-  onNavigate?: () => void;
+  readonly collapsed?: boolean;
+  readonly onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const [counts, setCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchCounts() {
+      try {
+        const res = await fetch("/api/admin/all-approvals");
+        if (!res.ok) return;
+        const body = await res.json().catch(() => null);
+        if (mounted && body?.counts) setCounts(body.counts);
+      } catch { /* silent */ }
+    }
+    fetchCounts();
+    const timer = setInterval(fetchCounts, 60_000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, []);
 
   return (
     <nav className="space-y-1 px-2">
-      {ADMIN_NAV_ITEMS.map((item) => {
-        const active = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-              active
-                ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]"
-                : "text-muted-foreground hover:bg-white/75 hover:text-foreground"
-            )}
-            title={collapsed ? item.label : undefined}
-          >
-            <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
-        );
-      })}
+      {ADMIN_NAV_GROUPS.map((group) => (
+        <div key={group.label} className="space-y-1 pb-3">
+          {collapsed ? null : (
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
+              {group.label}
+            </p>
+          )}
+          {group.items.map((item) => {
+            const active = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+            const badgeCount = BADGE_HREFS[item.href]?.(counts) ?? 0;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                  active
+                    ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]"
+                    : "text-muted-foreground hover:bg-white/75 hover:text-foreground"
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {collapsed ? (
+                  badgeCount > 0 && (
+                    <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-white">
+                      {badgeCount > 9 ? "9+" : badgeCount}
+                    </span>
+                  )
+                ) : (
+                  <>
+                    <span className="flex-1">{item.label}</span>
+                    {badgeCount > 0 && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white">
+                        {badgeCount > 99 ? "99+" : badgeCount}
+                      </span>
+                    )}
+                  </>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 }

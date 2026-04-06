@@ -21,10 +21,9 @@ export default async function CleanerLayout({ children }: { children: React.Reac
       portalLabel="Cleaner Portal"
       portalTitle="Jobs, pay, and field work"
       settingsHref="/cleaner/settings"
-      maxWidthClass="max-w-5xl"
       currentUserName={session.user.name}
       currentUserImage={session.user.image}
-      hideHeaderOnScroll
+      portalTheme={settings.portalTheme}
       navItems={[
         { href: "/cleaner", label: "Dashboard", exact: true },
         { href: "/cleaner/hub", label: "Team Hub" },

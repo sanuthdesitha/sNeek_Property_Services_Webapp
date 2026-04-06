@@ -43,7 +43,7 @@ function resolveScheduledAt(
 
 function isInsideReminderWindow(scheduledAt: Date, now: Date, hoursBefore: number) {
   const deltaHours = (scheduledAt.getTime() - now.getTime()) / 3600_000;
-  return deltaHours <= hoursBefore && deltaHours > Math.max(0, hoursBefore - 1);
+  return deltaHours <= hoursBefore && deltaHours > 0;
 }
 
 async function findNextScheduledDate(now: Date) {
@@ -72,6 +72,8 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
     shortSent: 0,
     shortMode: "window" as "window" | "next-date",
     shortTargetDate: null as string | null,
+    shortNoPhone: 0,
+    shortFailed: 0,
     skipped: [] as string[],
   };
 
@@ -97,7 +99,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           endTime: true,
           internalNotes: true,
           property: { select: { name: true, address: true } },
-          assignments: { select: { user: { select: { name: true, email: true } } } },
+          assignments: {
+            where: { removedAt: null },
+            select: { user: { select: { name: true, email: true } } },
+          },
         },
       });
 
@@ -123,7 +128,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
               endTime: true,
               internalNotes: true,
               property: { select: { name: true, address: true } },
-              assignments: { select: { user: { select: { name: true, email: true } } } },
+              assignments: {
+                where: { removedAt: null },
+                select: { user: { select: { name: true, email: true } } },
+              },
             },
             orderBy: { scheduledDate: "asc" },
           });
@@ -188,7 +196,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           endTime: true,
           internalNotes: true,
           property: { select: { name: true, address: true } },
-          assignments: { select: { user: { select: { phone: true } } } },
+          assignments: {
+            where: { removedAt: null },
+            select: { user: { select: { phone: true } } },
+          },
         },
       });
 
@@ -214,7 +225,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
               endTime: true,
               internalNotes: true,
               property: { select: { name: true, address: true } },
-              assignments: { select: { user: { select: { phone: true } } } },
+              assignments: {
+                where: { removedAt: null },
+                select: { user: { select: { phone: true } } },
+              },
             },
             orderBy: { scheduledDate: "asc" },
           });
@@ -230,7 +244,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
         const timingSuffix = timingText ? ` ${timingText}.` : "";
         let delivered = false;
         for (const assignment of job.assignments) {
-          if (!assignment.user.phone) continue;
+          if (!assignment.user.phone) {
+            summary.shortNoPhone += 1;
+            continue;
+          }
           const result = await sendSmsDetailed(
             assignment.user.phone,
             `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${
@@ -238,6 +255,9 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             }.${timingSuffix}`
           );
           delivered = delivered || result.ok;
+          if (!result.ok) {
+            summary.shortFailed += 1;
+          }
         }
         if (delivered) {
           summary.shortSent += 1;

@@ -16,6 +16,7 @@ const rolePolicySchema = z.object({
 const clientPortalVisibilitySchema = z.object({
   showProperties: z.boolean().optional(),
   showJobs: z.boolean().optional(),
+  showBooking: z.boolean().optional(),
   showCalendar: z.boolean().optional(),
   showReports: z.boolean().optional(),
   showChecklistPreview: z.boolean().optional(),

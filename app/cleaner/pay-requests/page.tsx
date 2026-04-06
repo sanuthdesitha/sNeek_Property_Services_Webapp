@@ -14,7 +14,7 @@ export default async function CleanerPayRequestsRoutePage() {
   const [jobs, properties] = await Promise.all([
     db.job.findMany({
       where: {
-        assignments: { some: { userId: session.user.id } },
+        assignments: { some: { userId: session.user.id, removedAt: null } },
         status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
       },
       include: { property: { select: { name: true } } },
