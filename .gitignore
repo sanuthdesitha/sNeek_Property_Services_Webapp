@@ -50,7 +50,11 @@ prisma/migrations/*.sql.bak
 /.claude/
 /.next-build/
 /.next-check/
+/.next-dev/
+/.next-dev-check/
 /predeploy-button-report.json
 /g/
 /Website.rar
 /Website.zip
+/Website_Backup_*.zip
+/such
