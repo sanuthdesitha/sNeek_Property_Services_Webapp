@@ -1,9 +1,9 @@
 ﻿import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
-import { Role, JobStatus } from "@prisma/client";
+import { Role, JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, AlertTriangle, Package, Shirt, Calendar } from "lucide-react";
+import { Briefcase, AlertTriangle, Package, Shirt, Calendar, CheckCircle2 } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import Link from "next/link";
@@ -11,6 +11,8 @@ import { getAppSettings } from "@/lib/settings";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
+import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { AdminDashboardGraphs } from "@/components/admin/admin-dashboard-graphs";
 
 const TZ = "Australia/Sydney";
@@ -180,12 +182,23 @@ const STATUS_COLORS: Record<JobStatus, string> = {
 
 export default async function AdminDashboard() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const [stats, urgentItems] = await Promise.all([
+  const [stats, urgentItems, pendingContinuations, pendingTimingRequests, pendingPayAdj, pendingClientApprovals, pendingFlaggedLaundry] = await Promise.all([
     getDashboardStats(),
     getAdminImmediateAttention(),
+    listContinuationRequests({ status: "PENDING" }),
+    listEarlyCheckoutRequests({ status: "PENDING" }),
+    db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
+    listClientApprovals({ status: "PENDING" }),
+    db.laundryTask.count({ where: { status: "FLAGGED" } }),
   ]);
-  const pendingContinuations = (await listContinuationRequests({ status: "PENDING" })).slice(0, 5);
   const continuationJobIds = Array.from(new Set(pendingContinuations.map((row) => row.jobId)));
+
+  const totalApprovalsCount =
+    pendingContinuations.length +
+    pendingTimingRequests.length +
+    pendingPayAdj +
+    pendingClientApprovals.length +
+    pendingFlaggedLaundry;
   const continuationJobs = continuationJobIds.length
     ? await db.job.findMany({
         where: { id: { in: continuationJobIds } },
@@ -216,6 +229,51 @@ export default async function AdminDashboard() {
           {format(toZonedTime(new Date(), TZ), "EEEE, d MMMM yyyy")}
         </p>
       </div>
+
+      {/* Approvals banner */}
+      {totalApprovalsCount > 0 && (
+        <Link
+          href="/admin/approvals"
+          className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 transition hover:bg-destructive/15"
+        >
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-destructive" />
+            <span className="text-sm font-medium text-destructive">
+              {totalApprovalsCount} pending approval{totalApprovalsCount !== 1 ? "s" : ""} need your attention
+            </span>
+            <div className="hidden sm:flex items-center gap-2">
+              {pendingContinuations.length > 0 && (
+                <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  {pendingContinuations.length} continuation{pendingContinuations.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              {pendingTimingRequests.length > 0 && (
+                <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  {pendingTimingRequests.length} timing
+                </span>
+              )}
+              {pendingPayAdj > 0 && (
+                <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  {pendingPayAdj} pay
+                </span>
+              )}
+              {pendingClientApprovals.length > 0 && (
+                <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  {pendingClientApprovals.length} client
+                </span>
+              )}
+              {pendingFlaggedLaundry > 0 && (
+                <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  {pendingFlaggedLaundry} laundry
+                </span>
+              )}
+            </div>
+          </div>
+          <span className="text-xs font-semibold text-destructive underline-offset-2 hover:underline">
+            Review all →
+          </span>
+        </Link>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
@@ -255,10 +313,13 @@ export default async function AdminDashboard() {
         <Card className="border-amber-300 bg-amber-50/60">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Pause / Continuation Approvals</CardTitle>
-            <Badge variant="warning">{pendingContinuations.length} pending</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="warning">{pendingContinuations.length} pending</Badge>
+              <Link href="/admin/approvals" className="text-xs text-primary hover:underline">View all approvals →</Link>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {pendingContinuations.map((row) => {
+            {pendingContinuations.slice(0, 5).map((row) => {
               const job = continuationJobById.get(row.jobId);
               return (
                 <Link

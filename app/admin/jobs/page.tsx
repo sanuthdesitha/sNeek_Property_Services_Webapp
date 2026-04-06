@@ -110,6 +110,7 @@ export default function JobsPage() {
   const [quickAssignSelected, setQuickAssignSelected] = useState<string[]>([]);
   const [quickAssignSubmitting, setQuickAssignSubmitting] = useState(false);
   const [pendingContinuationRows, setPendingContinuationRows] = useState<any[]>([]);
+  const [pendingTimingCount, setPendingTimingCount] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
@@ -131,9 +132,21 @@ export default function JobsPage() {
     setPendingContinuationRows(Array.isArray(data) ? data : []);
   }
 
+  async function loadJobApprovalCounts() {
+    try {
+      const res = await fetch("/api/admin/all-approvals");
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      if (body?.counts) {
+        setPendingTimingCount(body.counts.timingRequests ?? 0);
+      }
+    } catch { /* silent */ }
+  }
+
   useEffect(() => {
     loadJobs();
     loadPendingContinuations();
+    loadJobApprovalCounts();
   }, []);
 
   useEffect(() => {
@@ -580,8 +593,30 @@ export default function JobsPage() {
   const allFilteredSelected =
     filteredJobs.length > 0 && filteredJobs.every((job) => selectedIds.includes(job.id));
 
+  const jobUrgentTotal = pendingContinuationRows.length + pendingTimingCount;
+
   return (
     <div className="space-y-6">
+      {jobUrgentTotal > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+            <span className="text-sm font-medium text-destructive">
+              {jobUrgentTotal} job approval{jobUrgentTotal !== 1 ? "s" : ""} need your attention
+              {pendingContinuationRows.length > 0 && (
+                <span className="ml-2 text-muted-foreground font-normal">
+                  ({pendingContinuationRows.length} continuation{pendingContinuationRows.length !== 1 ? "s" : ""}
+                  {pendingTimingCount > 0 ? `, ${pendingTimingCount} timing` : ""})
+                </span>
+              )}
+            </span>
+          </div>
+          <Button asChild size="sm" variant="destructive">
+            <Link href="/admin/approvals">Review all</Link>
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Jobs</h2>
