@@ -9,6 +9,7 @@ import { createClientJobTaskRequest } from "@/lib/job-tasks/service";
 
 const schema = z.object({
   requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
 const BLOCKED_STATUSES: JobStatus[] = [
@@ -51,7 +52,12 @@ export async function POST(
       clientId: portal.clientId,
       requestedByUserId: session.user.id,
       title: "Reschedule request",
-      description: `Client requested a date change to ${body.requestedDate}.`,
+      description: `Client requested a date change to ${body.requestedDate}${body.startTime ? ` at ${body.startTime}` : ""}.`,
+      metadata: {
+        type: "RESCHEDULE_REQUEST",
+        requestedDate: body.requestedDate,
+        requestedStartTime: body.startTime ?? null,
+      },
       baseUrl: req,
     });
 

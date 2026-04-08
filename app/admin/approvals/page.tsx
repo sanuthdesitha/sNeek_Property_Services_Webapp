@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarClock,
   CheckCircle2,
   Clock,
   DollarSign,
@@ -27,16 +28,18 @@ type AllApprovals = {
   timeAdjustments: any[];
   clientApprovals: any[];
   flaggedLaundry: any[];
+  rescheduleRequests: any[];
   counts: Record<string, number>;
 };
 
 const TABS = [
-  { key: "continuations",   label: "Job Continuations", icon: RefreshCw },
-  { key: "timingRequests",  label: "Timing Requests",   icon: Clock },
-  { key: "payAdjustments",  label: "Pay Requests",      icon: DollarSign },
-  { key: "timeAdjustments", label: "Clock Adjustments", icon: Clock },
-  { key: "clientApprovals", label: "Client Approvals",  icon: CheckCircle2 },
-  { key: "flaggedLaundry",  label: "Flagged Laundry",   icon: Shirt },
+  { key: "continuations",      label: "Job Continuations",   icon: RefreshCw },
+  { key: "timingRequests",     label: "Timing Requests",     icon: Clock },
+  { key: "payAdjustments",     label: "Pay Requests",        icon: DollarSign },
+  { key: "timeAdjustments",    label: "Clock Adjustments",   icon: Clock },
+  { key: "clientApprovals",    label: "Client Approvals",    icon: CheckCircle2 },
+  { key: "flaggedLaundry",     label: "Flagged Laundry",     icon: Shirt },
+  { key: "rescheduleRequests", label: "Reschedule Requests", icon: CalendarClock },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -395,6 +398,88 @@ export default function AdminApprovalsPage() {
                 </div>
               </Card>
             ))
+          )}
+
+          {/* ── Reschedule Requests ── */}
+          {activeTab === "rescheduleRequests" && (
+            (data.rescheduleRequests?.length ?? 0) === 0 ? <Empty /> : data.rescheduleRequests.map((row) => {
+              const meta = row.metadata as { requestedDate?: string; requestedStartTime?: string | null } | null;
+              return (
+                <Card key={row.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CalendarClock className="h-4 w-4 text-amber-500" />
+                        <p className="font-semibold">
+                          Reschedule — Job #{row.job?.jobNumber ?? row.jobId?.slice(0, 8)}
+                          {row.job?.property?.name ? ` · ${row.job.property.name}` : ""}
+                        </p>
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 border-amber-200">
+                          PENDING
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {row.job?.property?.suburb} ·{" "}
+                        Current date:{" "}
+                        {row.job?.scheduledDate
+                          ? format(new Date(row.job.scheduledDate), "dd MMM yyyy")
+                          : "—"}
+                        {row.job?.startTime ? ` ${row.job.startTime}` : ""}
+                      </p>
+                      {meta?.requestedDate && (
+                        <p className="text-sm">
+                          <span className="font-medium">Requested date:</span>{" "}
+                          {format(new Date(meta.requestedDate), "dd MMM yyyy")}
+                          {meta.requestedStartTime ? ` at ${meta.requestedStartTime}` : ""}
+                        </p>
+                      )}
+                      <p className="text-sm text-muted-foreground">
+                        Requested by: {row.requestedBy?.name ?? row.requestedBy?.email ?? "Client"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Submitted: {fmt(row.createdAt)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        disabled={!!acting}
+                        onClick={() =>
+                          act(
+                            `/api/admin/job-tasks/${row.id}`,
+                            "PATCH",
+                            { decision: "APPROVE" },
+                            "Reschedule approved — job date updated"
+                          )
+                        }
+                      >
+                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!!acting}
+                        onClick={() =>
+                          act(
+                            `/api/admin/job-tasks/${row.id}`,
+                            "PATCH",
+                            { decision: "REJECT" },
+                            "Reschedule declined"
+                          )
+                        }
+                      >
+                        <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                        Decline
+                      </Button>
+                      {row.jobId && (
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })
           )}
 
           {/* ── Flagged Laundry ── */}

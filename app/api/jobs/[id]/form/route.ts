@@ -62,6 +62,18 @@ export async function GET(
             },
           },
         },
+        cleanerLocationPings: {
+          orderBy: { timestamp: "desc" },
+          take: 1,
+          select: {
+            lat: true,
+            lng: true,
+            accuracy: true,
+            heading: true,
+            speed: true,
+            timestamp: true,
+          },
+        },
       },
     });
     if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });

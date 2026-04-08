@@ -79,9 +79,31 @@ function writeStore(storageKey: string, value: SuggestionStore) {
   }
 }
 
+const PUBLIC_PATH_PREFIXES = [
+  "/airbnb-hosting",
+  "/blog",
+  "/careers",
+  "/cleaning",
+  "/compare",
+  "/contact",
+  "/faq",
+  "/feedback",
+  "/privacy",
+  "/quote",
+  "/services",
+  "/subscriptions",
+  "/terms",
+  "/why-us",
+];
+
 export function TextHistorySuggestions() {
   const pathname = usePathname() ?? "";
   const { data: session } = useSession();
+
+  const isPublicPath = PUBLIC_PATH_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + "/")
+  );
+
   const activeFieldRef = useRef<EligibleField | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const panelInteractionRef = useRef(false);
@@ -233,7 +255,7 @@ export function TextHistorySuggestions() {
     };
   }, [pathname, storageKey, visible]);
 
-  if (!visible || suggestions.length === 0) return null;
+  if (isPublicPath || !visible || suggestions.length === 0) return null;
 
   return (
     <div

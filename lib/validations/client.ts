@@ -95,6 +95,7 @@ export const createPropertySchema = z.object({
   keyLocation: z.string().max(500).optional().nullable(),
   accessNotes: z.string().max(4000).optional().nullable(),
   preferredCleanerUserId: z.string().cuid().optional().nullable(),
+  showCleanerContactToClient: z.boolean().optional(),
   defaultInventoryItemIds: z.array(z.string().cuid()).optional(),
   customInventoryItems: z
     .array(

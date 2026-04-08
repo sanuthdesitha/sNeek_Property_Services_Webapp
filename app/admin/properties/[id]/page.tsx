@@ -19,7 +19,8 @@ import {
 } from "@/components/admin/property-access-fields";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
-import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, Clock, Trash2, Save, Copy, MapPinned } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, Clock, Trash2, Save, Copy, MapPinned, Plus, ClipboardList, Camera, FileText, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { PropertyClientRateEditor } from "@/components/admin/property-client-rate-editor";
 import { format } from "date-fns";
@@ -111,7 +112,16 @@ export default function PropertyDetailPage() {
     hasBalcony: false,
     bedrooms: "1",
     bathrooms: "1",
+    showCleanerContactToClient: false,
   });
+
+  // Feature 4 — Next Job Checklist
+  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", requiresPhoto: false, requiresNote: false });
+  const [savingTask, setSavingTask] = useState(false);
+  const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null);
 
   async function loadProperty() {
     const res = await fetch(`/api/admin/properties/${params.id}`);
@@ -169,6 +179,7 @@ export default function PropertyDetailPage() {
       hasBalcony: Boolean(data.hasBalcony),
       bedrooms: String(data.bedrooms ?? 1),
       bathrooms: String(data.bathrooms ?? 1),
+      showCleanerContactToClient: Boolean(data.showCleanerContactToClient),
     });
     const draft: Record<string, { onHand: string; parLevel: string; reorderThreshold: string }> = {};
     for (const row of data.propertyStock ?? []) {
@@ -181,6 +192,60 @@ export default function PropertyDetailPage() {
     setStockRows(Array.isArray(data.propertyStock) ? data.propertyStock : []);
     setStockDraft(draft);
     setLoading(false);
+  }
+
+  async function loadPendingTasks() {
+    setLoadingTasks(true);
+    try {
+      const res = await fetch(`/api/admin/properties/${params.id}/pending-tasks`);
+      const data = await res.json().catch(() => []);
+      setPendingTasks(Array.isArray(data) ? data : []);
+    } finally {
+      setLoadingTasks(false);
+    }
+  }
+
+  async function addTask() {
+    if (!taskForm.title.trim()) return;
+    setSavingTask(true);
+    try {
+      const res = await fetch(`/api/admin/properties/${params.id}/pending-tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || undefined,
+          requiresPhoto: taskForm.requiresPhoto,
+          requiresNote: taskForm.requiresNote,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Failed to add task", description: err.error ?? "Unknown error", variant: "destructive" });
+        return;
+      }
+      setTaskForm({ title: "", description: "", requiresPhoto: false, requiresNote: false });
+      setAddTaskOpen(false);
+      await loadPendingTasks();
+      toast({ title: "Task added", description: "Will be attached to the next upcoming job for this property." });
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
+  async function cancelTask(taskId: string) {
+    setCancellingTaskId(taskId);
+    try {
+      const res = await fetch(`/api/admin/properties/${params.id}/pending-tasks/${taskId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Failed to cancel task", description: err.error ?? "Unknown error", variant: "destructive" });
+        return;
+      }
+      setPendingTasks((prev) => prev.filter((t) => t.id !== taskId));
+    } finally {
+      setCancellingTaskId(null);
+    }
   }
 
   async function loadInventoryCatalog() {
@@ -266,6 +331,7 @@ export default function PropertyDetailPage() {
     loadInventoryCatalog();
     loadFormOverrides();
     loadLaundryUsers();
+    loadPendingTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
@@ -325,6 +391,7 @@ export default function PropertyDetailPage() {
       hasBalcony: form.hasBalcony,
       bedrooms: Number(form.bedrooms || 0),
       bathrooms: Number(form.bathrooms || 0),
+      showCleanerContactToClient: form.showCleanerContactToClient,
     };
     const res = await fetch(`/api/admin/properties/${params.id}`, {
       method: "PATCH",
@@ -632,6 +699,14 @@ export default function PropertyDetailPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="stock">Inventory</TabsTrigger>
+          <TabsTrigger value="checklist">
+            Next Job Checklist
+            {pendingTasks.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                {pendingTasks.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -856,6 +931,16 @@ export default function PropertyDetailPage() {
                     onCheckedChange={(value) => setForm((prev) => ({ ...prev, hasBalcony: value }))}
                   />
                   <span className="text-sm">Has balcony</span>
+                </label>
+                <label className="flex items-center gap-3 rounded-md border p-3">
+                  <Switch
+                    checked={form.showCleanerContactToClient}
+                    onCheckedChange={(value) => setForm((prev) => ({ ...prev, showCleanerContactToClient: value }))}
+                  />
+                  <div>
+                    <span className="text-sm">Show cleaner contact to client</span>
+                    <p className="text-xs text-muted-foreground">Client can see cleaner name and phone on their job page</p>
+                  </div>
                 </label>
               </div>
               <div className="space-y-1.5">
@@ -1365,7 +1450,128 @@ export default function PropertyDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="checklist" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4" />
+                  Next Job Checklist
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tasks added here are automatically attached to the next upcoming cleaning job for this property. If not completed, they carry forward to the next job.
+                </p>
+              </div>
+              <Button size="sm" onClick={() => setAddTaskOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add task
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadingTasks ? (
+                <p className="text-sm text-muted-foreground">Loading pending tasks...</p>
+              ) : pendingTasks.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-center text-muted-foreground">
+                  <ClipboardList className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">No pending tasks — the next job will use its standard checklist.</p>
+                  <Button size="sm" variant="outline" onClick={() => setAddTaskOpen(true)}>
+                    <Plus className="mr-1.5 h-3 w-3" />
+                    Add a task
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {pendingTasks.map((task) => (
+                    <div key={task.id} className="flex items-start justify-between gap-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{task.title}</p>
+                        {task.description && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">{task.description}</p>
+                        )}
+                        <div className="mt-1 flex gap-2">
+                          {task.requiresPhoto && (
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <Camera className="h-3 w-3" />
+                              Photo required
+                            </span>
+                          )}
+                          {task.requiresNote && (
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <FileText className="h-3 w-3" />
+                              Note required
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={cancellingTaskId === task.id}
+                        onClick={() => cancelTask(task.id)}
+                        title="Cancel task"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      <Dialog open={addTaskOpen} onOpenChange={setAddTaskOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add task for next clean</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Task title <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="e.g. Clean behind fridge, Check smoke alarm"
+                value={taskForm.title}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") addTask(); }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description (optional)</Label>
+              <Textarea
+                placeholder="Any additional details for the cleaner..."
+                rows={2}
+                value={taskForm.description}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={taskForm.requiresPhoto}
+                  onCheckedChange={(v) => setTaskForm((prev) => ({ ...prev, requiresPhoto: v }))}
+                />
+                <span className="flex items-center gap-1"><Camera className="h-3.5 w-3.5" />Requires photo</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={taskForm.requiresNote}
+                  onCheckedChange={(v) => setTaskForm((prev) => ({ ...prev, requiresNote: v }))}
+                />
+                <span className="flex items-center gap-1"><FileText className="h-3.5 w-3.5" />Requires note</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setAddTaskOpen(false)}>Cancel</Button>
+            <Button onClick={addTask} disabled={savingTask || !taskForm.title.trim()}>
+              {savingTask ? "Adding..." : "Add task"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <TwoStepConfirmDialog
         open={deleteOpen}

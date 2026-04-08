@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 
+const STALE_LIVE_PING_MS = 2 * 60 * 1000;
+
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const session = await requireRole([Role.CLIENT]);
 
@@ -27,6 +29,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       notes: true,
       actualHours: true,
       estimatedHours: true,
+      enRouteStartedAt: true,
+      enRouteEtaMinutes: true,
+      enRouteEtaUpdatedAt: true,
+      drivingPausedAt: true,
+      drivingPauseReason: true,
+      drivingDelayedAt: true,
+      drivingDelayedReason: true,
+      arrivedAt: true,
+      cleanerLocationPings: {
+        where: { timestamp: { gte: new Date(Date.now() - STALE_LIVE_PING_MS) } },
+        orderBy: { timestamp: "desc" },
+        take: 1,
+        select: { lat: true, lng: true, accuracy: true, heading: true, speed: true, timestamp: true },
+      },
       property: {
         select: {
           id: true,
@@ -35,11 +51,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           suburb: true,
           state: true,
           postcode: true,
+          latitude: true,
+          longitude: true,
+          showCleanerContactToClient: true,
         },
       },
       assignments: {
+        where: { removedAt: null },
         select: {
-          user: { select: { id: true, name: true, image: true } },
+          isPrimary: true,
+          user: { select: { id: true, name: true, image: true, phone: true } },
         },
       },
       laundryTask: {
@@ -113,5 +134,34 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-  return NextResponse.json(job);
+  // Strip phone numbers unless admin has enabled cleaner contact visibility for this property
+  const showContact = job.property.showCleanerContactToClient;
+  const latestPing = job.cleanerLocationPings[0] ?? null;
+  const sanitizedJob = {
+    ...job,
+    liveTrip:
+      job.status === "EN_ROUTE"
+        ? {
+            cleanerLat: latestPing?.lat ?? null,
+            cleanerLng: latestPing?.lng ?? null,
+            accuracy: latestPing?.accuracy ?? null,
+            heading: latestPing?.heading ?? null,
+            speed: latestPing?.speed ?? null,
+            lastPingAt: latestPing?.timestamp ?? null,
+            propertyLat: job.property.latitude ?? null,
+            propertyLng: job.property.longitude ?? null,
+          }
+        : null,
+    assignments: job.assignments.map((assignment) => ({
+      ...assignment,
+      user: {
+        id: assignment.user.id,
+        name: assignment.user.name,
+        image: assignment.user.image,
+        ...(showContact ? { phone: assignment.user.phone } : {}),
+      },
+    })),
+  };
+
+  return NextResponse.json(sanitizedJob);
 }

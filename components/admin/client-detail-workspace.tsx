@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 
@@ -70,6 +71,22 @@ function formatEstimate(min: number | null, max: number | null) {
   return `$${Number(max ?? min ?? 0).toFixed(2)}`;
 }
 
+type NotifPref = {
+  notificationsEnabled: boolean;
+  notifyOnEnRoute: boolean;
+  notifyOnJobStart: boolean;
+  notifyOnJobComplete: boolean;
+  preferredChannel: "EMAIL" | "SMS" | "BOTH";
+};
+
+const DEFAULT_NOTIF_PREF: NotifPref = {
+  notificationsEnabled: true,
+  notifyOnEnRoute: true,
+  notifyOnJobStart: true,
+  notifyOnJobComplete: true,
+  preferredChannel: "EMAIL",
+};
+
 export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -80,6 +97,58 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
     address: client.address ?? "",
     notes: client.notes ?? "",
   });
+
+  const [notifPref, setNotifPref] = useState<NotifPref>(DEFAULT_NOTIF_PREF);
+  const [savingNotif, setSavingNotif] = useState(false);
+
+  const [automationRules, setAutomationRules] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [addingRule, setAddingRule] = useState(false);
+  const [savingRule, setSavingRule] = useState(false);
+  const [ruleForm, setRuleForm] = useState({
+    triggerType: "POST_JOB_REVIEW" as string,
+    jobType: "",
+    templateId: "",
+    delayMinutes: "120",
+    channel: "EMAIL" as string,
+  });
+
+  useEffect(() => {
+    fetch(`/api/admin/clients/${client.id}/notification-preferences`)
+      .then((res) => res.json())
+      .then((data) => { if (data && !data.error) setNotifPref(data); })
+      .catch(() => {});
+
+    fetch(`/api/admin/clients/${client.id}/automation-rules`)
+      .then((res) => res.json())
+      .then((data) => { if (Array.isArray(data)) setAutomationRules(data); })
+      .catch(() => {});
+
+    fetch("/api/admin/message-templates")
+      .then((res) => res.json())
+      .then((data) => { if (Array.isArray(data)) setTemplates(data); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.id]);
+
+  async function saveNotifPref() {
+    setSavingNotif(true);
+    try {
+      const res = await fetch(`/api/admin/clients/${client.id}/notification-preferences`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notifPref),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast({ title: "Failed to save", description: body.error ?? "Unknown error", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Notification preferences saved" });
+    } finally {
+      setSavingNotif(false);
+    }
+  }
 
   async function saveClient() {
     if (!form.name.trim()) {
@@ -192,6 +261,7 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
           <TabsTrigger value="jobs">Jobs</TabsTrigger>
           <TabsTrigger value="cases">Cases</TabsTrigger>
           <TabsTrigger value="properties">Properties</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads">
@@ -299,6 +369,88 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
                   </div>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">Client Notification Settings</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Control when and how this client receives automated job status notifications.
+                </p>
+              </div>
+              <Button size="sm" onClick={saveNotifPref} disabled={savingNotif}>
+                {savingNotif ? "Saving..." : "Save"}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <label className="flex items-center justify-between gap-3 rounded-md border p-4">
+                <div>
+                  <p className="text-sm font-medium">Notifications enabled</p>
+                  <p className="text-xs text-muted-foreground">Master toggle — disabling this suppresses all automated messages to this client.</p>
+                </div>
+                <Switch
+                  checked={notifPref.notificationsEnabled}
+                  onCheckedChange={(value) => setNotifPref((prev) => ({ ...prev, notificationsEnabled: value }))}
+                />
+              </label>
+
+              <div className={notifPref.notificationsEnabled ? "" : "pointer-events-none opacity-50"}>
+                <p className="mb-3 text-xs font-medium uppercase text-muted-foreground">Events</p>
+                <div className="space-y-2">
+                  <label className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <p className="text-sm">Cleaner on the way</p>
+                      <p className="text-xs text-muted-foreground">Sent when cleaner starts driving to the property</p>
+                    </div>
+                    <Switch
+                      checked={notifPref.notifyOnEnRoute}
+                      onCheckedChange={(value) => setNotifPref((prev) => ({ ...prev, notifyOnEnRoute: value }))}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <p className="text-sm">Cleaning started</p>
+                      <p className="text-xs text-muted-foreground">Sent when cleaner checks in and starts the job</p>
+                    </div>
+                    <Switch
+                      checked={notifPref.notifyOnJobStart}
+                      onCheckedChange={(value) => setNotifPref((prev) => ({ ...prev, notifyOnJobStart: value }))}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <p className="text-sm">Cleaning complete</p>
+                      <p className="text-xs text-muted-foreground">Sent when cleaner submits the job</p>
+                    </div>
+                    <Switch
+                      checked={notifPref.notifyOnJobComplete}
+                      onCheckedChange={(value) => setNotifPref((prev) => ({ ...prev, notifyOnJobComplete: value }))}
+                    />
+                  </label>
+                </div>
+
+                <p className="mb-3 mt-5 text-xs font-medium uppercase text-muted-foreground">Delivery channel</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["EMAIL", "SMS", "BOTH"] as const).map((channel) => (
+                    <button
+                      key={channel}
+                      type="button"
+                      onClick={() => setNotifPref((prev) => ({ ...prev, preferredChannel: channel }))}
+                      className={`rounded-md border px-4 py-2 text-sm transition-colors ${
+                        notifPref.preferredChannel === channel
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted"
+                      }`}
+                    >
+                      {channel === "EMAIL" ? "Email only" : channel === "SMS" ? "SMS only" : "Email + SMS"}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

@@ -10,7 +10,7 @@ export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry] =
+    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
         listEarlyCheckoutRequests({ status: "PENDING" }),
@@ -48,7 +48,30 @@ export async function GET() {
           orderBy: { updatedAt: "desc" },
           take: 50,
         }),
+        db.jobTask.findMany({
+          where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL" },
+          include: {
+            job: {
+              select: {
+                id: true,
+                jobNumber: true,
+                scheduledDate: true,
+                startTime: true,
+                property: { select: { name: true, suburb: true } },
+              },
+            },
+            requestedBy: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
       ]);
+
+    // Filter to only reschedule requests (check metadata.type in JS to avoid JSON path issues)
+    const rescheduleRequests = allClientTasks.filter((t) => {
+      const meta = t.metadata as Record<string, unknown> | null;
+      return meta?.type === "RESCHEDULE_REQUEST";
+    });
 
     // Enrich continuation requests with job info
     const jobIds = Array.from(new Set(continuations.map((c) => c.jobId)));
@@ -92,6 +115,7 @@ export async function GET() {
       timeAdjustments,
       clientApprovals,
       flaggedLaundry,
+      rescheduleRequests,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -99,13 +123,15 @@ export async function GET() {
         timeAdjustments: timeAdjustments.length,
         clientApprovals: clientApprovals.length,
         flaggedLaundry: flaggedLaundry.length,
+        rescheduleRequests: rescheduleRequests.length,
         total:
           continuations.length +
           timingRequests.length +
           payAdjustments.length +
           timeAdjustments.length +
           clientApprovals.length +
-          flaggedLaundry.length,
+          flaggedLaundry.length +
+          rescheduleRequests.length,
       },
     });
   } catch (err: any) {

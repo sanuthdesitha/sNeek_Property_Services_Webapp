@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, UserPlus, Star, FileText, Send } from "lucide-react";
+import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send } from "lucide-react";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
@@ -227,6 +227,10 @@ export default function JobDetailPage() {
     transportAllowance: "",
   });
   const [templateName, setTemplateName] = useState("");
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState({ date: "", startTime: "", dueTime: "", reason: "" });
+  const [rescheduling, setRescheduling] = useState(false);
+  const [clearingReschedule, setClearingReschedule] = useState(false);
   const [editForm, setEditForm] = useState({
     status: "UNASSIGNED",
     scheduledDate: "",
@@ -780,6 +784,35 @@ export default function JobDetailPage() {
     await loadEarlyCheckoutRequests();
   }
 
+  async function handleReschedule() {
+    if (!rescheduleForm.date) {
+      toast({ title: "Date required", variant: "destructive" });
+      return;
+    }
+    setRescheduling(true);
+    try {
+      const res = await fetch(`/api/admin/phase4/reschedule/${job.id}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: rescheduleForm.date,
+          startTime: rescheduleForm.startTime || null,
+          dueTime: rescheduleForm.dueTime || null,
+          reason: rescheduleForm.reason || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not reschedule.");
+      toast({ title: "Job rescheduled" });
+      setRescheduleOpen(false);
+      load();
+    } catch (err: any) {
+      toast({ title: "Reschedule failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRescheduling(false);
+    }
+  }
+
   async function deleteJob(credentials?: { pin?: string; password?: string }) {
     setDeletingJob(true);
     try {
@@ -911,11 +944,61 @@ export default function JobDetailPage() {
           <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
             Reset Job
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setRescheduleForm({
+                date: job.scheduledDate ? toLocalDateInput(job.scheduledDate) : "",
+                startTime: job.startTime ?? "",
+                dueTime: job.dueTime ?? "",
+                reason: "",
+              });
+              setRescheduleOpen(true);
+            }}
+          >
+            <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+            Reschedule
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setDeleteOpen(true)}>
             Delete Job
           </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
+
+      {/* Manually rescheduled notice */}
+      {job.manuallyRescheduledAt && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-amber-800">
+            <CalendarClock className="h-4 w-4 shrink-0" />
+            <span>
+              Manually rescheduled on{" "}
+              {format(new Date(job.manuallyRescheduledAt), "dd MMM yyyy")} — iCal sync will not overwrite this date.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-300 text-amber-800 hover:bg-amber-100"
+            disabled={clearingReschedule}
+            onClick={async () => {
+              setClearingReschedule(true);
+              const res = await fetch(`/api/admin/jobs/${job.id}/manual-reschedule`, { method: "DELETE" });
+              setClearingReschedule(false);
+              if (res.ok) {
+                toast({ title: "Reset — iCal sync will update this job's dates again." });
+                load();
+              } else {
+                const b = await res.json().catch(() => ({}));
+                toast({ title: "Failed", description: b.error ?? "Could not reset.", variant: "destructive" });
+              }
+            }}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            {clearingReschedule ? "Resetting…" : "Reset to iCal"}
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -2221,6 +2304,69 @@ export default function JobDetailPage() {
                   ? "Approve request"
                   : "Reject request"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reschedule Dialog ── */}
+      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4" /> Reschedule Job
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rs-date">New date <span className="text-destructive">*</span></Label>
+              <Input
+                id="rs-date"
+                type="date"
+                value={rescheduleForm.date}
+                onChange={(e) => setRescheduleForm((f) => ({ ...f, date: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="rs-start">Start time (optional)</Label>
+                <Input
+                  id="rs-start"
+                  type="time"
+                  value={rescheduleForm.startTime}
+                  onChange={(e) => setRescheduleForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="rs-due">Due time (optional)</Label>
+                <Input
+                  id="rs-due"
+                  type="time"
+                  value={rescheduleForm.dueTime}
+                  onChange={(e) => setRescheduleForm((f) => ({ ...f, dueTime: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rs-reason">Reason (optional)</Label>
+              <Textarea
+                id="rs-reason"
+                rows={3}
+                placeholder="Reason for rescheduling…"
+                value={rescheduleForm.reason}
+                onChange={(e) => setRescheduleForm((f) => ({ ...f, reason: e.target.value }))}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Once rescheduled, iCal sync will not overwrite this date. Use "Reset to iCal" to undo.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setRescheduleOpen(false)} disabled={rescheduling}>
+                Cancel
+              </Button>
+              <Button onClick={handleReschedule} disabled={rescheduling || !rescheduleForm.date}>
+                {rescheduling ? "Rescheduling…" : "Apply Reschedule"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

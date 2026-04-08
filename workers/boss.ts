@@ -25,6 +25,7 @@ import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
+import { dispatchClientPostJobAutomationRule } from "@/lib/notifications/client-automation";
 
 const TZ = "Australia/Sydney";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -160,6 +161,11 @@ async function main() {
     await generateJobReport(job.data.jobId);
   });
 
+  await boss.work<{ jobId: string; ruleId: string }>("post-job-followup", async (job) => {
+    if (!job?.data?.jobId || !job?.data?.ruleId) return;
+    await dispatchClientPostJobAutomationRule({ jobId: job.data.jobId, ruleId: job.data.ruleId });
+  });
+
   await boss.schedule("daily-ops-briefing", "0 7 * * *", {});
   await boss.work("daily-ops-briefing", async () => {
     const result = await sendDailyOpsBriefing(new Date());
@@ -186,6 +192,18 @@ async function main() {
     const payload = await refreshGoogleReviewsCache();
     if (payload) {
       logger.info({ updatedAt: payload.updatedAt, reviews: payload.reviews.length }, "Google reviews cache refreshed");
+    }
+  });
+
+  // Clean up stale location pings (keep 7 days)
+  await boss.schedule("location-pings-cleanup", "0 3 * * *", {});
+  await boss.work("location-pings-cleanup", async () => {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const result = await db.cleanerLocationPing.deleteMany({
+      where: { timestamp: { lt: cutoff } },
+    });
+    if (result.count > 0) {
+      logger.info({ deleted: result.count }, "Old location pings cleaned up");
     }
   });
 

@@ -45,6 +45,7 @@ enum JobStatus {
   UNASSIGNED
   OFFERED
   ASSIGNED
+  EN_ROUTE
   IN_PROGRESS
   PAUSED
   WAITING_CONTINUATION_APPROVAL
@@ -327,6 +328,7 @@ model User {
   cleanerAvailabilityEntries   CleanerAvailability[]       @relation("CleanerAvailabilityUser")
   preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
   createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
+  cleanerLocationPings         CleanerLocationPing[]
 }
 
 // ─────────────────────────────────────────────
@@ -345,19 +347,23 @@ model Client {
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
-  properties          Property[]
-  users               User[]
-  quotes              Quote[]
-  jobTasks            JobTask[]
-  leads               QuoteLead[]
-  cases               IssueTicket[]
-  shoppingRuns        ShoppingRun[]
-  invoices            ClientInvoice[]
-  loyaltyAccount      LoyaltyAccount?
-  referralsMade       Referral[]                 @relation("ReferralReferrer")
-  referralsConverted  Referral[]                 @relation("ReferralReferee")
-  satisfactionRatings ClientSatisfactionRating[]
-  messages            ClientMessage[]
+  properties           Property[]
+  users                User[]
+  quotes               Quote[]
+  jobTasks             JobTask[]
+  leads                QuoteLead[]
+  cases                IssueTicket[]
+  shoppingRuns         ShoppingRun[]
+  invoices             ClientInvoice[]
+  loyaltyAccount       LoyaltyAccount?
+  referralsMade        Referral[]                 @relation("ReferralReferrer")
+  referralsConverted   Referral[]                 @relation("ReferralReferee")
+  satisfactionRatings  ClientSatisfactionRating[]
+  messages             ClientMessage[]
+  notificationPref     ClientNotificationPreference?
+  automationRules      ClientAutomationRule[]
+  jobFeedback          JobFeedback[]
+  lastReviewRequestSentAt DateTime?
 }
 
 model Property {
@@ -383,10 +389,11 @@ model Property {
   alarmCode              String?  @db.Text
   keyLocation            String?
   accessNotes            String?  @db.Text
-  preferredCleanerUserId String?
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  preferredCleanerUserId     String?
+  showCleanerContactToClient Boolean  @default(false)
+  isActive                   Boolean  @default(true)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 
   client           Client                 @relation(fields: [clientId], references: [id])
   preferredCleaner User?                  @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
@@ -509,11 +516,24 @@ model Job {
   gpsCheckOutLat        Float?
   gpsCheckOutLng        Float?
   gpsCheckOutAt         DateTime?
-  gpsDistanceMeters     Int?
-  requiresSafetyCheckin Boolean   @default(false)
-  safetyCheckinAt       DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  gpsDistanceMeters      Int?
+  requiresSafetyCheckin  Boolean   @default(false)
+  safetyCheckinAt        DateTime?
+  manuallyRescheduledAt   DateTime?
+  rescheduledBy           String?
+  enRouteStartedAt        DateTime?
+  enRouteEtaMinutes       Int?
+  enRouteEtaUpdatedAt     DateTime?
+  drivingPausedAt         DateTime?
+  drivingPauseReason      String?
+  drivingDelayedAt        DateTime?
+  drivingDelayedReason    String?
+  arrivedAt               DateTime?
+  lastEtaNotificationAt   DateTime?
+  lastEtaNotifiedMinutes  Int?
+  lastDelayedNotificationAt DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   property               Property                   @relation(fields: [propertyId], references: [id])
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
@@ -530,6 +550,8 @@ model Job {
   invoiceLines           ClientInvoiceLine[]
   jobTasks               JobTask[]
   satisfactionRating     ClientSatisfactionRating?
+  cleanerLocationPings   CleanerLocationPing[]
+  feedback               JobFeedback?
 }
 
 model CleanerPayAdjustment {
@@ -744,6 +766,7 @@ model JobTask {
   autoApproveAt     DateTime?
   approvedAt        DateTime?
   completedAt       DateTime?
+  metadata          Json?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
@@ -1384,16 +1407,18 @@ model CleanerAvailability {
 // ─────────────────────────────────────────────
 
 model Notification {
-  id        String              @id @default(cuid())
-  userId    String?
-  jobId     String?
-  channel   NotificationChannel
-  subject   String?
-  body      String              @db.Text
-  status    NotificationStatus  @default(PENDING)
-  sentAt    DateTime?
-  errorMsg  String?
-  createdAt DateTime            @default(now())
+  id             String              @id @default(cuid())
+  userId         String?
+  jobId          String?
+  channel        NotificationChannel
+  subject        String?
+  body           String              @db.Text
+  status         NotificationStatus  @default(PENDING)
+  sentAt         DateTime?
+  errorMsg       String?
+  externalId     String?             // e.g. Resend message ID for webhook matching
+  deliveryStatus String?             // PENDING | DELIVERED | BOUNCED | OPENED
+  createdAt      DateTime            @default(now())
 
   user User? @relation(fields: [userId], references: [id])
 }
@@ -1686,4 +1711,99 @@ model AppSetting {
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Real-Time Location Tracking
+// ─────────────────────────────────────────────
+
+model CleanerLocationPing {
+  id        String   @id @default(cuid())
+  jobId     String
+  userId    String
+  lat       Float
+  lng       Float
+  accuracy  Float?
+  heading   Float?
+  speed     Float?
+  timestamp DateTime @default(now())
+
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, timestamp])
+  @@index([userId, timestamp])
+}
+
+// ─────────────────────────────────────────────
+// Client Notification Preferences
+// ─────────────────────────────────────────────
+
+model ClientNotificationPreference {
+  clientId             String  @id
+  notificationsEnabled Boolean @default(true)
+  notifyOnEnRoute      Boolean @default(true)
+  notifyOnJobStart     Boolean @default(true)
+  notifyOnJobComplete  Boolean @default(true)
+  preferredChannel     String  @default("EMAIL") // "EMAIL" | "SMS" | "BOTH"
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Message Templates + Client Automation Rules
+// ─────────────────────────────────────────────
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  triggerType String   // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
+  jobType     String?  // null = all job types; specific JobType string for targeted
+  channel     String   // "EMAIL" | "SMS"
+  subject     String?  // email subject — supports {{variables}}
+  body        String   @db.Text // body with {{client_name}}, {{property_address}}, {{cleaner_name}}, {{next_clean_date}}, {{job_type}}, {{feedback_url}}
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  automationRules ClientAutomationRule[]
+}
+
+model ClientAutomationRule {
+  id           String   @id @default(cuid())
+  clientId     String
+  triggerType  String   // "POST_JOB_REVIEW" | "POST_JOB_NEXT_CLEAN" | "POST_JOB_DISCOUNT" | "POST_JOB_CUSTOM"
+  jobType      String?  // null = all job types
+  templateId   String?
+  delayMinutes Int      @default(120)
+  isEnabled    Boolean  @default(false) // OFF by default — admin must enable
+  channel      String   @default("EMAIL")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client   Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  template MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, isEnabled])
+}
+
+// ─────────────────────────────────────────────
+// Job Feedback (post-clean client reviews)
+// ─────────────────────────────────────────────
+
+model JobFeedback {
+  id             String    @id @default(cuid())
+  jobId          String    @unique
+  clientId       String
+  token          String    @unique @default(cuid()) // public URL token
+  rating         Int?      // 1–5, null until submitted
+  comment        String?   @db.Text
+  submittedAt    DateTime?
+  tokenExpiresAt DateTime
+  createdAt      DateTime  @default(now())
+
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }

@@ -319,6 +319,8 @@ export async function applyReschedule(input: {
       internalNotes: [job.internalNotes || "", input.reason ? `Reschedule reason: ${input.reason}` : ""]
         .filter(Boolean)
         .join("\n"),
+      manuallyRescheduledAt: new Date(),
+      rescheduledBy: input.userId,
     },
   });
   await db.auditLog.create({

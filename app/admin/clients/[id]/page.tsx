@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, RadioTower } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientDetailWorkspace } from "@/components/admin/client-detail-workspace";
 import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
@@ -85,10 +85,16 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">Client Detail</h1>
           <p className="text-sm text-muted-foreground">Review contact info, leads, quotes, jobs, cases, and properties in one place.</p>
         </div>
+        <Button variant="outline" asChild>
+          <Link href={`/admin/clients/${client.id}/hub`}>
+            <RadioTower className="mr-2 h-4 w-4" />
+            Open client hub
+          </Link>
+        </Button>
       </div>
 
       <ClientDetailWorkspace

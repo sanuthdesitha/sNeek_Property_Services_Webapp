@@ -9,7 +9,7 @@ import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
 import { refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
-import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
+import { attachPendingAdminTasksToJob, attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
@@ -696,6 +696,10 @@ async function syncTurnoverJobsForReservations(params: {
         scheduledDate: created.scheduledDate,
         startTime: created.startTime,
       });
+      await attachPendingAdminTasksToJob({
+        jobId: created.id,
+        propertyId: created.propertyId,
+      });
       await assignPreferredCleanerIfAvailable({
         jobId: created.id,
         propertyId: created.propertyId,
@@ -725,27 +729,31 @@ async function syncTurnoverJobsForReservations(params: {
     if (!params.syncOptions.updateExistingLinkedJobs && !shouldBackfillEstimatedHours && !shouldUpdateReservationContext) continue;
 
     const before = jobState(existingJob);
+    // Skip overwriting date/time fields if admin or client manually rescheduled this job
+    const isManuallyRescheduled = existingJob.manuallyRescheduledAt != null;
+    const syncDates = params.syncOptions.updateExistingLinkedJobs && !isManuallyRescheduled;
+
     const afterCandidate: JobState | null = {
       id: existingJob.id,
       reservationId: reservation.id,
-      scheduledDate: params.syncOptions.updateExistingLinkedJobs
+      scheduledDate: syncDates
         ? turnoverDate.toISOString()
         : existingJob.scheduledDate.toISOString(),
-      startTime: params.syncOptions.updateExistingLinkedJobs ? startTime : existingJob.startTime ?? null,
-      dueTime: params.syncOptions.updateExistingLinkedJobs ? sameDayCheckinTime : existingJob.dueTime ?? null,
+      startTime: syncDates ? startTime : existingJob.startTime ?? null,
+      dueTime: syncDates ? sameDayCheckinTime : existingJob.dueTime ?? null,
       estimatedHours: shouldBackfillEstimatedHours ? params.property.defaultEstimatedHours : currentEstimatedHours,
       internalNotes: shouldUpdateReservationContext ? mergedInternalNotes ?? null : existingJob.internalNotes ?? null,
       status: existingJob.status,
-      priorityBucket: params.syncOptions.updateExistingLinkedJobs
+      priorityBucket: syncDates
         ? priority.priorityBucket
         : existingJob.priorityBucket ?? 4,
-      priorityReason: params.syncOptions.updateExistingLinkedJobs
+      priorityReason: syncDates
         ? priority.priorityReason
         : existingJob.priorityReason ?? null,
-      sameDayCheckin: params.syncOptions.updateExistingLinkedJobs
+      sameDayCheckin: syncDates
         ? priority.sameDayCheckin
         : existingJob.sameDayCheckin === true,
-      sameDayCheckinTime: params.syncOptions.updateExistingLinkedJobs
+      sameDayCheckinTime: syncDates
         ? priority.sameDayCheckinTime
         : existingJob.sameDayCheckinTime ?? null,
     };
@@ -754,7 +762,7 @@ async function syncTurnoverJobsForReservations(params: {
     const updated = await db.job.update({
       where: { id: existingJob.id },
       data: {
-        ...(params.syncOptions.updateExistingLinkedJobs
+        ...(syncDates
           ? {
               scheduledDate: turnoverDate,
               startTime,

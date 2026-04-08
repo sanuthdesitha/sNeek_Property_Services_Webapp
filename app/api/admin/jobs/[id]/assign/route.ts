@@ -22,6 +22,7 @@ import {
   derivePreStartJobStatus,
   formatAssignmentResponseLabel,
 } from "@/lib/jobs/assignment-workflow";
+import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
 
 export async function POST(
   req: NextRequest,
@@ -34,6 +35,7 @@ export async function POST(
       where: { id: params.id },
       select: {
         id: true,
+        propertyId: true,
         jobNumber: true,
         status: true,
         jobType: true,
@@ -297,6 +299,9 @@ export async function POST(
           })),
       });
     }
+
+    // Attach any pending admin tasks queued for this property
+    await attachPendingAdminTasksToJob({ jobId: job.id, propertyId: job.propertyId });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {

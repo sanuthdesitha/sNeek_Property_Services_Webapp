@@ -13,6 +13,7 @@ import { getAppSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAppUrl } from "@/lib/app-url";
+import { applyReschedule } from "@/lib/phase4/analytics";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -208,6 +209,7 @@ export async function createClientJobTaskRequest(input: {
   requiresPhoto?: boolean;
   requiresNote?: boolean;
   attachmentKeys?: string[];
+  metadata?: Record<string, unknown> | null;
   baseUrl?: RequestLike;
 }) {
   const job = await db.job.findUnique({
@@ -241,6 +243,7 @@ export async function createClientJobTaskRequest(input: {
       requiresNote: input.requiresNote === true,
       requestedByUserId: input.requestedByUserId,
       autoApproveAt: createAutoApproveAt(job),
+      metadata: input.metadata != null ? (input.metadata as any) : undefined,
       attachments: {
         create: (input.attachmentKeys ?? [])
           .filter((key) => key.trim().length > 0)
@@ -323,6 +326,32 @@ export async function reviewJobTaskRequest(input: {
       },
     },
   });
+
+  // If this is a reschedule request and it was approved, update the job date
+  if (input.decision === "APPROVE" && task.jobId) {
+    const meta = task.metadata as Record<string, unknown> | null;
+    if (meta?.type === "RESCHEDULE_REQUEST" && typeof meta.requestedDate === "string") {
+      try {
+        await applyReschedule({
+          jobId: task.jobId,
+          date: meta.requestedDate,
+          startTime: typeof meta.requestedStartTime === "string" ? meta.requestedStartTime : null,
+          userId: input.actorUserId,
+          reason: "Approved client reschedule request",
+        });
+      } catch {
+        // Non-fatal: task was approved but reschedule failed (log to event)
+        await db.jobTaskEvent.create({
+          data: {
+            taskId: task.id,
+            actorUserId: input.actorUserId,
+            action: "RESCHEDULE_APPLY_FAILED",
+            note: "Task approved but job date update failed — please reschedule manually.",
+          },
+        });
+      }
+    }
+  }
 
   const recipients = [];
   if (task.requestedBy) recipients.push(task.requestedBy);
@@ -511,6 +540,31 @@ export async function attachPendingCarryForwardTasksToJob(input: {
     },
   });
 
+  return { attached: result.count };
+}
+
+/**
+ * Attach admin-created pending tasks (source=ADMIN, jobId=null) to a specific job.
+ * Called when a new job is created or assigned so admin tasks queued for a property
+ * automatically appear on the cleaner's task list.
+ */
+export async function attachPendingAdminTasksToJob(input: {
+  jobId: string;
+  propertyId: string;
+}): Promise<{ attached: number }> {
+  const result = await db.jobTask.updateMany({
+    where: {
+      propertyId: input.propertyId,
+      source: "ADMIN",
+      jobId: null,
+      approvalStatus: "AUTO_APPROVED",
+      executionStatus: "OPEN",
+    },
+    data: {
+      jobId: input.jobId,
+      visibleToCleaner: true,
+    },
+  });
   return { attached: result.count };
 }
 

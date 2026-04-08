@@ -50,7 +50,7 @@ export interface EmailPayload {
 
 export async function sendEmailDetailed(
   payload: EmailPayload
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; externalId?: string | null }> {
   try {
     const resend = getResendClient();
     if (!resend) {
@@ -60,7 +60,7 @@ export async function sendEmailDetailed(
 
     const html = await prepareHtml(payload.html);
 
-    await resend.emails.send({
+    const response = await resend.emails.send({
       from: payload.from ?? FROM,
       to: Array.isArray(payload.to) ? payload.to : [payload.to],
       subject: payload.subject,
@@ -68,7 +68,7 @@ export async function sendEmailDetailed(
       replyTo: payload.replyTo,
       attachments: payload.attachments,
     });
-    return { ok: true };
+    return { ok: true, externalId: response.data?.id ?? null };
   } catch (err: any) {
     logger.error({ err, payload }, "Failed to send email");
     return { ok: false, error: err?.message ?? "Unknown email provider error" };
