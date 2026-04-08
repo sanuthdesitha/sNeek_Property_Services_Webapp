@@ -17,6 +17,8 @@ import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
+import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
+import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import {
   JobStatus,
   MediaType,
@@ -623,6 +625,10 @@ export async function POST(
         }
       }
     }
+
+    // Notify client that cleaning is complete (fire-and-forget)
+    sendClientJobNotification({ jobId: params.id, type: "JOB_COMPLETE" });
+    queueClientPostJobAutomations(params.id).catch(console.error);
 
     generateJobReport(params.id).catch(console.error);
     await clearSharedCleanerJobDraft(params.id);

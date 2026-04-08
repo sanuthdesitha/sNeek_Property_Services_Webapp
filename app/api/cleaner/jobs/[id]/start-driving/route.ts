@@ -42,7 +42,7 @@ export async function POST(
 
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
-    const allowedStatuses: JobStatus[] = [JobStatus.ASSIGNED, JobStatus.EN_ROUTE];
+    const allowedStatuses: JobStatus[] = [JobStatus.ASSIGNED, "EN_ROUTE" as JobStatus];
     if (!allowedStatuses.includes(job.status)) {
       return NextResponse.json(
         { error: "Job must be in ASSIGNED status to start driving." },
@@ -82,7 +82,7 @@ export async function POST(
     await db.job.update({
       where: { id: params.id },
       data: {
-        status: JobStatus.EN_ROUTE,
+        status: "EN_ROUTE" as JobStatus,
         enRouteStartedAt: new Date(),
         enRouteEtaMinutes: etaMinutes,
         enRouteEtaUpdatedAt: etaMinutes != null ? new Date() : null,

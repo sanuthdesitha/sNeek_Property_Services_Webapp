@@ -37,6 +37,8 @@ export function formatJobStatusLabel(status: JobStatus | string | null | undefin
   switch (status) {
     case JobStatus.OFFERED:
       return "Awaiting confirmation";
+    case "EN_ROUTE" as JobStatus:
+      return "On the way";
     default:
       return String(status ?? "")
         .replace(/_/g, " ")

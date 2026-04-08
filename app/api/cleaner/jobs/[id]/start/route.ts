@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -266,6 +267,9 @@ export async function POST(
         },
       });
     }
+
+    // Notify client that cleaning has started (fire-and-forget)
+    sendClientJobNotification({ jobId: params.id, type: "JOB_STARTED" });
 
     return NextResponse.json({ ok: true, alreadyRunning: Boolean(openLog) });
   } catch (err: any) {

@@ -11,11 +11,13 @@ import { CopyButton } from "@/components/shared/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
 
 const TZ = "Australia/Sydney";
 const ACTIVE_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
   JobStatus.ASSIGNED,
+  "EN_ROUTE" as JobStatus,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
   JobStatus.WAITING_CONTINUATION_APPROVAL,
@@ -264,6 +266,8 @@ export default async function OpsMapPage({
           </Button>
         </CardContent>
       </Card>
+
+      <LiveCleanerLayer />
     </div>
   );
 }

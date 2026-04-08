@@ -25,7 +25,7 @@ export async function POST(
     });
 
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-    if (job.status !== JobStatus.EN_ROUTE || job.arrivedAt) {
+    if (job.status !== ("EN_ROUTE" as JobStatus) || job.arrivedAt) {
       return NextResponse.json({ error: "Job is not actively en route." }, { status: 400 });
     }
 

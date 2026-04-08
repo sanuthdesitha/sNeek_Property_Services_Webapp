@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest) {
 
     const enRouteJobs = await db.job.findMany({
       where: {
-        status: JobStatus.EN_ROUTE,
+        status: "EN_ROUTE" as any,
         cleanerLocationPings: { some: { timestamp: { gte: since } } },
       },
       select: {
