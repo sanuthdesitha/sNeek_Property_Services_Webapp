@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, Kanban, List, Plus, Settings2, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, CalendarClock, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,7 @@ const JOB_STATUSES = [
   "UNASSIGNED",
   "OFFERED",
   "ASSIGNED",
+  "EN_ROUTE",
   "IN_PROGRESS",
   "PAUSED",
   "WAITING_CONTINUATION_APPROVAL",
@@ -34,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   UNASSIGNED: "warning",
   OFFERED: "warning",
   ASSIGNED: "secondary",
+  EN_ROUTE: "warning",
   IN_PROGRESS: "default",
   PAUSED: "warning",
   WAITING_CONTINUATION_APPROVAL: "destructive",
@@ -46,6 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
   UNASSIGNED: "Unassigned",
   OFFERED: "Awaiting Confirmation",
   ASSIGNED: "Assigned",
+  EN_ROUTE: "On the way",
   IN_PROGRESS: "In Progress",
   PAUSED: "Paused",
   WAITING_CONTINUATION_APPROVAL: "Waiting Approval",
@@ -111,6 +114,7 @@ export default function JobsPage() {
   const [quickAssignSubmitting, setQuickAssignSubmitting] = useState(false);
   const [pendingContinuationRows, setPendingContinuationRows] = useState<any[]>([]);
   const [pendingTimingCount, setPendingTimingCount] = useState(0);
+  const [pendingRescheduleJobIds, setPendingRescheduleJobIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
@@ -139,6 +143,14 @@ export default function JobsPage() {
       const body = await res.json().catch(() => null);
       if (body?.counts) {
         setPendingTimingCount(body.counts.timingRequests ?? 0);
+      }
+      if (Array.isArray(body?.rescheduleRequests)) {
+        const ids = new Set<string>(
+          body.rescheduleRequests
+            .map((r: any) => r.jobId)
+            .filter(Boolean)
+        );
+        setPendingRescheduleJobIds(ids);
       }
     } catch { /* silent */ }
   }
@@ -672,12 +684,6 @@ export default function JobsPage() {
               New / Bulk
             </Link>
           </Button>
-          <Button variant="outline" asChild>
-            <Link href="/admin/ops">
-              <Sparkles className="mr-2 h-4 w-4" />
-              Ops
-            </Link>
-          </Button>
         </div>
       </div>
 
@@ -1051,6 +1057,14 @@ export default function JobsPage() {
                             </Link>
                           </Button>
                         ) : null}
+                        {pendingRescheduleJobIds.has(job.id) ? (
+                          <Button size="sm" variant="outline" asChild className="h-6 border-amber-300 bg-amber-50 px-2 text-amber-800 hover:bg-amber-100">
+                            <Link href="/admin/approvals">
+                              <CalendarClock className="mr-1 h-3 w-3" />
+                              Reschedule req
+                            </Link>
+                          </Button>
+                        ) : null}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
@@ -1119,7 +1133,7 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {["UNASSIGNED", "OFFERED", "ASSIGNED", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
+          {["UNASSIGNED", "OFFERED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
             <div key={status} className="min-w-[260px] flex-shrink-0">
               <div className="mb-3 flex items-center gap-2">
                 <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>

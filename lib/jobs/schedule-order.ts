@@ -49,25 +49,28 @@ export function buildGoogleMapsDirectionsUrl(input: {
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
-export function buildGoogleMapsMultiStopUrl(addresses: Array<string | null | undefined>) {
+export function buildGoogleMapsMultiStopUrl(
+  addresses: Array<string | null | undefined>,
+  options?: { fromCurrentLocation?: boolean }
+) {
   const clean = addresses
     .map((item) => String(item ?? "").trim())
     .filter(Boolean);
   if (clean.length === 0) return null;
   if (clean.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clean[0])}`;
+    const params = new URLSearchParams({ api: "1", destination: clean[0], travelmode: "driving" });
+    if (!options?.fromCurrentLocation) params.set("origin", clean[0]);
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
   }
-  const origin = clean[0];
   const destination = clean[clean.length - 1];
-  const waypoints = clean.slice(1, -1).slice(0, 8);
-  const params = new URLSearchParams({
-    api: "1",
-    origin,
-    destination,
-    travelmode: "driving",
-  });
-  if (waypoints.length > 0) {
-    params.set("waypoints", waypoints.join("|"));
+  const waypointAddresses = clean.slice(0, -1);
+  const params = new URLSearchParams({ api: "1", destination, travelmode: "driving" });
+  // When fromCurrentLocation=true, omit origin so Maps uses device location
+  if (!options?.fromCurrentLocation) {
+    params.set("origin", clean[0]);
+    waypointAddresses.splice(0, 1); // first address was origin, rest are waypoints
   }
+  const waypoints = waypointAddresses.slice(0, 8);
+  if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }

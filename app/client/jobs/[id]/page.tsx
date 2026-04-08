@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { LiveTripMap } from "@/components/shared/live-trip-map";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -30,6 +31,7 @@ const TZ = "Australia/Sydney";
 const JOB_STATUS_STEPS = [
   "UNASSIGNED",
   "ASSIGNED",
+  "EN_ROUTE",
   "IN_PROGRESS",
   "SUBMITTED",
   "QA_REVIEW",
@@ -41,6 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
   UNASSIGNED: "Unassigned",
   OFFERED: "Offered",
   ASSIGNED: "Assigned",
+  EN_ROUTE: "On the way",
   IN_PROGRESS: "In Progress",
   PAUSED: "Paused",
   WAITING_CONTINUATION_APPROVAL: "Paused",
@@ -53,6 +56,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_VARIANT: Record<string, string> = {
   UNASSIGNED: "secondary",
   ASSIGNED: "outline",
+  EN_ROUTE: "warning",
   IN_PROGRESS: "default",
   COMPLETED: "success",
   INVOICED: "outline",
@@ -70,8 +74,26 @@ type Job = {
   notes: string | null;
   actualHours: number | null;
   estimatedHours: number | null;
-  property: { id: string; name: string; address: string; suburb: string; state: string; postcode: string };
-  assignments: Array<{ user: { id: string; name: string; image: string | null } }>;
+  enRouteStartedAt: string | null;
+  enRouteEtaMinutes: number | null;
+  enRouteEtaUpdatedAt: string | null;
+  drivingPausedAt: string | null;
+  drivingPauseReason: string | null;
+  drivingDelayedAt: string | null;
+  drivingDelayedReason: string | null;
+  arrivedAt: string | null;
+  liveTrip: {
+    cleanerLat: number | null;
+    cleanerLng: number | null;
+    accuracy: number | null;
+    heading: number | null;
+    speed: number | null;
+    lastPingAt: string | null;
+    propertyLat: number | null;
+    propertyLng: number | null;
+  } | null;
+  property: { id: string; name: string; address: string; suburb: string; state: string; postcode: string; latitude?: number | null; longitude?: number | null };
+  assignments: Array<{ isPrimary: boolean; user: { id: string; name: string; image: string | null; phone?: string | null } }>;
   laundryTask: {
     id: string;
     status: string;
@@ -122,6 +144,21 @@ type Job = {
   }>;
 };
 
+function formatTripFreshness(value: string | null | undefined) {
+  if (!value) return "No live update yet";
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+}
+
+function getTripStateLabel(job: Job) {
+  if (job.arrivedAt) return "Arrived";
+  if (job.drivingPausedAt) return "Paused";
+  if (job.drivingDelayedAt) return "Delayed";
+  return "On the way";
+}
+
 function StatusTimeline({ status }: { status: string }) {
   const currentIdx = JOB_STATUS_STEPS.indexOf(status);
   const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
@@ -144,7 +181,11 @@ function StatusTimeline({ status }: { status: string }) {
                     : "border-muted-foreground/30 bg-muted"
                 }`}
               />
-              <span className={`text-[9px] font-medium leading-none ${active ? "text-primary" : done ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+              <span
+                className={`text-[9px] font-medium leading-none ${
+                  active ? "text-primary" : done ? "text-muted-foreground" : "text-muted-foreground/50"
+                }`}
+              >
                 {label}
               </span>
             </div>
@@ -162,17 +203,49 @@ export default function ClientJobDetailPage() {
   const params = useParams<{ id: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/client/jobs/${params.id}`)
-      .then((res) => {
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    async function loadJob() {
+      try {
+        const res = await fetch(`/api/client/jobs/${params.id}`, { cache: "no-store", headers: { "x-progress-toast": "off" } });
         if (!res.ok) throw new Error("Job not found");
-        return res.json();
-      })
-      .then((data) => setJob(data))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+        const data = await res.json();
+        if (!cancelled) {
+          setJob(data);
+          setError(null);
+          setLoading(false);
+        }
+        return data as Job;
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
+        return null;
+      }
+    }
+
+    loadJob().then((data) => {
+      if (!data || data.status !== "EN_ROUTE") return;
+      intervalId = setInterval(async () => {
+        const updated = await loadJob().catch(() => null);
+        // Stop polling once no longer EN_ROUTE
+        if (updated && updated.status !== "EN_ROUTE" && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }, 15000);
+    });
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [params.id]);
 
   if (loading) {
@@ -198,8 +271,23 @@ export default function ClientJobDetailPage() {
   }
 
   const scheduled = toZonedTime(new Date(job.scheduledDate), TZ);
-  const cleaner = job.assignments[0]?.user;
+  const primaryAssignment = job.assignments.find((a) => a.isPrimary) ?? job.assignments[0];
+  const cleaner = primaryAssignment?.user;
   const totalCharged = job.invoiceLines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const tripStateLabel = getTripStateLabel(job);
+
+  // Schedule comparison: compare predicted arrival vs scheduled start time
+  const scheduleStatus: "early" | "late" | "on-time" | null = (() => {
+    if (!job.startTime || job.enRouteEtaMinutes == null || job.drivingPausedAt) return null;
+    const [h, m] = job.startTime.split(":").map(Number);
+    const scheduledMinutes = h * 60 + m;
+    const nowMinutes = scheduled.getHours() * 60 + scheduled.getMinutes();
+    const arrivalMinutes = nowMinutes + job.enRouteEtaMinutes;
+    const diff = arrivalMinutes - scheduledMinutes;
+    if (diff > 10) return "late";
+    if (diff < -10) return "early";
+    return "on-time";
+  })();
 
   return (
     <div className="space-y-5">
@@ -245,6 +333,70 @@ export default function ClientJobDetailPage() {
         {/* Overview tab */}
         <TabsContent value="overview" className="space-y-4 mt-4">
           <div className="grid gap-4 sm:grid-cols-2">
+            {job.status === "EN_ROUTE" && (
+              <Card className={`sm:col-span-2 ${job.drivingPausedAt ? "border-orange-400 bg-orange-50/60" : job.drivingDelayedAt ? "border-amber-400 bg-amber-50/40" : "border-primary/30"}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    {job.drivingPausedAt ? "Cleaner has paused driving" : job.arrivedAt ? "Cleaner has arrived" : "Cleaner is on the way"}
+                    <Badge variant={job.drivingPausedAt ? "destructive" : job.drivingDelayedAt ? "warning" : "outline"}>
+                      {tripStateLabel}
+                    </Badge>
+                    {scheduleStatus === "late" && (
+                      <Badge variant="destructive">Running late</Badge>
+                    )}
+                    {scheduleStatus === "early" && (
+                      <Badge variant="success">Arriving early</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {job.drivingPausedAt ? (
+                    <div className="rounded-lg border border-orange-300 bg-orange-100/60 px-3 py-2 text-sm text-orange-800 font-medium">
+                      Your cleaner has temporarily paused driving
+                      {job.drivingPauseReason ? ` · ${job.drivingPauseReason.replace(/_/g, " ").toLowerCase()}` : ""}
+                      . ETA will resume once they continue.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="font-medium">
+                        {job.enRouteEtaMinutes != null
+                          ? job.enRouteEtaMinutes <= 1
+                            ? "Arriving now"
+                            : (() => {
+                                const arrival = new Date(Date.now() + job.enRouteEtaMinutes * 60 * 1000);
+                                const time = arrival.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true });
+                                return `${job.enRouteEtaMinutes} min · ~${time}`;
+                              })()
+                          : "Waiting for ETA"}
+                      </span>
+                      {scheduleStatus === "late" && job.startTime && (
+                        <span className="text-destructive text-xs font-medium">Behind schedule (starts {job.startTime})</span>
+                      )}
+                      {scheduleStatus === "early" && job.startTime && (
+                        <span className="text-emerald-700 text-xs font-medium">Arriving before {job.startTime}</span>
+                      )}
+                      <span className="text-muted-foreground text-xs">
+                        Updated {formatTripFreshness(job.enRouteEtaUpdatedAt ?? job.liveTrip?.lastPingAt ?? null)}
+                      </span>
+                    </div>
+                  )}
+                  {job.drivingDelayedAt && !job.drivingPausedAt && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      Delay reported{job.drivingDelayedReason ? `: ${job.drivingDelayedReason.replace(/_/g, " ").toLowerCase()}` : ""}
+                    </div>
+                  )}
+                  <LiveTripMap
+                    cleanerLat={job.liveTrip?.cleanerLat ?? null}
+                    cleanerLng={job.liveTrip?.cleanerLng ?? null}
+                    propertyLat={job.liveTrip?.propertyLat ?? job.property.latitude ?? null}
+                    propertyLng={job.liveTrip?.propertyLng ?? job.property.longitude ?? null}
+                    heading={job.liveTrip?.heading ?? null}
+                    className="h-64"
+                  />
+                </CardContent>
+              </Card>
+            )}
             {/* Property */}
             <Card>
               <CardHeader className="pb-2">
@@ -320,18 +472,28 @@ export default function ClientJobDetailPage() {
                     Cleaner
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="flex items-center gap-3">
-                  {cleaner.image ? (
-                    <img src={cleaner.image} alt={cleaner.name} className="h-10 w-10 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                      {cleaner.name[0]?.toUpperCase()}
+                <CardContent className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {cleaner.image ? (
+                      <img src={cleaner.image} alt={cleaner.name} className="h-10 w-10 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                        {cleaner.name[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-medium text-sm">{cleaner.name}</p>
+                      <p className="text-xs text-muted-foreground">Assigned cleaner</p>
                     </div>
-                  )}
-                  <div>
-                    <p className="font-medium text-sm">{cleaner.name}</p>
-                    <p className="text-xs text-muted-foreground">Assigned cleaner</p>
                   </div>
+                  {cleaner.phone && (
+                    <a
+                      href={`tel:${cleaner.phone}`}
+                      className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                    >
+                      Call
+                    </a>
+                  )}
                 </CardContent>
               </Card>
             )}

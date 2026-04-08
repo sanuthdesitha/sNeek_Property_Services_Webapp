@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
+import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
 
 const TZ = "Australia/Sydney";
 
@@ -240,12 +241,6 @@ export default async function OpsPage() {
         ))}
       </div>
 
-      <ImmediateAttentionPanel
-        title="Immediate Attention"
-        description="Critical approvals, dispatch blockers, and unresolved operational items."
-        items={urgentItems}
-      />
-
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
@@ -393,6 +388,8 @@ export default async function OpsPage() {
         </Card>
       </div>
 
+      <LiveCleanerLayer />
+
       <Card>
         <CardHeader>
           <CardTitle>Maps and routing</CardTitle>
@@ -408,11 +405,17 @@ export default async function OpsPage() {
           <Button asChild variant="outline" size="sm">
             <Link href={`/admin/ops/map?date=${selectedDate}`}>
               <MapPinned className="mr-2 h-4 w-4" />
-              Live ops map
+              Full live map
             </Link>
           </Button>
         </CardContent>
       </Card>
+
+      <ImmediateAttentionPanel
+        title="Immediate Attention"
+        description="Critical approvals, dispatch blockers, and unresolved operational items."
+        items={urgentItems}
+      />
     </div>
   );
 }

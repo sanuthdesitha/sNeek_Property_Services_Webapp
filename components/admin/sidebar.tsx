@@ -35,6 +35,7 @@ import {
   Wallet,
   Clock3,
   Rocket,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -42,7 +43,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 export const ADMIN_NAV_GROUPS = [
   {
     label: "Overview",
-    items: [{ label: "Dashboard", href: "/admin", icon: LayoutDashboard }],
+    items: [
+      { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+      { label: "Ops", href: "/admin/ops", icon: Zap },
+    ],
   },
   {
     label: "Operations",

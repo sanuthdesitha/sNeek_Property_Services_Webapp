@@ -27,6 +27,7 @@ export default async function CleanerLayout({ children }: { children: React.Reac
       navItems={[
         { href: "/cleaner", label: "Dashboard", exact: true },
         { href: "/cleaner/hub", label: "Team Hub" },
+        { href: "/cleaner/route", label: "Route" },
         ...(visibility.showJobs ? [{ href: "/cleaner/jobs", label: "Jobs" }] : []),
         ...(visibility.showCalendar ? [{ href: "/cleaner/calendar", label: "Calendar" }] : []),
         ...(visibility.showShopping ? [{ href: "/cleaner/shopping", label: "Shopping" }] : []),

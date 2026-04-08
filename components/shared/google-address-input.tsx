@@ -2,12 +2,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import { Input } from "@/components/ui/input";
-
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
+import { ensureGoogleMaps } from "@/lib/maps/loader";
 
 type AddressParts = {
   address?: string;
@@ -26,90 +21,6 @@ type GoogleAddressInputProps = {
   onChange: (value: string) => void;
   onResolved?: (parts: AddressParts) => void;
 };
-
-let mapsScriptPromise: Promise<void> | null = null;
-let mapsApiKeyPromise: Promise<string> | null = null;
-
-async function resolveGoogleMapsApiKey() {
-  if (typeof window === "undefined") return "";
-  const buildTimeKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (buildTimeKey) return buildTimeKey;
-
-  if (!mapsApiKeyPromise) {
-    mapsApiKeyPromise = fetch("/api/public/maps-config", { cache: "force-cache" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body) => (typeof body?.apiKey === "string" ? body.apiKey.trim() : ""))
-      .catch(() => "");
-  }
-
-  return mapsApiKeyPromise;
-}
-
-async function ensurePlacesLibrary() {
-  if (!window.google?.maps) return;
-  if (window.google.maps.places?.Autocomplete) return;
-  if (typeof window.google.maps.importLibrary === "function") {
-    await window.google.maps.importLibrary("places");
-  }
-}
-
-async function loadGoogleMapsPlaces(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (window.google?.maps?.places?.Autocomplete) return Promise.resolve();
-
-  const apiKey = await resolveGoogleMapsApiKey();
-  if (!apiKey) return Promise.resolve();
-
-  if (mapsScriptPromise) return mapsScriptPromise;
-
-  mapsScriptPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.getElementById("google-maps-places-script") as HTMLScriptElement | null;
-    if (existing) {
-      if (window.google?.maps) {
-        ensurePlacesLibrary().then(resolve).catch(reject);
-        return;
-      }
-      existing.addEventListener(
-        "load",
-        () => {
-          ensurePlacesLibrary().then(resolve).catch(reject);
-        },
-        { once: true }
-      );
-      existing.addEventListener("error", () => reject(new Error("Failed to load Google Maps script")), { once: true });
-      return;
-    }
-
-    const callbackName = "__initGoogleMapsPlaces";
-    const script = document.createElement("script");
-    script.id = "google-maps-places-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&v=weekly&loading=async&callback=${callbackName}`;
-    script.async = true;
-    script.defer = true;
-    (window as any)[callbackName] = async () => {
-      try {
-        await ensurePlacesLibrary();
-        resolve();
-      } catch (error) {
-        reject(error);
-      } finally {
-        delete (window as any)[callbackName];
-      }
-    };
-    script.onload = async () => {
-      try {
-        await ensurePlacesLibrary();
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    };
-    script.onerror = () => reject(new Error("Failed to load Google Maps script"));
-    document.head.appendChild(script);
-  });
-
-  return mapsScriptPromise;
-}
 
 function getComponent(place: any, type: string, mode: "long_name" | "short_name" = "long_name") {
   const match = place?.address_components?.find((part: any) => Array.isArray(part.types) && part.types.includes(type));
@@ -156,12 +67,12 @@ export function GoogleAddressInput({
 
     async function setupAutocomplete() {
       if (!inputRef.current || disabled) return;
-      await loadGoogleMapsPlaces();
-      if (!active || !inputRef.current || !window.google?.maps?.places) return;
+      await ensureGoogleMaps();
+      if (!active || !inputRef.current || !(window as any).google?.maps?.places) return;
 
       if (autocompleteRef.current) return;
 
-      autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+      autocompleteRef.current = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
         types: ["address"],
         fields: ["address_components", "formatted_address", "name"],
         componentRestrictions: { country: "au" },
