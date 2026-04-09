@@ -33,11 +33,13 @@ export async function GET(req: NextRequest) {
       ];
     }
 
+    const runLimit = Math.min(parseInt(searchParams.get("limit") || "30", 10), 200);
+
     const [runs, properties, totals] = await Promise.all([
       db.icalSyncRun.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        take: 200,
+        take: runLimit,
         include: {
           property: {
             select: {

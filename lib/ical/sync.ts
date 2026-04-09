@@ -8,10 +8,12 @@ import { SyncStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
-import { refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
+import { applyLaundryPlanDraft, refreshLaundrySyncDraftForProperty, todaySydneyDateOnlyForLaundryPlanner } from "@/lib/laundry/planner";
+import { clearPendingLaundrySyncDraftForProperty, notifyLaundryTeamsForApprovedSyncDraft } from "@/lib/laundry/sync-draft";
 import { attachPendingAdminTasksToJob, attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { getAppSettings } from "@/lib/settings";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -987,9 +989,20 @@ export async function syncPropertyIcal(
       });
       const pendingCount = pendingLaundryDraft.items.filter((item) => item.sourcePropertyId === integration.propertyId).length;
       if (pendingCount > 0) {
-        summary.warnings.push(
-          `Laundry reschedule draft saved for admin review (${pendingCount} change${pendingCount === 1 ? "" : "s"}).`
-        );
+        const settings = await getAppSettings();
+        const propertyItems = pendingLaundryDraft.items.filter((item) => item.sourcePropertyId === integration.propertyId);
+        if (settings.scheduledNotifications.autoApproveLaundrySyncDrafts) {
+          await applyLaundryPlanDraft(propertyItems);
+          await notifyLaundryTeamsForApprovedSyncDraft(propertyItems);
+          await clearPendingLaundrySyncDraftForProperty(integration.propertyId);
+          summary.warnings.push(
+            `Laundry schedule auto-approved after sync (${pendingCount} change${pendingCount === 1 ? "" : "s"}).`
+          );
+        } else {
+          summary.warnings.push(
+            `Laundry reschedule draft saved for admin review (${pendingCount} change${pendingCount === 1 ? "" : "s"}).`
+          );
+        }
       }
     } catch (laundryDraftError: any) {
       logger.error(

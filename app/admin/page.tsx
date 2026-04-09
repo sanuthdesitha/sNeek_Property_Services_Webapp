@@ -46,7 +46,9 @@ async function getDashboardStats() {
     flaggedLaundry,
     lowStockRows,
     activeSlaJobs,
-    recentJobs,
+    todaysRecentJobs,
+    upcomingRecentJobs,
+    recentPastJobs,
     chartRows,
   ] = await Promise.all([
     db.job.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
@@ -76,8 +78,60 @@ async function getDashboardStats() {
       take: 500,
     }),
     db.job.findMany({
+      where: {
+        scheduledDate: { gte: todayStart, lt: todayEnd },
+      },
       take: 10,
-      orderBy: { scheduledDate: "desc" },
+      orderBy: [
+        { priorityBucket: "asc" },
+        { startTime: "asc" },
+        { dueTime: "asc" },
+        { createdAt: "desc" },
+      ],
+      select: {
+        id: true,
+        jobType: true,
+        status: true,
+        scheduledDate: true,
+        property: { select: { name: true, suburb: true } },
+        assignments: {
+          select: { user: { select: { name: true } } },
+          take: 1,
+        },
+      },
+    }),
+    db.job.findMany({
+      where: {
+        scheduledDate: { gte: todayEnd },
+      },
+      take: 10,
+      orderBy: [
+        { scheduledDate: "asc" },
+        { priorityBucket: "asc" },
+        { startTime: "asc" },
+        { dueTime: "asc" },
+      ],
+      select: {
+        id: true,
+        jobType: true,
+        status: true,
+        scheduledDate: true,
+        property: { select: { name: true, suburb: true } },
+        assignments: {
+          select: { user: { select: { name: true } } },
+          take: 1,
+        },
+      },
+    }),
+    db.job.findMany({
+      where: {
+        scheduledDate: { lt: todayStart },
+      },
+      take: 10,
+      orderBy: [
+        { scheduledDate: "desc" },
+        { createdAt: "desc" },
+      ],
       select: {
         id: true,
         jobType: true,
@@ -106,6 +160,8 @@ async function getDashboardStats() {
       orderBy: { scheduledDate: "asc" },
     }),
   ]);
+
+  const recentJobs = [...todaysRecentJobs, ...upcomingRecentJobs, ...recentPastJobs].slice(0, 10);
 
   const lowStockCount = lowStockRows.filter((row) => row.onHand <= row.reorderThreshold).length;
 

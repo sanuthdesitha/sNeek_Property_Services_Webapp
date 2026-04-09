@@ -105,6 +105,8 @@ export interface ScheduledNotificationSettings {
   stockAlertsTime: string;
   adminAttentionSummaryEnabled: boolean;
   adminAttentionSummaryTime: string;
+  autoApproveLaundrySyncDrafts: boolean;
+  laundrySyncNotificationHorizonDays: number;
 }
 
 export interface AutoClockOutSettings {
@@ -323,6 +325,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     stockAlertsTime: "07:00",
     adminAttentionSummaryEnabled: true,
     adminAttentionSummaryTime: "08:00",
+    autoApproveLaundrySyncDrafts: false,
+    laundrySyncNotificationHorizonDays: 30,
   },
   autoClockOut: {
     enabled: true,
@@ -592,6 +596,15 @@ function sanitizeScheduledNotifications(
       typeof row.adminAttentionSummaryTime === "string" && timePattern.test(row.adminAttentionSummaryTime)
         ? row.adminAttentionSummaryTime
         : fallback.adminAttentionSummaryTime,
+    autoApproveLaundrySyncDrafts:
+      typeof row.autoApproveLaundrySyncDrafts === "boolean"
+        ? row.autoApproveLaundrySyncDrafts
+        : fallback.autoApproveLaundrySyncDrafts,
+    laundrySyncNotificationHorizonDays: clamp(
+      Number(row.laundrySyncNotificationHorizonDays ?? fallback.laundrySyncNotificationHorizonDays),
+      1,
+      120
+    ),
   };
 }
 

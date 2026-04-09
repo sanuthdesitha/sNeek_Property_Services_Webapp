@@ -12,13 +12,14 @@ export async function GET(_req: NextRequest) {
 
     const since = new Date(Date.now() - STALE_PING_MS);
 
-    const enRouteJobs = await db.job.findMany({
+    const liveJobs = await db.job.findMany({
       where: {
-        status: "EN_ROUTE" as any,
+        status: { in: [JobStatus.EN_ROUTE, JobStatus.PAUSED, JobStatus.IN_PROGRESS] },
         cleanerLocationPings: { some: { timestamp: { gte: since } } },
       },
       select: {
         id: true,
+        status: true,
         jobNumber: true,
         jobType: true,
         enRouteStartedAt: true,
@@ -52,7 +53,7 @@ export async function GET(_req: NextRequest) {
     });
 
     const results = await Promise.all(
-      enRouteJobs.map(async (job) => {
+      liveJobs.map(async (job) => {
         const ping = job.cleanerLocationPings[0] ?? null;
         const assignment = job.assignments[0];
         const propLat = job.property.latitude;
@@ -98,6 +99,7 @@ export async function GET(_req: NextRequest) {
           drivingDelayedAt: job.drivingDelayedAt,
           drivingDelayedReason: job.drivingDelayedReason,
           arrivedAt: job.arrivedAt,
+          jobStatus: job.status,
         };
       })
     );

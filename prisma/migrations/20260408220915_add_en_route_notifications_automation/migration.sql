@@ -1,5 +1,15 @@
 -- AlterEnum: Add EN_ROUTE to JobStatus
-ALTER TYPE "JobStatus" ADD VALUE 'EN_ROUTE';
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_enum
+    WHERE enumlabel = 'EN_ROUTE'
+      AND enumtypid = 'JobStatus'::regtype
+  ) THEN
+    ALTER TYPE "JobStatus" ADD VALUE 'EN_ROUTE';
+  END IF;
+END $$;
 
 -- AlterTable: Add Job drive-session and reschedule fields
 ALTER TABLE "Job" ADD COLUMN "manuallyRescheduledAt" TIMESTAMP(3),

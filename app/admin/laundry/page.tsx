@@ -10,11 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { toast } from "@/hooks/use-toast";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+
+const ADMIN_LAUNDRY_TAB_KEY = "sneek_admin_laundry_tab_v1";
 
 const FLAG_LABELS: Record<string, string> = {
   NO_WINDOW: "No window",
@@ -190,6 +193,7 @@ export default function LaundryPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [propertyFilter, setPropertyFilter] = useState<string>("ALL");
   const [clientFilter, setClientFilter] = useState<string>("ALL");
+  const [activeScheduleTab, setActiveScheduleTab] = useState<"active" | "completed">("active");
   const [editForm, setEditForm] = useState({
     pickupDate: "",
     dropoffDate: "",
@@ -421,6 +425,25 @@ export default function LaundryPage() {
     fetchPendingSyncDraft();
   }, [weekStart]);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ADMIN_LAUNDRY_TAB_KEY);
+      if (saved === "active" || saved === "completed") {
+        setActiveScheduleTab(saved);
+      }
+    } catch {
+      // Ignore storage failures.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ADMIN_LAUNDRY_TAB_KEY, activeScheduleTab);
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [activeScheduleTab]);
+
   function handleRecipientChange(value: string) {
     setReportRecipientMode(value);
     if (value === "CUSTOM") {
@@ -632,7 +655,46 @@ export default function LaundryPage() {
     return alerts.filter((alert) => filteredIds.has(alert.id));
   }, [alerts, filteredTasks]);
 
-  const confirmedTasks = filteredTasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP");
+  const activeTasks = useMemo(() => {
+    const today = new Date();
+    const todayKey = format(today, "yyyy-MM-dd");
+    return [...filteredTasks]
+      .filter((task) => task.status !== "DROPPED")
+      .sort((left, right) => {
+        const leftPickupKey = format(new Date(left.pickupDate), "yyyy-MM-dd");
+        const rightPickupKey = format(new Date(right.pickupDate), "yyyy-MM-dd");
+        const leftDropoffKey = format(new Date(left.dropoffDate), "yyyy-MM-dd");
+        const rightDropoffKey = format(new Date(right.dropoffDate), "yyyy-MM-dd");
+
+        const bucketFor = (pickupKey: string, dropoffKey: string) => {
+          if (pickupKey === todayKey || dropoffKey === todayKey) return 0;
+          if (pickupKey > todayKey || dropoffKey > todayKey) return 1;
+          return 2;
+        };
+
+        const bucketDiff = bucketFor(leftPickupKey, leftDropoffKey) - bucketFor(rightPickupKey, rightDropoffKey);
+        if (bucketDiff !== 0) return bucketDiff;
+
+        const pickupDiff = new Date(left.pickupDate).getTime() - new Date(right.pickupDate).getTime();
+        if (pickupDiff !== 0) return pickupDiff;
+
+        return new Date(left.dropoffDate).getTime() - new Date(right.dropoffDate).getTime();
+      });
+  }, [filteredTasks]);
+
+  const completedTasks = useMemo(
+    () =>
+      [...filteredTasks]
+        .filter((task) => task.status === "DROPPED")
+        .sort(
+          (left, right) =>
+            new Date(right.droppedAt ?? right.updatedAt ?? right.dropoffDate).getTime() -
+            new Date(left.droppedAt ?? left.updatedAt ?? left.dropoffDate).getTime()
+        ),
+    [filteredTasks]
+  );
+
+  const confirmedTasks = activeTasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP");
 
   return (
     <div className="space-y-6">
@@ -1145,146 +1207,229 @@ export default function LaundryPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Week Schedule</CardTitle>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-base">Laundry Schedule</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{activeTasks.length} active</span>
+              <span>•</span>
+              <span>{completedTasks.length} completed</span>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {filteredTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {tasks.length === 0 ? "No laundry tasks this week. Generate plan first." : "No laundry tasks matched the current filters."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {filteredTasks.map((task) => (
-                <div key={task.id} className="rounded-md border p-3 text-sm">
-                  {(() => {
-                    const cleanerConfirmation = getCleanerLaundryConfirmation(task);
-                    const pickupConfirmation = getEventConfirmation(task, "PICKED_UP");
-                    const droppedConfirmation = getEventConfirmation(task, "DROPPED");
-                    const mediaItems = [
-                      cleanerConfirmation?.photoUrl
-                        ? {
-                            id: `${task.id}-cleaner`,
-                            confirmationId: cleanerConfirmation.id,
-                            url: cleanerConfirmation.photoUrl,
-                            label: "Cleaner proof",
-                            mediaType: "PHOTO",
-                          }
-                        : null,
-                      pickupConfirmation?.photoUrl
-                        ? {
-                            id: `${task.id}-pickup`,
-                            confirmationId: pickupConfirmation.id,
-                            url: pickupConfirmation.photoUrl,
-                            label: "Pickup proof",
-                            mediaType: "PHOTO",
-                          }
-                        : null,
-                      droppedConfirmation?.photoUrl
-                        ? {
-                            id: `${task.id}-dropoff`,
-                            confirmationId: droppedConfirmation.id,
-                            url: droppedConfirmation.photoUrl,
-                            label: "Drop-off proof",
-                            mediaType: "PHOTO",
-                          }
-                        : null,
-                    ].filter(Boolean) as any[];
-                    return (
-                      <>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="flex items-center gap-2 font-medium">
-                        <Shirt className="h-3 w-3" />
-                        {task.property.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Pickup {format(new Date(task.pickupDate), "EEE dd MMM")} {"->"} Drop{" "}
-                        {format(new Date(task.dropoffDate), "EEE dd MMM")}
-                        {task.property.linenBufferSets > 0 && ` | ${task.property.linenBufferSets} buffer sets`}
-                      </p>
-                      {task.flagNotes && <p className="mt-0.5 text-xs text-destructive">{task.flagNotes}</p>}
-                      {task.status === "SKIPPED_PICKUP" ? (
-                        <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
-                          <p>
-                            Skip reason:{" "}
-                            {LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
-                              String(task.skipReasonCode ?? "Not set").replace(/_/g, " ")}
-                          </p>
-                          {task.skipReasonNote ? <p className="mt-1 text-amber-800">Cleaner note: {task.skipReasonNote}</p> : null}
-                          {task.adminOverrideNote ? <p className="mt-1 text-amber-800">Admin note: {task.adminOverrideNote}</p> : null}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
-                      <Button size="icon" variant="ghost" onClick={() => setEditTask(task)} aria-label="Edit task">
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setTaskToDelete(task)}
-                        aria-label="Delete task"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => previewReport(task)}>
-                      Preview report
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => downloadReport(task)}>
-                      Task PDF
-                    </Button>
-                    <Button size="sm" onClick={() => emailReport(task)}>
-                      Email PDF
-                    </Button>
-                  </div>
-                  {mediaItems.length > 0 && (
-                    <div className="mt-2">
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">Evidence</p>
-                      <MediaGallery items={mediaItems} title="Laundry Evidence" className="grid grid-cols-3 gap-2" />
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {mediaItems.map((item: any) => (
-                          <label key={`${item.id}-replace`} className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file && item.confirmationId) {
-                                  void replaceConfirmationPhoto(item.confirmationId, file);
+          <Tabs value={activeScheduleTab} onValueChange={(value) => setActiveScheduleTab(value as "active" | "completed")}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="active">Today & upcoming</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
+            </TabsList>
+            <TabsContent value="active" className="mt-4">
+              <div className="px-0 pb-0">
+                {activeTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {tasks.length === 0 ? "No laundry tasks this week. Generate plan first." : "No active laundry tasks matched the current filters."}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {activeTasks.map((task) => (
+                      <div key={task.id} className="rounded-md border p-3 text-sm">
+                        {(() => {
+                          const cleanerConfirmation = getCleanerLaundryConfirmation(task);
+                          const pickupConfirmation = getEventConfirmation(task, "PICKED_UP");
+                          const droppedConfirmation = getEventConfirmation(task, "DROPPED");
+                          const mediaItems = [
+                            cleanerConfirmation?.photoUrl
+                              ? {
+                                  id: `${task.id}-cleaner`,
+                                  confirmationId: cleanerConfirmation.id,
+                                  url: cleanerConfirmation.photoUrl,
+                                  label: "Cleaner proof",
+                                  mediaType: "PHOTO",
                                 }
-                                event.currentTarget.value = "";
-                              }}
-                            />
-                            {replacingConfirmationId === item.confirmationId ? `Replacing ${item.label}...` : `Replace ${item.label}`}
-                          </label>
-                        ))}
+                              : null,
+                            pickupConfirmation?.photoUrl
+                              ? {
+                                  id: `${task.id}-pickup`,
+                                  confirmationId: pickupConfirmation.id,
+                                  url: pickupConfirmation.photoUrl,
+                                  label: "Pickup proof",
+                                  mediaType: "PHOTO",
+                                }
+                              : null,
+                            droppedConfirmation?.photoUrl
+                              ? {
+                                  id: `${task.id}-dropoff`,
+                                  confirmationId: droppedConfirmation.id,
+                                  url: droppedConfirmation.photoUrl,
+                                  label: "Drop-off proof",
+                                  mediaType: "PHOTO",
+                                }
+                              : null,
+                          ].filter(Boolean) as any[];
+                          return (
+                            <>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="flex items-center gap-2 font-medium">
+                                    <Shirt className="h-3 w-3" />
+                                    {task.property.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Pickup {format(new Date(task.pickupDate), "EEE dd MMM")} {"->"} Drop{" "}
+                                    {format(new Date(task.dropoffDate), "EEE dd MMM")}
+                                    {task.property.linenBufferSets > 0 && ` | ${task.property.linenBufferSets} buffer sets`}
+                                  </p>
+                                  {task.flagNotes ? <p className="mt-0.5 text-xs text-destructive">{task.flagNotes}</p> : null}
+                                  {task.status === "SKIPPED_PICKUP" ? (
+                                    <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                                      <p>
+                                        Skip reason:{" "}
+                                        {LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
+                                          String(task.skipReasonCode ?? "Not set").replace(/_/g, " ")}
+                                      </p>
+                                      {task.skipReasonNote ? <p className="mt-1 text-amber-800">Cleaner note: {task.skipReasonNote}</p> : null}
+                                      {task.adminOverrideNote ? <p className="mt-1 text-amber-800">Admin note: {task.adminOverrideNote}</p> : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
+                                  <Button size="icon" variant="ghost" onClick={() => setEditTask(task)} aria-label="Edit task">
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setTaskToDelete(task)}
+                                    aria-label="Delete task"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Button size="sm" variant="outline" onClick={() => previewReport(task)}>
+                                  Preview report
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => downloadReport(task)}>
+                                  Task PDF
+                                </Button>
+                                <Button size="sm" onClick={() => emailReport(task)}>
+                                  Email PDF
+                                </Button>
+                              </div>
+                              {mediaItems.length > 0 ? (
+                                <div className="mt-2">
+                                  <p className="mb-1 text-xs font-medium text-muted-foreground">Evidence</p>
+                                  <MediaGallery items={mediaItems} title="Laundry Evidence" className="grid grid-cols-3 gap-2" />
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {mediaItems.map((item: any) => (
+                                      <label key={`${item.id}-replace`} className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs">
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            const file = event.target.files?.[0];
+                                            if (file && item.confirmationId) {
+                                              void replaceConfirmationPhoto(item.confirmationId, file);
+                                            }
+                                            event.currentTarget.value = "";
+                                          }}
+                                        />
+                                        {replacingConfirmationId === item.confirmationId ? `Replacing ${item.label}...` : `Replace ${item.label}`}
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                              <div className="mt-2 rounded-md bg-muted/40 p-2">
+                                <p className="mb-1 text-xs font-medium">Timeline</p>
+                                <div className="space-y-1">
+                                  {buildTimeline(task).map((event, index) => (
+                                    <p key={index} className="text-xs text-muted-foreground">
+                                      {format(event.at, "dd MMM HH:mm")} - {event.label}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
-                    </div>
-                  )}
-                  <div className="mt-2 rounded-md bg-muted/40 p-2">
-                    <p className="mb-1 text-xs font-medium">Timeline</p>
-                    <div className="space-y-1">
-                      {buildTimeline(task).map((event, index) => (
-                        <p key={index} className="text-xs text-muted-foreground">
-                          {format(event.at, "dd MMM HH:mm")} - {event.label}
-                        </p>
-                      ))}
-                    </div>
+                    ))}
                   </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              ))}
-            </div>
-          )}
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent value="completed" className="mt-4">
+              <div className="px-0 pb-0">
+                {completedTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No completed laundry tasks matched the current filters.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {completedTasks.map((task) => {
+                      const cleanerConfirmation = getCleanerLaundryConfirmation(task);
+                      const pickupConfirmation = getEventConfirmation(task, "PICKED_UP");
+                      const droppedConfirmation = getEventConfirmation(task, "DROPPED");
+                      const mediaItems = [
+                        cleanerConfirmation?.photoUrl
+                          ? {
+                              id: `${task.id}-cleaner`,
+                              url: cleanerConfirmation.photoUrl,
+                              label: "Cleaner proof",
+                              mediaType: "PHOTO",
+                            }
+                          : null,
+                        pickupConfirmation?.photoUrl
+                          ? {
+                              id: `${task.id}-pickup`,
+                              url: pickupConfirmation.photoUrl,
+                              label: "Pickup proof",
+                              mediaType: "PHOTO",
+                            }
+                          : null,
+                        droppedConfirmation?.photoUrl
+                          ? {
+                              id: `${task.id}-dropoff`,
+                              url: droppedConfirmation.photoUrl,
+                              label: "Drop-off proof",
+                              mediaType: "PHOTO",
+                            }
+                          : null,
+                      ].filter(Boolean) as any[];
+
+                      return (
+                        <div key={task.id} className="rounded-md border p-3 text-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{task.property.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Completed {format(new Date(task.droppedAt ?? task.dropoffDate), "dd MMM yyyy")} • Pickup {format(new Date(task.pickupDate), "dd MMM")} • Drop {format(new Date(task.dropoffDate), "dd MMM")}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="success">Completed</Badge>
+                              <Button size="icon" variant="ghost" onClick={() => setEditTask(task)} aria-label="Edit completed task">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          {mediaItems.length > 0 ? (
+                            <div className="mt-3">
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">Evidence</p>
+                              <MediaGallery items={mediaItems} title="Laundry Evidence" className="grid grid-cols-3 gap-2" />
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 

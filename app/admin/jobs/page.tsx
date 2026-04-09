@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { AlertTriangle, CalendarClock, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -68,6 +69,7 @@ const JOB_FILTER_DEFAULTS = {
   invoiced: "all",
 };
 const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
+const JOBS_PAGE_SIZE = 50;
 
 type JobFilters = typeof JOB_FILTER_DEFAULTS;
 
@@ -88,6 +90,7 @@ export default function JobsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [jobs, setJobs] = useState<any[]>([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: JOBS_PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
   const [filters, setFilters] = useState<JobFilters>(() => parseJobFilters(searchParams));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -98,6 +101,7 @@ export default function JobsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [jobToDelete, setJobToDelete] = useState<any | null>(null);
+  const [activeTab, setActiveTab] = useState("active");
 
   const [qaScoreByJob, setQaScoreByJob] = useState<Record<string, string>>({});
   const [qaNotesByJob, setQaNotesByJob] = useState<Record<string, string>>({});
@@ -122,11 +126,20 @@ export default function JobsPage() {
   const [bulkStatusValue, setBulkStatusValue] = useState("ASSIGNED");
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
-  async function loadJobs() {
+  async function loadJobs(page: number = 1) {
     setLoading(true);
-    const res = await fetch("/api/jobs");
-    const data = await res.json().catch(() => []);
-    setJobs(Array.isArray(data) ? data : []);
+    const statusGroup = activeTab === "active" ? "active" : "completed";
+    const params = new URLSearchParams({
+      statusGroup,
+      page: String(page),
+      limit: String(JOBS_PAGE_SIZE),
+    });
+    const res = await fetch(`/api/jobs?${params.toString()}`);
+    const data = await res.json().catch(() => ({ jobs: [], pagination: {} }));
+    setJobs(Array.isArray(data?.jobs) ? data.jobs : []);
+    if (data?.pagination) {
+      setPagination(data.pagination);
+    }
     setLoading(false);
   }
 
@@ -156,10 +169,14 @@ export default function JobsPage() {
   }
 
   useEffect(() => {
-    loadJobs();
+    loadJobs(1);
     loadPendingContinuations();
     loadJobApprovalCounts();
   }, []);
+
+  useEffect(() => {
+    loadJobs(1);
+  }, [activeTab]);
 
   useEffect(() => {
     try {
@@ -633,7 +650,7 @@ export default function JobsPage() {
         <div>
           <h2 className="text-2xl font-bold">Jobs</h2>
           <p className="text-sm text-muted-foreground">
-            {filteredJobs.length} of {jobs.length} jobs
+            {filteredJobs.length} shown from {pagination.totalCount || jobs.length} {activeTab === "completed" ? "completed" : "active"} jobs
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -686,6 +703,32 @@ export default function JobsPage() {
           </Button>
         </div>
       </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="active">
+            Active jobs
+            {activeTab === "active" ? (
+              <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
+                {pagination.totalCount || jobs.length}
+              </span>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="completed">
+            Completed jobs
+            {activeTab === "completed" ? (
+              <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
+                {pagination.totalCount || jobs.length}
+              </span>
+            ) : null}
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          {activeTab === "active"
+            ? "Active tab keeps completed jobs out of the main list so dispatch and approvals load faster."
+            : "Completed tab only loads finished jobs so archive review no longer slows down daily ops."}
+        </div>
 
         {filtersOpen ? (
           <Card>
@@ -1015,6 +1058,32 @@ export default function JobsPage() {
             </CardContent>
           </Card>
 
+          <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Showing {jobs.length} of {pagination.totalCount} jobs (Page {pagination.page} of {pagination.totalPages || 1})
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pagination.page <= 1}
+                onClick={() => loadJobs(pagination.page - 1)}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!pagination.hasMore}
+                onClick={() => loadJobs(pagination.page + 1)}
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
           <Card>
             <CardContent className="p-0">
               <div className="divide-y">
@@ -1242,6 +1311,7 @@ export default function JobsPage() {
           ))}
         </div>
       )}
+      </Tabs>
 
       {selectedIds.length > 0 ? (
         <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border bg-background/95 px-4 py-3 shadow-xl backdrop-blur">

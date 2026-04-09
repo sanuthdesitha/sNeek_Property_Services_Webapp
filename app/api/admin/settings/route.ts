@@ -92,6 +92,8 @@ const scheduledNotificationsSchema = z.object({
   stockAlertsTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   adminAttentionSummaryEnabled: z.boolean().optional(),
   adminAttentionSummaryTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  autoApproveLaundrySyncDrafts: z.boolean().optional(),
+  laundrySyncNotificationHorizonDays: z.number().int().min(1).max(120).optional(),
 });
 
 const autoClockOutSchema = z.object({

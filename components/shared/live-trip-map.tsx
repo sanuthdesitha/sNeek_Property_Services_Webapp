@@ -22,7 +22,14 @@ export function LiveTripMap({ cleanerLat, cleanerLng, propertyLat, propertyLng, 
 
   useEffect(() => {
     ensureGoogleMaps()
-      .then(() => setMapReady(true))
+      .then(() => {
+        const google = (window as any).google;
+        if (!google?.maps?.Map) {
+          setLoadFailed(true);
+          return;
+        }
+        setMapReady(true);
+      })
       .catch(() => setLoadFailed(true));
   }, []);
 
@@ -85,11 +92,13 @@ export function LiveTripMap({ cleanerLat, cleanerLng, propertyLat, propertyLng, 
     }
   }, [mapReady, cleanerLat, cleanerLng, propertyLat, propertyLng, heading]);
 
-  if (loadFailed) return (
-    <div className={`${className} w-full rounded-xl border bg-muted flex items-center justify-center text-xs text-muted-foreground`}>
-      Live map not available in this environment
-    </div>
-  );
+  if (loadFailed) {
+    return (
+      <div className={`${className} flex w-full items-center justify-center rounded-xl border bg-muted px-4 text-center text-xs text-muted-foreground`}>
+        Live map unavailable. Configure a valid Google Maps API key to render cleaner locations.
+      </div>
+    );
+  }
   if (!mapReady) return <div className={`${className} w-full rounded-xl border bg-muted animate-pulse`} />;
   return <div ref={containerRef} className={`${className} w-full rounded-xl overflow-hidden border`} />;
 }

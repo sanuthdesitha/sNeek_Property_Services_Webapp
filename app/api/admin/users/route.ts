@@ -45,6 +45,11 @@ export async function GET(req: NextRequest) {
         isActive: true,
         emailVerified: true,
         clientId: true,
+        notificationPreference: {
+          select: {
+            updatedAt: true,
+          },
+        },
         client: { select: { id: true, name: true } },
       },
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
@@ -57,6 +62,7 @@ export async function GET(req: NextRequest) {
         ...user,
         profileEditOverride: settings.profileEditOverrides[user.id] ?? null,
         extendedProfile: extendedProfiles.get(user.id) ?? null,
+        notificationPreference: user.notificationPreference,
       }))
     );
   } catch (err: any) {

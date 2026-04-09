@@ -159,6 +159,17 @@ export async function clearPendingLaundrySyncDraft() {
   await writeStore(DEFAULT_STORE);
 }
 
+export async function clearPendingLaundrySyncDraftForProperty(propertyId: string) {
+  const current = await readStore();
+  const nextItems = current.items.filter((item) => item.sourcePropertyId !== propertyId);
+  const nextStore: LaundrySyncDraftStore = {
+    updatedAt: nextItems.length > 0 ? new Date().toISOString() : null,
+    items: nextItems,
+  };
+  await writeStore(nextStore);
+  return nextStore;
+}
+
 export function summarizePendingLaundrySyncDraft(store: LaundrySyncDraftStore) {
   const propertyIds = new Set(store.items.map((item) => item.propertyId));
   const createCount = store.items.filter((item) => item.operation === "CREATE").length;
@@ -179,12 +190,18 @@ export async function notifyLaundryTeamsForApprovedSyncDraft(items: LaundrySyncD
   const settings = await getAppSettings();
   const timezone = settings.timezone || "Australia/Sydney";
   const laundryPortalUrl = resolveAppUrl("/laundry");
+  const horizonMs = Math.max(1, Number(settings.scheduledNotifications.laundrySyncNotificationHorizonDays || 30)) * 24 * 60 * 60 * 1000;
+  const horizonCutoff = Date.now() + horizonMs;
   const grouped = new Map<
     string,
     { propertyId: string; propertyName: string; items: LaundrySyncDraftItem[] }
   >();
 
   for (const item of items) {
+    const itemHorizonDate = new Date(item.pickupDate).getTime();
+    if (Number.isFinite(itemHorizonDate) && itemHorizonDate > horizonCutoff) {
+      continue;
+    }
     const existing = grouped.get(item.propertyId);
     if (existing) {
       existing.items.push(item);

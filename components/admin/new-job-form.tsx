@@ -647,7 +647,16 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 <div className="space-y-1.5"><Label>Due Time</Label><Input type="time" value={form.dueTime} onChange={(e) => setForm((prev) => ({ ...prev, dueTime: e.target.value }))} /></div>
                 <div className="space-y-1.5"><Label>End Time</Label><Input type="time" value={form.endTime} onChange={(e) => setForm((prev) => ({ ...prev, endTime: e.target.value }))} /></div>
               </div>
-              <div className="space-y-1.5"><Label>Assign Cleaners</Label><MultiSelectDropdown options={cleanerOptions} selected={selectedCleaners} onChange={setSelectedCleaners} placeholder="Select cleaner accounts" emptyText="No cleaner accounts." /></div>
+              <div className="relative z-[80] space-y-1.5">
+                <Label>Assign Cleaners</Label>
+                <MultiSelectDropdown
+                  options={cleanerOptions}
+                  selected={selectedCleaners}
+                  onChange={setSelectedCleaners}
+                  placeholder="Select cleaner accounts"
+                  emptyText="No cleaner accounts."
+                />
+              </div>
             </CardContent>
           </Card>
 

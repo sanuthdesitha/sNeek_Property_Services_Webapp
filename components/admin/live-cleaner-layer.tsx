@@ -10,6 +10,7 @@ type LiveLocation = {
   jobId: string;
   jobNumber: number | null;
   jobType: string;
+  jobStatus: string;
   cleanerName: string;
   cleanerUserId: string | null;
   lat: number | null;
@@ -55,6 +56,7 @@ function formatLastPing(pingAt: string | null): string {
 
 function getTripState(loc: LiveLocation) {
   if (loc.arrivedAt) return "Arrived";
+  if (loc.jobStatus === "IN_PROGRESS") return "On site";
   if (loc.drivingPausedAt) return "Paused";
   if (loc.drivingDelayedAt) return "Delayed";
   return "On the way";
@@ -62,6 +64,7 @@ function getTripState(loc: LiveLocation) {
 
 function getTripBadgeClasses(loc: LiveLocation) {
   if (loc.arrivedAt) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (loc.jobStatus === "IN_PROGRESS") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (loc.drivingPausedAt) return "border-slate-200 bg-slate-50 text-slate-700";
   if (loc.drivingDelayedAt) return "border-amber-200 bg-amber-50 text-amber-800";
   return "border-blue-200 bg-blue-50 text-blue-800";
@@ -109,7 +112,7 @@ export function LiveCleanerLayer() {
           )}
         </div>
         <Badge variant="secondary" className="border-green-200 bg-green-50 text-green-800">
-          {locations.length} en route
+          {locations.length} live
         </Badge>
       </CardHeader>
       <CardContent>

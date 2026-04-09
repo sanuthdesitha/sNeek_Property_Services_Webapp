@@ -2129,6 +2129,60 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                 />
               </div>
             </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Auto-approve sync laundry drafts</Label>
+                  <p className="text-xs text-muted-foreground">
+                    When iCal sync changes future laundry schedules, approve and publish the draft automatically.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.scheduledNotifications.autoApproveLaundrySyncDrafts}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        autoApproveLaundrySyncDrafts: value,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded border p-3">
+              <div>
+                <Label className="text-xs">Laundry future notification horizon</Label>
+                <p className="text-xs text-muted-foreground">
+                  Limit sync-driven laundry update emails/SMS to bookings happening within the next set number of days.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Days ahead</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={settings.scheduledNotifications.laundrySyncNotificationHorizonDays}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      scheduledNotifications: {
+                        ...prev.scheduledNotifications,
+                        laundrySyncNotificationHorizonDays: Number(
+                          e.target.value || prev.scheduledNotifications.laundrySyncNotificationHorizonDays
+                        ),
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             These controls affect the worker-driven timed notification jobs. Manual dispatch remains available in the Notifications tab.

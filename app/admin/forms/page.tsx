@@ -102,6 +102,7 @@ export default function FormsPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingCopy, setSavingCopy] = useState(false);
   const [deletingTemplate, setDeletingTemplate] = useState(false);
@@ -133,20 +134,23 @@ export default function FormsPage() {
   }
 
   async function loadSubmissions() {
+    setSubmissionsLoading(true);
     const res = await fetch("/api/admin/form-submissions");
     const data = await res.json();
     setSubmissions(Array.isArray(data) ? data : []);
-  }
-
-  async function loadAll() {
-    setLoading(true);
-    await Promise.all([loadTemplates(), loadSubmissions()]);
-    setLoading(false);
+    setSubmissionsLoading(false);
   }
 
   useEffect(() => {
-    loadAll();
+    setLoading(true);
+    loadTemplates().finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "submissions") return;
+    if (submissions.length > 0) return;
+    loadSubmissions();
+  }, [activeTab]);
 
   function applyTemplate(template: any) {
     setSelectedTemplateId(template?.id ?? "new");
@@ -824,13 +828,16 @@ export default function FormsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Submitted Forms</CardTitle>
-              <Button variant="outline" size="sm" onClick={loadSubmissions}>
+              <Button variant="outline" size="sm" onClick={loadSubmissions} disabled={submissionsLoading}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
-                Refresh
+                {submissionsLoading ? "Loading..." : "Refresh"}
               </Button>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
+                {submissionsLoading ? (
+                  <p className="py-10 text-center text-sm text-muted-foreground">Loading submissions...</p>
+                ) : null}
                 {submissions.map((submission) => (
                   <div key={submission.id} className="flex items-center justify-between gap-3 px-4 py-3">
                     <div>
@@ -865,7 +872,7 @@ export default function FormsPage() {
                     </div>
                   </div>
                 ))}
-                {submissions.length === 0 && (
+                {!submissionsLoading && submissions.length === 0 && (
                   <p className="py-10 text-center text-sm text-muted-foreground">No form submissions yet.</p>
                 )}
               </div>

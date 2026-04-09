@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Accordion,
   AccordionContent,
@@ -144,7 +145,10 @@ export function HomePage({
   const [nextSlot, setNextSlot] = useState<string | null>(null);
   const [reviews, setReviews] = useState<GoogleReviewsState>(null);
   const [compareIndex, setCompareIndex] = useState(-1);
+  const [hostingPreviewIndex, setHostingPreviewIndex] = useState<number | null>(null);
   const scrollRef = useScrollReveal();
+  const activeHostingFeature =
+    hostingPreviewIndex != null ? content.home.hostingFeatures[hostingPreviewIndex] ?? null : null;
 
   useEffect(() => {
     let active = true;
@@ -693,8 +697,13 @@ export function HomePage({
             </Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
-            {content.home.hostingFeatures.map((card) => (
-              <div key={card.id} className="rounded-[1.5rem] border border-border/70 bg-white p-4 transition-transform duration-300 hover:-translate-y-1">
+            {content.home.hostingFeatures.map((card, index) => (
+              <button
+                key={card.id}
+                type="button"
+                onClick={() => setHostingPreviewIndex(index)}
+                className="rounded-[1.5rem] border border-border/70 bg-white p-4 text-left transition-transform duration-300 hover:-translate-y-1"
+              >
                 <img
                   src={card.imageUrl}
                   alt={card.imageAlt}
@@ -704,7 +713,8 @@ export function HomePage({
                 />
                 <p className="font-semibold text-sm">{card.title}</p>
                 <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{card.description}</p>
-              </div>
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Tap to expand</p>
+              </button>
             ))}
           </div>
         </div>
@@ -994,6 +1004,26 @@ export function HomePage({
       {/* ─────────────────────────────────────────────────
           SECTION 10 — FINAL CTA
       ───────────────────────────────────────────────── */}
+      <Dialog open={hostingPreviewIndex != null} onOpenChange={(open) => !open && setHostingPreviewIndex(null)}>
+        <DialogContent className="max-w-4xl">
+          {activeHostingFeature ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{activeHostingFeature.title}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <img
+                  src={activeHostingFeature.imageUrl}
+                  alt={activeHostingFeature.imageAlt}
+                  className="max-h-[70vh] w-full rounded-3xl object-contain"
+                />
+                <p className="text-sm leading-7 text-muted-foreground">{activeHostingFeature.description}</p>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <section className={`${PUBLIC_PAGE_CONTAINER} pb-12 pt-2 sm:pt-4 lg:pb-24`}>
         <Card className="overflow-hidden rounded-[2rem] border-white/70 bg-gradient-to-br from-primary/95 to-[#163b41] text-white shadow-[0_24px_70px_-36px_rgba(15,77,84,0.6)]">
           <CardContent className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">

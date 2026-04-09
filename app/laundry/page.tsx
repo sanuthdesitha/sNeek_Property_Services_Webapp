@@ -271,11 +271,12 @@ export default function LaundryPortal() {
     maxOutdoorDays: 3,
   });
   const [rangeMode, setRangeMode] = useState<RangeMode>("week");
-  const [readyFilter, setReadyFilter] = useState<ReadyFilter>("all");
+  const [readyFilter, setReadyFilter] = useState<ReadyFilter>("today");
   const [sortMode, setSortMode] = useState<SortMode>("pickup_asc");
   const [viewMode, setViewMode] = useState<ViewMode>("full");
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [expandedHistoryIds, setExpandedHistoryIds] = useState<Set<string>>(new Set());
+  const [activeLaundryTab, setActiveLaundryTab] = useState("active");
 
   const [actionTask, setActionTask] = useState<any | null>(null);
   const [actionType, setActionType] = useState<ActionType | null>(null);
@@ -449,6 +450,7 @@ export default function LaundryPortal() {
       if (parsed?.readyFilter) setReadyFilter(parsed.readyFilter as ReadyFilter);
       if (parsed?.sortMode) setSortMode(parsed.sortMode as SortMode);
       if (parsed?.viewMode) setViewMode(parsed.viewMode as ViewMode);
+      if (parsed?.activeLaundryTab) setActiveLaundryTab(parsed.activeLaundryTab);
     } catch {
       // Ignore invalid saved prefs.
     }
@@ -458,12 +460,12 @@ export default function LaundryPortal() {
     try {
       window.localStorage.setItem(
         LAUNDRY_PREFS_KEY,
-        JSON.stringify({ rangeMode, readyFilter, sortMode, viewMode })
+        JSON.stringify({ rangeMode, readyFilter, sortMode, viewMode, activeLaundryTab })
       );
     } catch {
       // Ignore storage failures.
     }
-  }, [rangeMode, readyFilter, sortMode, viewMode]);
+  }, [rangeMode, readyFilter, sortMode, viewMode, activeLaundryTab]);
 
   useEffect(() => {
     load();
@@ -1438,7 +1440,7 @@ export default function LaundryPortal() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="active">
+      <Tabs value={activeLaundryTab} onValueChange={setActiveLaundryTab}>
         <TabsList className={`grid w-full ${laundryConfig.showHistoryTab ? "grid-cols-3" : "grid-cols-2"} h-auto gap-1 p-1`}>
           <TabsTrigger value="active" className="flex-1 py-2 text-xs sm:text-sm">
             Active{readyQueue.length > 0 && (

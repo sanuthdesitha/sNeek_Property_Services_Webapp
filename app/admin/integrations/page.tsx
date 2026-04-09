@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { RefreshCw, CheckCircle2, AlertTriangle, History, Search } from "lucide-react";
+import { RefreshCw, CheckCircle2, AlertTriangle, History, Search, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,6 +98,7 @@ export default function AdminIcalIntegrationsPage() {
     failed: number;
     results: Array<{ propertyId: string; propertyName: string; suburb: string; ok: boolean; error?: string }>;
   } | null>(null);
+  const [loadedCount, setLoadedCount] = useState(30);
 
   async function loadData() {
     setLoading(true);
@@ -106,6 +107,7 @@ export default function AdminIcalIntegrationsPage() {
     if (filters.status && filters.status !== "all") query.set("status", filters.status);
     if (filters.mode && filters.mode !== "all") query.set("mode", filters.mode);
     if (filters.q.trim()) query.set("q", filters.q.trim());
+    query.set("limit", String(loadedCount));
 
     const res = await fetch(`/api/admin/integrations/ical-sync-runs?${query.toString()}`, { cache: "no-store" });
     const body = await res.json().catch(() => null);
@@ -407,7 +409,7 @@ export default function AdminIcalIntegrationsPage() {
               Global Sync History
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Latest 200 runs matching the current filters.
+              Latest {payload.runs.length} runs matching the current filters (default: 30).
             </p>
           </CardHeader>
           <CardContent>
@@ -466,6 +468,20 @@ export default function AdminIcalIntegrationsPage() {
                     </div>
                   );
                 })}
+                {payload.runs.length >= loadedCount && (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setLoadedCount((prev) => prev + 30);
+                        setTimeout(() => loadData(), 0);
+                      }}
+                    >
+                      <ChevronDown className="mr-2 h-4 w-4" />
+                      Load More ({payload.runs.length} loaded)
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
