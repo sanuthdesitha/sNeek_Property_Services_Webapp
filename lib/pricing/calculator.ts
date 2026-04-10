@@ -3,6 +3,8 @@ import { JobType } from "@prisma/client";
 import { applyCampaignDiscount, validateDiscountCampaign } from "@/lib/marketing/campaigns";
 import { supportsDirectPriceBookQuery } from "@/lib/marketing/persistence";
 import type { MarketedJobTypeValue } from "@/lib/marketing/job-types";
+import { getAppSettings } from "@/lib/settings";
+import { calculateGstBreakdown, type GstSettings } from "@/lib/pricing/gst";
 
 interface QuoteInput {
   serviceType: MarketedJobTypeValue;
@@ -100,6 +102,7 @@ function finalizeQuote({
   lineItems,
   input,
   pricingMode,
+  gstSettings,
 }: {
   baseRate: number;
   addOnTotal: number;
@@ -107,6 +110,7 @@ function finalizeQuote({
   lineItems: QuoteResult["lineItems"];
   input: QuoteInput;
   pricingMode: QuoteResult["pricingMode"];
+  gstSettings: GstSettings;
 }): Promise<QuoteResult> {
   return (async () => {
     const subtotalBeforeDiscount = Number(((baseRate + addOnTotal) * multiplier).toFixed(2));
@@ -132,9 +136,10 @@ function finalizeQuote({
       }
     }
 
-    const subtotal = Number(Math.max(0, subtotalBeforeDiscount - discountTotal).toFixed(2));
-    const gst = Number((subtotal * 0.1).toFixed(2));
-    const total = Number((subtotal + gst).toFixed(2));
+    const { subtotal, gstAmount: gst, totalAmount: total } = calculateGstBreakdown(
+      Math.max(0, subtotalBeforeDiscount - discountTotal),
+      gstSettings
+    );
 
     return {
       baseRate,
@@ -200,7 +205,7 @@ function addCommonLocalAdjustments(input: QuoteInput, lineItems: QuoteResult["li
   return addOnTotal;
 }
 
-async function calculateLocalMarketingQuote(input: QuoteInput): Promise<QuoteResult> {
+async function calculateLocalMarketingQuote(input: QuoteInput, gstSettings: GstSettings): Promise<QuoteResult> {
   const lineItems: QuoteResult["lineItems"] = [];
   let baseRate = 0;
 
@@ -316,12 +321,16 @@ async function calculateLocalMarketingQuote(input: QuoteInput): Promise<QuoteRes
     lineItems,
     input,
     pricingMode: "fallback",
+    gstSettings,
   });
 }
 
 export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
+  const settings = await getAppSettings();
+  const gstSettings = settings.pricing;
+
   if (!supportsDirectPriceBookQuery(input.serviceType)) {
-    return calculateLocalMarketingQuote(input);
+    return calculateLocalMarketingQuote(input, gstSettings);
   }
 
   let allRows: Array<{
@@ -349,7 +358,7 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
       },
     });
   } catch {
-    return calculateLocalMarketingQuote(input);
+    return calculateLocalMarketingQuote(input, gstSettings);
   }
 
   let entry =
@@ -477,5 +486,6 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
     lineItems,
     input,
     pricingMode,
+    gstSettings,
   });
 }

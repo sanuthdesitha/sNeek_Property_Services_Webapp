@@ -279,10 +279,10 @@ export default async function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Dashboard</h2>
-        <p className="text-muted-foreground text-sm">
-          {format(toZonedTime(new Date(), TZ), "EEEE, d MMMM yyyy")}
+      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-cyan-50/70 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)]">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Operations Dashboard</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          {format(toZonedTime(new Date(), TZ), "EEEE, d MMMM yyyy")} | Live operations, dispatch risk, and approval workload.
         </p>
       </div>
 
@@ -334,17 +334,20 @@ export default async function AdminDashboard() {
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
         {statCards.map((card) => (
-          <Card key={card.label} className={card.alert ? "border-orange-200" : ""}>
+          <Card
+            key={card.label}
+            className={`overflow-hidden border-slate-200/80 bg-white/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] ${card.alert ? "border-amber-300 bg-amber-50/50" : ""}`}
+          >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-              <div className={`h-8 w-8 rounded-full ${card.bg} flex items-center justify-center`}>
+              <div className={`h-9 w-9 rounded-xl ${card.bg} flex items-center justify-center shadow-sm`}>
                 <card.icon className={`h-4 w-4 ${card.color}`} />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">{card.value}</div>
+              <div className="text-3xl font-bold tracking-tight text-slate-900">{card.value}</div>
               {card.alert && card.value > 0 && (
-                <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                <p className="text-xs text-amber-700 mt-1 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> Needs attention
                 </p>
               )}

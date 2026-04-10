@@ -146,6 +146,10 @@ const qaAutomationSchema = z.object({
   createIssueTicket: z.boolean().optional(),
 });
 
+const pricingSchema = z.object({
+  gstEnabled: z.boolean().optional(),
+});
+
 const updateSchema = z.object({
   companyName: z.string().trim().min(1).optional(),
   projectName: z.string().trim().min(1).optional(),
@@ -187,6 +191,7 @@ const updateSchema = z.object({
   autoAssign: autoAssignSchema.optional(),
   routeOptimization: routeOptimizationSchema.optional(),
   qaAutomation: qaAutomationSchema.optional(),
+  pricing: pricingSchema.optional(),
   emailTemplates: z
     .record(
       z.enum(EMAIL_TEMPLATE_KEYS as [string, ...string[]]),

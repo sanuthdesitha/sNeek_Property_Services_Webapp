@@ -3370,6 +3370,21 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       </Card>
     );
   }
+  if (!job || !job.property) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <p className="text-sm font-medium text-destructive">Job data is incomplete</p>
+          <p className="text-sm text-muted-foreground">
+            This job is missing linked property details. Ask admin to recreate or relink the job.
+          </p>
+          <Button variant="outline" onClick={() => load()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const accessInfo = job?.property?.accessInfo as Record<string, string> | undefined;
   const finished = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job?.status ?? "");

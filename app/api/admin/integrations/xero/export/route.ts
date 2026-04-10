@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
         quote.client?.email || quote.lead?.email || settings.xero.contactFallbackEmail || "";
       const invoiceDate = quote.createdAt.toISOString().slice(0, 10);
       const dueDate = (quote.validUntil ?? quote.createdAt).toISOString().slice(0, 10);
+      const taxType = Number(quote.gstAmount ?? 0) > 0 ? "OUTPUT" : "NONE";
       lines.push(
         [
           csvEscape(`Q-${quote.id.slice(0, 8)}`),
@@ -81,9 +82,9 @@ export async function GET(req: NextRequest) {
           csvEscape(email),
           csvEscape(`${String(quote.serviceType).replace(/_/g, " ")} quote`),
           csvEscape("1"),
-          csvEscape(Number(quote.totalAmount).toFixed(2)),
+          csvEscape(Number(quote.subtotal).toFixed(2)),
           csvEscape(settings.xero.defaultAccountCode || "200"),
-          csvEscape("OUTPUT"),
+          csvEscape(taxType),
           csvEscape(settings.xero.trackingCategory || "Branch"),
           csvEscape("Default"),
           csvEscape(quote.id),
@@ -105,4 +106,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err.message ?? "Could not export Xero CSV." }, { status });
   }
 }
-

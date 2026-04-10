@@ -995,6 +995,39 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           </div>
         </div>
 
+        <div className="rounded-md border p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Pricing tax handling</p>
+              <p className="text-xs text-muted-foreground">
+                Turn GST on or off for new quotes, public instant estimates, counter offers, and newly generated client
+                invoices. Existing saved records stay unchanged.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+              <div className="text-right">
+                <p className="text-sm font-medium">{settings.pricing.gstEnabled ? "GST enabled" : "GST disabled"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {settings.pricing.gstEnabled ? "New pricing adds 10% GST." : "New pricing stays GST-free."}
+                </p>
+              </div>
+              <Switch
+                checked={settings.pricing.gstEnabled}
+                onCheckedChange={(value) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    pricing: {
+                      ...prev.pricing,
+                      gstEnabled: value,
+                    },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex items-center justify-between rounded-md border p-3">
             <div>

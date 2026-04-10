@@ -209,7 +209,9 @@ export function QuotePreviewPage() {
             <p className="text-lg font-semibold">{formatCurrency(Number(draft.subtotal || 0))}</p>
           </div>
           <div className="rounded-md border p-3">
-            <p className="text-xs text-muted-foreground">GST</p>
+            <p className="text-xs text-muted-foreground">
+              {Number(draft.gstAmount || 0) > 0 ? "GST (10%)" : "GST not applied"}
+            </p>
             <p className="text-lg font-semibold">{formatCurrency(Number(draft.gstAmount || 0))}</p>
           </div>
           <div className="rounded-md border p-3">

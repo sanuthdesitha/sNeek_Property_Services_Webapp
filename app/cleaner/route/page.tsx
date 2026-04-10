@@ -44,6 +44,14 @@ type Stop = {
   longitude: number | null;
 };
 
+function getTodayIso() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function buildRouteUrl(stops: Stop[], currentLat?: number, currentLng?: number): string | null {
   const addresses = stops.map((s) => `${s.address}, ${s.suburb} ${s.state}`);
   if (addresses.length === 0) return null;
@@ -53,9 +61,8 @@ function buildRouteUrl(stops: Stop[], currentLat?: number, currentLng?: number):
   if (currentLat != null && currentLng != null) {
     params.set("origin", `${currentLat},${currentLng}`);
   }
-  // Last stop is the destination
+
   params.set("destination", addresses[addresses.length - 1]);
-  // Middle stops are waypoints
   const waypoints = addresses.slice(0, -1);
   if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
 
@@ -78,11 +85,24 @@ export default function CleanerRoutePage() {
   const [locError, setLocError] = useState(false);
   const [mapJobId, setMapJobId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [routeMode, setRouteMode] = useState<"today" | "tomorrow" | "date">("today");
+  const [selectedDate, setSelectedDate] = useState(getTodayIso());
 
   const fetchRoute = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/cleaner/today-route", { cache: "no-store", headers: { "x-progress-toast": "off" } });
+      const params = new URLSearchParams();
+      if (routeMode === "tomorrow") {
+        params.set("relative", "tomorrow");
+      } else if (routeMode === "date") {
+        params.set("date", selectedDate || getTodayIso());
+      }
+
+      const query = params.toString();
+      const res = await fetch(`/api/cleaner/today-route${query ? `?${query}` : ""}`, {
+        cache: "no-store",
+        headers: { "x-progress-toast": "off" },
+      });
       if (!res.ok) throw new Error("Could not load route");
       const data = await res.json();
       setStops(Array.isArray(data.stops) ? data.stops : []);
@@ -92,7 +112,7 @@ export default function CleanerRoutePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [routeMode, selectedDate]);
 
   useEffect(() => {
     fetchRoute();
@@ -117,7 +137,6 @@ export default function CleanerRoutePage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback: select a temp input
       const input = document.createElement("input");
       input.value = fullRouteUrl;
       document.body.appendChild(input);
@@ -139,52 +158,71 @@ export default function CleanerRoutePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <Navigation className="h-5 w-5 text-primary" />
-            Today&apos;s Route
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {stops.length} stop{stops.length !== 1 ? "s" : ""} today
-            {currentPos ? " · GPS active" : locError ? " · GPS unavailable" : " · locating..."}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchRoute}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          {fullRouteUrl && stops.length > 0 && (
-            <>
-              <Button variant="outline" size="sm" onClick={handleCopyRoute}>
-                {copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
-                {copied ? "Copied!" : "Copy link"}
-              </Button>
-              <Button asChild size="sm">
-                <a href={fullRouteUrl} target="_blank" rel="noreferrer">
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Open all in Maps
-                </a>
-              </Button>
-            </>
-          )}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-bold">
+              <Navigation className="h-5 w-5 text-primary" />
+              {routeMode === "today" ? "Today's Route" : routeMode === "tomorrow" ? "Tomorrow's Route" : "Route by Date"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {stops.length} stop{stops.length !== 1 ? "s" : ""}
+              {currentPos ? " | GPS active" : locError ? " | GPS unavailable" : " | locating..."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant={routeMode === "today" ? "default" : "outline"} size="sm" onClick={() => setRouteMode("today")}>
+              Today
+            </Button>
+            <Button variant={routeMode === "tomorrow" ? "default" : "outline"} size="sm" onClick={() => setRouteMode("tomorrow")}>
+              Tomorrow
+            </Button>
+            <Button variant={routeMode === "date" ? "default" : "outline"} size="sm" onClick={() => setRouteMode("date")}>
+              Specific date
+            </Button>
+            {routeMode === "date" ? (
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              />
+            ) : null}
+            <Button variant="outline" size="sm" onClick={fetchRoute}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+            {fullRouteUrl && stops.length > 0 ? (
+              <>
+                <Button variant="outline" size="sm" onClick={handleCopyRoute}>
+                  {copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
+                  {copied ? "Copied!" : "Copy link"}
+                </Button>
+                <Button asChild size="sm">
+                  <a href={fullRouteUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Open all in Maps
+                  </a>
+                </Button>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {error && (
+      {error ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">{error}</CardContent>
         </Card>
-      )}
+      ) : null}
 
-      {stops.length === 0 && !error && (
+      {stops.length === 0 && !error ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No active jobs scheduled for today.
+            No active jobs scheduled for the selected date.
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <div className="space-y-3">
         {stops.map((stop, index) => {
@@ -215,24 +253,22 @@ export default function CleanerRoutePage() {
                   <span className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" />
                     {stop.startTime && stop.dueTime
-                      ? `${stop.startTime} – ${stop.dueTime}`
+                      ? `${stop.startTime} - ${stop.dueTime}`
                       : stop.startTime || stop.dueTime || "No time set"}
                   </span>
                   <span>{stop.jobType.replace(/_/g, " ")}</span>
-                  {stop.status === "EN_ROUTE" && stop.enRouteEtaMinutes != null && (
-                    <span className="text-amber-700 font-medium">
+                  {stop.status === "EN_ROUTE" && stop.enRouteEtaMinutes != null ? (
+                    <span className="font-medium text-amber-700">
                       {stop.enRouteEtaMinutes <= 1
                         ? "Arriving now"
                         : (() => {
                             const arrival = new Date(Date.now() + stop.enRouteEtaMinutes * 60 * 1000);
                             const time = arrival.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true });
-                            return `${stop.enRouteEtaMinutes} min · ~${time}`;
+                            return `${stop.enRouteEtaMinutes} min | ~${time}`;
                           })()}
                     </span>
-                  )}
-                  {stop.arrivedAt && (
-                    <span className="text-emerald-700 font-medium">Arrived</span>
-                  )}
+                  ) : null}
+                  {stop.arrivedAt ? <span className="font-medium text-emerald-700">Arrived</span> : null}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button asChild size="sm" variant="outline">
@@ -241,26 +277,22 @@ export default function CleanerRoutePage() {
                       Navigate
                     </a>
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setMapJobId(showMap ? null : stop.jobId)}
-                  >
+                  <Button size="sm" variant="ghost" onClick={() => setMapJobId(showMap ? null : stop.jobId)}>
                     {showMap ? "Hide map" : "Show map"}
                   </Button>
                   <Button asChild size="sm" variant="ghost">
                     <Link href={`/cleaner/jobs/${stop.jobId}`}>Open job</Link>
                   </Button>
                 </div>
-                {showMap && (
+                {showMap ? (
                   <LiveTripMap
                     cleanerLat={currentPos?.lat ?? null}
                     cleanerLng={currentPos?.lng ?? null}
                     propertyLat={stop.latitude}
                     propertyLng={stop.longitude}
-                    className="h-52 mt-2"
+                    className="mt-2 h-52"
                   />
-                )}
+                ) : null}
               </CardContent>
             </Card>
           );

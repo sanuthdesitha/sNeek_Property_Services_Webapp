@@ -10,9 +10,23 @@ import type { EventContentArg, EventDropArg } from "@fullcalendar/core";
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { CalendarClock, Clock3, MapPin, RefreshCw, Undo2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CalendarRange,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  MapPin,
+  RefreshCw,
+  Sparkles,
+  Undo2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+
+const SYDNEY_TZ = "Australia/Sydney";
 
 const STATUS_META: Record<
   string,
@@ -75,11 +89,36 @@ function getEventTextPalette(backgroundColor?: string | null) {
   };
 }
 
+function getSydneyDateIso(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SYDNEY_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateLabel(value?: string | null) {
+  if (!value) return "Not scheduled";
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: SYDNEY_TZ,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
 export default function CalendarView() {
   const router = useRouter();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
+  const [boardExpanded, setBoardExpanded] = useState(false);
   const [undoState, setUndoState] = useState<null | {
     jobId: string;
     payload: { scheduledDate: string; startTime: string | null; endTime: string | null };
@@ -154,26 +193,63 @@ export default function CalendarView() {
     }, {});
   }, [events]);
 
+  const todayIso = useMemo(() => getSydneyDateIso(), []);
+
   const summary = useMemo(
     () => [
       {
-        label: "Total jobs",
+        label: "Jobs in range",
         value: events.length,
         icon: CalendarClock,
+        note: "Everything visible in the current dispatch calendar.",
+        accent: "from-sky-500/10 via-cyan-500/10 to-transparent",
       },
       {
         label: "Need assignment",
         value: counts.UNASSIGNED ?? 0,
         icon: MapPin,
+        note: "Still unassigned and ready for dispatch action.",
+        accent: "from-amber-500/10 via-orange-500/10 to-transparent",
       },
       {
         label: "In progress",
         value: counts.IN_PROGRESS ?? 0,
         icon: Clock3,
+        note: "Live jobs currently active in the field.",
+        accent: "from-teal-500/10 via-emerald-500/10 to-transparent",
+      },
+      {
+        label: "Completed",
+        value: counts.COMPLETED ?? 0,
+        icon: CheckCircle2,
+        note: "Finished work already completed in the loaded range.",
+        accent: "from-emerald-500/10 via-lime-500/10 to-transparent",
       },
     ],
     [counts, events.length]
   );
+
+  const todaySpotlight = useMemo(() => {
+    const todayJobs = events.filter((event) => event.start.slice(0, 10) === todayIso);
+    const awaitingToday = todayJobs.filter((event) =>
+      ["UNASSIGNED", "OFFERED"].includes(event.extendedProps.status)
+    );
+    const inProgressToday = todayJobs.filter((event) => event.extendedProps.status === "IN_PROGRESS");
+    const exceptionsToday = todayJobs.filter((event) =>
+      ["WAITING_CONTINUATION_APPROVAL", "PAUSED", "QA_REVIEW"].includes(event.extendedProps.status)
+    );
+    const nextJob = [...events]
+      .filter((event) => event.start >= `${todayIso}T00:00:00` || event.start === todayIso)
+      .sort((a, b) => a.start.localeCompare(b.start))[0];
+
+    return {
+      todayJobs,
+      awaitingToday,
+      inProgressToday,
+      exceptionsToday,
+      nextJob,
+    };
+  }, [events, todayIso]);
 
   function renderEventContent(arg: EventContentArg) {
     const details = arg.event.extendedProps as CalendarEvent["extendedProps"];
@@ -185,20 +261,31 @@ export default function CalendarView() {
 
     if (isMonthView) {
       return (
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${palette.dotClass}`}
-            style={palette.dotClass === "bg-current" ? { backgroundColor: statusMeta.color } : palette.dotStyle}
-          />
-          {arg.timeText ? (
-            <span className={`shrink-0 text-[10px] font-semibold ${palette.secondary}`}>{arg.timeText}</span>
-          ) : null}
-          <span className={`truncate text-[11px] font-semibold ${palette.primary}`}>{details.propertyName}</span>
-          {details.assignedCount > 1 ? (
-            <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${palette.pillClass}`}>
-              +{details.assignedCount}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${palette.dotClass}`}
+              style={palette.dotClass === "bg-current" ? { backgroundColor: statusMeta.color } : palette.dotStyle}
+            />
+            <span className={`truncate text-[10px] font-semibold uppercase tracking-[0.08em] ${palette.secondary}`}>
+              {statusMeta.label}
             </span>
-          ) : null}
+            {details.assignedCount > 1 ? (
+              <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${palette.pillClass}`}>
+                +{details.assignedCount}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            {arg.timeText ? (
+              <span className={`shrink-0 text-[10px] font-semibold ${palette.secondary}`}>{arg.timeText}</span>
+            ) : null}
+            <span className={`truncate text-[11px] font-semibold ${palette.primary}`}>{details.propertyName}</span>
+          </div>
+          <span className={`truncate text-[10px] ${palette.tertiary}`}>
+            {details.jobTypeLabel}
+            {details.suburb ? ` | ${details.suburb}` : ""}
+          </span>
         </div>
       );
     }
@@ -339,63 +426,187 @@ export default function CalendarView() {
   }
 
   return (
-    <div className="space-y-4 p-4 sm:p-5">
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="border-primary/15">
-          <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Schedule Board
-                </p>
-                <h3 className="mt-1 text-lg font-semibold sm:text-xl">Jobs mapped by day, week, and shift</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Use the month view to spot workload clusters, then switch to week/day for tighter dispatch planning.
-                </p>
+    <div className="jobs-admin-calendar space-y-5 p-4 sm:p-5">
+      <Card className="overflow-hidden border-primary/20 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]">
+        <CardContent className="p-0">
+          <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="border-primary/15 bg-primary/10 text-primary">
+                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  Dispatch command view
+                </Badge>
+                <Badge variant="outline" className="border-border/70 bg-white/75">
+                  {boardExpanded ? "Expanded" : "Collapsed"}
+                </Badge>
               </div>
-              <button
-                type="button"
-                className="inline-flex items-center rounded-full border border-border/70 bg-white/80 px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
-                onClick={loadJobs}
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Schedule Board
+              </p>
+              <h3 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
+                Dispatch briefing and schedule context
+              </h3>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                Keep this collapsed for a faster workspace, then expand it when you need the richer operational summary.
+              </p>
+            </div>
+            <Button type="button" variant="outline" className="rounded-full" onClick={() => setBoardExpanded((value) => !value)}>
+              {boardExpanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
+              {boardExpanded ? "Hide schedule board" : "Show schedule board"}
+            </Button>
+          </div>
+          {boardExpanded ? (
+          <div className="grid gap-0 border-t border-border/60 xl:grid-cols-[1.08fr_0.92fr]">
+            <div className="p-5 sm:p-6">
+              <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Schedule Board
+              </p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                Jobs mapped by day, week, and shift with live status context
+              </h3>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+                Use the month view to spot workload clusters, switch to week or day for tighter dispatch planning, and
+                update schedules directly from the calendar when operations needs to move fast.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button type="button" className="rounded-full px-5" onClick={loadJobs}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                  Refresh board
+                </Button>
+                <div className="inline-flex items-center rounded-full border border-border/70 bg-white/80 px-4 py-2 text-sm text-muted-foreground">
+                  <CalendarRange className="mr-2 h-4 w-4 text-primary" />
+                  Drag and resize jobs to adjust the schedule
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {summary.map((item) => (
+                  <div
+                    key={item.label}
+                    className={`rounded-2xl border border-white/70 bg-gradient-to-br ${item.accent} p-3 shadow-sm backdrop-blur`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/80 shadow-sm">
+                        <item.icon className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
+                        <p className="mt-1 text-2xl font-semibold text-slate-900">{item.value}</p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.note}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              {summary.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-border/70 bg-white/70 p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10">
-                      <item.icon className="h-4 w-4 text-primary" />
+            <div className="border-t border-border/60 bg-slate-950/[0.03] p-5 sm:p-6 xl:border-l xl:border-t-0">
+              <div className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Today spotlight
+                    </p>
+                    <h4 className="mt-2 text-xl font-semibold">What matters first today</h4>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Snapshot for {formatDateLabel(todayIso)} in Sydney time.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-primary/10 p-3">
+                    <CalendarClock className="h-5 w-5 text-primary" />
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Jobs today</p>
+                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.todayJobs.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Awaiting action</p>
+                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.awaitingToday.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Exceptions</p>
+                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.exceptionsToday.length}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-2xl border border-border/60 bg-white p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 rounded-xl bg-sky-100 p-2 text-sky-700">
+                        <CalendarClock className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Next scheduled job</p>
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {todaySpotlight.nextJob?.extendedProps.propertyName ?? "No upcoming job in this range"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {todaySpotlight.nextJob
+                            ? `${todaySpotlight.nextJob.extendedProps.jobTypeLabel}${todaySpotlight.nextJob.extendedProps.suburb ? ` | ${todaySpotlight.nextJob.extendedProps.suburb}` : ""}`
+                            : "Refresh or change the calendar range"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">{item.label}</p>
-                      <p className="text-xl font-semibold">{item.value}</p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/60 bg-white p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 rounded-xl bg-emerald-100 p-2 text-emerald-700">
+                        <Clock3 className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Currently active</p>
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {todaySpotlight.inProgressToday.length
+                            ? `${todaySpotlight.inProgressToday.length} job${todaySpotlight.inProgressToday.length === 1 ? "" : "s"} in progress`
+                            : "No active jobs right now"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          Live jobs stay highlighted in the calendar and dashboard.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardContent className="p-4 sm:p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Status Legend</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Object.entries(STATUS_META).map(([status, meta]) => (
-                <Badge key={status} variant={meta.badge}>
-                  {meta.label} ({counts[status] ?? 0})
-                </Badge>
-              ))}
+                <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-slate-50/80 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Status legend
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(STATUS_META).map(([status, meta]) => (
+                      <Badge key={status} variant={meta.badge}>
+                        {meta.label} ({counts[status] ?? 0})
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
-      <div className="relative overflow-visible rounded-[calc(var(--radius)+6px)] border border-white/70 bg-white/75 shadow-sm">
+      <div className="grid gap-4 xl:grid-cols-[1fr_0.3fr]">
+        <div className="relative overflow-visible rounded-[calc(var(--radius)+10px)] border border-white/70 bg-white/80 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur">
+          <div className="border-b border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.78))] px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Calendar canvas</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Month, week, and day views use the same polished dispatch theme and support drag-and-drop rescheduling.
+                </p>
+              </div>
+              <Badge variant="outline" className="border-border/70 bg-white/80">
+                {events.length} jobs loaded
+              </Badge>
+            </div>
+          </div>
+          <div className="relative overflow-visible rounded-b-[calc(var(--radius)+10px)]">
         {undoState ? (
           <div className="border-b border-border/60 bg-amber-50/80 px-4 py-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -474,14 +685,63 @@ export default function CalendarView() {
             const details = info.event.extendedProps as CalendarEvent["extendedProps"];
             info.el.setAttribute(
               "title",
-              `${details.propertyName} • ${details.jobTypeLabel}${details.suburb ? ` • ${details.suburb}` : ""}`
+              `${details.propertyName} | ${details.jobTypeLabel}${details.suburb ? ` | ${details.suburb}` : ""}`
             );
           }}
         />
+          </div>
+        </div>
+
+        <Card className="border-primary/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.9))]">
+          <CardContent className="p-4 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Quick context</p>
+            <div className="mt-4 space-y-4">
+              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                    <MapPin className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Open full job detail from any event</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Click a calendar card to jump straight into the job record, timeline, and operational notes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                    <Undo2 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Schedule changes are reversible</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Drag or resize a job to reschedule it, then use the temporary undo action if the move needs to be reversed.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl bg-rose-100 p-2 text-rose-700">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Exceptions stay visible</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Paused jobs, QA review, and waiting-approval items stay visually distinct so dispatch can act fast.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <style jsx global>{`
-        .fc {
+        .jobs-admin-calendar .fc {
           position: relative;
           z-index: 0;
           --fc-border-color: rgba(148, 163, 184, 0.22);
@@ -498,77 +758,113 @@ export default function CalendarView() {
           --fc-button-active-text-color: #ffffff;
         }
 
-        .fc .fc-toolbar.fc-header-toolbar {
+        .jobs-admin-calendar .fc .fc-toolbar.fc-header-toolbar {
           margin-bottom: 1rem;
-          padding: 1rem 1rem 0;
+          padding: 1rem 1rem 0.25rem;
           gap: 0.75rem;
           flex-wrap: wrap;
         }
 
-        .fc .fc-toolbar-title {
-          font-size: 1.05rem;
+        .jobs-admin-calendar .fc .fc-toolbar-title {
+          font-size: 1.1rem;
           font-weight: 700;
           color: #0f172a;
         }
 
-        .fc .fc-button {
+        .jobs-admin-calendar .fc .fc-button {
           border-radius: 9999px;
-          box-shadow: none;
+          box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.55);
           font-weight: 600;
           padding: 0.45rem 0.85rem;
           color: #f8fafc;
         }
 
-        .fc .fc-scrollgrid,
-        .fc .fc-timegrid-slot,
-        .fc .fc-timegrid-axis,
-        .fc .fc-col-header-cell,
-        .fc .fc-daygrid-day {
+        .jobs-admin-calendar .fc .fc-scrollgrid,
+        .jobs-admin-calendar .fc .fc-timegrid-slot,
+        .jobs-admin-calendar .fc .fc-timegrid-axis,
+        .jobs-admin-calendar .fc .fc-col-header-cell,
+        .jobs-admin-calendar .fc .fc-daygrid-day {
           border-color: rgba(148, 163, 184, 0.22);
         }
 
-        .fc .fc-col-header-cell-cushion,
-        .fc .fc-daygrid-day-number {
+        .jobs-admin-calendar .fc .fc-col-header-cell-cushion,
+        .jobs-admin-calendar .fc .fc-daygrid-day-number {
           color: #334155;
           font-weight: 600;
           padding: 0.55rem 0.35rem;
         }
 
-        .fc .fc-day-today .fc-daygrid-day-number {
+        .jobs-admin-calendar .fc .fc-day-today .fc-daygrid-day-number {
           color: #2563eb;
         }
 
-        .fc .sneek-calendar-event {
-          border-width: 1px;
-          border-radius: 14px;
-          padding: 0.3rem 0.4rem;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+        .jobs-admin-calendar .fc .fc-day-today {
+          box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+          background: linear-gradient(180deg, rgba(37, 99, 235, 0.04), rgba(255, 255, 255, 0));
         }
 
-        .fc .fc-daygrid-event-harness {
+        .jobs-admin-calendar .fc .fc-day-other {
+          background: rgba(248, 250, 252, 0.65);
+        }
+
+        .jobs-admin-calendar .fc .fc-week-number {
+          display: inline-flex;
+          min-width: 1.7rem;
+          height: 1.7rem;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9999px;
+          background: rgba(15, 118, 110, 0.08);
+          color: #0f766e;
+          font-size: 0.7rem;
+          font-weight: 700;
+        }
+
+        .jobs-admin-calendar .fc .sneek-calendar-event {
+          border-width: 1px;
+          border-radius: 16px;
+          padding: 0.38rem 0.45rem;
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+            0 14px 30px -26px rgba(15, 23, 42, 0.65);
+          transition: transform 160ms ease, box-shadow 160ms ease;
+        }
+
+        .jobs-admin-calendar .fc .sneek-calendar-event:hover {
+          transform: translateY(-1px);
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+            0 20px 36px -26px rgba(15, 23, 42, 0.75);
+        }
+
+        .jobs-admin-calendar .fc .fc-daygrid-event-harness {
           margin-top: 0.22rem;
         }
 
-        .fc .fc-daygrid-event {
+        .jobs-admin-calendar .fc .fc-daygrid-event {
           min-height: 1.6rem;
         }
 
-        .fc .fc-daygrid-day-events {
+        .jobs-admin-calendar .fc .fc-daygrid-day-events {
           margin: 0 0.2rem 0.25rem;
         }
 
-        .fc .fc-daygrid-more-link {
+        .jobs-admin-calendar .fc .fc-daygrid-more-link {
           margin: 0.18rem 0.3rem 0.25rem;
           font-size: 0.72rem;
           font-weight: 600;
           color: #2563eb;
         }
 
-        .fc .fc-event-main {
+        .jobs-admin-calendar .fc .fc-daygrid-more-link:hover {
+          color: #1d4ed8;
+        }
+
+        .jobs-admin-calendar .fc .fc-event-main {
           padding: 0;
         }
 
-        .fc .fc-popover {
+        .jobs-admin-calendar .fc .fc-popover {
           z-index: 40;
           background: #ffffff;
           border-radius: 16px;
@@ -578,45 +874,46 @@ export default function CalendarView() {
           box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
         }
 
-        .fc .fc-popover-header {
+        .jobs-admin-calendar .fc .fc-popover-header {
           padding: 0.7rem 0.9rem;
           background: #f8fafc;
         }
 
-        .fc .fc-popover-title,
-        .fc .fc-popover-close {
+        .jobs-admin-calendar .fc .fc-popover-title,
+        .jobs-admin-calendar .fc .fc-popover-close {
           color: #0f172a;
         }
 
-        .fc .fc-more-popover .fc-popover-body {
+        .jobs-admin-calendar .fc .fc-more-popover .fc-popover-body {
           background: #ffffff;
           padding: 0.45rem 0.55rem 0.65rem;
         }
 
-        .fc .fc-more-popover .fc-daygrid-event-harness,
-        .fc .fc-more-popover .fc-daygrid-event-harness-abs {
+        .jobs-admin-calendar .fc .fc-more-popover .fc-daygrid-event-harness,
+        .jobs-admin-calendar .fc .fc-more-popover .fc-daygrid-event-harness-abs {
           position: relative !important;
           inset: auto !important;
           display: block !important;
           margin-top: 0.28rem !important;
         }
 
-        .fc .fc-more-popover .fc-daygrid-event {
+        .jobs-admin-calendar .fc .fc-more-popover .fc-daygrid-event {
           margin: 0 !important;
         }
 
-        .fc .fc-view-harness,
-        .fc .fc-view-harness-active {
+        .jobs-admin-calendar .fc .fc-view-harness,
+        .jobs-admin-calendar .fc .fc-view-harness-active {
           overflow: visible;
         }
 
-        .fc .fc-scrollgrid {
+        .jobs-admin-calendar .fc .fc-scrollgrid {
           border-radius: calc(var(--radius) + 6px);
           overflow: hidden;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
         }
 
-        .fc .fc-timegrid-slot-label-cushion,
-        .fc .fc-timegrid-axis-cushion {
+        .jobs-admin-calendar .fc .fc-timegrid-slot-label-cushion,
+        .jobs-admin-calendar .fc .fc-timegrid-axis-cushion {
           font-size: 0.8rem;
           font-weight: 600;
           color: #64748b;
@@ -628,29 +925,29 @@ export default function CalendarView() {
           max-width: 100%;
           box-sizing: border-box;
         }
-        .fc .fc-timegrid-axis {
+        .jobs-admin-calendar .fc .fc-timegrid-axis {
           width: 4.3rem;
         }
-        .fc .fc-timegrid-axis-frame,
-        .fc .fc-timegrid-slot-label-frame {
+        .jobs-admin-calendar .fc .fc-timegrid-axis-frame,
+        .jobs-admin-calendar .fc .fc-timegrid-slot-label-frame {
           overflow: hidden;
         }
-        .fc .fc-timegrid-slot {
+        .jobs-admin-calendar .fc .fc-timegrid-slot {
           height: 2.9rem;
         }
 
-        .fc .fc-timegrid-col-events {
+        .jobs-admin-calendar .fc .fc-timegrid-col-events {
           margin: 0 0.2rem;
         }
 
-        .fc .fc-timegrid-event {
+        .jobs-admin-calendar .fc .fc-timegrid-event {
           min-height: 76px;
           border-radius: 16px;
           padding: 0.24rem;
           box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.5);
         }
 
-        .fc .fc-timegrid-event .fc-event-main {
+        .jobs-admin-calendar .fc .fc-timegrid-event .fc-event-main {
           display: flex;
           height: 100%;
           align-items: stretch;
@@ -658,73 +955,73 @@ export default function CalendarView() {
           overflow: hidden;
         }
 
-        .fc .fc-timegrid-event .fc-event-main > div {
+        .jobs-admin-calendar .fc .fc-timegrid-event .fc-event-main > div {
           width: 100%;
           overflow: hidden;
         }
 
-        .fc .fc-timegrid-event .fc-event-title,
-        .fc .fc-timegrid-event .fc-event-time {
+        .jobs-admin-calendar .fc .fc-timegrid-event .fc-event-title,
+        .jobs-admin-calendar .fc .fc-timegrid-event .fc-event-time {
           white-space: normal;
         }
 
-        .fc .fc-timegrid-event-harness {
+        .jobs-admin-calendar .fc .fc-timegrid-event-harness {
           margin-inline: 0.1rem;
         }
 
-        .fc .fc-timegrid-now-indicator-line {
+        .jobs-admin-calendar .fc .fc-timegrid-now-indicator-line {
           border-color: #ef4444;
         }
 
-        .fc .fc-timegrid-now-indicator-arrow {
+        .jobs-admin-calendar .fc .fc-timegrid-now-indicator-arrow {
           border-top-color: #ef4444;
           border-bottom-color: #ef4444;
         }
 
         @media (max-width: 768px) {
-          .fc .fc-toolbar.fc-header-toolbar {
+          .jobs-admin-calendar .fc .fc-toolbar.fc-header-toolbar {
             padding: 0.85rem 0.85rem 0;
           }
 
-          .fc .fc-toolbar-title {
+          .jobs-admin-calendar .fc .fc-toolbar-title {
             font-size: 0.95rem;
           }
 
-          .fc .fc-button {
+          .jobs-admin-calendar .fc .fc-button {
             padding: 0.4rem 0.65rem;
             font-size: 0.75rem;
           }
-          .fc .fc-toolbar-chunk {
+          .jobs-admin-calendar .fc .fc-toolbar-chunk {
             display: flex;
             flex-wrap: wrap;
             gap: 0.35rem;
           }
-          .fc .fc-timegrid-axis {
+          .jobs-admin-calendar .fc .fc-timegrid-axis {
             width: 3rem;
           }
-          .fc .fc-timegrid-slot-label-cushion,
-          .fc .fc-timegrid-axis-cushion {
+          .jobs-admin-calendar .fc .fc-timegrid-slot-label-cushion,
+          .jobs-admin-calendar .fc .fc-timegrid-axis-cushion {
             font-size: 0.68rem;
             padding: 0 0.15rem;
           }
 
-          .fc .fc-daygrid-day-events {
+          .jobs-admin-calendar .fc .fc-daygrid-day-events {
             margin-inline: 0.1rem;
           }
 
-          .fc .fc-daygrid-more-link {
+          .jobs-admin-calendar .fc .fc-daygrid-more-link {
             margin-inline: 0.18rem;
           }
 
-          .fc .fc-timegrid-col-events {
+          .jobs-admin-calendar .fc .fc-timegrid-col-events {
             margin: 0 0.08rem;
           }
 
-          .fc .fc-timegrid-slot {
+          .jobs-admin-calendar .fc .fc-timegrid-slot {
             height: 2.45rem;
           }
 
-          .fc .fc-timegrid-event {
+          .jobs-admin-calendar .fc .fc-timegrid-event {
             min-height: 64px;
           }
         }

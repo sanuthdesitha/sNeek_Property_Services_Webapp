@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { buildQuoteHtml } from "@/lib/pricing/quote-report";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { calculateGstBreakdown } from "@/lib/pricing/gst";
 
 const lineItemSchema = z.object({
   label: z.string().trim().min(1).max(240),
@@ -34,9 +35,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Lead not found." }, { status: 404 });
     }
 
-    const subtotal = body.lineItems.reduce((sum, item) => sum + Number(item.total ?? item.unitPrice * item.qty), 0);
-    const gstAmount = Number((subtotal * 0.1).toFixed(2));
-    const totalAmount = Number((subtotal + gstAmount).toFixed(2));
+    const settings = await getAppSettings();
+    const { subtotal, gstAmount, totalAmount } = calculateGstBreakdown(
+      body.lineItems.reduce((sum, item) => sum + Number(item.total ?? item.unitPrice * item.qty), 0),
+      settings.pricing
+    );
 
     const quote = await db.$transaction(async (tx) => {
       const created = await tx.quote.create({
@@ -63,7 +66,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     if (body.sendEmail) {
-      const settings = await getAppSettings();
       const html = buildQuoteHtml(
         {
           ...quote,

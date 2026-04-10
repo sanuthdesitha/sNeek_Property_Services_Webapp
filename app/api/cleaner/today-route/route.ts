@@ -7,21 +7,37 @@ import { addDays } from "date-fns";
 
 const TZ = "Australia/Sydney";
 
-export async function GET() {
+function resolveDateBounds(inputDate: string | null) {
+  const zonedNow = toZonedTime(new Date(), TZ);
+  const todayIso = `${zonedNow.getFullYear()}-${String(zonedNow.getMonth() + 1).padStart(2, "0")}-${String(zonedNow.getDate()).padStart(2, "0")}`;
+  const target = inputDate && /^\d{4}-\d{2}-\d{2}$/.test(inputDate) ? inputDate : todayIso;
+  const [year, month, day] = target.split("-").map((value) => Number(value));
+  const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+  return {
+    date: target,
+    start: dayStart,
+    end: addDays(dayStart, 1),
+  };
+}
+
+export async function GET(req: Request) {
   const session = await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
+  const { searchParams } = new URL(req.url);
+  const relative = (searchParams.get("relative") || "").toLowerCase();
+  const explicitDate = searchParams.get("date");
 
   const zonedNow = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(Date.UTC(
-    zonedNow.getFullYear(), zonedNow.getMonth(), zonedNow.getDate(), 0, 0, 0
-  ));
-  const tomorrowStart = addDays(todayStart, 1);
+  const tomorrow = addDays(new Date(zonedNow.getFullYear(), zonedNow.getMonth(), zonedNow.getDate()), 1);
+  const tomorrowIso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  const targetDate = relative === "tomorrow" ? tomorrowIso : explicitDate;
+  const bounds = resolveDateBounds(targetDate);
 
   const assignments = await db.jobAssignment.findMany({
     where: {
       userId: session.user.id,
       removedAt: null,
       job: {
-        scheduledDate: { gte: todayStart, lt: tomorrowStart },
+        scheduledDate: { gte: bounds.start, lt: bounds.end },
         status: { notIn: ["COMPLETED", "INVOICED"] },
       },
     },
@@ -73,5 +89,5 @@ export async function GET() {
     longitude: a.job.property.longitude,
   }));
 
-  return NextResponse.json({ stops });
+  return NextResponse.json({ stops, date: bounds.date });
 }

@@ -125,6 +125,10 @@ export function SettingsWorkspace({
                 <p className="text-xs text-muted-foreground">Accounts email</p>
                 <p className="font-medium">{appSettings.accountsEmail}</p>
               </div>
+              <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground">GST on new pricing</p>
+                <p className="font-medium">{appSettings.pricing.gstEnabled ? "Enabled" : "Disabled"}</p>
+              </div>
             </div>
           </CardContent>
         </Card>

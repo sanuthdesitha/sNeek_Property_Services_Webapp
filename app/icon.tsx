@@ -1,5 +1,6 @@
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
+import { publicUrl } from "@/lib/s3";
 
 export const size = {
   width: 64,
@@ -31,13 +32,35 @@ async function getLogoDataUrl(logoUrl: string) {
   if (!logoUrl) return null;
 
   try {
-    const absoluteUrl = resolveAppUrl(logoUrl);
-    const response = await fetch(absoluteUrl, { cache: "no-store" });
-    if (!response.ok) return null;
+    const isAbsolute = /^https?:\/\//i.test(logoUrl);
+    const fallbackBase =
+      process.env.APP_BASE_URL?.trim() ||
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+      "http://localhost:3000";
+    const candidates = Array.from(
+      new Set(
+        isAbsolute
+          ? [logoUrl]
+          : logoUrl.startsWith("/")
+            ? [new URL(logoUrl, fallbackBase).toString(), resolveAppUrl(logoUrl)]
+            : [resolveAppUrl(logoUrl), publicUrl(logoUrl)]
+      )
+    );
 
-    const contentType = response.headers.get("content-type") || "image/png";
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return `data:${contentType};base64,${buffer.toString("base64")}`;
+    for (const absoluteUrl of candidates) {
+      try {
+        const response = await fetch(absoluteUrl, { cache: "no-store" });
+        if (!response.ok) continue;
+        const contentType = response.headers.get("content-type") || "image/png";
+        const buffer = Buffer.from(await response.arrayBuffer());
+        return `data:${contentType};base64,${buffer.toString("base64")}`;
+      } catch {
+        // Try the next candidate.
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }

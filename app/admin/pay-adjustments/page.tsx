@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { MediaGallery } from "@/components/shared/media-gallery";
 
 type PayAdjustmentRow = {
   id: string;
@@ -54,6 +55,20 @@ function formatMoney(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+function formatDateSafe(value: string | null | undefined, fallback = "-") {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return format(parsed, "dd MMM yyyy");
+}
+
+function formatDateTimeSafe(value: string | null | undefined, fallback = "-") {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return format(parsed, "dd MMM yyyy HH:mm");
+}
+
 export default function AdminPayAdjustmentsPage() {
   const [rows, setRows] = useState<PayAdjustmentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +83,7 @@ export default function AdminPayAdjustmentsPage() {
   const [sendClientTitle, setSendClientTitle] = useState("");
   const [sendClientDescription, setSendClientDescription] = useState("");
   const [sendingClientApproval, setSendingClientApproval] = useState(false);
+  const [detailRow, setDetailRow] = useState<PayAdjustmentRow | null>(null);
 
   async function load() {
     setLoading(true);
@@ -215,7 +231,7 @@ export default function AdminPayAdjustmentsPage() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {row.scope === "JOB" && row.job
-                            ? `Date: ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")} | `
+                            ? `Date: ${formatDateSafe(row.job.scheduledDate)} | `
                             : ""}
                           {row.job?.property?.name || row.property?.name || "No property linked"} | Requested: {formatMoney(row.requestedAmount)}
                           {row.type === "HOURLY" ? ` (${row.requestedHours ?? 0}h x ${formatMoney(row.requestedRate)})` : ""} | {row.scope}
@@ -241,16 +257,21 @@ export default function AdminPayAdjustmentsPage() {
                         <Badge variant={row.status === "PENDING" ? ("warning" as any) : row.status === "APPROVED" ? "success" : "destructive"}>
                           {row.status}
                         </Badge>
+                        <Button size="sm" variant="outline" onClick={() => setDetailRow(row)}>
+                          View details
+                        </Button>
+                        {row.status !== "REJECTED" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openSendToClient(row)}
+                            disabled={row.clientApproval?.status === "PENDING"}
+                          >
+                            {row.clientApproval?.status === "PENDING" ? "Client Pending" : "Send to Client"}
+                          </Button>
+                        ) : null}
                         {row.status === "PENDING" ? (
                           <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openSendToClient(row)}
-                              disabled={row.clientApproval?.status === "PENDING" || !(row.job?.property?.id || row.property?.id)}
-                            >
-                              {row.clientApproval?.status === "PENDING" ? "Client Pending" : "Send to Client"}
-                            </Button>
                             <Button
                               size="sm"
                               onClick={() => openApprove(row)}
@@ -335,6 +356,119 @@ export default function AdminPayAdjustmentsPage() {
               {sendingClientApproval ? "Sending..." : "Send to Client"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(detailRow)} onOpenChange={(open) => !open && setDetailRow(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Extra Pay Request Details</DialogTitle>
+          </DialogHeader>
+          {detailRow ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Request title</p>
+                  <p className="text-sm font-medium">{detailRow.title || "Pay request"}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <div className="mt-1">
+                    <Badge variant={detailRow.status === "PENDING" ? ("warning" as any) : detailRow.status === "APPROVED" ? "success" : "destructive"}>
+                      {detailRow.status}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Scope and type</p>
+                  <p className="text-sm font-medium">{detailRow.scope} / {detailRow.type}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Requested amount</p>
+                  <p className="text-sm font-medium">{formatMoney(detailRow.requestedAmount)}</p>
+                  {detailRow.type === "HOURLY" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {detailRow.requestedHours ?? 0}h x {formatMoney(detailRow.requestedRate)}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Requested on</p>
+                  <p className="text-sm font-medium">{formatDateTimeSafe(detailRow.requestedAt)}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Approved amount</p>
+                  <p className="text-sm font-medium">{formatMoney(detailRow.approvedAmount)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">Cleaner</p>
+                <p className="text-sm font-medium">{detailRow.cleaner.name ?? detailRow.cleaner.email}</p>
+                <p className="text-xs text-muted-foreground">{detailRow.cleaner.email}</p>
+              </div>
+
+              {(detailRow.job || detailRow.property) ? (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Linked property</p>
+                  <p className="text-sm font-medium">
+                    {detailRow.job?.property?.name ?? detailRow.property?.name ?? "No property linked"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {detailRow.job?.property?.suburb ?? detailRow.property?.suburb ?? ""}
+                  </p>
+                  {detailRow.job ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Job date: {formatDateSafe(detailRow.job.scheduledDate)} | {detailRow.job.jobType.replace(/_/g, " ")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {detailRow.cleanerNote ? (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Cleaner note</p>
+                  <p className="text-sm whitespace-pre-wrap">{detailRow.cleanerNote}</p>
+                </div>
+              ) : null}
+
+              {detailRow.adminNote ? (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Admin note</p>
+                  <p className="text-sm whitespace-pre-wrap">{detailRow.adminNote}</p>
+                </div>
+              ) : null}
+
+              {detailRow.clientApproval ? (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Client approval</p>
+                  <p className="text-sm font-medium">
+                    {detailRow.clientApproval.status} - {detailRow.clientApproval.currency} {detailRow.clientApproval.amount.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Requested {formatDateTimeSafe(detailRow.clientApproval.requestedAt)}
+                    {detailRow.clientApproval.respondedAt
+                      ? ` | Responded ${formatDateTimeSafe(detailRow.clientApproval.respondedAt)}`
+                      : ""}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Attachments</p>
+                <MediaGallery
+                  items={(detailRow.attachmentUrls ?? []).map((item) => ({
+                    id: item.key,
+                    url: item.url,
+                    label: "Pay request evidence",
+                    mediaType: "PHOTO",
+                  }))}
+                  emptyText="No images attached"
+                  title="Pay request attachment"
+                />
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send } from "lucide-react";
+import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2 } from "lucide-react";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
@@ -227,6 +227,11 @@ export default function JobDetailPage() {
     transportAllowance: "",
   });
   const [templateName, setTemplateName] = useState("");
+  const [editingSubmissionId, setEditingSubmissionId] = useState<string | null>(null);
+  const [submissionEditData, setSubmissionEditData] = useState<Record<string, any>>({});
+  const [submissionEditLaundry, setSubmissionEditLaundry] = useState<{ laundryReady: boolean | null; laundryOutcome: string | null; bagLocation: string }>({ laundryReady: null, laundryOutcome: null, bagLocation: "" });
+  const [submissionDeleteMediaIds, setSubmissionDeleteMediaIds] = useState<string[]>([]);
+  const [savingSubmission, setSavingSubmission] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState({ date: "", startTime: "", dueTime: "", reason: "" });
   const [rescheduling, setRescheduling] = useState(false);
@@ -249,61 +254,68 @@ export default function JobDetailPage() {
     lateCheckout: { enabled: false, preset: "none" as JobTimingPreset, time: "" },
   });
 
-  function load() {
-    fetch(`/api/admin/jobs/${params.id}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        setJob(j);
-        if (!j?.error) {
-          const meta = j.jobMeta ?? parseJobInternalNotes(j.internalNotes);
-          const scheduledDate = j?.scheduledDate ? toLocalDateInput(j.scheduledDate) : "";
-          const assignedCleanerIds = Array.isArray(j?.assignments)
-            ? j.assignments
-                .map((assignment: any) => assignment?.userId ?? assignment?.user?.id)
-                .filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
-            : [];
-          setEditForm({
-            status: j.status ?? "UNASSIGNED",
-            scheduledDate,
-            startTime: j.startTime ?? "",
-            dueTime: j.dueTime ?? "",
-            endTime: j.endTime ?? "",
-            estimatedHours: j.estimatedHours != null ? String(j.estimatedHours) : "",
-            notes: j.notes ?? "",
-            internalNotes: meta.internalNoteText ?? "",
-            isDraft: meta.isDraft ?? false,
-            tagsText: Array.isArray(meta.tags) ? meta.tags.join(", ") : "",
-            attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
-            specialRequestTasks: Array.isArray(meta.specialRequestTasks) ? meta.specialRequestTasks : [],
-            transportAllowances: Object.fromEntries(
-              Object.entries(meta.transportAllowances ?? {}).map(([userId, amount]) => [userId, String(amount)])
-            ),
-            earlyCheckin: {
-              enabled: meta.earlyCheckin?.enabled === true,
-              preset: meta.earlyCheckin?.preset ?? "none",
-              time:
-                meta.earlyCheckin?.preset === "custom"
-                  ? meta.earlyCheckin?.time ?? ""
-                  : meta.earlyCheckin?.preset && meta.earlyCheckin?.preset !== "none"
-                    ? meta.earlyCheckin.preset
-                    : "",
-            },
-            lateCheckout: {
-              enabled: meta.lateCheckout?.enabled === true,
-              preset: meta.lateCheckout?.preset ?? "none",
-              time:
-                meta.lateCheckout?.preset === "custom"
-                  ? meta.lateCheckout?.time ?? ""
-                  : meta.lateCheckout?.preset && meta.lateCheckout?.preset !== "none"
-                    ? meta.lateCheckout.preset
-                    : "",
-            },
-          });
-          setSelectedCleaners(assignedCleanerIds);
-          setTemplateName(`${j.jobType?.replace(/_/g, " ")} template`);
-        }
-        setLoading(false);
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${params.id}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.error) {
+        setJob({ error: j?.error ?? "Could not load this job." });
+        return;
+      }
+
+      setJob(j);
+      const meta = j.jobMeta ?? parseJobInternalNotes(j.internalNotes);
+      const scheduledDate = j?.scheduledDate ? toLocalDateInput(j.scheduledDate) : "";
+      const assignedCleanerIds = Array.isArray(j?.assignments)
+        ? j.assignments
+            .map((assignment: any) => assignment?.userId ?? assignment?.user?.id)
+            .filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+        : [];
+      setEditForm({
+        status: j.status ?? "UNASSIGNED",
+        scheduledDate,
+        startTime: j.startTime ?? "",
+        dueTime: j.dueTime ?? "",
+        endTime: j.endTime ?? "",
+        estimatedHours: j.estimatedHours != null ? String(j.estimatedHours) : "",
+        notes: j.notes ?? "",
+        internalNotes: meta.internalNoteText ?? "",
+        isDraft: meta.isDraft ?? false,
+        tagsText: Array.isArray(meta.tags) ? meta.tags.join(", ") : "",
+        attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
+        specialRequestTasks: Array.isArray(meta.specialRequestTasks) ? meta.specialRequestTasks : [],
+        transportAllowances: Object.fromEntries(
+          Object.entries(meta.transportAllowances ?? {}).map(([userId, amount]) => [userId, String(amount)])
+        ),
+        earlyCheckin: {
+          enabled: meta.earlyCheckin?.enabled === true,
+          preset: meta.earlyCheckin?.preset ?? "none",
+          time:
+            meta.earlyCheckin?.preset === "custom"
+              ? meta.earlyCheckin?.time ?? ""
+              : meta.earlyCheckin?.preset && meta.earlyCheckin?.preset !== "none"
+                ? meta.earlyCheckin.preset
+                : "",
+        },
+        lateCheckout: {
+          enabled: meta.lateCheckout?.enabled === true,
+          preset: meta.lateCheckout?.preset ?? "none",
+          time:
+            meta.lateCheckout?.preset === "custom"
+              ? meta.lateCheckout?.time ?? ""
+              : meta.lateCheckout?.preset && meta.lateCheckout?.preset !== "none"
+                ? meta.lateCheckout.preset
+                : "",
+        },
       });
+      setSelectedCleaners(assignedCleanerIds);
+      setTemplateName(`${j.jobType?.replace(/_/g, " ")} template`);
+    } catch (err: any) {
+      setJob({ error: err?.message ?? "Could not load this job." });
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadTimeline() {
@@ -547,6 +559,56 @@ export default function JobDetailPage() {
       title: body.clientVisible ? "Report visible to client" : "Report hidden from client",
     });
     load();
+  }
+
+  function startEditSubmission(sub: any) {
+    const answers = sub?.data && typeof sub.data === "object" ? { ...sub.data } : {};
+    setSubmissionEditData(answers);
+    setSubmissionEditLaundry({
+      laundryReady: sub.laundryReady ?? null,
+      laundryOutcome: sub.laundryOutcome ?? null,
+      bagLocation: sub.bagLocation ?? "",
+    });
+    setSubmissionDeleteMediaIds([]);
+    setEditingSubmissionId(sub.id);
+  }
+
+  function cancelEditSubmission() {
+    setEditingSubmissionId(null);
+    setSubmissionEditData({});
+    setSubmissionDeleteMediaIds([]);
+  }
+
+  async function saveSubmissionEdit(submissionId: string) {
+    setSavingSubmission(true);
+    try {
+      const body: Record<string, any> = {
+        data: submissionEditData,
+        laundryReady: submissionEditLaundry.laundryReady,
+        laundryOutcome: submissionEditLaundry.laundryOutcome || null,
+        bagLocation: submissionEditLaundry.bagLocation || null,
+      };
+      if (submissionDeleteMediaIds.length > 0) {
+        body.deleteMediaIds = submissionDeleteMediaIds;
+      }
+      const res = await fetch(`/api/admin/form-submissions/${submissionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Save failed", description: data.error ?? "Could not update submission.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Submission updated" });
+      setEditingSubmissionId(null);
+      setSubmissionEditData({});
+      setSubmissionDeleteMediaIds([]);
+      load();
+    } finally {
+      setSavingSubmission(false);
+    }
   }
 
   async function saveJobChanges() {
@@ -869,7 +931,16 @@ export default function JobDetailPage() {
   }
 
   if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>;
-  if (!job || job.error) return <div className="p-8 text-destructive">Job not found.</div>;
+  if (!job || job.error) {
+    return <div className="p-8 text-destructive">{String(job?.error ?? "Job not found.")}</div>;
+  }
+  if (!job.property) {
+    return (
+      <div className="p-8 text-destructive">
+        This job is missing its linked property record. Open the jobs list and recreate the job with a valid property.
+      </div>
+    );
+  }
   const jobMeta = job.jobMeta ?? parseJobInternalNotes(job.internalNotes);
   const serviceContext = jobMeta.serviceContext ?? {};
   const reservationContext = jobMeta.reservationContext ?? {};
@@ -884,6 +955,12 @@ export default function JobDetailPage() {
   const transportAllowanceCleanerIds = Array.from(
     new Set([...selectedCleaners, ...Object.keys(editForm.transportAllowances ?? {})])
   );
+  const scheduledDateLabel = job?.scheduledDate
+    ? (() => {
+        const parsed = new Date(job.scheduledDate);
+        return Number.isNaN(parsed.getTime()) ? "Date not set" : format(parsed, "EEEE dd MMMM yyyy");
+      })()
+    : "Date not set";
 
   return (
     <div className="space-y-6">
@@ -897,7 +974,7 @@ export default function JobDetailPage() {
           <h2 className="text-xl font-bold">{job.property.name}</h2>
           <p className="text-sm text-muted-foreground">
             {job.property.address}, {job.property.suburb} - {job.jobType.replace(/_/g, " ")} - {" "}
-            {format(new Date(job.scheduledDate), "EEEE dd MMMM yyyy")}
+            {scheduledDateLabel}
             {job.startTime && ` - ${job.startTime}${job.dueTime ? ` to ${job.dueTime}` : ""}`}
           </p>
         </div>
@@ -1767,46 +1844,115 @@ export default function JobDetailPage() {
           {job.formSubmissions.length > 0 ? (
             <div className="space-y-4">
               {job.formSubmissions.map((sub: any) => {
-                const answers = sub?.data && typeof sub.data === "object" ? sub.data : {};
+                const isEditing = editingSubmissionId === sub.id;
+                const answers = isEditing ? submissionEditData : (sub?.data && typeof sub.data === "object" ? sub.data : {});
                 const sections = Array.isArray(sub?.template?.schema?.sections) ? sub.template.schema.sections : [];
                 const property = (job?.property ?? {}) as Record<string, unknown>;
 
                 return (
                   <Card key={sub.id}>
                     <CardHeader>
-                      <CardTitle className="text-sm">
-                        {sub.template?.name} - by {sub.submittedBy?.name} - {format(new Date(sub.createdAt), "dd MMM HH:mm")}
-                      </CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm">
+                          {sub.template?.name} - by {sub.submittedBy?.name} - {format(new Date(sub.createdAt), "dd MMM HH:mm")}
+                        </CardTitle>
+                        {!isEditing ? (
+                          <Button size="sm" variant="outline" onClick={() => startEditSubmission(sub)}>
+                            <Pencil className="mr-1 h-3 w-3" />
+                            Edit
+                          </Button>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={cancelEditSubmission} disabled={savingSubmission}>
+                              <X className="mr-1 h-3 w-3" />
+                              Cancel
+                            </Button>
+                            <Button size="sm" onClick={() => saveSubmissionEdit(sub.id)} disabled={savingSubmission}>
+                              <Check className="mr-1 h-3 w-3" />
+                              {savingSubmission ? "Saving..." : "Save changes"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {sub.laundryReady !== null && (
-                          <Badge variant={sub.laundryReady ? "default" : "secondary"}>
-                            Laundry {sub.laundryReady ? "Ready" : "Not ready"}
-                          </Badge>
-                        )}
-                        {sub.bagLocation ? <span className="text-xs text-muted-foreground">Bag location: {sub.bagLocation}</span> : null}
-                      </div>
-                      <div>
-                        <p className="mb-2 text-xs font-medium text-muted-foreground">Submission Media (batch preview)</p>
-                        <MediaGallery
-                          items={(sub.media ?? []).map((m: any) => ({
-                            id: m.id,
-                            url: m.url,
-                            label: m.label ?? m.fieldId,
-                            mediaType: m.mediaType,
-                          }))}
-                          emptyText="No uploaded media"
-                          title="Submission Media"
-                        />
-                      </div>
+                      {isEditing ? (
+                        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                          <p className="text-xs font-medium text-muted-foreground">Laundry &amp; bag details</p>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Laundry ready</Label>
+                              <Select
+                                value={submissionEditLaundry.laundryReady === null ? "null" : submissionEditLaundry.laundryReady ? "true" : "false"}
+                                onValueChange={(v) => setSubmissionEditLaundry((prev) => ({ ...prev, laundryReady: v === "null" ? null : v === "true" }))}
+                              >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="null">Not set</SelectItem>
+                                  <SelectItem value="true">Ready</SelectItem>
+                                  <SelectItem value="false">Not ready</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Laundry outcome</Label>
+                              <Select
+                                value={submissionEditLaundry.laundryOutcome ?? "null"}
+                                onValueChange={(v) => setSubmissionEditLaundry((prev) => ({ ...prev, laundryOutcome: v === "null" ? null : v }))}
+                              >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="null">Not set</SelectItem>
+                                  <SelectItem value="PENDING">Pending</SelectItem>
+                                  <SelectItem value="COLLECTED">Collected</SelectItem>
+                                  <SelectItem value="DELIVERED">Delivered</SelectItem>
+                                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Bag location</Label>
+                              <Input
+                                value={submissionEditLaundry.bagLocation}
+                                onChange={(e) => setSubmissionEditLaundry((prev) => ({ ...prev, bagLocation: e.target.value }))}
+                                placeholder="e.g. front door"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {sub.laundryReady !== null && (
+                            <Badge variant={sub.laundryReady ? "default" : "secondary"}>
+                              Laundry {sub.laundryReady ? "Ready" : "Not ready"}
+                            </Badge>
+                          )}
+                          {sub.bagLocation ? <span className="text-xs text-muted-foreground">Bag location: {sub.bagLocation}</span> : null}
+                        </div>
+                      )}
+
+                      {!isEditing && (
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-muted-foreground">Submission Media (batch preview)</p>
+                          <MediaGallery
+                            items={(sub.media ?? []).map((m: any) => ({
+                              id: m.id,
+                              url: m.url,
+                              label: m.label ?? m.fieldId,
+                              mediaType: m.mediaType,
+                            }))}
+                            emptyText="No uploaded media"
+                            title="Submission Media"
+                          />
+                        </div>
+                      )}
 
                       <div className="space-y-4">
                         {sections
-                          .filter((section: any) => isConditionMet(section?.conditional, answers, property))
+                          .filter((section: any) => isConditionMet(section?.conditional, isEditing ? submissionEditData : answers, property))
                           .map((section: any) => {
                             const fields = (Array.isArray(section?.fields) ? section.fields : []).filter((field: any) =>
-                              isConditionMet(field?.conditional, answers, property)
+                              isConditionMet(field?.conditional, isEditing ? submissionEditData : answers, property)
                             );
                             if (fields.length === 0) return null;
 
@@ -1815,14 +1961,84 @@ export default function JobDetailPage() {
                                 <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{section.label}</div>
                                 <div className="divide-y">
                                   {fields.map((field: any) => {
-                                    const answers = sub?.data && typeof sub.data === "object" ? sub.data : {};
+                                    const fieldAnswers = isEditing ? submissionEditData : (sub?.data && typeof sub.data === "object" ? sub.data : {});
                                     const isCheckbox = field.type === "checkbox";
-                                    const checked = isCheckbox ? answers[field.id] === true : false;
-                                    const label = isCheckbox
+                                    const isUpload = field.type === "upload";
+                                    const isTextarea = field.type === "textarea";
+                                    const isReadOnly = field.type === "inventory" || field.type === "laundry_confirm";
+                                    const checked = isCheckbox ? fieldAnswers[field.id] === true : false;
+                                    const label = isCheckbox && !isEditing
                                       ? `${checkboxMark(checked)} ${String(field.label ?? field.id ?? "Checklist item")}`
                                       : String(field.label ?? field.id ?? "Checklist item");
                                     const value = renderFieldValue(field, sub);
                                     const mediaForField = (sub.media ?? []).filter((m: any) => m.fieldId === field.id);
+                                    const pendingDelete = submissionDeleteMediaIds;
+
+                                    if (isEditing && !isReadOnly) {
+                                      return (
+                                        <div key={field.id} className="px-3 py-2 space-y-1.5">
+                                          <Label className="text-sm">{String(field.label ?? field.id ?? "Field")}</Label>
+                                          {isCheckbox && (
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                type="checkbox"
+                                                id={`sub-field-${field.id}`}
+                                                checked={submissionEditData[field.id] === true}
+                                                onChange={(e) => setSubmissionEditData((prev) => ({ ...prev, [field.id]: e.target.checked }))}
+                                                className="h-4 w-4"
+                                              />
+                                              <label htmlFor={`sub-field-${field.id}`} className="text-sm text-muted-foreground">
+                                                {field.label ?? field.id}
+                                              </label>
+                                            </div>
+                                          )}
+                                          {isTextarea && (
+                                            <Textarea
+                                              value={String(submissionEditData[field.id] ?? "")}
+                                              onChange={(e) => setSubmissionEditData((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                                              rows={3}
+                                            />
+                                          )}
+                                          {!isCheckbox && !isTextarea && !isUpload && (
+                                            <Input
+                                              value={String(submissionEditData[field.id] ?? "")}
+                                              onChange={(e) => setSubmissionEditData((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                                            />
+                                          )}
+                                          {isUpload && mediaForField.length > 0 && (
+                                            <div className="space-y-1">
+                                              <p className="text-xs text-muted-foreground">Existing media (click to remove)</p>
+                                              <div className="flex flex-wrap gap-2">
+                                                {mediaForField.map((m: any) => {
+                                                  const marked = pendingDelete.includes(m.id);
+                                                  return (
+                                                    <div key={m.id} className="relative">
+                                                      <img
+                                                        src={m.url}
+                                                        alt={m.label ?? m.fieldId}
+                                                        className={`h-16 w-16 rounded object-cover border ${marked ? "opacity-40 ring-2 ring-destructive" : ""}`}
+                                                      />
+                                                      <button
+                                                        type="button"
+                                                        className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground p-0.5"
+                                                        onClick={() =>
+                                                          setSubmissionDeleteMediaIds((prev) =>
+                                                            marked ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                                                          )
+                                                        }
+                                                      >
+                                                        <Trash2 className="h-3 w-3" />
+                                                      </button>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+
                                     return (
                                       <div key={field.id} className="px-3 py-2">
                                         <div className="flex items-start justify-between gap-4">

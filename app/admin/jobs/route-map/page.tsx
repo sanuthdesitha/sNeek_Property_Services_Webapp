@@ -18,6 +18,11 @@ function getDefaultDate() {
   return format(new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate()), "yyyy-MM-dd");
 }
 
+function getTomorrowDate() {
+  const zoned = toZonedTime(new Date(), TZ);
+  return format(new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate() + 1), "yyyy-MM-dd");
+}
+
 function resolveDate(value: string | string[] | undefined) {
   const candidate = Array.isArray(value) ? value[0] : value;
   return candidate && isMatch(candidate, "yyyy-MM-dd") ? candidate : getDefaultDate();
@@ -31,6 +36,8 @@ export default async function AdminRouteMapPage({
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   const date = resolveDate(searchParams?.date);
+  const todayDate = getDefaultDate();
+  const tomorrowDate = getTomorrowDate();
   const routes = await buildDailyRoutePlan(date);
   const totalStops = routes.reduce((sum, route) => sum + route.stops.length, 0);
 
@@ -54,6 +61,12 @@ export default async function AdminRouteMapPage({
             />
           </label>
           <Button type="submit" size="sm">Load routes</Button>
+          <Button asChild type="button" size="sm" variant={date === todayDate ? "default" : "outline"}>
+            <Link href={`/admin/jobs/route-map?date=${todayDate}`}>Today</Link>
+          </Button>
+          <Button asChild type="button" size="sm" variant={date === tomorrowDate ? "default" : "outline"}>
+            <Link href={`/admin/jobs/route-map?date=${tomorrowDate}`}>Tomorrow</Link>
+          </Button>
           <Button asChild type="button" size="sm" variant="outline">
             <Link href={`/admin/ops/map?date=${date}`}>Live ops map</Link>
           </Button>

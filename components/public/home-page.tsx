@@ -80,6 +80,7 @@ type QuoteEstimatorState = {
 type LiveQuoteState = {
   total: number;
   subtotal: number;
+  gst: number;
   pricingMode: "exact" | "fallback";
   requiresAdminApproval: boolean;
 } | null;
@@ -170,6 +171,7 @@ export function HomePage({
           setLiveQuote({
             total: Number(body.total ?? 0),
             subtotal: Number(body.subtotal ?? 0),
+            gst: Number(body.gst ?? 0),
             pricingMode: body.pricingMode === "exact" ? "exact" : "fallback",
             requiresAdminApproval: body.requiresAdminApproval !== false,
           });
@@ -482,7 +484,8 @@ export function HomePage({
                     <div>
                       <p className="text-3xl font-semibold text-foreground">From ${liveQuote.total.toFixed(2)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        GST included. {liveQuote.pricingMode === "exact" ? "Matched from active pricing." : "Condition-based guide pending final review."}
+                        {liveQuote.gst > 0 ? "GST included." : "GST not applied."}{" "}
+                        {liveQuote.pricingMode === "exact" ? "Matched from active pricing." : "Condition-based guide pending final review."}
                       </p>
                     </div>
                     <Button asChild className="rounded-full">

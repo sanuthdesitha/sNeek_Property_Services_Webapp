@@ -3,6 +3,8 @@ import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
 import { db } from "@/lib/db";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
+import { getAppSettings } from "@/lib/settings";
+import { calculateGstBreakdown } from "@/lib/pricing/gst";
 
 function money(value: number) {
   return `$${value.toFixed(2)}`;
@@ -94,7 +96,7 @@ export async function generateClientInvoice(input: {
   periodStart?: Date | null;
   periodEnd?: Date | null;
 }) {
-  const [client, rates, existingInvoiced] = await Promise.all([
+  const [client, rates, existingInvoiced, settings] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
     db.propertyClientRate.findMany({
       where: {
@@ -110,6 +112,7 @@ export async function generateClientInvoice(input: {
       },
       select: { jobId: true },
     }),
+    getAppSettings(),
   ]);
   if (!client) {
     throw new Error("Client not found.");
@@ -252,9 +255,10 @@ export async function generateClientInvoice(input: {
     throw new Error("No billable completed jobs found for the selected client and period.");
   }
 
-  const subtotal = Number(allLines.reduce((sum, line) => sum + line.lineTotal, 0).toFixed(2));
-  const gstAmount = Number((subtotal * 0.1).toFixed(2));
-  const totalAmount = Number((subtotal + gstAmount).toFixed(2));
+  const { subtotal, gstAmount, totalAmount } = calculateGstBreakdown(
+    allLines.reduce((sum, line) => sum + line.lineTotal, 0),
+    settings.pricing
+  );
 
   const invoice = await db.clientInvoice.create({
     data: {
@@ -339,6 +343,16 @@ export function buildClientInvoiceHtml(invoice: NonNullable<Awaited<ReturnType<t
     })
     .join("");
 
+  const gstSummaryHtml =
+    Number(invoice.gstAmount ?? 0) > 0
+      ? `
+          <div style="display:flex;justify-content:space-between;padding:8px 0;">
+            <span>GST</span>
+            <strong>${money(invoice.gstAmount)}</strong>
+          </div>
+        `
+      : "";
+
   return `
     <html>
       <body style="font-family:Arial,sans-serif;color:#111827;margin:32px;">
@@ -378,10 +392,7 @@ export function buildClientInvoiceHtml(invoice: NonNullable<Awaited<ReturnType<t
             <span>Subtotal</span>
             <strong>${money(invoice.subtotal)}</strong>
           </div>
-          <div style="display:flex;justify-content:space-between;padding:8px 0;">
-            <span>GST</span>
-            <strong>${money(invoice.gstAmount)}</strong>
-          </div>
+          ${gstSummaryHtml}
           <div style="display:flex;justify-content:space-between;padding:12px 0;border-top:2px solid #111827;font-size:18px;">
             <span>Total</span>
             <strong>${money(invoice.totalAmount)}</strong>
@@ -397,6 +408,7 @@ export async function renderClientInvoicePdf(invoice: NonNullable<Awaited<Return
 }
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {
+  const taxType = Number(invoice.gstAmount ?? 0) > 0 ? "OUTPUT" : "NONE";
   const header = [
     "ContactName",
     "EmailAddress",
@@ -418,7 +430,7 @@ export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<Ret
     line.description,
     line.quantity.toFixed(2),
     line.unitPrice.toFixed(2),
-    "OUTPUT",
+    taxType,
     line.job?.jobNumber || line.job?.id || line.id,
   ]);
   return [header, ...rows]

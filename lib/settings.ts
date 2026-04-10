@@ -159,6 +159,10 @@ export interface QaAutomationSettings {
   createIssueTicket: boolean;
 }
 
+export interface PricingSettings {
+  gstEnabled: boolean;
+}
+
 export type PropertyFormTemplateOverrides = Record<string, Partial<Record<JobType, string>>>;
 
 export type PortalTheme = "dark" | "light" | "public";
@@ -197,6 +201,7 @@ export interface AppSettings {
   autoAssign: AutoAssignSettings;
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
+  pricing: PricingSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
   notificationTemplates: AppNotificationTemplates;
@@ -370,6 +375,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoCreateReworkJob: true,
     reworkDelayHours: 24,
     createIssueTicket: true,
+  },
+  pricing: {
+    gstEnabled: true,
   },
   propertyFormTemplateOverrides: {},
   emailTemplates: getDefaultEmailTemplates(),
@@ -735,6 +743,14 @@ function sanitizeQaAutomationSettings(
   };
 }
 
+function sanitizePricingSettings(input: unknown, fallback: PricingSettings): PricingSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  return {
+    gstEnabled: typeof row.gstEnabled === "boolean" ? row.gstEnabled : fallback.gstEnabled,
+  };
+}
+
 function sanitizePropertyFormTemplateOverrides(
   input: unknown,
   fallback: PropertyFormTemplateOverrides
@@ -925,6 +941,7 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).qaAutomation,
       DEFAULT_SETTINGS.qaAutomation
     ),
+    pricing: sanitizePricingSettings((parsed as any).pricing, DEFAULT_SETTINGS.pricing),
     propertyFormTemplateOverrides: sanitizePropertyFormTemplateOverrides(
       (parsed as any).propertyFormTemplateOverrides,
       DEFAULT_SETTINGS.propertyFormTemplateOverrides
@@ -970,6 +987,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    pricing: input.pricing ?? current.pricing,
     websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
     scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,

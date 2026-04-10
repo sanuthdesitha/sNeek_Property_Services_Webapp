@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 
 const SERVICE_TYPES: Array<{ value: JobType; label: string }> = [
   { value: JobType.AIRBNB_TURNOVER, label: "Airbnb Turnover" },
@@ -47,9 +48,10 @@ interface LeadOption {
 
 interface NewQuoteFormProps {
   leads: LeadOption[];
+  gstEnabled: boolean;
 }
 
-export function NewQuoteForm({ leads }: NewQuoteFormProps) {
+export function NewQuoteForm({ leads, gstEnabled }: NewQuoteFormProps) {
   const router = useRouter();
   const [leadId, setLeadId] = useState<string>("none");
   const [serviceType, setServiceType] = useState<ServiceType>("AIRBNB_TURNOVER");
@@ -80,9 +82,14 @@ export function NewQuoteForm({ leads }: NewQuoteFormProps) {
   const conditionMultiplier = 0.8 + conditionN * 0.1; // 1=>0.9, 3=>1.1, 5=>1.3
   const baseBySize = bedsN * 65 + bathsN * 45 + floorsN * 25 + sqmN * 0.9;
   const addOnsTotal = steamRoomsN * 65 + windowSqmN * 6 + pressureSqmN * 8;
-  const subtotal = Math.max(0, Number(((baseBySize + addOnsTotal) * conditionMultiplier + adjustmentN).toFixed(2)));
-  const gstAmount = useMemo(() => Number((subtotal * 0.1).toFixed(2)), [subtotal]);
-  const totalAmount = useMemo(() => Number((subtotal + gstAmount).toFixed(2)), [subtotal, gstAmount]);
+  const { subtotal, gstAmount, totalAmount } = useMemo(
+    () =>
+      calculateGstBreakdown((baseBySize + addOnsTotal) * conditionMultiplier + adjustmentN, {
+        gstEnabled,
+      }),
+    [addOnsTotal, adjustmentN, baseBySize, conditionMultiplier, gstEnabled]
+  );
+  const gstLabel = useMemo(() => getGstDisplayLabel({ gstEnabled }), [gstEnabled]);
 
   function buildPayload() {
     return {
@@ -313,7 +320,7 @@ export function NewQuoteForm({ leads }: NewQuoteFormProps) {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Manual adjustment (+/- ex GST)</Label>
+            <Label>Manual adjustment {gstEnabled ? "(+/- ex GST)" : "(+/- tax free)"}</Label>
             <Input type="number" step="0.01" value={manualAdjustment} onChange={(e) => setManualAdjustment(e.target.value)} />
           </div>
 
@@ -323,7 +330,7 @@ export function NewQuoteForm({ leads }: NewQuoteFormProps) {
               <p className="text-lg font-semibold">${subtotal.toFixed(2)}</p>
             </div>
             <div className="rounded-md border p-3">
-              <p className="text-xs text-muted-foreground">GST (10%)</p>
+              <p className="text-xs text-muted-foreground">{gstLabel}</p>
               <p className="text-lg font-semibold">${gstAmount.toFixed(2)}</p>
             </div>
             <div className="rounded-md border p-3">

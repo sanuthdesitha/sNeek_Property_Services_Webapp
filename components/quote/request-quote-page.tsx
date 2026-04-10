@@ -664,7 +664,11 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                       <div>
                         <p className="text-sm text-muted-foreground">Estimated total</p>
                         <p className="text-4xl font-semibold text-primary">{formatCurrency(result.total ?? 0)}</p>
-                        <p className="text-xs text-muted-foreground">Includes GST of {formatCurrency(result.gst ?? 0)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {Number(result.gst ?? 0) > 0
+                            ? `Includes GST of ${formatCurrency(result.gst ?? 0)}`
+                            : "GST is not applied to this estimate."}
+                        </p>
                       </div>
                       <div className="space-y-2 text-sm">
                         {(result.lineItems ?? []).map((item) => (

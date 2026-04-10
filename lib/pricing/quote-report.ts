@@ -80,6 +80,10 @@ export function buildQuoteHtml(quote: any, branding?: { companyName?: string; lo
         )
         .join("")
     : "";
+  const gstSummaryHtml =
+    Number(quote.gstAmount ?? 0) > 0
+      ? `<p style="margin:2px 0;text-align:right;"><strong>GST:</strong> $${Number(quote.gstAmount).toFixed(2)}</p>`
+      : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -128,7 +132,7 @@ export function buildQuoteHtml(quote: any, branding?: { companyName?: string; lo
 
     <div style="margin-top:18px;">
       <p style="margin:2px 0;text-align:right;"><strong>Subtotal:</strong> $${Number(quote.subtotal).toFixed(2)}</p>
-      <p style="margin:2px 0;text-align:right;"><strong>GST:</strong> $${Number(quote.gstAmount).toFixed(2)}</p>
+      ${gstSummaryHtml}
       <p style="margin:6px 0;text-align:right;font-size:18px;"><strong>Total: $${Number(quote.totalAmount).toFixed(2)}</strong></p>
     </div>
 
