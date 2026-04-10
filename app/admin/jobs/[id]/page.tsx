@@ -1830,11 +1830,13 @@ export default function JobDetailPage() {
           {job.property.accessInfo && (
             <Card className="border-yellow-200 bg-yellow-50">
               <CardContent className="space-y-1 pt-4 text-sm">
-                {Object.entries(job.property.accessInfo as Record<string, string>).map(([k, v]) => (
-                  <p key={k}>
-                    <strong className="capitalize">{k}:</strong> {v}
-                  </p>
-                ))}
+                {Object.entries(job.property.accessInfo as Record<string, unknown>)
+                  .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
+                  .map(([k, v]) => (
+                    <p key={k}>
+                      <strong className="capitalize">{k.replace(/([A-Z])/g, " $1")}:</strong> {String(v)}
+                    </p>
+                  ))}
               </CardContent>
             </Card>
           )}
