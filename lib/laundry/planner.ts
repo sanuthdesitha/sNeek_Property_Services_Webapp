@@ -176,6 +176,7 @@ async function getPlannerJobs(weekStart?: Date) {
     jobType: "AIRBNB_TURNOVER",
     laundryTask: null,
     status: { not: "INVOICED" },
+    property: { laundryEnabled: true },
   };
 
   if (weekStart) {
@@ -200,6 +201,7 @@ async function getSyncPlannerJobs(options: { propertyId: string; fromDate: Date 
       jobType: "AIRBNB_TURNOVER",
       scheduledDate: { gte: normalizeDate(options.fromDate) },
       status: { not: "INVOICED" },
+      property: { laundryEnabled: true },
     },
     include: {
       property: true,

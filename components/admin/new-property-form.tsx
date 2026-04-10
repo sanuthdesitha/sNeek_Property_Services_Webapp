@@ -78,6 +78,7 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
     defaultCleanDurationHours: "3",
     maxGuestCount: "4",
     inventoryEnabled: false,
+    laundryEnabled: true,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
     hasBalcony: false,
@@ -234,6 +235,7 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
       accessInfo: accessPayload,
       linenBufferSets: Number(form.linenBufferSets) || 0,
       inventoryEnabled: form.inventoryEnabled,
+      laundryEnabled: form.laundryEnabled,
       defaultCheckinTime: form.defaultCheckinTime,
       defaultCheckoutTime: form.defaultCheckoutTime,
       hasBalcony: form.hasBalcony,
@@ -465,6 +467,16 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
               <Switch
                 checked={form.inventoryEnabled}
                 onCheckedChange={(value) => setForm((prev) => ({ ...prev, inventoryEnabled: value }))}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">Laundry Service Enabled</p>
+                <p className="text-xs text-muted-foreground">Disable to exclude this property from laundry scheduling entirely.</p>
+              </div>
+              <Switch
+                checked={form.laundryEnabled}
+                onCheckedChange={(value) => setForm((prev) => ({ ...prev, laundryEnabled: value }))}
               />
             </div>
           </div>

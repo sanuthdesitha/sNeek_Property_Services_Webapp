@@ -391,6 +391,7 @@ model Property {
   accessNotes            String?  @db.Text
   preferredCleanerUserId     String?
   showCleanerContactToClient Boolean  @default(false)
+  laundryEnabled             Boolean  @default(true) // false = no laundry service for this property
   isActive                   Boolean  @default(true)
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt

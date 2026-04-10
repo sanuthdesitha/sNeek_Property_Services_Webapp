@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2, Upload } from "lucide-react";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
@@ -182,6 +182,8 @@ function renderFieldValue(field: any, submission: any) {
 export default function JobDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") ?? "overview";
   const [job, setJob] = useState<any>(null);
   const [cleaners, setCleaners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -231,6 +233,8 @@ export default function JobDetailPage() {
   const [submissionEditData, setSubmissionEditData] = useState<Record<string, any>>({});
   const [submissionEditLaundry, setSubmissionEditLaundry] = useState<{ laundryReady: boolean | null; laundryOutcome: string | null; bagLocation: string }>({ laundryReady: null, laundryOutcome: null, bagLocation: "" });
   const [submissionDeleteMediaIds, setSubmissionDeleteMediaIds] = useState<string[]>([]);
+  const [submissionAddMedia, setSubmissionAddMedia] = useState<Array<{ url: string; s3Key: string; fieldId: string; mimeType: string; label: string }>>([]);
+  const [uploadingSubmissionMedia, setUploadingSubmissionMedia] = useState(false);
   const [savingSubmission, setSavingSubmission] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState({ date: "", startTime: "", dueTime: "", reason: "" });
@@ -577,6 +581,31 @@ export default function JobDetailPage() {
     setEditingSubmissionId(null);
     setSubmissionEditData({});
     setSubmissionDeleteMediaIds([]);
+    setSubmissionAddMedia([]);
+  }
+
+  async function uploadSubmissionMedia(files: FileList | null, fieldId: string) {
+    if (!files?.length) return;
+    setUploadingSubmissionMedia(true);
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("folder", "form-submissions");
+        const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+        if (!res.ok) throw new Error("Could not upload image.");
+        const { key, url } = await res.json();
+        setSubmissionAddMedia((prev) => [
+          ...prev,
+          { url, s3Key: key, fieldId, mimeType: file.type, label: file.name },
+        ]);
+      }
+      toast({ title: `${files.length} image(s) ready` });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err?.message ?? "Could not upload image.", variant: "destructive" });
+    } finally {
+      setUploadingSubmissionMedia(false);
+    }
   }
 
   async function saveSubmissionEdit(submissionId: string) {
@@ -590,6 +619,9 @@ export default function JobDetailPage() {
       };
       if (submissionDeleteMediaIds.length > 0) {
         body.deleteMediaIds = submissionDeleteMediaIds;
+      }
+      if (submissionAddMedia.length > 0) {
+        body.addMediaUrls = submissionAddMedia;
       }
       const res = await fetch(`/api/admin/form-submissions/${submissionId}`, {
         method: "PATCH",
@@ -605,6 +637,7 @@ export default function JobDetailPage() {
       setEditingSubmissionId(null);
       setSubmissionEditData({});
       setSubmissionDeleteMediaIds([]);
+      setSubmissionAddMedia([]);
       load();
     } finally {
       setSavingSubmission(false);
@@ -1592,7 +1625,7 @@ export default function JobDetailPage() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="overview">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="submission">Submission</TabsTrigger>
@@ -2007,34 +2040,77 @@ export default function JobDetailPage() {
                                               onChange={(e) => setSubmissionEditData((prev) => ({ ...prev, [field.id]: e.target.value }))}
                                             />
                                           )}
-                                          {isUpload && mediaForField.length > 0 && (
-                                            <div className="space-y-1">
-                                              <p className="text-xs text-muted-foreground">Existing media (click to remove)</p>
-                                              <div className="flex flex-wrap gap-2">
-                                                {mediaForField.map((m: any) => {
-                                                  const marked = pendingDelete.includes(m.id);
-                                                  return (
-                                                    <div key={m.id} className="relative">
-                                                      <img
-                                                        src={m.url}
-                                                        alt={m.label ?? m.fieldId}
-                                                        className={`h-16 w-16 rounded object-cover border ${marked ? "opacity-40 ring-2 ring-destructive" : ""}`}
-                                                      />
-                                                      <button
-                                                        type="button"
-                                                        className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground p-0.5"
-                                                        onClick={() =>
-                                                          setSubmissionDeleteMediaIds((prev) =>
-                                                            marked ? prev.filter((id) => id !== m.id) : [...prev, m.id]
-                                                          )
-                                                        }
-                                                      >
-                                                        <Trash2 className="h-3 w-3" />
-                                                      </button>
-                                                    </div>
-                                                  );
-                                                })}
-                                              </div>
+                                          {isUpload && (
+                                            <div className="space-y-2">
+                                              {mediaForField.length > 0 && (
+                                                <div className="space-y-1">
+                                                  <p className="text-xs text-muted-foreground">Existing media (click × to remove)</p>
+                                                  <div className="flex flex-wrap gap-2">
+                                                    {mediaForField.map((m: any) => {
+                                                      const marked = pendingDelete.includes(m.id);
+                                                      return (
+                                                        <div key={m.id} className="relative">
+                                                          <img
+                                                            src={m.url}
+                                                            alt={m.label ?? m.fieldId}
+                                                            className={`h-16 w-16 rounded object-cover border ${marked ? "opacity-40 ring-2 ring-destructive" : ""}`}
+                                                          />
+                                                          <button
+                                                            type="button"
+                                                            className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground p-0.5"
+                                                            onClick={() =>
+                                                              setSubmissionDeleteMediaIds((prev) =>
+                                                                marked ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                                                              )
+                                                            }
+                                                          >
+                                                            <Trash2 className="h-3 w-3" />
+                                                          </button>
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {submissionAddMedia.filter((m) => m.fieldId === field.id).length > 0 && (
+                                                <div className="space-y-1">
+                                                  <p className="text-xs text-muted-foreground">New images (will be saved)</p>
+                                                  <div className="flex flex-wrap gap-2">
+                                                    {submissionAddMedia
+                                                      .map((m, globalIdx) => ({ m, globalIdx }))
+                                                      .filter(({ m }) => m.fieldId === field.id)
+                                                      .map(({ m, globalIdx }) => (
+                                                        <div key={globalIdx} className="relative">
+                                                          <img src={m.url} alt={m.label} className="h-16 w-16 rounded object-cover border ring-2 ring-primary" />
+                                                          <button
+                                                            type="button"
+                                                            className="absolute -top-1 -right-1 rounded-full bg-destructive text-destructive-foreground p-0.5"
+                                                            onClick={() =>
+                                                              setSubmissionAddMedia((prev) => prev.filter((_, i) => i !== globalIdx))
+                                                            }
+                                                          >
+                                                            <Trash2 className="h-3 w-3" />
+                                                          </button>
+                                                        </div>
+                                                      ))}
+                                                  </div>
+                                                </div>
+                                              )}
+                                              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1.5 text-xs hover:bg-muted">
+                                                <Upload className="h-3 w-3" />
+                                                {uploadingSubmissionMedia ? "Uploading..." : "Add images"}
+                                                <input
+                                                  type="file"
+                                                  accept="image/*,video/*"
+                                                  multiple
+                                                  className="hidden"
+                                                  disabled={uploadingSubmissionMedia}
+                                                  onChange={(e) => {
+                                                    void uploadSubmissionMedia(e.target.files, field.id);
+                                                    e.currentTarget.value = "";
+                                                  }}
+                                                />
+                                              </label>
                                             </div>
                                           )}
                                         </div>

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +72,7 @@ export default function AdminApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("continuations");
   const [acting, setActing] = useState<string | null>(null);
+  const [payApproveAmounts, setPayApproveAmounts] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -255,55 +257,83 @@ export default function AdminApprovalsPage() {
 
           {/* ── Pay Adjustments ── */}
           {activeTab === "payAdjustments" && (
-            data.payAdjustments.length === 0 ? <Empty /> : data.payAdjustments.map((row) => (
-              <Card key={row.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold">
-                        Pay request — {row.cleaner?.name ?? "Cleaner"}
+            data.payAdjustments.length === 0 ? <Empty /> : data.payAdjustments.map((row) => {
+              const propertyName = row.job?.property?.name ?? row.property?.name ?? null;
+              const propertySuburb = row.job?.property?.suburb ?? row.property?.suburb ?? null;
+              const defaultAmount = String(Number(row.requestedAmount ?? 0).toFixed(2));
+              const approveAmount = payApproveAmounts[row.id] ?? defaultAmount;
+              return (
+                <Card key={row.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">
+                          {row.title || "Pay request"} — {row.cleaner?.name ?? "Cleaner"}
+                        </p>
+                        <StatusBadge status={row.status} />
+                        <span className="text-xs text-muted-foreground">{row.scope} / {row.type}</span>
+                      </div>
+                      {propertyName && (
+                        <p className="text-sm text-muted-foreground">
+                          {propertyName}{propertySuburb ? ` · ${propertySuburb}` : ""}
+                          {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+                        </p>
+                      )}
+                      {!propertyName && row.scope === "STANDALONE" && (
+                        <p className="text-sm text-muted-foreground">Standalone — no property linked</p>
+                      )}
+                      <p className="text-sm">
+                        <span className="font-medium">Requested:</span> ${Number(row.requestedAmount ?? 0).toFixed(2)}
+                        {row.type === "HOURLY" && row.requestedHours ? ` (${row.requestedHours}h × $${Number(row.requestedRate ?? 0).toFixed(2)})` : ""}
                       </p>
-                      <StatusBadge status={row.status} />
+                      {row.cleanerNote && <p className="text-sm text-muted-foreground">{row.cleanerNote}</p>}
+                      <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {row.job?.property?.name} · {row.job?.property?.suburb} ·{" "}
-                      Job #{row.job?.jobNumber ?? "—"}
-                    </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Amount:</span>{" "}
-                      ${Number(row.amount ?? 0).toFixed(2)}
-                      {row.adjustmentType ? ` · ${row.adjustmentType}` : ""}
-                    </p>
-                    {row.reason && <p className="text-sm text-muted-foreground">{row.reason}</p>}
-                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!!acting}
-                      onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
-                    >
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!!acting}
-                      onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
-                    >
-                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                      Reject
-                    </Button>
-                    {row.jobId && (
-                      <Button asChild size="sm" variant="ghost">
-                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="h-8 w-28 text-sm"
+                        value={approveAmount}
+                        onChange={(e) => setPayApproveAmounts((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                        placeholder="Approve $"
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!!acting}
+                        onClick={() => act(
+                          `/api/admin/pay-adjustments/${row.id}`,
+                          "PATCH",
+                          { status: "APPROVED", approvedAmount: Number(approveAmount) },
+                          "Approved"
+                        )}
+                      >
+                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                        Approve
                       </Button>
-                    )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!!acting}
+                        onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
+                      >
+                        <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                        Reject
+                      </Button>
+                      {row.jobId && (
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                        </Button>
+                      )}
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href="/admin/pay-adjustments">All requests</Link>
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))
+                </Card>
+              );
+            })
           )}
 
           {/* ── Time Adjustments ── */}
@@ -322,8 +352,8 @@ export default function AdminApprovalsPage() {
                       {row.job?.property?.name} · {row.job?.property?.suburb} ·{" "}
                       Job #{row.job?.jobNumber ?? "—"}
                     </p>
-                    {row.reason && <p className="text-sm text-muted-foreground">{row.reason}</p>}
-                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                    {(row.reason || row.cleanerNote) && <p className="text-sm text-muted-foreground">{row.reason || row.cleanerNote}</p>}
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt ?? row.createdAt)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button

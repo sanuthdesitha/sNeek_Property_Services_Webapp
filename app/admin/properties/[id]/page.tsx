@@ -107,6 +107,7 @@ export default function PropertyDetailPage() {
     defaultCleanDurationHours: "3",
     maxGuestCount: "4",
     inventoryEnabled: false,
+    laundryEnabled: true,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
     hasBalcony: false,
@@ -174,6 +175,7 @@ export default function PropertyDetailPage() {
           ? String(access.maxGuestCount)
           : "4",
       inventoryEnabled: Boolean(data.inventoryEnabled),
+      laundryEnabled: data.laundryEnabled !== false, // default true if missing
       defaultCheckinTime: data.defaultCheckinTime ?? "14:00",
       defaultCheckoutTime: data.defaultCheckoutTime ?? "10:00",
       hasBalcony: Boolean(data.hasBalcony),
@@ -386,6 +388,7 @@ export default function PropertyDetailPage() {
           : null,
       linenBufferSets: Number(form.linenBufferSets || 0),
       inventoryEnabled: form.inventoryEnabled,
+      laundryEnabled: form.laundryEnabled,
       defaultCheckinTime: form.defaultCheckinTime,
       defaultCheckoutTime: form.defaultCheckoutTime,
       hasBalcony: form.hasBalcony,
@@ -940,6 +943,16 @@ export default function PropertyDetailPage() {
                   <div>
                     <span className="text-sm">Show cleaner contact to client</span>
                     <p className="text-xs text-muted-foreground">Client can see cleaner name and phone on their job page</p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 rounded-md border p-3">
+                  <Switch
+                    checked={form.laundryEnabled}
+                    onCheckedChange={(value) => setForm((prev) => ({ ...prev, laundryEnabled: value }))}
+                  />
+                  <div>
+                    <span className="text-sm">Laundry service enabled</span>
+                    <p className="text-xs text-muted-foreground">Disable to exclude this property from laundry scheduling entirely</p>
                   </div>
                 </label>
               </div>

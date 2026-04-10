@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight, Download, FileText, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, Pencil, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -249,6 +250,12 @@ export default function ReportsPage() {
                       onClick={() => updateVisibility(report.jobId, { cleanerVisible: !report.cleanerVisible })}
                     >
                       {report.cleanerVisible ? "Cleaner visible" : "Cleaner hidden"}
+                    </Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={`/admin/jobs/${report.jobId}?tab=submission`}>
+                        <Pencil className="mr-1 h-4 w-4" />
+                        Edit
+                      </Link>
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => downloadReport(report.jobId)}>
                       <Download className="mr-1 h-4 w-4" />

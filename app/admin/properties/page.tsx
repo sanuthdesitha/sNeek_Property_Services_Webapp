@@ -62,6 +62,9 @@ export default async function PropertiesPage() {
                     <Bath className="h-3 w-3 ml-1" /> {prop.bathrooms}
                   </span>
                   <span className="hidden sm:block">{prop._count.jobs} jobs</span>
+                  {!prop.laundryEnabled && (
+                    <Badge variant="secondary" className="text-xs">No laundry</Badge>
+                  )}
                   {prop.integration?.isEnabled && prop.integration.icalUrl && (
                     <Badge variant={syncStatusColor[prop.integration.syncStatus] as any} className="text-xs gap-1">
                       <RefreshCw className="h-2.5 w-2.5" />

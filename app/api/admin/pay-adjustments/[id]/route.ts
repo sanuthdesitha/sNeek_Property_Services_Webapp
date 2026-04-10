@@ -8,9 +8,11 @@ import { getAppSettings } from "@/lib/settings";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 
 const updateSchema = z.object({
-  status: z.union([z.literal(PayAdjustmentStatus.APPROVED), z.literal(PayAdjustmentStatus.REJECTED)]),
+  status: z.union([z.literal(PayAdjustmentStatus.APPROVED), z.literal(PayAdjustmentStatus.REJECTED)]).optional(),
   approvedAmount: z.number().positive().optional(),
   adminNote: z.string().trim().max(4000).optional(),
+  propertyId: z.string().cuid().optional().nullable(),
+  title: z.string().trim().min(1).max(160).optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -72,11 +74,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const updated = await db.cleanerPayAdjustment.update({
       where: { id: params.id },
       data: {
-        status: body.status,
-        approvedAmount,
-        adminNote: body.adminNote?.trim() || undefined,
-        reviewedAt: new Date(),
-        reviewedById: session.user.id,
+        ...(body.status
+          ? { status: body.status, approvedAmount, reviewedAt: new Date(), reviewedById: session.user.id }
+          : {}),
+        ...(body.adminNote !== undefined ? { adminNote: body.adminNote.trim() || null } : {}),
+        ...(body.propertyId !== undefined ? { propertyId: body.propertyId } : {}),
+        ...(body.title !== undefined ? { title: body.title } : {}),
       },
       include: {
         cleaner: { select: { id: true, name: true, email: true } },
@@ -98,39 +101,41 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     });
 
-    const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
-    const subject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
-    const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
-    await db.notification.create({
-      data: {
-        userId: updated.cleaner.id,
-        jobId: updated.job?.id ?? undefined,
-        channel: NotificationChannel.PUSH,
-        subject,
-        body:
-          updated.status === PayAdjustmentStatus.APPROVED
-            ? `Approved $${Number(updated.approvedAmount ?? 0).toFixed(2)} for ${propertyName}.${note}`
-            : `Rejected extra payment request for ${propertyName}.${note}`,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
-      },
-    });
+    if (body.status) {
+      const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
+      const subject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
+      const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
+      await db.notification.create({
+        data: {
+          userId: updated.cleaner.id,
+          jobId: updated.job?.id ?? undefined,
+          channel: NotificationChannel.PUSH,
+          subject,
+          body:
+            updated.status === PayAdjustmentStatus.APPROVED
+              ? `Approved $${Number(updated.approvedAmount ?? 0).toFixed(2)} for ${propertyName}.${note}`
+              : `Rejected extra payment request for ${propertyName}.${note}`,
+          status: NotificationStatus.SENT,
+          sentAt: new Date(),
+        },
+      });
 
-    const settings = await getAppSettings();
-    await sendEmailDetailed({
-      to: updated.cleaner.email,
-      subject: `${settings.companyName} - Extra Payment Request ${updated.status}`,
-      html: `
-        <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
-        <p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>
-        ${
-          updated.status === PayAdjustmentStatus.APPROVED
-            ? `<p><strong>Approved amount:</strong> $${Number(updated.approvedAmount ?? 0).toFixed(2)}</p>`
-            : ""
-        }
-        ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
-      `,
-    });
+      const settings = await getAppSettings();
+      await sendEmailDetailed({
+        to: updated.cleaner.email,
+        subject: `${settings.companyName} - Extra Payment Request ${updated.status}`,
+        html: `
+          <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
+          <p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>
+          ${
+            updated.status === PayAdjustmentStatus.APPROVED
+              ? `<p><strong>Approved amount:</strong> $${Number(updated.approvedAmount ?? 0).toFixed(2)}</p>`
+              : ""
+          }
+          ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
+        `,
+      });
+    }
 
     await db.auditLog.create({
       data: {

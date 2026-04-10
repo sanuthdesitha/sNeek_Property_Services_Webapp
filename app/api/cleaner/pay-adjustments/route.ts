@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (body.scope === PayAdjustmentScope.PROPERTY) {
+    if (body.scope === PayAdjustmentScope.PROPERTY || (body.scope === PayAdjustmentScope.STANDALONE && body.propertyId)) {
       const propertyId = body.propertyId ?? linkedJob?.propertyId;
       linkedProperty = propertyId
         ? await db.property.findUnique({
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
             select: { id: true, name: true, suburb: true, clientId: true },
           })
         : null;
-      if (!linkedProperty) {
+      if (body.scope === PayAdjustmentScope.PROPERTY && !linkedProperty) {
         return NextResponse.json({ error: "Property not found." }, { status: 404 });
       }
     }

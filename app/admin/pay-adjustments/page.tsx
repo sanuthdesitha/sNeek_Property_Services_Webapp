@@ -8,10 +8,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { MediaGallery } from "@/components/shared/media-gallery";
+
+type PropertyOption = {
+  id: string;
+  name: string;
+  suburb: string;
+  client: { id: string; name: string | null } | null;
+};
 
 type PayAdjustmentRow = {
   id: string;
@@ -84,6 +92,11 @@ export default function AdminPayAdjustmentsPage() {
   const [sendClientDescription, setSendClientDescription] = useState("");
   const [sendingClientApproval, setSendingClientApproval] = useState(false);
   const [detailRow, setDetailRow] = useState<PayAdjustmentRow | null>(null);
+  const [linkPropertyFor, setLinkPropertyFor] = useState<PayAdjustmentRow | null>(null);
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
+  const [linkPropertyId, setLinkPropertyId] = useState<string>("__none__");
+  const [linkTitle, setLinkTitle] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -91,6 +104,43 @@ export default function AdminPayAdjustmentsPage() {
     const body = await res.json().catch(() => []);
     setRows(Array.isArray(body) ? body : []);
     setLoading(false);
+  }
+
+  async function loadProperties() {
+    if (properties.length > 0) return;
+    const res = await fetch("/api/admin/properties?limit=500");
+    const body = await res.json().catch(() => ({}));
+    setProperties(Array.isArray(body.properties) ? body.properties : []);
+  }
+
+  function openLinkProperty(row: PayAdjustmentRow) {
+    setLinkPropertyFor(row);
+    setLinkPropertyId(row.property?.id ?? "__none__");
+    setLinkTitle(row.title ?? "");
+    loadProperties();
+  }
+
+  async function saveLink() {
+    if (!linkPropertyFor) return;
+    setSavingLink(true);
+    const payload: Record<string, unknown> = {
+      title: linkTitle.trim() || undefined,
+      propertyId: linkPropertyId === "__none__" ? null : linkPropertyId,
+    };
+    const res = await fetch(`/api/admin/pay-adjustments/${linkPropertyFor.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingLink(false);
+    if (!res.ok) {
+      toast({ title: "Update failed", description: body.error ?? "Could not update.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Request updated" });
+    setLinkPropertyFor(null);
+    await load();
   }
 
   useEffect(() => {
@@ -260,6 +310,11 @@ export default function AdminPayAdjustmentsPage() {
                         <Button size="sm" variant="outline" onClick={() => setDetailRow(row)}>
                           View details
                         </Button>
+                        {row.scope === "STANDALONE" ? (
+                          <Button size="sm" variant="outline" onClick={() => openLinkProperty(row)}>
+                            {row.property ? "Re-link" : "Link property"}
+                          </Button>
+                        ) : null}
                         {row.status !== "REJECTED" ? (
                           <Button
                             size="sm"
@@ -354,6 +409,49 @@ export default function AdminPayAdjustmentsPage() {
             </div>
             <Button className="w-full" onClick={sendToClient} disabled={sendingClientApproval}>
               {sendingClientApproval ? "Sending..." : "Send to Client"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(linkPropertyFor)} onOpenChange={(open) => !open && setLinkPropertyFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Link property to request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input
+                value={linkTitle}
+                onChange={(e) => setLinkTitle(e.target.value)}
+                placeholder="e.g. Extra cleaning supplies"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Property</Label>
+              <Select value={linkPropertyId} onValueChange={setLinkPropertyId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select property..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No property</SelectItem>
+                  {properties.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} — {p.suburb}
+                      {p.client?.name ? ` (${p.client.name})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {linkPropertyId !== "__none__" && properties.find((p) => p.id === linkPropertyId)?.client?.name ? (
+                <p className="text-xs text-muted-foreground">
+                  Client: {properties.find((p) => p.id === linkPropertyId)?.client?.name}
+                </p>
+              ) : null}
+            </div>
+            <Button className="w-full" onClick={saveLink} disabled={savingLink}>
+              {savingLink ? "Saving..." : "Save"}
             </Button>
           </div>
         </DialogContent>

@@ -121,6 +121,7 @@ export function CleanerPayRequestsPage({
 
     if (scope === "JOB") payload.jobId = payJobId;
     if (scope === "PROPERTY") payload.propertyId = propertyId;
+    if (scope === "STANDALONE" && propertyId) payload.propertyId = propertyId;
 
     if (payType === "HOURLY") {
       const hours = Number(payHours || 0);
@@ -162,6 +163,7 @@ export function CleanerPayRequestsPage({
     setPayRate("");
     setAttachments([]);
     setExtraPaymentRequired(false);
+    setPropertyId(properties[0]?.id ?? "");
     toast({ title: "Extra payment request submitted" });
     await loadPayRequests();
   }
@@ -245,6 +247,25 @@ export function CleanerPayRequestsPage({
                       <SelectValue placeholder="Select property" />
                     </SelectTrigger>
                     <SelectContent>
+                      {properties.map((property) => (
+                        <SelectItem key={property.id} value={property.id}>
+                          {property.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {scope === "STANDALONE" && properties.length > 0 ? (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Link to property (optional)</Label>
+                  <Select value={propertyId || "__none__"} onValueChange={(v) => setPropertyId(v === "__none__" ? "" : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="No property linked" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No property</SelectItem>
                       {properties.map((property) => (
                         <SelectItem key={property.id} value={property.id}>
                           {property.label}
