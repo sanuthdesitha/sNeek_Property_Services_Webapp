@@ -108,9 +108,9 @@ export default function AdminPayAdjustmentsPage() {
 
   async function loadProperties() {
     if (properties.length > 0) return;
-    const res = await fetch("/api/admin/properties?limit=500");
-    const body = await res.json().catch(() => ({}));
-    setProperties(Array.isArray(body.properties) ? body.properties : []);
+    const res = await fetch("/api/admin/properties");
+    const body = await res.json().catch(() => []);
+    setProperties(Array.isArray(body) ? body : []);
   }
 
   function openLinkProperty(row: PayAdjustmentRow) {
