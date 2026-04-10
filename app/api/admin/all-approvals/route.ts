@@ -19,6 +19,7 @@ export async function GET() {
           include: {
             cleaner: { select: { id: true, name: true } },
             job: { select: { id: true, jobNumber: true, property: { select: { name: true, suburb: true } } } },
+            property: { select: { id: true, name: true, suburb: true } },
           },
           orderBy: { requestedAt: "desc" },
           take: 50,
@@ -108,10 +109,22 @@ export async function GET() {
       : [];
     const timingJobMap = Object.fromEntries(timingJobs.map((j) => [j.id, j]));
 
+    // Enrich pay adjustments with linked client approval (if any)
+    const allClientApprovals = await listClientApprovals();
+    const enrichedPayAdjustments = payAdjustments.map((pa) => {
+      const linked = allClientApprovals
+        .filter((ca) => {
+          const meta = ca.metadata as Record<string, unknown> | null;
+          return meta?.source === "pay_adjustment" && meta?.payAdjustmentId === pa.id;
+        })
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      return { ...pa, clientApproval: linked[0] ?? null };
+    });
+
     return NextResponse.json({
       continuations: continuations.map((c) => ({ ...c, job: jobMap[c.jobId] ?? null })),
       timingRequests: timingRequests.map((r) => ({ ...r, job: timingJobMap[r.jobId] ?? null })),
-      payAdjustments,
+      payAdjustments: enrichedPayAdjustments,
       timeAdjustments,
       clientApprovals,
       flaggedLaundry,
