@@ -1028,6 +1028,122 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           </div>
         </div>
 
+        <div className="space-y-4 rounded-md border p-4">
+          <div>
+            <p className="text-sm font-medium">Invoicing &amp; Payment Details</p>
+            <p className="text-xs text-muted-foreground">
+              Bank and company details shown on client invoice PDFs and email attachments.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Default payment terms (days)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={90}
+                value={settings.invoicing.defaultPaymentTermsDays}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    invoicing: { ...prev.invoicing, defaultPaymentTermsDays: Number(e.target.value || 14) },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>ABN</Label>
+              <Input
+                value={settings.invoicing.abn}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, invoicing: { ...prev.invoicing, abn: e.target.value } }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Bank name</Label>
+              <Input
+                value={settings.invoicing.bankName}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, invoicing: { ...prev.invoicing, bankName: e.target.value } }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>BSB</Label>
+              <Input
+                value={settings.invoicing.bankBsb}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, invoicing: { ...prev.invoicing, bankBsb: e.target.value } }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Account number</Label>
+              <Input
+                value={settings.invoicing.bankAccountNumber}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    invoicing: { ...prev.invoicing, bankAccountNumber: e.target.value },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Account name</Label>
+              <Input
+                value={settings.invoicing.bankAccountName}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    invoicing: { ...prev.invoicing, bankAccountName: e.target.value },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Company address</Label>
+            <Textarea
+              rows={2}
+              value={settings.invoicing.companyAddress}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  invoicing: { ...prev.invoicing, companyAddress: e.target.value },
+                }))
+              }
+              disabled={readOnly}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Payment note</Label>
+            <Textarea
+              rows={2}
+              value={settings.invoicing.paymentNote}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  invoicing: { ...prev.invoicing, paymentNote: e.target.value },
+                }))
+              }
+              disabled={readOnly}
+              placeholder="e.g. Please include invoice number as payment reference."
+            />
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex items-center justify-between rounded-md border p-3">
             <div>

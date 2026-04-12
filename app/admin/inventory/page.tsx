@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Package, ShoppingCart, Building2, Download, Mail } from "lucide-react";
+import { AlertTriangle, ClipboardList, Package, ShoppingCart, Building2, Download, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,6 +81,14 @@ export default function InventoryPage() {
   });
 
   const [stockDraft, setStockDraft] = useState<Record<string, { onHand: string; parLevel: string; reorderThreshold: string }>>({});
+
+  // Stock count state
+  const [stockCounts, setStockCounts] = useState<any[]>([]);
+  const [loadingStockCounts, setLoadingStockCounts] = useState(false);
+  const [countDraft, setCountDraft] = useState<Record<string, string>>({});
+  const [countNotes, setCountNotes] = useState<Record<string, string>>({});
+  const [savingCount, setSavingCount] = useState(false);
+  const [applyingCount, setApplyingCount] = useState<string | null>(null);
 
   async function loadBase() {
     const [pRes, iRes, dRes, uRes] = await Promise.all([
@@ -178,6 +186,76 @@ export default function InventoryPage() {
     const shoppingRes = await fetch(`/api/admin/inventory/shopping-list?scope=${propertyId}`);
     const shoppingData = await shoppingRes.json();
     setShoppingList(shoppingData && typeof shoppingData === "object" ? shoppingData : {});
+    await loadStockCounts(propertyId);
+  }
+
+  async function loadStockCounts(propertyId: string) {
+    if (propertyId === "all") return;
+    setLoadingStockCounts(true);
+    try {
+      const res = await fetch(`/api/admin/inventory/stock-counts?propertyId=${propertyId}`);
+      const data = await res.json().catch(() => []);
+      setStockCounts(Array.isArray(data) ? data : []);
+    } catch {
+      setStockCounts([]);
+    } finally {
+      setLoadingStockCounts(false);
+    }
+  }
+
+  async function startStockCount() {
+    if (selectedProp === "all") return;
+    const lines = stocks.map((row: any) => ({
+      propertyStockId: row.id,
+      countedOnHand: row.onHand ?? 0,
+      note: null,
+    }));
+
+    setSavingCount(true);
+    try {
+      const res = await fetch("/api/admin/inventory/stock-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          propertyId: selectedProp,
+          title: `Stock count ${new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" })}`,
+          lines,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not create stock count.");
+      }
+      toast({ title: "Stock count saved as draft" });
+      await loadStockCounts(selectedProp);
+    } catch (error: any) {
+      toast({ title: "Save failed", description: error?.message ?? "Could not save count.", variant: "destructive" });
+    } finally {
+      setSavingCount(false);
+    }
+  }
+
+  async function applyStockCount(runId: string) {
+    setApplyingCount(runId);
+    try {
+      const res = await fetch("/api/admin/inventory/stock-counts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not apply stock count.");
+      }
+      toast({ title: "Stock count applied", description: "Property stock levels have been updated." });
+      await loadStockCounts(selectedProp);
+      await loadPropertyData(selectedProp);
+      await loadPropertySummaries(properties);
+    } catch (error: any) {
+      toast({ title: "Apply failed", description: error?.message ?? "Could not apply count.", variant: "destructive" });
+    } finally {
+      setApplyingCount(null);
+    }
   }
 
   useEffect(() => {
@@ -463,6 +541,12 @@ export default function InventoryPage() {
               Property Stock
             </TabsTrigger>
           )}
+          {selectedProp !== "all" && (
+            <TabsTrigger value="stockcount">
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Stock Count
+            </TabsTrigger>
+          )}
           <TabsTrigger value="items">Items Master</TabsTrigger>
         </TabsList>
 
@@ -663,6 +747,111 @@ export default function InventoryPage() {
                 </table>
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {selectedProp !== "all" && (
+          <TabsContent value="stockcount" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-base">Guided Stock Count</CardTitle>
+                <Button onClick={startStockCount} disabled={savingCount || stocks.length === 0}>
+                  {savingCount ? "Saving..." : "Start New Count"}
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Count all visible items grouped by location. Submit as a draft run for admin review before applying changes.
+                </p>
+              </CardContent>
+            </Card>
+
+            {loadingStockCounts ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">Loading stock counts...</p>
+            ) : stockCounts.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">No stock counts yet. Start a new count above.</p>
+            ) : (
+              <div className="space-y-4">
+                {stockCounts.map((run: any) => {
+                  const statusColors: Record<string, "secondary" | "default" | "warning" | "success" | "outline"> = {
+                    DRAFT: "secondary",
+                    ACTIVE: "default",
+                    SUBMITTED: "warning",
+                    APPLIED: "success",
+                    DISCARDED: "outline",
+                  };
+                  const linesByLocation = new Map<string, any[]>();
+                  for (const line of run.lines ?? []) {
+                    const loc = line.propertyStock?.item?.location ?? "UNKNOWN";
+                    if (!linesByLocation.has(loc)) linesByLocation.set(loc, []);
+                    linesByLocation.get(loc)!.push(line);
+                  }
+
+                  return (
+                    <Card key={run.id}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-base">{run.title}</CardTitle>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(run.createdAt).toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              {" · "}{run.lines?.length ?? 0} items
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={statusColors[run.status] ?? "secondary"}>{run.status}</Badge>
+                            {(run.status === "DRAFT" || run.status === "SUBMITTED") && (
+                              <Button
+                                size="sm"
+                                onClick={() => applyStockCount(run.id)}
+                                disabled={applyingCount === run.id}
+                              >
+                                {applyingCount === run.id ? "Applying..." : "Apply"}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        {Array.from(linesByLocation.entries()).map(([location, lines]) => (
+                          <div key={location} className="border-t">
+                            <div className="bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground">
+                              {(INVENTORY_LOCATION_LABELS as Record<string, string>)[location] ?? location}
+                            </div>
+                            <table className="w-full text-sm">
+                              <thead className="border-b text-xs text-muted-foreground">
+                                <tr>
+                                  <th className="p-2 text-left">Item</th>
+                                  <th className="p-2 text-right">Expected</th>
+                                  <th className="p-2 text-right">Counted</th>
+                                  <th className="p-2 text-right">Variance</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lines.map((line: any) => {
+                                  const variance = line.variance ?? 0;
+                                  const varianceColor = variance < 0 ? "text-destructive" : variance > 0 ? "text-green-600" : "text-muted-foreground";
+                                  return (
+                                    <tr key={line.id} className="border-b last:border-0">
+                                      <td className="p-2 font-medium">{line.propertyStock?.item?.name ?? "Unknown"}</td>
+                                      <td className="p-2 text-right text-muted-foreground">{line.expectedOnHand}</td>
+                                      <td className="p-2 text-right">{line.countedOnHand ?? "-"}</td>
+                                      <td className={`p-2 text-right font-medium ${varianceColor}`}>
+                                        {line.countedOnHand != null ? (variance > 0 ? "+" : "") + variance : "-"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </TabsContent>
         )}
 

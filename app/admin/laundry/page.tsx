@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { addDays, format, startOfWeek } from "date-fns";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Download, Mail, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Download, Mail, Plus, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -203,6 +203,17 @@ export default function LaundryPage() {
     skipReasonNote: "",
     adminOverrideNote: "",
   });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    propertyId: "",
+    jobId: "",
+    pickupDate: "",
+    dropoffDate: "",
+    flagNotes: "",
+  });
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; suburb: string; clientId: string | null }>>([]);
+  const [propertyJobs, setPropertyJobs] = useState<Array<{ id: string; jobNumber: string; jobType: string; scheduledDate: string }>>([]);
 
   function fetchTasks() {
     fetch(`/api/laundry/week?start=${weekStart.toISOString()}`).then((r) => r.json()).then(setTasks);
@@ -224,6 +235,81 @@ export default function LaundryPage() {
             }))
         );
       });
+  }
+
+  function fetchProperties() {
+    fetch("/api/admin/properties")
+      .then((r) => r.json())
+      .then((body) => {
+        const rows = Array.isArray(body) ? body : [];
+        setProperties(
+          rows
+            .filter((p: any) => p?.id)
+            .map((p: any) => ({
+              id: p.id,
+              name: p.name || "Unnamed",
+              suburb: p.suburb || "",
+              clientId: p.clientId ?? null,
+            }))
+        );
+      })
+      .catch(() => setProperties([]));
+  }
+
+  function fetchPropertyJobs(propertyId: string) {
+    if (!propertyId) {
+      setPropertyJobs([]);
+      return;
+    }
+    fetch(`/api/jobs?propertyId=${propertyId}&limit=50`)
+      .then((r) => r.json())
+      .then((body) => {
+        const rows = Array.isArray(body?.jobs) ? body.jobs : [];
+        setPropertyJobs(
+          rows
+            .filter((j: any) => j?.id && j?.status !== "COMPLETED" && j?.status !== "INVOICED")
+            .map((j: any) => ({
+              id: j.id,
+              jobNumber: j.jobNumber || j.id.slice(-6),
+              jobType: j.jobType || "",
+              scheduledDate: j.scheduledDate || "",
+            }))
+        );
+      })
+      .catch(() => setPropertyJobs([]));
+  }
+
+  async function createLaundryTask() {
+    if (!createForm.propertyId || !createForm.pickupDate || !createForm.dropoffDate) {
+      toast({ title: "Missing fields", description: "Property, pickup date, and drop-off date are required.", variant: "destructive" });
+      return;
+    }
+    setCreatingTask(true);
+    try {
+      const res = await fetch("/api/admin/laundry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          propertyId: createForm.propertyId,
+          jobId: createForm.jobId || null,
+          pickupDate: toDateOnlyIso(createForm.pickupDate) ?? createForm.pickupDate,
+          dropoffDate: toDateOnlyIso(createForm.dropoffDate) ?? createForm.dropoffDate,
+          flagNotes: createForm.flagNotes || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not create laundry task.");
+      }
+      toast({ title: "Laundry task created" });
+      setCreateOpen(false);
+      setCreateForm({ propertyId: "", jobId: "", pickupDate: "", dropoffDate: "", flagNotes: "" });
+      fetchTasks();
+    } catch (error: any) {
+      toast({ title: "Create failed", description: error?.message ?? "Could not create laundry task.", variant: "destructive" });
+    } finally {
+      setCreatingTask(false);
+    }
   }
 
   function fetchReportHistory() {
@@ -422,6 +508,7 @@ export default function LaundryPage() {
     fetchTasks();
     fetchReportHistory();
     fetchClients();
+    fetchProperties();
     fetchPendingSyncDraft();
   }, [weekStart]);
 
@@ -715,6 +802,10 @@ export default function LaundryPage() {
           <Button onClick={generatePlan} disabled={generating}>
             <RefreshCw className={`mr-2 h-4 w-4 ${generating ? "animate-spin" : ""}`} />
             Generate Draft
+          </Button>
+          <Button variant="outline" onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Task
           </Button>
         </div>
       </div>
@@ -1756,6 +1847,56 @@ export default function LaundryPage() {
                 {approvingPlan ? "Approving..." : "Approve Plan"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!open && !creatingTask) setCreateOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Laundry Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Property</Label>
+              <Select value={createForm.propertyId} onValueChange={(v) => { setCreateForm((f) => ({ ...f, propertyId: v, jobId: "" })); fetchPropertyJobs(v); }} disabled={creatingTask}>
+                <SelectTrigger><SelectValue placeholder="Select a property" /></SelectTrigger>
+                <SelectContent>
+                  {properties.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} — {p.suburb}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Job</Label>
+              <Select value={createForm.jobId} onValueChange={(v) => setCreateForm((f) => ({ ...f, jobId: v }))} disabled={creatingTask || propertyJobs.length === 0}>
+                <SelectTrigger><SelectValue placeholder={propertyJobs.length === 0 ? "No active jobs for this property" : "Select a job"} /></SelectTrigger>
+                <SelectContent>
+                  {propertyJobs.map((j) => (
+                    <SelectItem key={j.id} value={j.id}>{j.jobNumber} — {j.jobType.replace(/_/g, " ")} ({new Date(j.scheduledDate).toLocaleDateString("en-AU", { day: "2-digit", month: "short" })})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Pickup date</Label>
+                <Input type="date" value={createForm.pickupDate} onChange={(e) => setCreateForm((f) => ({ ...f, pickupDate: e.target.value }))} disabled={creatingTask} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Drop-off date</Label>
+                <Input type="date" value={createForm.dropoffDate} onChange={(e) => setCreateForm((f) => ({ ...f, dropoffDate: e.target.value }))} disabled={creatingTask} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Flag notes (optional)</Label>
+              <Textarea rows={2} value={createForm.flagNotes} onChange={(e) => setCreateForm((f) => ({ ...f, flagNotes: e.target.value }))} disabled={creatingTask} placeholder="Any special instructions…" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creatingTask}>Cancel</Button>
+            <Button onClick={createLaundryTask} disabled={creatingTask}>{creatingTask ? "Creating…" : "Create"}</Button>
           </div>
         </DialogContent>
       </Dialog>
