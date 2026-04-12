@@ -322,7 +322,21 @@ export async function getClientInvoice(invoiceId: string) {
   });
 }
 
-export function buildClientInvoiceHtml(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>, companyName: string, logoUrl?: string | null) {
+export function buildClientInvoiceHtml(
+  invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>,
+  companyName: string,
+  logoUrl?: string | null,
+  invoicingSettings?: {
+    abn?: string;
+    companyAddress?: string;
+    bankName?: string;
+    bankBsb?: string;
+    bankAccountNumber?: string;
+    bankAccountName?: string;
+    paymentNote?: string;
+    defaultPaymentTermsDays?: number;
+  }
+) {
   const linesHtml = invoice.lines
     .map((line) => {
       const meta =
@@ -353,58 +367,92 @@ export function buildClientInvoiceHtml(invoice: NonNullable<Awaited<ReturnType<t
         `
       : "";
 
+  const termsDays = invoicingSettings?.defaultPaymentTermsDays ?? 14;
+  const dueDate = format(
+    new Date(new Date(invoice.createdAt).getTime() + termsDays * 86400000),
+    "dd MMM yyyy"
+  );
+
+  const paymentHtml =
+    invoicingSettings?.bankAccountNumber
+      ? `
+        <div style="margin-top:32px;padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+          <p style="margin:0 0 8px;font-weight:700;font-size:14px;">Payment Details</p>
+          ${invoicingSettings.bankName ? `<p style="margin:2px 0;font-size:13px;"><strong>Bank:</strong> ${escapeHtml(invoicingSettings.bankName)}</p>` : ""}
+          ${invoicingSettings.bankAccountName ? `<p style="margin:2px 0;font-size:13px;"><strong>Account name:</strong> ${escapeHtml(invoicingSettings.bankAccountName)}</p>` : ""}
+          ${invoicingSettings.bankBsb ? `<p style="margin:2px 0;font-size:13px;"><strong>BSB:</strong> ${escapeHtml(invoicingSettings.bankBsb)}</p>` : ""}
+          <p style="margin:2px 0;font-size:13px;"><strong>Account number:</strong> ${escapeHtml(invoicingSettings.bankAccountNumber)}</p>
+          <p style="margin:2px 0;font-size:13px;"><strong>Reference:</strong> ${escapeHtml(invoice.invoiceNumber)}</p>
+          ${invoicingSettings.paymentNote ? `<p style="margin:8px 0 0;font-size:12px;color:#6b7280;">${escapeHtml(invoicingSettings.paymentNote)}</p>` : ""}
+        </div>
+      `
+      : "";
+
   return `
     <html>
-      <body style="font-family:Arial,sans-serif;color:#111827;margin:32px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">
+      <body style="font-family:Arial,sans-serif;color:#111827;margin:32px;max-width:800px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;">
           <div>
-            ${logoUrl ? `<img src="${logoUrl}" alt="${escapeHtml(companyName)}" style="height:48px;margin-bottom:12px;" />` : ""}
-            <h1 style="margin:0 0 8px;font-size:24px;">${escapeHtml(companyName)}</h1>
-            <p style="margin:0;color:#6b7280;">Client Invoice</p>
+            ${logoUrl ? `<img src="${logoUrl}" alt="${escapeHtml(companyName)}" style="height:52px;margin-bottom:12px;" />` : ""}
+            <h1 style="margin:0 0 4px;font-size:26px;color:#111827;">${escapeHtml(companyName)}</h1>
+            ${invoicingSettings?.abn ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">ABN: ${escapeHtml(invoicingSettings.abn)}</p>` : ""}
+            ${invoicingSettings?.companyAddress ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">${escapeHtml(invoicingSettings.companyAddress)}</p>` : ""}
           </div>
           <div style="text-align:right;">
-            <p style="margin:0;"><strong>Invoice:</strong> ${escapeHtml(invoice.invoiceNumber)}</p>
-            <p style="margin:4px 0 0;"><strong>Status:</strong> ${escapeHtml(invoice.status)}</p>
-            <p style="margin:4px 0 0;"><strong>Created:</strong> ${format(new Date(invoice.createdAt), "dd MMM yyyy")}</p>
+            <p style="margin:0;font-size:22px;font-weight:700;color:#111827;">TAX INVOICE</p>
+            <p style="margin:4px 0 0;font-size:14px;"><strong>${escapeHtml(invoice.invoiceNumber)}</strong></p>
+            <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Date: ${format(new Date(invoice.createdAt), "dd MMM yyyy")}</p>
+            <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Due: ${dueDate}</p>
+            <p style="margin:6px 0 0;display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;background:${invoice.status === "PAID" ? "#d1fae5" : invoice.status === "SENT" ? "#dbeafe" : "#fef3c7"};color:${invoice.status === "PAID" ? "#065f46" : invoice.status === "SENT" ? "#1e40af" : "#92400e"};">${escapeHtml(invoice.status)}</p>
           </div>
         </div>
 
-        <div style="margin-bottom:24px;">
-          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;">Bill To</p>
-          <h2 style="margin:0 0 6px;font-size:18px;">${escapeHtml(invoice.client.name)}</h2>
-          <p style="margin:0;color:#6b7280;">${escapeHtml(invoice.client.email || "")}</p>
+        <div style="margin-bottom:28px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:600;text-transform:uppercase;color:#6b7280;letter-spacing:0.05em;">Bill To</p>
+          <p style="margin:0;font-weight:700;font-size:16px;">${escapeHtml(invoice.client.name)}</p>
+          ${invoice.client.email ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(invoice.client.email)}</p>` : ""}
+          ${invoice.periodStart && invoice.periodEnd ? `<p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Period: ${format(new Date(invoice.periodStart), "dd MMM yyyy")} – ${format(new Date(invoice.periodEnd), "dd MMM yyyy")}</p>` : ""}
         </div>
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
           <thead>
-            <tr>
-              <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #111827;">Description</th>
-              <th style="text-align:right;padding:10px 8px;border-bottom:2px solid #111827;">Qty</th>
-              <th style="text-align:right;padding:10px 8px;border-bottom:2px solid #111827;">Rate</th>
-              <th style="text-align:right;padding:10px 8px;border-bottom:2px solid #111827;">Total</th>
+            <tr style="background:#f3f4f6;">
+              <th style="text-align:left;padding:10px 12px;border-bottom:2px solid #111827;font-size:13px;">Description</th>
+              <th style="text-align:right;padding:10px 12px;border-bottom:2px solid #111827;font-size:13px;">Qty</th>
+              <th style="text-align:right;padding:10px 12px;border-bottom:2px solid #111827;font-size:13px;">Rate</th>
+              <th style="text-align:right;padding:10px 12px;border-bottom:2px solid #111827;font-size:13px;">Total</th>
             </tr>
           </thead>
           <tbody>${linesHtml}</tbody>
         </table>
 
-        <div style="margin-left:auto;max-width:320px;">
-          <div style="display:flex;justify-content:space-between;padding:8px 0;">
-            <span>Subtotal</span>
-            <strong>${money(invoice.subtotal)}</strong>
-          </div>
-          ${gstSummaryHtml}
-          <div style="display:flex;justify-content:space-between;padding:12px 0;border-top:2px solid #111827;font-size:18px;">
-            <span>Total</span>
-            <strong>${money(invoice.totalAmount)}</strong>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+          <div style="min-width:280px;">
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #e5e7eb;">
+              <span style="color:#6b7280;">Subtotal</span>
+              <strong>${money(invoice.subtotal)}</strong>
+            </div>
+            ${gstSummaryHtml}
+            <div style="display:flex;justify-content:space-between;padding:12px 0;border-top:2px solid #111827;font-size:18px;">
+              <span><strong>Total (AUD)</strong></span>
+              <strong>${money(invoice.totalAmount)}</strong>
+            </div>
           </div>
         </div>
+
+        ${paymentHtml}
       </body>
     </html>
   `;
 }
 
-export async function renderClientInvoicePdf(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>, companyName: string, logoUrl?: string | null) {
-  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl), "client invoice PDF generation");
+export async function renderClientInvoicePdf(
+  invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>,
+  companyName: string,
+  logoUrl?: string | null,
+  invoicingSettings?: Parameters<typeof buildClientInvoiceHtml>[3]
+) {
+  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings), "client invoice PDF generation");
 }
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {

@@ -101,6 +101,10 @@
   .glass-panel {
     @apply border border-white/60 bg-white/75 backdrop-blur-sm shadow-[0_12px_45px_-24px_rgba(23,73,78,0.55)];
   }
+  [data-portal-theme="dark"] .glass-panel {
+    @apply border-white/10 bg-white/5;
+    box-shadow: 0 12px 45px -24px rgba(0,0,0,0.6);
+  }
 
   .page-fade {
     animation: pageFade 360ms ease both;
@@ -343,47 +347,47 @@
 
 /* DARK theme — rich charcoal with teal accents */
 [data-portal-theme="dark"] {
-  /* Page background: deep warm-charcoal (not pure navy — feels less harsh) */
-  --background:          220 16% 10%;
-  --foreground:          210 20% 92%;
+  /* Page background */
+  --background:          222 18% 11%;
+  --foreground:          210 22% 94%;
 
-  /* Cards: slightly lighter lift off the background */
-  --card:                220 14% 13%;
-  --card-foreground:     210 20% 92%;
+  /* Cards */
+  --card:                222 16% 14%;
+  --card-foreground:     210 22% 94%;
 
-  --popover:             220 14% 13%;
-  --popover-foreground:  210 20% 92%;
+  --popover:             222 16% 14%;
+  --popover-foreground:  210 22% 94%;
 
-  /* Primary: brighter teal for dark bg — AA contrast */
-  --primary:             185 72% 52%;
-  --primary-foreground:  220 16% 8%;
+  /* Primary: bright teal — AA contrast on dark */
+  --primary:             185 68% 48%;
+  --primary-foreground:  222 18% 8%;
 
-  /* Secondary: subtle raised surface */
-  --secondary:           218 14% 20%;
-  --secondary-foreground: 210 18% 85%;
+  /* Secondary */
+  --secondary:           218 14% 22%;
+  --secondary-foreground: 210 20% 88%;
 
-  /* Muted: for placeholders, timestamps */
-  --muted:               220 12% 17%;
-  --muted-foreground:    210 10% 56%;
+  /* Muted: raised enough to be distinct, light enough to read */
+  --muted:               222 13% 19%;
+  --muted-foreground:    210 14% 68%;
 
-  /* Accent: warm amber tint for highlights */
-  --accent:              34 40% 20%;
-  --accent-foreground:   38 90% 82%;
+  /* Accent: warm amber */
+  --accent:              34 38% 22%;
+  --accent-foreground:   40 90% 84%;
 
-  --destructive:         0 68% 50%;
+  --destructive:         0 65% 56%;
   --destructive-foreground: 0 0% 98%;
 
-  /* Borders: subtle, not harsh */
-  --border:              220 12% 20%;
-  --input:               220 12% 20%;
-  --ring:                185 72% 52%;
+  /* Borders */
+  --border:              220 13% 24%;
+  --input:               220 13% 24%;
+  --ring:                185 68% 48%;
 
-  /* Sidebar: deepest layer — pure dark with clear separation */
-  --portal-sidebar-bg:         220 18% 7%;
-  --portal-sidebar-fg:         210 12% 62%;
-  --portal-sidebar-active-bg:  185 72% 52%;
-  --portal-sidebar-active-fg:  220 18% 7%;
-  --portal-amber:              38 90% 60%;
+  /* Sidebar */
+  --portal-sidebar-bg:         222 20% 8%;
+  --portal-sidebar-fg:         210 14% 64%;
+  --portal-sidebar-active-bg:  185 68% 48%;
+  --portal-sidebar-active-fg:  222 18% 8%;
+  --portal-amber:              38 90% 62%;
 }
 
 /* LIGHT theme — clean white (matches brand defaults) */
@@ -447,25 +451,28 @@
 /* Apply dark CSS vars to body when a dark portal is rendered,
    so shadcn Radix portals (dropdowns, dialogs) also use dark vars */
 body:has([data-portal-theme="dark"]) {
-  --background:          220 16% 10%;
-  --foreground:          210 20% 92%;
-  --card:                220 14% 13%;
-  --card-foreground:     210 20% 92%;
-  --popover:             220 14% 13%;
-  --popover-foreground:  210 20% 92%;
-  --primary:             185 72% 52%;
-  --primary-foreground:  220 16% 8%;
-  --secondary:           218 14% 20%;
-  --secondary-foreground: 210 18% 85%;
-  --muted:               220 12% 17%;
-  --muted-foreground:    210 10% 56%;
-  --accent:              34 40% 20%;
-  --accent-foreground:   38 90% 82%;
-  --destructive:         0 68% 50%;
+  --background:          222 18% 11%;
+  --foreground:          210 22% 94%;
+  --card:                222 16% 14%;
+  --card-foreground:     210 22% 94%;
+  --popover:             222 16% 14%;
+  --popover-foreground:  210 22% 94%;
+  --primary:             185 68% 48%;
+  --primary-foreground:  222 18% 8%;
+  --secondary:           218 14% 22%;
+  --secondary-foreground: 210 20% 88%;
+  --muted:               222 13% 19%;
+  --muted-foreground:    210 14% 68%;
+  --accent:              34 38% 22%;
+  --accent-foreground:   40 90% 84%;
+  --destructive:         0 65% 56%;
   --destructive-foreground: 0 0% 98%;
-  --border:              220 12% 20%;
-  --input:               220 12% 20%;
-  --ring:                185 72% 52%;
+  --border:              220 13% 24%;
+  --input:               220 13% 24%;
+  --ring:                185 68% 48%;
+  /* Remove light gradient — use flat dark background */
+  background-image: none;
+  background-color: hsl(222 18% 11%);
 }
 
 /* Sidebar slide-in animation */

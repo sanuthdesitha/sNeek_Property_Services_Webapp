@@ -32,7 +32,7 @@ export async function POST(
       return NextResponse.json({ error: "No invoice recipient email found." }, { status: 400 });
     }
 
-    const pdf = await renderClientInvoicePdf(invoice, settings.companyName || "sNeek Property Services", settings.logoUrl);
+    const pdf = await renderClientInvoicePdf(invoice, settings.companyName || "sNeek Property Services", settings.logoUrl, settings.invoicing);
     const template = renderEmailTemplate(settings, "clientInvoiceIssued", {
       clientName: invoice.client.name,
       invoiceNumber: invoice.invoiceNumber,

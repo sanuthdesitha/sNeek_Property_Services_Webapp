@@ -205,6 +205,18 @@ export interface AppSettings {
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
   notificationTemplates: AppNotificationTemplates;
+  invoicing: InvoicingSettings;
+}
+
+export interface InvoicingSettings {
+  defaultPaymentTermsDays: number;
+  bankName: string;
+  bankBsb: string;
+  bankAccountNumber: string;
+  bankAccountName: string;
+  paymentNote: string;
+  abn: string;
+  companyAddress: string;
 }
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
@@ -238,7 +250,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
   websiteContent: DEFAULT_WEBSITE_CONTENT,
-  portalTheme: "dark",
+  portalTheme: "light",
   smsProvider: "twilio",
   reminder24hHours: 24,
   reminder2hHours: 2,
@@ -382,6 +394,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   propertyFormTemplateOverrides: {},
   emailTemplates: getDefaultEmailTemplates(),
   notificationTemplates: getDefaultNotificationTemplates(),
+  invoicing: {
+    defaultPaymentTermsDays: 14,
+    bankName: "",
+    bankBsb: "",
+    bankAccountNumber: "",
+    bankAccountName: "",
+    paymentNote: "Please include the invoice number as payment reference.",
+    abn: "",
+    companyAddress: "",
+  },
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -954,6 +976,19 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).notificationTemplates,
       DEFAULT_SETTINGS.notificationTemplates
     ),
+    invoicing: {
+      defaultPaymentTermsDays:
+        typeof (parsed as any).invoicing?.defaultPaymentTermsDays === "number"
+          ? Math.max(0, Math.min(365, (parsed as any).invoicing.defaultPaymentTermsDays))
+          : DEFAULT_SETTINGS.invoicing.defaultPaymentTermsDays,
+      bankName: typeof (parsed as any).invoicing?.bankName === "string" ? (parsed as any).invoicing.bankName : DEFAULT_SETTINGS.invoicing.bankName,
+      bankBsb: typeof (parsed as any).invoicing?.bankBsb === "string" ? (parsed as any).invoicing.bankBsb : DEFAULT_SETTINGS.invoicing.bankBsb,
+      bankAccountNumber: typeof (parsed as any).invoicing?.bankAccountNumber === "string" ? (parsed as any).invoicing.bankAccountNumber : DEFAULT_SETTINGS.invoicing.bankAccountNumber,
+      bankAccountName: typeof (parsed as any).invoicing?.bankAccountName === "string" ? (parsed as any).invoicing.bankAccountName : DEFAULT_SETTINGS.invoicing.bankAccountName,
+      paymentNote: typeof (parsed as any).invoicing?.paymentNote === "string" ? (parsed as any).invoicing.paymentNote : DEFAULT_SETTINGS.invoicing.paymentNote,
+      abn: typeof (parsed as any).invoicing?.abn === "string" ? (parsed as any).invoicing.abn : DEFAULT_SETTINGS.invoicing.abn,
+      companyAddress: typeof (parsed as any).invoicing?.companyAddress === "string" ? (parsed as any).invoicing.companyAddress : DEFAULT_SETTINGS.invoicing.companyAddress,
+    },
   };
 }
 
@@ -996,6 +1031,10 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
       input.propertyFormTemplateOverrides ?? current.propertyFormTemplateOverrides,
     emailTemplates: input.emailTemplates ?? current.emailTemplates,
     notificationTemplates: input.notificationTemplates ?? current.notificationTemplates,
+    invoicing: {
+      ...current.invoicing,
+      ...(input.invoicing ?? {}),
+    },
   });
 
   await db.appSetting.upsert({
