@@ -32,7 +32,11 @@ export function XeroSettingsTab() {
       const res = await fetch("/api/xero/connect");
       if (!res.ok) { const e = await res.json(); alert(e.error); return; }
       const data = await res.json();
-      if (data.authUrl) window.location.href = data.authUrl;
+      if (data.authUrl) {
+        window.open(data.authUrl, "_blank");
+      } else {
+        alert("No auth URL returned from Xero. Check server logs.");
+      }
     } catch { alert("Failed to connect to Xero"); }
     finally { setConnecting(false); }
   }
