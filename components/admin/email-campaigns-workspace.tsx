@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 type CampaignRow = {
   id: string;
@@ -71,6 +72,7 @@ function formFromCampaign(row: CampaignRow): FormState {
 }
 
 export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns: CampaignRow[] }) {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -141,7 +143,13 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
   }
 
   async function deleteCampaign(id: string) {
-    if (!window.confirm("Delete this campaign?")) return;
+    const approved = await confirm({
+      title: "Delete email campaign",
+      description: "This will remove the saved campaign from the marketing workspace.",
+      confirmLabel: "Delete campaign",
+      actionKey: "deleteCampaign",
+    });
+    if (!approved) return;
     try {
       const response = await fetch(`/api/admin/email-campaigns/${id}`, { method: "DELETE" });
       const body = await response.json().catch(() => ({}));
@@ -156,6 +164,7 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      {dialog}
       <Card>
         <CardHeader>
           <CardTitle>{editingId ? "Edit email campaign" : "New email campaign"}</CardTitle>

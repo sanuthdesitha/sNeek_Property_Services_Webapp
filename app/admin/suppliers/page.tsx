@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 type Supplier = {
   id: string;
@@ -21,6 +22,7 @@ type Supplier = {
 };
 
 export default function SuppliersPage() {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [rows, setRows] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -114,7 +116,13 @@ export default function SuppliersPage() {
   }
 
   async function deleteSupplier(id: string) {
-    if (!window.confirm("Delete this supplier?")) return;
+    const approved = await confirm({
+      title: "Delete supplier",
+      description: "This will remove the supplier from the inventory catalog.",
+      confirmLabel: "Delete supplier",
+      actionKey: "deleteSupplier",
+    });
+    if (!approved) return;
     setSavingId(id);
     const res = await fetch(`/api/admin/inventory/suppliers/${id}`, {
       method: "DELETE",
@@ -134,6 +142,7 @@ export default function SuppliersPage() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div>
         <h2 className="text-2xl font-bold">Supplier Catalog</h2>
         <p className="text-sm text-muted-foreground">

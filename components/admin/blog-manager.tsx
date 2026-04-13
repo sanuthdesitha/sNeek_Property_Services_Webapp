@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 type BlogPostRecord = {
   id: string;
@@ -75,6 +76,7 @@ async function uploadBlogImage(file: File) {
 }
 
 export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }) {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [posts, setPosts] = useState(initialPosts);
   const [form, setForm] = useState<BlogForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,6 +179,13 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
   }
 
   async function removePost(id: string) {
+    const approved = await confirm({
+      title: "Delete blog post",
+      description: "This will remove the blog post from the public website.",
+      confirmLabel: "Delete post",
+      actionKey: "deleteBlogPost",
+    });
+    if (!approved) return;
     const response = await fetch(`/api/admin/blog-posts/${id}`, { method: "DELETE" });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -195,6 +204,7 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
       description="Create, edit, publish, and remove public blog posts with cover images, gallery images, and markdown content."
       actions={<Button asChild variant="outline" className="rounded-full"><a href="/blog" target="_blank" rel="noreferrer">Open public blog</a></Button>}
     >
+      {dialog}
       <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <Card className="rounded-[1.8rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
           <CardHeader className="flex flex-row items-center justify-between gap-4">

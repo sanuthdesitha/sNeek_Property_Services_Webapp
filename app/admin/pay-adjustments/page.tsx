@@ -30,6 +30,10 @@ type PayAdjustmentRow = {
   requestedHours: number | null;
   requestedRate: number | null;
   requestedAmount: number;
+  cleanerRequestedAmount?: number;
+  clientRequestedAmount?: number | null;
+  primaryDisplayAmount?: number;
+  primaryDisplayAmountSource?: "CLEANER_REQUESTED" | "CLIENT_REQUESTED";
   approvedAmount: number | null;
   cleanerNote: string | null;
   adminNote: string | null;
@@ -61,6 +65,16 @@ type PayAdjustmentRow = {
 
 function formatMoney(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
+}
+
+function getPrimaryAmount(row: PayAdjustmentRow) {
+  return Number(
+    row.primaryDisplayAmount ??
+      row.clientRequestedAmount ??
+      row.cleanerRequestedAmount ??
+      row.requestedAmount ??
+      0
+  );
 }
 
 function formatDateSafe(value: string | null | undefined, fallback = "-") {
@@ -153,7 +167,7 @@ export default function AdminPayAdjustmentsPage() {
   function openApprove(row: PayAdjustmentRow) {
     setEditing(row);
     setActionType("APPROVED");
-    setApprovedAmount(String(Number(row.requestedAmount ?? 0).toFixed(2)));
+    setApprovedAmount(String(Number(getPrimaryAmount(row)).toFixed(2)));
     setAdminNote("");
   }
 
@@ -166,7 +180,7 @@ export default function AdminPayAdjustmentsPage() {
 
   function openSendToClient(row: PayAdjustmentRow) {
     setSendToClientFor(row);
-    setSendClientAmount(String(Number(row.requestedAmount ?? 0).toFixed(2)));
+    setSendClientAmount(String(Number(row.clientRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)));
     setSendClientTitle(`Additional charge approval - ${row.job?.property.name ?? row.property?.name ?? "Request"}`);
     setSendClientDescription(
       row.cleanerNote?.trim()
@@ -283,9 +297,14 @@ export default function AdminPayAdjustmentsPage() {
                           {row.scope === "JOB" && row.job
                             ? `Date: ${formatDateSafe(row.job.scheduledDate)} | `
                             : ""}
-                          {row.job?.property?.name || row.property?.name || "No property linked"} | Requested: {formatMoney(row.requestedAmount)}
+                          {row.job?.property?.name || row.property?.name || "No property linked"} | Requested: {formatMoney(getPrimaryAmount(row))}
                           {row.type === "HOURLY" ? ` (${row.requestedHours ?? 0}h x ${formatMoney(row.requestedRate)})` : ""} | {row.scope}
                         </p>
+                        {row.clientRequestedAmount != null ? (
+                          <p className="text-xs text-muted-foreground">
+                            Cleaner requested: {formatMoney(row.cleanerRequestedAmount ?? row.requestedAmount)} | Client amount: {formatMoney(row.clientRequestedAmount)}
+                          </p>
+                        ) : null}
                         {row.cleanerNote ? <p className="text-xs">Cleaner note: {row.cleanerNote}</p> : null}
                         {row.adminNote ? <p className="text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
                         {row.clientApproval ? (
@@ -482,13 +501,26 @@ export default function AdminPayAdjustmentsPage() {
                   <p className="text-sm font-medium">{detailRow.scope} / {detailRow.type}</p>
                 </div>
                 <div className="rounded-md border p-3">
-                  <p className="text-xs text-muted-foreground">Requested amount</p>
-                  <p className="text-sm font-medium">{formatMoney(detailRow.requestedAmount)}</p>
+                  <p className="text-xs text-muted-foreground">Primary displayed amount</p>
+                  <p className="text-sm font-medium">{formatMoney(getPrimaryAmount(detailRow))}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {detailRow.primaryDisplayAmountSource === "CLIENT_REQUESTED" ? "Client-facing amount" : "Cleaner-requested amount"}
+                  </p>
                   {detailRow.type === "HOURLY" ? (
                     <p className="mt-1 text-xs text-muted-foreground">
                       {detailRow.requestedHours ?? 0}h x {formatMoney(detailRow.requestedRate)}
                     </p>
                   ) : null}
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Cleaner requested amount</p>
+                  <p className="text-sm font-medium">{formatMoney(detailRow.cleanerRequestedAmount ?? detailRow.requestedAmount)}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Client requested amount</p>
+                  <p className="text-sm font-medium">
+                    {detailRow.clientRequestedAmount != null ? formatMoney(detailRow.clientRequestedAmount) : "-"}
+                  </p>
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="text-xs text-muted-foreground">Requested on</p>

@@ -84,7 +84,7 @@ export function MediaGallery({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle>{selectedLabel || title}</DialogTitle>
           </DialogHeader>
           <div className="max-h-[75vh] overflow-auto rounded-md border bg-black/5 p-2">
             {selectedUrl && (

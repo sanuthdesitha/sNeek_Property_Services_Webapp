@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
+import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 
 export async function GET() {
   try {
@@ -118,7 +119,12 @@ export async function GET() {
           return meta?.source === "pay_adjustment" && meta?.payAdjustmentId === pa.id;
         })
         .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      return { ...pa, clientApproval: linked[0] ?? null };
+      const clientApproval = linked[0] ?? null;
+      return {
+        ...pa,
+        ...normalizePayAdjustmentAmounts(pa, clientApproval),
+        clientApproval,
+      };
     });
 
     return NextResponse.json({

@@ -15,8 +15,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
+import { CASE_STATUSES, CASE_STATUS_LABELS, type UnifiedCaseStatus } from "@/lib/cases/status";
 
-type CaseStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+type CaseStatus = UnifiedCaseStatus;
 type CaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OPS" | "SLA" | "OTHER";
 type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -81,7 +82,6 @@ type CasesResponse = {
 };
 
 const CASE_TYPES: CaseType[] = ["DAMAGE", "CLIENT_DISPUTE", "LOST_FOUND", "OPS", "SLA", "OTHER"];
-const CASE_STATUSES: CaseStatus[] = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 const SEVERITIES: Severity[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 const CASE_FILTER_DEFAULTS = {
   q: "",
@@ -130,8 +130,8 @@ function severityTone(value: Severity) {
 }
 
 function statusTone(value: CaseStatus) {
-  if (value === "RESOLVED") return "default" as const;
-  if (value === "IN_PROGRESS") return "secondary" as const;
+  if (value === "RESOLVED" || value === "CLOSED") return "default" as const;
+  if (value === "TRIAGE" || value === "INVESTIGATING" || value === "WAITING_CLIENT" || value === "WAITING_INTERNAL") return "secondary" as const;
   return "outline" as const;
 }
 
@@ -489,8 +489,8 @@ export function AdminCasesWorkspace() {
           <CardHeader><CardTitle className="text-base">Case queue</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <Input placeholder="Search title, description, notes" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
-            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-              <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="ALL">All statuses</option>{CASE_STATUSES.map((status) => <option key={status} value={status}>{prettify(status)}</option>)}</select>
+              <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+                <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="ALL">All statuses</option>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select>
               <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.caseType} onChange={(event) => setFilters((prev) => ({ ...prev, caseType: event.target.value }))}><option value="ALL">All case types</option>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
               <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.assigneeUserId} onChange={(event) => setFilters((prev) => ({ ...prev, assigneeUserId: event.target.value }))}><option value="ALL">All owners</option><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select>
             </div>
@@ -500,19 +500,44 @@ export function AdminCasesWorkspace() {
                 {items.map((item) => (
                   <div key={item.id} className={`rounded-xl border px-3 py-3 transition ${selectedId === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}>
                     <button type="button" className="w-full text-left" onClick={() => setSelectedId(item.id)}>
-                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{prettify(item.status)}</Badge></div></div>
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{CASE_STATUS_LABELS[item.status]}</Badge></div></div>
                       <p className="mt-1 text-xs text-muted-foreground">{prettify(item.caseType)} · {item.property?.name || item.job?.property?.name || item.client?.name || "General case"}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Owner: {item.assignedTo?.name?.trim() || item.assignedTo?.email || "Unassigned"}</p>
                     </button>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {item.status === "OPEN" ? (
-                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "IN_PROGRESS" }, "Case started")}>
-                          Start
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "TRIAGE" }, "Case moved to triage")}>
+                          Triage
                         </Button>
                       ) : null}
-                      {item.status !== "RESOLVED" ? (
+                      {(item.status === "OPEN" || item.status === "TRIAGE" || item.status === "WAITING_CLIENT" || item.status === "WAITING_INTERNAL") ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "INVESTIGATING" }, "Case moved to investigation")}>
+                          Investigate
+                        </Button>
+                      ) : null}
+                      {item.status !== "WAITING_CLIENT" && item.status !== "RESOLVED" && item.status !== "CLOSED" ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "WAITING_CLIENT" }, "Case waiting on client")}>
+                          Need client
+                        </Button>
+                      ) : null}
+                      {item.status !== "WAITING_INTERNAL" && item.status !== "RESOLVED" && item.status !== "CLOSED" ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "WAITING_INTERNAL" }, "Case waiting on internal team")}>
+                          Need team
+                        </Button>
+                      ) : null}
+                      {item.status !== "RESOLVED" && item.status !== "CLOSED" ? (
                         <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "RESOLVED" }, "Case resolved")}>
                           Resolve
+                        </Button>
+                      ) : null}
+                      {item.status === "RESOLVED" ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "CLOSED" }, "Case closed")}>
+                          Close
+                        </Button>
+                      ) : null}
+                      {(item.status === "RESOLVED" || item.status === "CLOSED") ? (
+                        <Button size="sm" variant="outline" onClick={() => void runQuickUpdate(item, { status: "OPEN" }, "Case reopened")}>
+                          Reopen
                         </Button>
                       ) : null}
                       {!item.assignedTo?.id && viewer?.id ? (
@@ -541,7 +566,7 @@ export function AdminCasesWorkspace() {
                 <div className="flex flex-wrap gap-2">{selected.job?.id ? <Button asChild variant="outline" size="sm"><Link href={`/admin/jobs/${selected.job.id}`}>Open job</Link></Button> : null}{selected.reportId ? <Button asChild variant="outline" size="sm"><Link href={`/admin/reports?reportId=${selected.reportId}`}>Open report</Link></Button> : null}</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div className="space-y-1.5"><Label>Type</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.caseType} onChange={(event) => setSelected((prev) => prev ? { ...prev, caseType: event.target.value as CaseType } : prev)}>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select></div>
-                  <div className="space-y-1.5"><Label>Status</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.status} onChange={(event) => setSelected((prev) => prev ? { ...prev, status: event.target.value as CaseStatus } : prev)}>{CASE_STATUSES.map((status) => <option key={status} value={status}>{prettify(status)}</option>)}</select></div>
+                  <div className="space-y-1.5"><Label>Status</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.status} onChange={(event) => setSelected((prev) => prev ? { ...prev, status: event.target.value as CaseStatus } : prev)}>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select></div>
                   <div className="space-y-1.5"><Label>Priority</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.severity} onChange={(event) => setSelected((prev) => prev ? { ...prev, severity: event.target.value as Severity } : prev)}>{SEVERITIES.map((severity) => <option key={severity} value={severity}>{severity}</option>)}</select></div>
                   <div className="space-y-1.5"><Label>Owner</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.assignedTo?.id ?? "__unassigned"} onChange={(event) => setSelected((prev) => prev ? { ...prev, assignedTo: event.target.value === "__unassigned" ? null : assignees.find((item) => item.id === event.target.value) || null } : prev)}><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select></div>
                 </div>

@@ -14,6 +14,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { Button } from "@/components/ui/button";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 import { PreferredCleanerCard } from "@/components/client/preferred-cleaner-card";
+import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from "@/lib/laundry/media";
 
 const TZ = "Australia/Sydney";
 
@@ -212,7 +213,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                           <div key={confirmation.id} className="rounded-lg bg-muted/30 p-3 text-sm">
                             <p className="font-medium">{format(confirmation.createdAt, "dd MMM yyyy HH:mm")}</p>
                             <p className="text-muted-foreground">
-                              {confirmation.laundryReady ? "Cleaner marked ready" : "Laundry update sent"}
+                              {getLaundryConfirmationLabel(confirmation)}
                               {confirmation.bagLocation ? ` • ${confirmation.bagLocation}` : ""}
                             </p>
                             {task.skipReasonCode ? (
@@ -221,14 +222,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                             {task.skipReasonNote ? <p className="text-xs text-muted-foreground">{task.skipReasonNote}</p> : null}
                             {portal.visibility.showLaundryImages && confirmation.photoUrl ? (
                               <MediaGallery
-                                items={[
-                                  {
-                                    id: `${confirmation.id}-photo`,
-                                    url: confirmation.photoUrl,
-                                    label: confirmation.laundryReady ? "Laundry ready image" : "Laundry update image",
-                                    mediaType: "PHOTO",
-                                  },
-                                ]}
+                                items={buildLaundryConfirmationMediaItems([confirmation])}
                                 title="Laundry image"
                                 className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
                               />
@@ -391,3 +385,5 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
     </div>
   );
 }
+
+

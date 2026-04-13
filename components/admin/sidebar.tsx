@@ -83,6 +83,7 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
       { label: "Invoices", href: "/admin/invoices", icon: Wallet },
       { label: "Finance", href: "/admin/finance", icon: BarChart3 },
+      { label: "Payroll", href: "/admin/payroll", icon: Wallet },
       { label: "Reports", href: "/admin/reports", icon: FileBarChart },
     ],
   },

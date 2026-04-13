@@ -6,12 +6,13 @@ import { db } from "@/lib/db";
 import { deleteCase, getCaseById, updateCase } from "@/lib/cases/service";
 import { notifyCaseUpdated } from "@/lib/cases/notifications";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { CASE_STATUSES } from "@/lib/cases/status";
 
 const patchSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
   description: z.string().trim().max(6000).optional().nullable(),
   severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED"]).optional(),
+  status: z.enum(CASE_STATUSES).optional(),
   statusChangeNote: z.string().trim().max(4000).optional(),
   assignedToUserId: z.string().trim().optional().nullable(),
   clientVisible: z.boolean().optional(),

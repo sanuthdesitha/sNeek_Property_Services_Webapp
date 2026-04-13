@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice } from "@/lib/billing/client-invoices";
+import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { db } from "@/lib/db";
 
 const lineUpdateSchema = z.object({
@@ -16,6 +17,7 @@ const patchSchema = z.object({
   status: z.nativeEnum(ClientInvoiceStatus).optional(),
   dueDate: z.string().optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
+  gstEnabled: z.boolean().optional(),
   updateLines: z.array(lineUpdateSchema).optional(),
   addLine: z.object({
     description: z.string().trim().min(1),
@@ -91,17 +93,22 @@ export async function PATCH(
       });
     }
 
-    // Recalculate totals if lines changed
+    // Recalculate totals if lines changed or GST toggle changed
     let subtotal = existing.subtotal;
     let gstAmount = existing.gstAmount;
     let totalAmount = existing.totalAmount;
-    if (body.updateLines?.length || body.addLine || body.removeLineId) {
+    let gstEnabled = existing.gstEnabled ?? true;
+
+    if (body.gstEnabled !== undefined) {
+      gstEnabled = body.gstEnabled;
+    }
+
+    if (body.updateLines?.length || body.addLine || body.removeLineId || body.gstEnabled !== undefined) {
       const updatedLines = await db.clientInvoiceLine.findMany({ where: { invoiceId: params.id } });
       subtotal = updatedLines.reduce((sum, l) => sum + Number(l.lineTotal), 0);
-      // Re-use GST rate from existing ratio if any
-      const gstRate = existing.subtotal > 0 ? Number(existing.gstAmount) / Number(existing.subtotal) : 0;
-      gstAmount = Number((subtotal * gstRate).toFixed(2));
-      totalAmount = Number((subtotal + gstAmount).toFixed(2));
+      const breakdown = calculateGstBreakdown(subtotal, { gstEnabled });
+      gstAmount = breakdown.gstAmount;
+      totalAmount = breakdown.totalAmount;
     }
 
     const statusData: Record<string, unknown> = {};
@@ -118,6 +125,7 @@ export async function PATCH(
         ...(body.status ? { status: body.status, ...statusData } : {}),
         ...(body.dueDate !== undefined ? { metadata: { ...(existing.metadata as object ?? {}), dueDate: body.dueDate } } : {}),
         ...(body.notes !== undefined ? { metadata: { ...(existing.metadata as object ?? {}), notes: body.notes } } : {}),
+        ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
         subtotal,
         gstAmount,
         totalAmount,

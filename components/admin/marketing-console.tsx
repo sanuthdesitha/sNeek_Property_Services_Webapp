@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 const serviceOptions = MARKETED_SERVICES.map((service) => ({ value: service.jobType, label: service.shortLabel }));
 const cadenceOptions = ["Weekly", "Fortnightly", "Monthly", "Quarterly", "Per booking", "Custom"];
@@ -64,6 +65,7 @@ function toIsoOrNull(value: string) {
 }
 
 export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCampaigns: CampaignRow[]; initialPlans: PlanRow[] }) {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [plans, setPlans] = useState(initialPlans);
   const [campaignSaving, setCampaignSaving] = useState(false);
@@ -194,6 +196,13 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
   }
 
   async function removeCampaign(id: string) {
+    const approved = await confirm({
+      title: "Delete campaign",
+      description: "This will remove the campaign from the public marketing tools.",
+      confirmLabel: "Delete campaign",
+      actionKey: "deleteCampaign",
+    });
+    if (!approved) return;
     const res = await fetch(`/api/admin/campaigns/${id}`, { method: "DELETE" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -246,6 +255,13 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
   }
 
   async function removePlan(id: string) {
+    const approved = await confirm({
+      title: "Delete subscription plan",
+      description: "This will remove the plan from the public subscriptions catalogue.",
+      confirmLabel: "Delete plan",
+      actionKey: "deleteSubscriptionPlan",
+    });
+    if (!approved) return;
     const res = await fetch(`/api/admin/subscriptions/${id}`, { method: "DELETE" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -273,6 +289,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
         </div>
       }
     >
+      {dialog}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="rounded-[1.7rem] border-white/70 bg-white/80">
           <CardContent className="space-y-1 p-5">

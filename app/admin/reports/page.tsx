@@ -29,32 +29,40 @@ export default function ReportsPage() {
   const [updatingVisibility, setUpdatingVisibility] = useState<string | null>(null);
   const [deletingReport, setDeletingReport] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<any | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(filters.q.trim());
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [filters.q]);
 
   async function loadReports() {
     setLoading(true);
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: "50",
-      sort: filters.sort,
-    });
-    if (filters.q.trim()) params.set("q", filters.q.trim());
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "25",
+        sort: filters.sort,
+      });
+    if (debouncedQuery) params.set("q", debouncedQuery);
     if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
     if (filters.visibility !== "all") params.set("visibility", filters.visibility);
     const res = await fetch(`/api/admin/reports?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     setReports(Array.isArray(data?.reports) ? data.reports : []);
     setProperties(Array.isArray(data?.properties) ? data.properties : []);
-    setPagination(data?.pagination ?? { page: 1, limit: 50, totalCount: 0, totalPages: 1, hasMore: false });
+    setPagination(data?.pagination ?? { page: 1, limit: 25, totalCount: 0, totalPages: 1, hasMore: false });
     setLoading(false);
   }
 
   useEffect(() => {
     loadReports();
-  }, [page, filters.propertyId, filters.q, filters.sort, filters.visibility]);
+  }, [page, debouncedQuery, filters.propertyId, filters.sort, filters.visibility]);
 
   useEffect(() => {
     setPage(1);
-  }, [filters.propertyId, filters.q, filters.sort, filters.visibility]);
+  }, [debouncedQuery, filters.propertyId, filters.sort, filters.visibility]);
 
   async function downloadReport(jobId: string) {
     try {

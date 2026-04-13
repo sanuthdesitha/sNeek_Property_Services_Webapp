@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 type SupplierRow = {
   id: string;
@@ -63,6 +64,7 @@ function formFromSupplier(row: SupplierRow): SupplierForm {
 }
 
 export function LaundrySuppliersWorkspace({ initialSuppliers }: { initialSuppliers: SupplierRow[] }) {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [suppliers, setSuppliers] = useState(initialSuppliers);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<SupplierForm>(EMPTY_FORM);
@@ -103,7 +105,13 @@ export function LaundrySuppliersWorkspace({ initialSuppliers }: { initialSupplie
   }
 
   async function deleteSupplier(id: string) {
-    if (!window.confirm("Delete this supplier?")) return;
+    const approved = await confirm({
+      title: "Delete laundry supplier",
+      description: "This will remove the supplier from laundry supplier options.",
+      confirmLabel: "Delete supplier",
+      actionKey: "deleteSupplier",
+    });
+    if (!approved) return;
     try {
       const response = await fetch(`/api/admin/laundry/suppliers/${id}`, { method: "DELETE" });
       const body = await response.json().catch(() => ({}));
@@ -118,6 +126,7 @@ export function LaundrySuppliersWorkspace({ initialSuppliers }: { initialSupplie
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      {dialog}
       <Card>
         <CardHeader>
           <CardTitle>{editingId ? "Edit supplier" : "New supplier"}</CardTitle>

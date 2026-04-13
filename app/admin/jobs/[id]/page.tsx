@@ -30,6 +30,11 @@ import {
   formatAssignmentResponseLabel,
   formatJobStatusLabel,
 } from "@/lib/jobs/assignment-workflow";
+import {
+  buildLaundryConfirmationMediaItems,
+  getLaundryConfirmationLabel,
+  parseLaundryConfirmationMeta,
+} from "@/lib/laundry/media";
 
 const STATUS_COLORS: Record<string, any> = {
   UNASSIGNED: "warning",
@@ -114,46 +119,12 @@ function createSpecialRequestTask(): JobSpecialRequestTask {
   };
 }
 
-function parseLaundryEventNotes(notes: string | null | undefined) {
-  if (!notes) return null;
-  try {
-    return JSON.parse(notes);
-  } catch {
-    return null;
-  }
-}
-
-function getLaundryConfirmationLabel(confirmation: any) {
-  const meta = parseLaundryEventNotes(confirmation?.notes);
-  if (meta?.event === "PICKED_UP") return "Picked up";
-  if (meta?.event === "DROPPED") return "Dropped off";
-  if (meta?.event === "FAILED_PICKUP_REQUEST") return "Failed pickup request";
-  if (meta?.event === "FAILED_PICKUP_RESCHEDULE") return "Failed pickup reschedule";
-  if (meta?.event === "FAILED_PICKUP_SKIP_APPROVED") return "Skip approved";
-  if (meta?.event === "FAILED_PICKUP_REQUEST_REJECTED") return "Failed pickup rejected";
-  return confirmation?.laundryReady ? "Cleaner marked ready" : "Cleaner update";
-}
-
 function buildLaundryMediaItems(laundryTask: any) {
-  const items: Array<{ id: string; url: string; label: string; mediaType: "PHOTO" }> = [];
-  for (const confirmation of Array.isArray(laundryTask?.confirmations) ? laundryTask.confirmations : []) {
-    if (!confirmation?.photoUrl) continue;
-    items.push({
-      id: confirmation.id,
-      url: confirmation.photoUrl,
-      label: getLaundryConfirmationLabel(confirmation),
-      mediaType: "PHOTO",
-    });
-  }
-  if (laundryTask?.receiptImageUrl) {
-    items.push({
-      id: `${laundryTask.id}-receipt`,
-      url: laundryTask.receiptImageUrl,
-      label: "Laundry receipt",
-      mediaType: "PHOTO",
-    });
-  }
-  return items;
+  return buildLaundryConfirmationMediaItems(laundryTask?.confirmations, {
+    taskId: laundryTask?.id,
+    receiptImageUrl: laundryTask?.receiptImageUrl,
+    receiptLabel: "Laundry receipt",
+  });
 }
 
 function renderFieldValue(field: any, submission: any) {
@@ -2253,7 +2224,7 @@ export default function JobDetailPage() {
                   {Array.isArray(job.laundryTask.confirmations) && job.laundryTask.confirmations.length > 0 ? (
                     <div className="space-y-2">
                       {job.laundryTask.confirmations.map((confirmation: any) => {
-                        const meta = parseLaundryEventNotes(confirmation?.notes);
+                        const meta = parseLaundryConfirmationMeta(confirmation?.notes) as Record<string, unknown>;
                         return (
                           <div key={confirmation.id} className="rounded-md border bg-muted/20 p-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2265,11 +2236,11 @@ export default function JobDetailPage() {
                             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                               {confirmation.bagLocation ? <p>Bag location: {confirmation.bagLocation}</p> : null}
                               {confirmation.notes && !meta?.event ? <p>Note: {confirmation.notes}</p> : null}
-                              {meta?.dropoffLocation ? <p>Drop-off location: {meta.dropoffLocation}</p> : null}
-                              {meta?.bagCount ? <p>Bag count: {meta.bagCount}</p> : null}
+                              {typeof meta.dropoffLocation === "string" && meta.dropoffLocation.trim() ? <p>Drop-off location: {meta.dropoffLocation}</p> : null}
+                              {meta.bagCount != null ? <p>Bag count: {String(meta.bagCount)}</p> : null}
                               {typeof meta?.totalPrice === "number" ? <p>Total price: ${Number(meta.totalPrice).toFixed(2)}</p> : null}
-                              {meta?.reason ? <p>Reason: {meta.reason}</p> : null}
-                              {meta?.resolutionNotes ? <p>Resolution: {meta.resolutionNotes}</p> : null}
+                              {typeof meta.reason === "string" && meta.reason.trim() ? <p>Reason: {meta.reason}</p> : null}
+                              {typeof meta.resolutionNotes === "string" && meta.resolutionNotes.trim() ? <p>Resolution: {meta.resolutionNotes}</p> : null}
                             </div>
                           </div>
                         );

@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from "@/lib/laundry/media";
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
@@ -272,14 +273,7 @@ export function ClientLaundryWorkspace({
 
   function renderTaskCard(task: any, options?: { highlight?: boolean; showContextLabel?: boolean }) {
     const summary = buildLatestLaundrySummary(task);
-    const confirmationPhotos = task.confirmations
-      .filter((confirmation: any) => Boolean(confirmation.photoUrl))
-      .map((confirmation: any) => ({
-        id: `${confirmation.id}-photo`,
-        url: confirmation.photoUrl,
-        label: confirmation.laundryReady ? "Laundry ready image" : "Laundry update image",
-        mediaType: "PHOTO",
-      }));
+    const confirmationPhotos = buildLaundryConfirmationMediaItems(task.confirmations);
 
     return (
       <Card
@@ -345,7 +339,7 @@ export function ClientLaundryWorkspace({
                 <div key={confirmation.id} className="rounded-lg border bg-background p-3">
                   <p className="font-medium">{format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}</p>
                   <p className="text-xs text-muted-foreground">
-                    {confirmation.laundryReady ? "Cleaner sent ready update" : "Laundry event recorded"}
+                    {getLaundryConfirmationLabel(confirmation)}
                     {confirmation.bagLocation ? ` • ${confirmation.bagLocation}` : ""}
                   </p>
                 </div>

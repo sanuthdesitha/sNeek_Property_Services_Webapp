@@ -272,6 +272,10 @@ model User {
   phone         String?
   hourlyRate    Float?
   isActive      Boolean   @default(true)
+  bankBsb           String?
+  bankAccountNumber   String?
+  bankAccountName     String?
+  stripeAccountId     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -292,6 +296,8 @@ model User {
   icalSyncRunsReverted         IcalSyncRun[]               @relation("IcalSyncRevertedBy")
   assignedCases                IssueTicket[]               @relation("IssueTicketAssignedTo")
   caseComments                 CaseComment[]
+  payrollRunsCreated           PayrollRun[]                @relation("PayrollRunCreatedBy")
+  payouts                      Payout[]                    @relation("CleanerPayouts")
   caseAttachments              CaseAttachment[]
   stockRuns                    StockRun[]                  @relation("StockRunRequestedBy")
   shoppingRuns                 ShoppingRun[]               @relation("ShoppingRunOwner")
@@ -344,6 +350,8 @@ model Client {
   notes                     String?  @db.Text
   portalVisibilityOverrides Json?
   isActive                  Boolean  @default(true)
+  xeroContactId             String?
+  xeroSyncedAt              DateTime?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
@@ -1221,6 +1229,7 @@ model ClientInvoice {
   subtotal              Float               @default(0)
   gstAmount             Float               @default(0)
   totalAmount           Float               @default(0)
+  gstEnabled            Boolean             @default(true)
   xeroExportedAt        DateTime?
   xeroInvoiceId         String?
   sentAt                DateTime?
@@ -1233,6 +1242,7 @@ model ClientInvoice {
   client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
   lines               ClientInvoiceLine[]
   shoppingSettlements ShoppingSettlement[]
+  payments            ClientPayment[]
 }
 
 model ClientInvoiceLine {
@@ -1807,4 +1817,218 @@ model JobFeedback {
 
   job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Finance: Payroll, Payments, Xero, Notifications
+// ─────────────────────────────────────────────
+
+enum PayrollRunStatus {
+  DRAFT
+  CONFIRMED
+  PROCESSING
+  COMPLETED
+  FAILED
+  VOID
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PayoutMethod {
+  STRIPE_CONNECT
+  ABA_FILE
+  MANUAL_BANK_TRANSFER
+}
+
+enum GatewayProvider {
+  STRIPE
+  PAYPAL
+  SQUARE
+}
+
+enum GatewayStatus {
+  ACTIVE
+  INACTIVE
+  TEST
+}
+
+enum NotificationRecipientRole {
+  ADMIN
+  CLEANER
+  CLIENT
+}
+
+enum NotificationLogStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model PayrollRun {
+  id                        String            @id @default(cuid())
+  periodStart               DateTime
+  periodEnd                 DateTime
+  status                    PayrollRunStatus  @default(DRAFT)
+  totalPayable              Float             @default(0)
+  totalShoppingReimbursements Float           @default(0)
+  totalTransportAllowances  Float             @default(0)
+  totalAdjustments          Float             @default(0)
+  grandTotal                Float             @default(0)
+  cleanerCount              Int               @default(0)
+  createdByUserId           String?
+  confirmedAt               DateTime?
+  completedAt               DateTime?
+  notes                     String?           @db.Text
+  metadata                  Json?
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  createdBy  User?    @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id])
+  payouts    Payout[]
+
+  @@index([status, createdAt])
+  @@index([periodStart, periodEnd])
+}
+
+model Payout {
+  id                    String        @id @default(cuid())
+  payrollRunId          String
+  cleanerId             String
+  amount                Float
+  shoppingReimbursement Float         @default(0)
+  transportAllowance    Float         @default(0)
+  adjustments           Float         @default(0)
+  status                PayoutStatus  @default(PENDING)
+  method                PayoutMethod  @default(MANUAL_BANK_TRANSFER)
+  stripeAccountId       String?
+  stripePayoutId        String?
+  bankBsb               String?
+  bankAccountNumber     String?
+  bankAccountName       String?
+  abaReference          String?
+  processedAt           DateTime?
+  failureReason         String?       @db.Text
+  metadata              Json?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
+  cleaner    User       @relation("CleanerPayouts", fields: [cleanerId], references: [id])
+
+  @@index([payrollRunId, status])
+  @@index([cleanerId, status])
+}
+
+model PaymentGateway {
+  id               String          @id @default(cuid())
+  provider         GatewayProvider
+  status           GatewayStatus   @default(ACTIVE)
+  label            String
+  priority         Int             @default(0)
+  credentials      Json
+  feeRate          Float           @default(0)
+  fixedFee         Float           @default(0)
+  surchargeEnabled Boolean         @default(false)
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  payments ClientPayment[]
+
+  @@index([status, priority])
+}
+
+model ClientPayment {
+  id               String   @id @default(cuid())
+  invoiceId        String?
+  quoteId          String?
+  amount           Float
+  currency         String   @default("AUD")
+  status           String   @default("PENDING")
+  gatewayId        String
+  gatewayProvider  GatewayProvider
+  gatewayPaymentId String?
+  gatewayResponse  Json?
+  feeAmount        Float?
+  surchargeAmount  Float    @default(0)
+  paidAt           DateTime?
+  refundedAt       DateTime?
+  refundAmount     Float?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoice ClientInvoice? @relation(fields: [invoiceId], references: [id])
+  gateway PaymentGateway @relation(fields: [gatewayId], references: [id])
+
+  @@index([invoiceId, status])
+  @@index([gatewayId, status])
+}
+
+model XeroConnection {
+  id            String    @id @default(cuid())
+  tenantId      String    @unique
+  tenantName    String
+  accessToken   String    @db.Text
+  refreshToken  String    @db.Text
+  expiresAt     DateTime
+  scopes        String[]
+  isActive      Boolean   @default(true)
+  lastSyncAt    DateTime?
+  lastSyncError String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model NotificationTemplate {
+  id            String   @id @default(cuid())
+  eventKey      String   @unique
+  label         String
+  category      String
+  description   String?  @db.Text
+  emailSubject  String?
+  emailBodyHtml String?  @db.Text
+  emailBodyText String?  @db.Text
+  smsBody       String?  @db.Text
+  pushTitle     String?
+  pushBody      String?
+  availableVars Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model NotificationPreference {
+  id            String                  @id @default(cuid())
+  eventKey      String
+  recipientRole NotificationRecipientRole
+  channel       NotificationChannel
+  enabled       Boolean                 @default(true)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@unique([eventKey, recipientRole, channel])
+  @@index([eventKey])
+}
+
+model NotificationLog {
+  id             String   @id @default(cuid())
+  eventKey       String
+  recipientEmail String?
+  recipientRole  String
+  channel        NotificationChannel
+  status         NotificationLogStatus
+  subject        String?
+  error          String?  @db.Text
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([eventKey, createdAt])
+  @@index([recipientEmail, createdAt])
 }

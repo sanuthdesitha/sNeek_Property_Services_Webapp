@@ -1,6 +1,7 @@
 import { Role, type Prisma } from "@prisma/client";
 import { formatDistanceStrict } from "date-fns";
 import { resolveAppUrl } from "@/lib/app-url";
+import { isCaseOpenStatus } from "@/lib/cases/status";
 import { db } from "@/lib/db";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 
@@ -27,7 +28,6 @@ export async function sendStaleCaseFollowUps(now = new Date()) {
   const [cases, recipients] = await Promise.all([
     db.issueTicket.findMany({
       where: {
-        status: { in: ["OPEN", "IN_PROGRESS"] },
         updatedAt: { lte: threshold },
       },
       select: {
@@ -73,6 +73,7 @@ export async function sendStaleCaseFollowUps(now = new Date()) {
   }
 
   const staleCases = cases.filter((item) => {
+    if (!isCaseOpenStatus(item.status)) return false;
     const metadata = readMetadata(item.metadata);
     const lastAlertedAt = readAlertedAt(metadata[METADATA_KEY]);
     return !lastAlertedAt || lastAlertedAt <= repeatCutoff;

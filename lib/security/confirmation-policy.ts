@@ -15,7 +15,13 @@ export type ConfirmationActionKey =
   | "deleteQuote"
   | "deleteUserAccount"
   | "sendClientInvite"
-  | "deactivateUserAccount";
+  | "deactivateUserAccount"
+  | "deleteSupplier"
+  | "deleteShoppingRun"
+  | "deleteCampaign"
+  | "deleteSubscriptionPlan"
+  | "deleteBlogPost"
+  | "deleteInvoice";
 
 export interface ConfirmationPolicy {
   tier: ConfirmationTier;
@@ -37,6 +43,12 @@ const CONFIRMATION_POLICIES: Record<ConfirmationActionKey, ConfirmationPolicy> =
   deleteQuote: { tier: "routine" },
   sendClientInvite: { tier: "routine" },
   deactivateUserAccount: { tier: "routine" },
+  deleteSupplier: { tier: "routine" },
+  deleteShoppingRun: { tier: "routine" },
+  deleteCampaign: { tier: "routine" },
+  deleteSubscriptionPlan: { tier: "routine" },
+  deleteBlogPost: { tier: "routine" },
+  deleteInvoice: { tier: "routine" },
   deleteUserAccount: { tier: "highRisk", confirmPhrase: "DELETE" },
 };
 

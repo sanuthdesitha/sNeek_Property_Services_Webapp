@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 type ShoppingRow = {
   propertyId: string;
@@ -187,6 +188,7 @@ export function ShoppingPlanner({
   title,
   description,
 }: Props) {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [loading, setLoading] = useState(true);
   const [payload, setPayload] = useState<Payload>({ rows: [], properties: [], propertySummaries: [] });
   const [drafts, setDrafts] = useState<Record<string, DraftRow>>({});
@@ -512,7 +514,13 @@ export function ShoppingPlanner({
 
   async function deleteRun() {
     if (!selectedRunId) return;
-    if (!window.confirm("Delete this shopping run?")) return;
+    const approved = await confirm({
+      title: "Delete shopping run",
+      description: "This will permanently remove the saved shopping run and its planning state.",
+      confirmLabel: "Delete run",
+      actionKey: "deleteShoppingRun",
+    });
+    if (!approved) return;
     setDeletingRun(true);
     try {
       const res = await fetch(`${runsApiBase}/${selectedRunId}`, { method: "DELETE" });
@@ -607,6 +615,7 @@ export function ShoppingPlanner({
 
   return (
     <div className="space-y-6">
+      {dialog}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">{title ?? "Start Shopping"}</h1>

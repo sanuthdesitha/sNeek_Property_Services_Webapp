@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { publicUrl } from "@/lib/s3";
+import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 
 export async function GET(req: NextRequest) {
   try {
@@ -57,15 +58,19 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-      rows.map((row) => ({
-        ...row,
-        clientApproval: approvalByAdjustmentId.get(row.id) ?? null,
-        attachmentUrls: Array.isArray(row.attachmentKeys)
-          ? row.attachmentKeys
-              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              .map((key) => ({ key, url: publicUrl(key) }))
-          : [],
-      }))
+      rows.map((row) => {
+        const clientApproval = approvalByAdjustmentId.get(row.id) ?? null;
+        return {
+          ...row,
+          ...normalizePayAdjustmentAmounts(row, clientApproval),
+          clientApproval,
+          attachmentUrls: Array.isArray(row.attachmentKeys)
+            ? row.attachmentKeys
+                .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+                .map((key) => ({ key, url: publicUrl(key) }))
+            : [],
+        };
+      })
     );
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

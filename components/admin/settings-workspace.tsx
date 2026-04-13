@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Role } from "@prisma/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { AppSettings } from "@/lib/settings";
 
@@ -29,6 +29,22 @@ const ScheduledNotificationControls = dynamic(
   () => import("@/components/admin/scheduled-notification-controls").then((mod) => mod.ScheduledNotificationControls),
   { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading scheduled tools...</div> }
 );
+const FinanceNotificationsSettings = dynamic(
+  () => import("@/components/admin/finance-notifications-settings").then((mod) => mod.FinanceNotificationsSettings),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading finance notification settings...</div> }
+);
+const IntegrationsSettings = dynamic(
+  () => import("@/components/admin/integrations-settings").then((mod) => mod.IntegrationsSettings),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading integration settings...</div> }
+);
+const PaymentGatewaysTab = dynamic(
+  () => import("@/components/admin/payment-gateways-page").then((mod) => ({ default: mod.PaymentGatewaysPage })),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading payment gateways...</div> }
+);
+const XeroTab = dynamic(
+  () => import("@/components/admin/xero-settings-tab").then((mod) => ({ default: mod.XeroSettingsTab })),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading Xero settings...</div> }
+);
 
 const ROLE_SUMMARY: Record<Role, string> = {
   [Role.ADMIN]: "Full platform access including settings and pricing",
@@ -49,6 +65,7 @@ type SettingsWorkspaceProps = {
   activeSmsProviderConfigured: boolean;
   configuredAppUrl: string;
   permissionRows: Array<{ permission: string; roles: string[] }>;
+  defaultTab?: string;
 };
 
 export function SettingsWorkspace({
@@ -62,8 +79,9 @@ export function SettingsWorkspace({
   activeSmsProviderConfigured,
   configuredAppUrl,
   permissionRows,
+  defaultTab,
 }: SettingsWorkspaceProps) {
-  const [tab, setTab] = useState("editor");
+  const [tab, setTab] = useState(defaultTab ?? "editor");
   const [pricebookRows, setPricebookRows] = useState<any[] | null>(null);
   const [auditEntries, setAuditEntries] = useState<any[] | null>(null);
 
@@ -88,10 +106,14 @@ export function SettingsWorkspace({
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
         <TabsTrigger value="editor">Core settings</TabsTrigger>
         <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="roles">Roles</TabsTrigger>
+        {isAdmin ? <TabsTrigger value="integrations">Integrations</TabsTrigger> : null}
+        {isAdmin ? <TabsTrigger value="payment-gateways">Payment Gateways</TabsTrigger> : null}
+        {isAdmin ? <TabsTrigger value="xero">Xero</TabsTrigger> : null}
+        {isAdmin ? <TabsTrigger value="finance-notifications">Finance Notifications</TabsTrigger> : null}
+        <TabsTrigger value="notifications">Notification tools</TabsTrigger>
         {isAdmin ? <TabsTrigger value="pricebook">Price book</TabsTrigger> : null}
         {isAdmin ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
-        <TabsTrigger value="notifications">Notification tools</TabsTrigger>
+        <TabsTrigger value="roles">Roles</TabsTrigger>
       </TabsList>
 
       <TabsContent value="editor">
@@ -133,6 +155,36 @@ export function SettingsWorkspace({
           </CardContent>
         </Card>
       </TabsContent>
+
+      {isAdmin ? (
+        <TabsContent value="integrations">
+          <IntegrationsSettings />
+        </TabsContent>
+      ) : null}
+
+      {isAdmin ? (
+        <TabsContent value="payment-gateways">
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold">Payment Gateways</h3>
+              <p className="text-sm text-muted-foreground">Configure client payment providers (Stripe, Square, PayPal).</p>
+            </div>
+            <PaymentGatewaysTab />
+          </div>
+        </TabsContent>
+      ) : null}
+
+      {isAdmin ? (
+        <TabsContent value="xero">
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold">Xero Integration</h3>
+              <p className="text-sm text-muted-foreground">Connect Xero to sync invoices and contacts.</p>
+            </div>
+            <XeroTab />
+          </div>
+        </TabsContent>
+      ) : null}
 
       <TabsContent value="roles" className="space-y-4">
         <Card>
@@ -268,6 +320,12 @@ export function SettingsWorkspace({
           <ScheduledNotificationControls settings={appSettings.scheduledNotifications} />
         </div>
       </TabsContent>
+
+      {isAdmin ? (
+        <TabsContent value="finance-notifications">
+          <FinanceNotificationsSettings />
+        </TabsContent>
+      ) : null}
     </Tabs>
   );
 }

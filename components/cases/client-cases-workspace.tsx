@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { CASE_STATUSES, CASE_STATUS_LABELS, type UnifiedCaseStatus } from "@/lib/cases/status";
 
-type CaseStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+type CaseStatus = UnifiedCaseStatus;
 type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 type ClientCaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OTHER";
 
@@ -106,8 +107,8 @@ function formatDateTime(value?: string | null) {
 }
 
 function badgeTone(status: CaseStatus) {
-  if (status === "RESOLVED") return "default" as const;
-  if (status === "IN_PROGRESS") return "secondary" as const;
+  if (status === "RESOLVED" || status === "CLOSED") return "default" as const;
+  if (status === "TRIAGE" || status === "INVESTIGATING" || status === "WAITING_CLIENT" || status === "WAITING_INTERNAL") return "secondary" as const;
   return "outline" as const;
 }
 
@@ -525,13 +526,13 @@ export function ClientCasesWorkspace() {
           <CardContent className="space-y-3">
             <select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="ALL">All statuses</option>
-              <option value="OPEN">Open</option>
-              <option value="IN_PROGRESS">In progress</option>
-              <option value="RESOLVED">Resolved</option>
+              {CASE_STATUSES.map((status) => (
+                <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>
+              ))}
             </select>
             {loading ? <p className="py-8 text-sm text-muted-foreground">Loading cases...</p> : rows.length === 0 ? <p className="py-8 text-sm text-muted-foreground">No cases found.</p> : rows.map((row) => (
               <button key={row.id} type="button" className={`w-full rounded-xl border px-3 py-3 text-left transition ${selectedId === row.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`} onClick={() => setSelectedId(row.id)}>
-                <div className="flex items-center justify-between gap-2"><p className="font-medium">{row.title}</p><Badge variant={badgeTone(row.status)}>{prettify(row.status)}</Badge></div>
+                <div className="flex items-center justify-between gap-2"><p className="font-medium">{row.title}</p><Badge variant={badgeTone(row.status)}>{CASE_STATUS_LABELS[row.status]}</Badge></div>
                 <p className="mt-1 text-xs text-muted-foreground">{prettify(row.caseType)} · {row.property?.name || row.job?.property?.name || "General case"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Opened {formatDateTime(row.createdAt)}</p>
               </button>
@@ -549,7 +550,7 @@ export function ClientCasesWorkspace() {
                     <h3 className="text-lg font-semibold">{selected.title}</h3>
                     <p className="text-sm text-muted-foreground">{selected.property?.name || selected.job?.property?.name || "General case"}</p>
                   </div>
-                  <Badge variant={badgeTone(selected.status)}>{prettify(selected.status)}</Badge>
+                  <Badge variant={badgeTone(selected.status)}>{CASE_STATUS_LABELS[selected.status]}</Badge>
                 </div>
                 <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                   <p><span className="font-medium text-foreground">Priority:</span> {selected.severity}</p>

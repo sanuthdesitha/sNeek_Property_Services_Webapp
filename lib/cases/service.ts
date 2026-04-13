@@ -4,6 +4,7 @@ import { parseCaseDescription } from "@/lib/issues/case-utils";
 import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
 import { publicUrl } from "@/lib/s3";
 import { listDisputes, type DisputeRecord } from "@/lib/phase4/disputes";
+import { normalizeUnifiedCaseStatus, type UnifiedCaseStatus } from "@/lib/cases/status";
 
 const LEGACY_MIGRATION_KEY = "cases_legacy_disputes_migration_v1";
 
@@ -30,7 +31,7 @@ function sanitizeMigrationState(input: unknown): LegacyMigrationState {
 }
 
 export type CaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OPS" | "SLA" | "OTHER";
-export type CaseStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+export type CaseStatus = UnifiedCaseStatus;
 
 export interface CaseListFilters {
   status?: string | null;
@@ -65,14 +66,7 @@ function normalizeCaseType(value: string | null | undefined): CaseType {
 }
 
 function normalizeCaseStatus(value: string | null | undefined): CaseStatus {
-  switch (String(value ?? "").trim().toUpperCase()) {
-    case "IN_PROGRESS":
-      return "IN_PROGRESS";
-    case "RESOLVED":
-      return "RESOLVED";
-    default:
-      return "OPEN";
-  }
+  return normalizeUnifiedCaseStatus(value);
 }
 
 function normalizeSeverity(value: string | null | undefined) {
@@ -179,7 +173,7 @@ export function toClientCaseView<T extends ReturnType<typeof serializeCase>>(iss
 }
 
 function mapLegacyDisputeStatus(value: DisputeRecord["status"]): CaseStatus {
-  if (value === "UNDER_REVIEW") return "IN_PROGRESS";
+  if (value === "UNDER_REVIEW") return "INVESTIGATING";
   if (value === "RESOLVED" || value === "REJECTED") return "RESOLVED";
   return "OPEN";
 }

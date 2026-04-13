@@ -8,14 +8,14 @@ export async function GET(req: NextRequest) {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
     const pageParam = Number(searchParams.get("page") ?? "1");
-    const limitParam = Number(searchParams.get("limit") ?? "50");
+    const limitParam = Number(searchParams.get("limit") ?? "25");
     const q = searchParams.get("q")?.trim();
     const propertyId = searchParams.get("propertyId")?.trim();
     const visibility = searchParams.get("visibility")?.trim();
     const sort = searchParams.get("sort")?.trim() || "newest";
 
     const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
-    const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(20, Math.floor(limitParam))) : 50;
+    const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(10, Math.floor(limitParam))) : 25;
 
     const where: any = {};
     if (propertyId && propertyId !== "all") {

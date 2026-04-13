@@ -5,7 +5,7 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getAppSettings } from "@/lib/settings";
 import { SettingsWorkspace } from "@/components/admin/settings-workspace";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: { tab?: string } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const isAdmin = session.user.role === Role.ADMIN;
   const appSettings = await getAppSettings();
@@ -41,7 +41,9 @@ export default async function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold">Settings</h2>
-        <p className="text-sm text-muted-foreground">Grouped operational settings with lighter initial loading.</p>
+        <p className="text-sm text-muted-foreground">
+          Grouped operational settings with integrations and API credentials.
+        </p>
       </div>
 
       <SettingsWorkspace
@@ -55,6 +57,7 @@ export default async function SettingsPage() {
         activeSmsProviderConfigured={activeSmsProviderConfigured}
         configuredAppUrl={configuredAppUrl}
         permissionRows={permissionRows}
+        defaultTab={searchParams.tab}
       />
     </div>
   );

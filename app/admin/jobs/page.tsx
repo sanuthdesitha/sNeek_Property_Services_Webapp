@@ -70,6 +70,7 @@ const JOB_FILTER_DEFAULTS = {
 };
 const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
 const JOBS_PAGE_SIZE = 50;
+const KANBAN_COLUMN_PREVIEW = 12;
 
 type JobFilters = typeof JOB_FILTER_DEFAULTS;
 
@@ -97,6 +98,7 @@ export default function JobsPage() {
   const [savedView, setSavedView] = useState<"list" | "kanban">("list");
   const [viewPreferenceDraft, setViewPreferenceDraft] = useState<"list" | "kanban">("list");
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
+  const [kanbanVisibleCounts, setKanbanVisibleCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -177,6 +179,10 @@ export default function JobsPage() {
   useEffect(() => {
     loadJobs(1);
   }, [activeTab]);
+
+  useEffect(() => {
+    setKanbanVisibleCounts({});
+  }, [activeTab, filters.status, filters.search, filters.cleanerName, filters.jobType, filters.dateFrom, filters.dateTo, filters.invoiced]);
 
   useEffect(() => {
     try {
@@ -1209,8 +1215,10 @@ export default function JobsPage() {
                 <span className="text-xs text-muted-foreground">{groupedByStatus[status]?.length}</span>
               </div>
               <div className="space-y-2">
-                {groupedByStatus[status]?.map((job) => (
-                  (() => {
+                  {(groupedByStatus[status] ?? [])
+                    .slice(0, kanbanVisibleCounts[status] ?? (status === "UNASSIGNED" ? KANBAN_COLUMN_PREVIEW : groupedByStatus[status]?.length ?? 0))
+                    .map((job) => (
+                    (() => {
                     const assignmentNames = getAssignmentNames(job);
                     const slaStatus = getSlaStatus(job);
                     return (
@@ -1301,14 +1309,29 @@ export default function JobsPage() {
                     );
                   })()
                 ))}
-                {groupedByStatus[status]?.length === 0 ? (
-                  <div className="rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
-                    Empty
-                  </div>
-                ) : null}
+                  {groupedByStatus[status]?.length === 0 ? (
+                    <div className="rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
+                      Empty
+                    </div>
+                  ) : null}
+                  {status === "UNASSIGNED" && (groupedByStatus[status]?.length ?? 0) > (kanbanVisibleCounts[status] ?? KANBAN_COLUMN_PREVIEW) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() =>
+                        setKanbanVisibleCounts((current) => ({
+                          ...current,
+                          [status]: (current[status] ?? KANBAN_COLUMN_PREVIEW) + KANBAN_COLUMN_PREVIEW,
+                        }))
+                      }
+                    >
+                      Load more unassigned
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       )}
       </Tabs>

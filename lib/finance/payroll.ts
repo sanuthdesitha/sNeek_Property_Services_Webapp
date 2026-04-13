@@ -2,13 +2,14 @@ import { addDays } from "date-fns";
 import { PayAdjustmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 
 export async function getPayrollSummary(input: { startDate: string; endDate: string }) {
   const settings = await getAppSettings();
   const start = new Date(`${input.startDate}T00:00:00.000Z`);
   const endExclusive = addDays(new Date(`${input.endDate}T00:00:00.000Z`), 1);
 
-  const [cleaners, jobs, adjustments] = await Promise.all([
+  const [cleaners, jobs, adjustments, shoppingRuns] = await Promise.all([
     db.user.findMany({
       where: { role: Role.CLEANER, isActive: true },
       select: { id: true, name: true, email: true, hourlyRate: true },
@@ -25,6 +26,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
         jobType: true,
         scheduledDate: true,
         estimatedHours: true,
+        internalNotes: true,
         property: { select: { name: true, suburb: true } },
         assignments: {
           where: { removedAt: null },
@@ -39,7 +41,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
     }),
     db.cleanerPayAdjustment.findMany({
       where: {
-        requestedAt: { gte: start, lt: endExclusive },
+        reviewedAt: { gte: start, lt: endExclusive },
         status: PayAdjustmentStatus.APPROVED,
       },
       select: {
@@ -48,12 +50,54 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
         title: true,
         requestedAmount: true,
         approvedAmount: true,
-        requestedAt: true,
+        reviewedAt: true,
         jobId: true,
         property: { select: { name: true } },
       },
     }),
+    // Shopping reimbursements: runs where cleaner paid out of pocket and is owed reimbursement
+    db.shoppingRun.findMany({
+      where: {
+        updatedAt: { gte: start, lt: endExclusive },
+        settlements: {
+          some: {
+            clientBillable: false,
+            adminApprovedForCleanerReimbursement: true,
+            includeInCleanerInvoice: false,
+          },
+        },
+      },
+      include: {
+        settlements: {
+          where: {
+            adminApprovedForCleanerReimbursement: true,
+            includeInCleanerInvoice: false,
+          },
+        },
+        lines: true,
+      },
+    }),
+    // Shopping time: approved minutes * rate (stored as JSON on ShoppingRun.notes or via separate tracking)
+    // For now, return empty — shopping time tracking needs a dedicated model
+    Promise.resolve([] as any[]),
   ]);
+
+  // Build shopping reimbursement map by cleaner
+  const shoppingByCleaner = new Map<string, { id: string; title: string; amount: number; updatedAt: Date }[]>();
+  for (const run of shoppingRuns) {
+    const settlement = run.settlements[0];
+    if (!settlement) continue;
+    if (!settlement.paidByUserId) continue;
+    // Calculate reimbursement from settlements
+    const amount = Number(settlement.clientBillable ? 0 : (run.lines.reduce((sum, l) => sum + Number(l.lineCost ?? 0), 0)));
+    if (amount <= 0) continue;
+    const list = shoppingByCleaner.get(settlement.paidByUserId) || [];
+    list.push({ id: run.id, title: run.title || "Shopping reimbursement", amount, updatedAt: run.updatedAt });
+    shoppingByCleaner.set(settlement.paidByUserId, list);
+  }
+
+  // Shopping time tracking not yet implemented — empty map
+  const shoppingTimeByCleaner = new Map<string, { id: string; minutes: number; rate: number; amount: number }[]>();
 
   return cleaners.map((cleaner) => {
     const jobRows = jobs.flatMap((job) => {
@@ -67,7 +111,14 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
       const allocatedHours = Number(job.estimatedHours ?? 0);
       const paidHours = allocatedHours > 0 ? allocatedHours / splitCount : timerHours;
       const rate = Number(assignment.payRate ?? cleaner.hourlyRate ?? settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? 40);
-      const gross = Number((paidHours * rate).toFixed(2));
+      const baseGross = Number((paidHours * rate).toFixed(2));
+
+      // Extract transport allowance from job internal notes
+      const notes = parseJobInternalNotes(job.internalNotes as string | null);
+      const allowances = notes.transportAllowances ?? {};
+      const transportAllowance = Number(allowances[cleaner.id] ?? 0);
+      const gross = baseGross + transportAllowance;
+
       return [{
         id: job.id,
         jobNumber: job.jobNumber,
@@ -77,6 +128,8 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
         scheduledDate: job.scheduledDate,
         hours: Number(paidHours.toFixed(2)),
         rate,
+        baseGross,
+        transportAllowance,
         gross,
       }];
     });
@@ -86,21 +139,40 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
       .map((row) => ({
         id: row.id,
         label: row.title || row.property?.name || "Approved adjustment",
-        requestedAt: row.requestedAt,
+        reviewedAt: row.reviewedAt,
         amount: Number(row.approvedAmount ?? row.requestedAmount ?? 0),
       }));
 
+    const shoppingRows = (shoppingByCleaner.get(cleaner.id) || []).map((row) => ({
+      id: row.id,
+      label: row.title,
+      updatedAt: row.updatedAt,
+      amount: row.amount,
+    }));
+
+    const shoppingTimeRows = (shoppingTimeByCleaner.get(cleaner.id) || []).map((row) => ({
+      id: row.id,
+      label: `Shopping time (${row.minutes}min @ $${row.rate.toFixed(2)}/hr)`,
+      amount: Number(row.amount.toFixed(2)),
+    }));
+
     const jobGross = jobRows.reduce((sum, row) => sum + row.gross, 0);
     const adjustmentsTotal = adjustmentRows.reduce((sum, row) => sum + row.amount, 0);
+    const shoppingTotal = shoppingRows.reduce((sum, row) => sum + row.amount, 0);
+    const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
     return {
       cleaner,
       jobs: jobRows,
       adjustments: adjustmentRows,
+      shoppingReimbursements: shoppingRows,
+      shoppingTime: shoppingTimeRows,
       totals: {
         paidHours: Number(jobRows.reduce((sum, row) => sum + row.hours, 0).toFixed(2)),
         jobGross: Number(jobGross.toFixed(2)),
         adjustments: Number(adjustmentsTotal.toFixed(2)),
-        grossPay: Number((jobGross + adjustmentsTotal).toFixed(2)),
+        shoppingReimbursements: Number(shoppingTotal.toFixed(2)),
+        shoppingTime: Number(shoppingTimeTotal.toFixed(2)),
+        grossPay: Number((jobGross + adjustmentsTotal + shoppingTotal + shoppingTimeTotal).toFixed(2)),
       },
     };
   });
@@ -111,7 +183,7 @@ export function buildPayslipHtml(input: {
   logoUrl?: string | null;
   cleaner: { name: string | null; email: string; hourlyRate: number | null };
   rows: Array<{ jobNumber: string | null; propertyName: string; jobType: string; scheduledDate: Date; hours: number; rate: number; gross: number }>;
-  adjustments: Array<{ label: string; amount: number; requestedAt: Date }>;
+  adjustments: Array<{ label: string; amount: number; reviewedAt: Date | null }>;
   totals: { paidHours: number; jobGross: number; adjustments: number; grossPay: number };
   startDate: string;
   endDate: string;
@@ -131,7 +203,7 @@ export function buildPayslipHtml(input: {
   const adjustmentRows = input.adjustments.map((row) => `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">${row.label}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">${row.requestedAt.toISOString().slice(0, 10)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">${row.reviewedAt ? row.reviewedAt.toISOString().slice(0, 10) : "—"}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right;">$${row.amount.toFixed(2)}</td>
     </tr>
   `).join("");

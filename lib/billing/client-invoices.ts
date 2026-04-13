@@ -95,6 +95,7 @@ export async function generateClientInvoice(input: {
   propertyId?: string | null;
   periodStart?: Date | null;
   periodEnd?: Date | null;
+  gstEnabled?: boolean;
 }) {
   const [client, rates, existingInvoiced, settings] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
@@ -143,8 +144,22 @@ export async function generateClientInvoice(input: {
     orderBy: [{ scheduledDate: "asc" }],
   });
 
-  const lines = jobs
-    .filter((job) => !invoicedJobIds.has(job.id))
+  const unInvoicedJobs = jobs.filter((job) => !invoicedJobIds.has(job.id));
+
+  // Check for missing rates before silently skipping jobs
+  const missingRateJobs = unInvoicedJobs.filter(
+    (job) => !rateMap.has(`${job.propertyId}:${job.jobType}`)
+  );
+  if (missingRateJobs.length > 0) {
+    const details = missingRateJobs
+      .map((j) => `${j.jobNumber || j.id} (${j.jobType}) at ${j.property.name}`)
+      .join(", ");
+    throw new Error(
+      `Missing client rates for ${missingRateJobs.length} job(s): ${details}. Set rates in Billing Rates before invoicing.`
+    );
+  }
+
+  const lines = unInvoicedJobs
     .map((job) => {
       const rate = rateMap.get(`${job.propertyId}:${job.jobType}`);
       if (!rate) return null;
@@ -255,9 +270,10 @@ export async function generateClientInvoice(input: {
     throw new Error("No billable completed jobs found for the selected client and period.");
   }
 
+  const gstFlag = input.gstEnabled ?? settings.pricing.gstEnabled;
   const { subtotal, gstAmount, totalAmount } = calculateGstBreakdown(
     allLines.reduce((sum, line) => sum + line.lineTotal, 0),
-    settings.pricing
+    { gstEnabled: gstFlag }
   );
 
   const invoice = await db.clientInvoice.create({
@@ -270,6 +286,7 @@ export async function generateClientInvoice(input: {
       subtotal,
       gstAmount,
       totalAmount,
+      gstEnabled: gstFlag,
       metadata: { source: "job-rate-generator", shoppingRunCount: shoppingLines.length },
       lines: { create: allLines },
     },

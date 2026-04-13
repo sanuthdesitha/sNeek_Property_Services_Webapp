@@ -9,6 +9,7 @@ const schema = z.object({
   propertyId: z.string().trim().optional().nullable(),
   periodStart: z.string().trim().optional().nullable(),
   periodEnd: z.string().trim().optional().nullable(),
+  gstEnabled: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
         propertyId: body.propertyId || null,
         periodStart: body.periodStart ? new Date(body.periodStart) : null,
         periodEnd: body.periodEnd ? new Date(body.periodEnd) : null,
+        gstEnabled: body.gstEnabled,
       })
     );
   } catch (err: any) {

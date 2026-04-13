@@ -76,13 +76,39 @@ export default function FinancePage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" asChild>
-          <Link href="/admin/finance/dashboard">Open analytics</Link>
-        </Button>
-        <Button asChild>
-          <Link href="/admin/finance/payroll">Open payroll</Link>
-        </Button>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/admin/finance/dashboard" className="block">
+          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Finance Analytics</p>
+              <p className="text-xs text-muted-foreground">Revenue, costs &amp; margin by client</p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/admin/payroll" className="block">
+          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Payroll</p>
+              <p className="text-xs text-muted-foreground">Run payroll &amp; process payouts</p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/admin/settings?tab=payment-gateways" className="block">
+          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Payment Gateways</p>
+              <p className="text-xs text-muted-foreground">Stripe, Square, PayPal config</p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/admin/settings?tab=xero" className="block">
+          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Xero Integration</p>
+              <p className="text-xs text-muted-foreground">Connect &amp; push invoices to Xero</p>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       <Card>

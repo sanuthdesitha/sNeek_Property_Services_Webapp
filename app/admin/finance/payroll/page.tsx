@@ -151,7 +151,7 @@ export default async function AdminPayrollPage({
                         <div key={adjustment.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 px-3 py-2">
                           <div>
                             <p className="font-medium">{adjustment.label}</p>
-                            <p className="text-xs text-muted-foreground">{format(new Date(adjustment.requestedAt), "dd MMM yyyy")}</p>
+                            <p className="text-xs text-muted-foreground">{adjustment.reviewedAt ? format(new Date(adjustment.reviewedAt), "dd MMM yyyy") : "—"}</p>
                           </div>
                           <p className="font-semibold">{money(adjustment.amount)}</p>
                         </div>

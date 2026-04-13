@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
 import { cn } from "@/lib/utils";
+import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ type Invoice = {
   subtotal: number;
   gstAmount: number;
   totalAmount: number;
+  gstEnabled: boolean;
   periodStart: string | null;
   periodEnd: string | null;
   sentAt: string | null;
@@ -89,6 +91,7 @@ function fmtDateFull(v: string | null | undefined) {
 // ── main page ──────────────────────────────────────────────────────────────────
 
 export function ClientInvoicesPage() {
+  const { confirm, dialog } = useBasicConfirmDialog();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -103,6 +106,7 @@ export function ClientInvoicesPage() {
   const [genPropertyId, setGenPropertyId] = useState("");
   const [genPeriodStart, setGenPeriodStart] = useState("");
   const [genPeriodEnd, setGenPeriodEnd] = useState("");
+  const [genGstEnabled, setGenGstEnabled] = useState(true);
 
   // Rate dialog
   const [showRates, setShowRates] = useState(false);
@@ -200,6 +204,7 @@ export function ClientInvoicesPage() {
         propertyId: genPropertyId || undefined,
         periodStart: genPeriodStart ? `${genPeriodStart}T00:00:00.000Z` : undefined,
         periodEnd: genPeriodEnd ? `${genPeriodEnd}T23:59:59.999Z` : undefined,
+        gstEnabled: genGstEnabled,
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -290,6 +295,7 @@ export function ClientInvoicesPage() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -429,7 +435,16 @@ export function ClientInvoicesPage() {
                       <Download className="mr-1 h-3.5 w-3.5" /> PDF
                     </Button>
                     <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive"
-                      onClick={() => { if (confirm("Delete this invoice?")) deleteInvoice(selected.id); }}>
+                      onClick={async () => {
+                        const approved = await confirm({
+                          title: "Delete invoice",
+                          description: "This will permanently remove the invoice record.",
+                          confirmLabel: "Delete invoice",
+                          actionKey: "deleteInvoice",
+                        });
+                        if (!approved) return;
+                        deleteInvoice(selected.id);
+                      }}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -542,14 +557,38 @@ export function ClientInvoicesPage() {
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span><span>{money(selected.subtotal)}</span>
                     </div>
-                    {Number(selected.gstAmount) > 0 && (
+                    {selected.gstEnabled !== false && Number(selected.gstAmount) > 0 && (
                       <div className="flex justify-between text-muted-foreground">
                         <span>GST (10%)</span><span>{money(selected.gstAmount)}</span>
+                      </div>
+                    )}
+                    {selected.gstEnabled === false && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>GST</span><span>Not applicable</span>
                       </div>
                     )}
                     <div className="flex justify-between border-t pt-2 text-base font-bold">
                       <span>Total (AUD)</span><span>{money(selected.totalAmount)}</span>
                     </div>
+                    {selected.status === "DRAFT" && (
+                      <button
+                        onClick={async () => {
+                          const newGst = !selected.gstEnabled;
+                          const res = await fetch(`/api/admin/invoices/${selected.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ gstEnabled: newGst }),
+                          });
+                          if (res.ok) {
+                            toast({ title: newGst ? "GST enabled" : "GST disabled" });
+                            await loadInvoice(selected.id);
+                          }
+                        }}
+                        className="w-full mt-1 text-xs text-muted-foreground hover:text-foreground underline"
+                      >
+                        {selected.gstEnabled ? "Disable GST" : "Enable GST (10%)"}
+                      </button>
+                    )}
                     {selected.status === "PAID" && selected.paidAt && (
                       <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-800 font-medium text-center mt-1">
                         Paid {fmtDate(selected.paidAt)}
@@ -602,6 +641,16 @@ export function ClientInvoicesPage() {
             <p className="text-xs text-muted-foreground">
               Generates lines for all completed jobs with billing rates set. Shopping reimbursements are included automatically.
             </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="gen-gst"
+                checked={genGstEnabled}
+                onChange={(e) => setGenGstEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="gen-gst" className="text-sm font-medium">Include GST (10%)</label>
+            </div>
             <Button className="w-full" onClick={generateInvoice} disabled={busy === "generate" || !genClientId}>
               {busy === "generate" ? "Generating…" : "Generate draft invoice"}
               {busy !== "generate" && <ChevronRight className="ml-1 h-4 w-4" />}

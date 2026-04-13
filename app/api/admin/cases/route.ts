@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { createCase, listCaseAssignees, listCases } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
+import { CASE_STATUSES } from "@/lib/cases/status";
 
 const querySchema = z.object({
   status: z.string().trim().optional(),
@@ -19,7 +20,7 @@ const createSchema = z.object({
   title: z.string().trim().min(1).max(180),
   description: z.string().trim().max(6000).optional().nullable(),
   severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED"]).optional(),
+  status: z.enum(CASE_STATUSES).optional(),
   caseType: z.string().trim().optional(),
   source: z.string().trim().optional().nullable(),
   jobId: z.string().trim().optional().nullable(),

@@ -261,10 +261,10 @@ export default function LaundryPage() {
       setPropertyJobs([]);
       return;
     }
-    fetch(`/api/jobs?propertyId=${propertyId}&limit=50`)
+    fetch(`/api/jobs?propertyId=${propertyId}&page=1&limit=50`)
       .then((r) => r.json())
       .then((body) => {
-        const rows = Array.isArray(body?.jobs) ? body.jobs : [];
+        const rows = Array.isArray(body?.jobs) ? body.jobs : Array.isArray(body) ? body : [];
         setPropertyJobs(
           rows
             .filter((j: any) => j?.id && j?.status !== "COMPLETED" && j?.status !== "INVOICED")
@@ -280,8 +280,8 @@ export default function LaundryPage() {
   }
 
   async function createLaundryTask() {
-    if (!createForm.propertyId || !createForm.pickupDate || !createForm.dropoffDate) {
-      toast({ title: "Missing fields", description: "Property, pickup date, and drop-off date are required.", variant: "destructive" });
+    if (!createForm.propertyId || !createForm.jobId || !createForm.pickupDate || !createForm.dropoffDate) {
+      toast({ title: "Missing fields", description: "Property, job, pickup date, and drop-off date are required.", variant: "destructive" });
       return;
     }
     setCreatingTask(true);
@@ -291,7 +291,7 @@ export default function LaundryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           propertyId: createForm.propertyId,
-          jobId: createForm.jobId || null,
+          jobId: createForm.jobId,
           pickupDate: toDateOnlyIso(createForm.pickupDate) ?? createForm.pickupDate,
           dropoffDate: toDateOnlyIso(createForm.dropoffDate) ?? createForm.dropoffDate,
           flagNotes: createForm.flagNotes || null,

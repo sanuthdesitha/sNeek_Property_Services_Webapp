@@ -52,6 +52,16 @@ function fmt(dateStr: string | null | undefined) {
   try { return format(parseISO(dateStr), "dd MMM yyyy HH:mm"); } catch { return dateStr; }
 }
 
+function primaryPayAmount(row: any) {
+  return Number(
+    row.primaryDisplayAmount ??
+      row.clientRequestedAmount ??
+      row.cleanerRequestedAmount ??
+      row.requestedAmount ??
+      0
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   const color =
     status === "PENDING"   ? "bg-amber-100 text-amber-800 border-amber-200" :
@@ -113,7 +123,7 @@ export default function AdminApprovalsPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        amount: Number(row.requestedAmount ?? 0),
+        amount: Number(row.clientRequestedAmount ?? row.requestedAmount ?? 0),
         title: `Additional charge approval — ${propertyName}`,
         description: row.cleanerNote?.trim()
           ? `Cleaner requested additional payment. Note: ${row.cleanerNote}`
@@ -286,7 +296,7 @@ export default function AdminApprovalsPage() {
             data.payAdjustments.length === 0 ? <Empty /> : data.payAdjustments.map((row) => {
               const propertyName = row.job?.property?.name ?? row.property?.name ?? null;
               const propertySuburb = row.job?.property?.suburb ?? row.property?.suburb ?? null;
-              const defaultAmount = String(Number(row.requestedAmount ?? 0).toFixed(2));
+              const defaultAmount = String(primaryPayAmount(row).toFixed(2));
               const approveAmount = payApproveAmounts[row.id] ?? defaultAmount;
               const clientApproval = row.clientApproval ?? null;
               const clientApprovalBlocking = clientApproval && clientApproval.status !== "APPROVED";
@@ -312,9 +322,14 @@ export default function AdminApprovalsPage() {
                         <p className="text-sm text-muted-foreground">Standalone — no property linked</p>
                       )}
                       <p className="text-sm">
-                        <span className="font-medium">Requested:</span> ${Number(row.requestedAmount ?? 0).toFixed(2)}
+                        <span className="font-medium">Requested:</span> ${primaryPayAmount(row).toFixed(2)}
                         {row.type === "HOURLY" && row.requestedHours ? ` (${row.requestedHours}h × $${Number(row.requestedRate ?? 0).toFixed(2)})` : ""}
                       </p>
+                      {row.clientRequestedAmount != null ? (
+                        <p className="text-xs text-muted-foreground">
+                          Cleaner requested: ${Number(row.cleanerRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)} · Client amount: ${Number(row.clientRequestedAmount ?? 0).toFixed(2)}
+                        </p>
+                      ) : null}
                       {row.cleanerNote && <p className="text-sm text-muted-foreground">{row.cleanerNote}</p>}
                       {clientApproval ? (
                         <p className={cn("text-xs font-medium", clientApproval.status === "APPROVED" ? "text-green-700" : "text-amber-700")}>
