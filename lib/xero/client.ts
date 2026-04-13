@@ -143,7 +143,7 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
     state,
   });
 
-  return `${XERO_AUTH_BASE}/connect/Authorize?${params.toString()}`;
+  return `${XERO_AUTH_BASE}/identity/connect/authorize?${params.toString()}`;
 }
 
 /**
