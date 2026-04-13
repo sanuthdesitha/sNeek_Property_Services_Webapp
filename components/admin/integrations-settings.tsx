@@ -15,7 +15,6 @@ import {
   CreditCard,
   MapPin,
   Users,
-  RefreshCw,
   ExternalLink,
   CheckCircle2,
   AlertCircle,
@@ -149,8 +148,6 @@ export function IntegrationsSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
-  const [status, setStatus] = useState<{ xeroConnected: boolean }>({ xeroConnected: false });
-
   useEffect(() => { loadCredentials(); }, []);
 
   async function loadCredentials() {
@@ -165,18 +162,6 @@ export function IntegrationsSettings() {
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }
-
-  async function loadXeroStatus() {
-    try {
-      const res = await fetch("/api/xero/status");
-      if (res.ok) {
-        const data = await res.json();
-        setStatus({ xeroConnected: data.connected ?? false });
-      }
-    } catch { /* ignore */ }
-  }
-
-  useEffect(() => { loadXeroStatus(); }, []);
 
   function handleChange(key: string, value: string | boolean) {
     setCredentials((prev) => ({ ...prev, [key]: value }));
@@ -202,7 +187,6 @@ export function IntegrationsSettings() {
       }
       setDirty(new Set());
       await loadCredentials();
-      await loadXeroStatus();
     } catch {
       alert("Failed to save credentials");
     } finally {
@@ -242,57 +226,6 @@ export function IntegrationsSettings() {
           </Button>
         )}
       </div>
-
-      {/* Xero connection status */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Xero Accounting</CardTitle>
-              <CardDescription>OAuth2 connection — invoices and contacts sync.</CardDescription>
-            </div>
-            <Badge variant={status.xeroConnected ? "success" : "secondary"} className="text-sm">
-              {status.xeroConnected ? "Connected" : "Not connected"}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Xero uses OAuth2 — no API keys needed here. Connect via the button below.
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <a href="/admin/integrations/xero" target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                Manage Xero Connection
-              </a>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Payment gateways link */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Payment Gateways</CardTitle>
-              <CardDescription>Manage Stripe, Square, and PayPal gateway instances.</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            API credentials are configured below. Gateway instances (enable/disable, surcharge, priority) are managed separately.
-          </p>
-          <Button variant="outline" size="sm" asChild>
-            <a href="/admin/settings/payment-gateways" target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-1 h-3.5 w-3.5" />
-              Manage Gateways
-            </a>
-          </Button>
-        </CardContent>
-      </Card>
 
       {/* Credential sections */}
       {SECTIONS.map((section) => {
