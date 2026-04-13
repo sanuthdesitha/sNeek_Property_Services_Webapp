@@ -139,7 +139,7 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: "openid profile email accounting.transactions accounting.contacts offline_access",
+    scope: "openid offline_access accounting.transactions accounting.contacts",
     state,
   });
 
