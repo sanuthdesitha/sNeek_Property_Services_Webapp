@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN]);
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000";
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
     const redirectUri = `${baseUrl}/api/xero/callback`;
     const state = `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 

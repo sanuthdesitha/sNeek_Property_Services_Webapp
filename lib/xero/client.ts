@@ -8,10 +8,10 @@ const CREDENTIAL_KEY = "integrationCredentials";
 async function getXeroCredentials(): Promise<{ clientId: string; clientSecret: string }> {
   const row = await db.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
   const creds = (row?.value as Record<string, string> | null) ?? {};
-  return {
-    clientId: creds.xeroClientId || process.env.XERO_CLIENT_ID || "",
-    clientSecret: creds.xeroClientSecret || process.env.XERO_CLIENT_SECRET || "",
-  };
+  const clientId = creds.xeroClientId || process.env.XERO_CLIENT_ID || "";
+  const clientSecret = creds.xeroClientSecret || process.env.XERO_CLIENT_SECRET || "";
+  console.log("[xero] Credentials loaded. DB clientId:", !!clientId, "env clientId:", !!process.env.XERO_CLIENT_ID);
+  return { clientId, clientSecret };
 }
 
 interface XeroToken {
@@ -151,7 +151,10 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
  */
 export async function exchangeXeroCode(code: string, redirectUri: string): Promise<{ tenantId: string; tenantName: string } | null> {
   const { clientId, clientSecret } = await getXeroCredentials();
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    console.error("[xero] Missing credentials. clientId:", !!clientId, "clientSecret:", !!clientSecret);
+    return null;
+  }
 
   try {
     // Get tokens
@@ -167,7 +170,12 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
       }),
     });
 
-    if (!tokenRes.ok) return null;
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text().catch(() => "");
+      console.error("[xero] Token exchange failed:", tokenRes.status, errBody);
+      console.error("[xero] redirect_uri:", redirectUri);
+      return null;
+    }
 
     const tokenData = await tokenRes.json() as {
       access_token: string;
@@ -183,12 +191,20 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
 
-    if (!connectionsRes.ok) return null;
+    if (!connectionsRes.ok) {
+      const errBody = await connectionsRes.text().catch(() => "");
+      console.error("[xero] Connections fetch failed:", connectionsRes.status, errBody);
+      return null;
+    }
 
     const connections = await connectionsRes.json() as Array<{ tenantId: string; tenantName: string }>;
-    if (connections.length === 0) return null;
+    if (connections.length === 0) {
+      console.error("[xero] No tenants found");
+      return null;
+    }
 
     const tenant = connections[0];
+    console.log("[xero] Connected tenant:", tenant.tenantName);
 
     // Save connection
     await db.xeroConnection.upsert({
@@ -212,7 +228,8 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
     });
 
     return { tenantId: tenant.tenantId, tenantName: tenant.tenantName };
-  } catch {
+  } catch (err) {
+    console.error("[xero] exchangeXeroCode error:", err);
     return null;
   }
 }
