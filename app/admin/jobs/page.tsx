@@ -82,6 +82,8 @@ function parseJobFilters(params: { get(name: string): string | null }): JobFilte
     search: params.get("search") || JOB_FILTER_DEFAULTS.search,
     cleanerName: params.get("cleanerName") || JOB_FILTER_DEFAULTS.cleanerName,
     jobType: params.get("jobType") || JOB_FILTER_DEFAULTS.jobType,
+    clientId: params.get("clientId") || JOB_FILTER_DEFAULTS.clientId,
+    propertyId: params.get("propertyId") || JOB_FILTER_DEFAULTS.propertyId,
     dateFrom: params.get("dateFrom") || JOB_FILTER_DEFAULTS.dateFrom,
     dateTo: params.get("dateTo") || JOB_FILTER_DEFAULTS.dateTo,
     invoiced: params.get("invoiced") || JOB_FILTER_DEFAULTS.invoiced,
