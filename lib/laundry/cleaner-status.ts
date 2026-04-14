@@ -234,9 +234,25 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
   if (params.laundryOutcome === "READY_FOR_PICKUP") {
     const laundryPhotoUrl = publicUrl(params.laundryPhotoKey!);
+
+    const terminalStatuses = [
+      LaundryStatus.PICKED_UP,
+      LaundryStatus.DROPPED,
+      LaundryStatus.RETURNED,
+    ];
+    if (terminalStatuses.includes(laundryTask.status)) {
+      return { ok: true, duplicated: true, laundryTask };
+    }
+
+    const alreadyNotified =
+      laundryTask.status === LaundryStatus.CONFIRMED &&
+      laundryTask.notifyLaundry === true;
+    if (alreadyNotified) {
+      return { ok: true, duplicated: true, laundryTask };
+    }
+
     const isDuplicate =
       laundryTask.status === LaundryStatus.CONFIRMED &&
-      laundryTask.notifyLaundry === true &&
       laundryTask.noPickupRequired === false &&
       latestConfirmation?.laundryReady === true &&
       latestConfirmation?.bagLocation === (params.bagLocation ?? null) &&
@@ -304,6 +320,17 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
   const noPickupRequired = params.laundryOutcome === "NO_PICKUP_REQUIRED";
   const nextStatus = noPickupRequired ? LaundryStatus.SKIPPED_PICKUP : LaundryStatus.FLAGGED;
+
+  const terminalStatuses = [
+    LaundryStatus.PICKED_UP,
+    LaundryStatus.DROPPED,
+    LaundryStatus.RETURNED,
+    LaundryStatus.SKIPPED_PICKUP,
+  ];
+  if (terminalStatuses.includes(laundryTask.status)) {
+    return { ok: true, duplicated: true, laundryTask };
+  }
+
   const isDuplicate =
     laundryTask.status === nextStatus &&
     laundryTask.noPickupRequired === noPickupRequired &&

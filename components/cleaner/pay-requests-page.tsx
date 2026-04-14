@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Upload } from "lucide-react";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +27,16 @@ interface PropertyOption {
 
 function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
+}
+
+function formatDate(date: string | Date | null | undefined) {
+  if (!date) return "";
+  return format(toZonedTime(new Date(date), "Australia/Sydney"), "dd MMM yyyy");
+}
+
+function formatDateTime(date: string | Date | null | undefined) {
+  if (!date) return "";
+  return format(toZonedTime(new Date(date), "Australia/Sydney"), "dd MMM yyyy h:mm a");
 }
 
 async function uploadPayRequestFile(file: File) {
@@ -388,10 +400,12 @@ export function CleanerPayRequestsPage({
                         {row.status}
                       </Badge>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Requested: {money(row.requestedAmount)}
-                      {row.status === "APPROVED" ? ` | Approved: ${money(row.approvedAmount)}` : ""}
-                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>Requested: {money(row.requestedAmount)}</span>
+                      {row.status === "APPROVED" && <span>Approved: {money(row.approvedAmount)}</span>}
+                      {row.job?.scheduledDate && <span>Job date: {formatDate(row.job.scheduledDate)}</span>}
+                      <span>Created: {formatDateTime(row.createdAt)}</span>
+                    </div>
                     {row.cleanerNote ? <p className="mt-1 text-xs text-muted-foreground">Note: {row.cleanerNote}</p> : null}
                     {row.adminNote ? <p className="mt-1 text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
                     {galleryItems.length > 0 ? (

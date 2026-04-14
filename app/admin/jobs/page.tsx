@@ -64,6 +64,8 @@ const JOB_FILTER_DEFAULTS = {
   search: "",
   cleanerName: "",
   jobType: "all",
+  clientId: "all",
+  propertyId: "all",
   dateFrom: "",
   dateTo: "",
   invoiced: "all",
@@ -114,6 +116,8 @@ export default function JobsPage() {
   const [batchQaSubmitting, setBatchQaSubmitting] = useState(false);
   const [quickAssigningByJob, setQuickAssigningByJob] = useState<Record<string, boolean>>({});
   const [cleaners, setCleaners] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; suburb: string }>>([]);
   const [quickAssignOpen, setQuickAssignOpen] = useState(false);
   const [quickAssignJob, setQuickAssignJob] = useState<any | null>(null);
   const [quickAssignSelected, setQuickAssignSelected] = useState<string[]>([]);
@@ -136,7 +140,13 @@ export default function JobsPage() {
       page: String(page),
       limit: String(JOBS_PAGE_SIZE),
     });
-    const res = await fetch(`/api/jobs?${params.toString()}`);
+    if (filters.status !== "all") params.set("status", filters.status);
+    if (filters.jobType !== "all") params.set("jobType", filters.jobType);
+    if (filters.clientId !== "all") params.set("clientId", filters.clientId);
+    if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
+    if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+    if (filters.dateTo) params.set("dateTo", filters.dateTo);
+    const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
     const data = await res.json().catch(() => ({ jobs: [], pagination: {} }));
     setJobs(Array.isArray(data?.jobs) ? data.jobs : []);
     if (data?.pagination) {
@@ -178,7 +188,7 @@ export default function JobsPage() {
 
   useEffect(() => {
     loadJobs(1);
-  }, [activeTab]);
+  }, [activeTab, filters.status, filters.jobType, filters.clientId, filters.propertyId, filters.dateFrom, filters.dateTo]);
 
   useEffect(() => {
     setKanbanVisibleCounts({});
@@ -227,6 +237,26 @@ export default function JobsPage() {
       .catch(() => {
         setCleaners([]);
       });
+
+    fetch("/api/admin/clients")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        const next = Array.isArray(rows)
+          ? rows.map((row: any) => ({ id: String(row.id ?? ""), name: String(row.name ?? "").trim() })).filter((row) => row.id)
+          : [];
+        setClients(next);
+      })
+      .catch(() => setClients([]));
+
+    fetch("/api/admin/properties?limit=500")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        const next = Array.isArray(rows)
+          ? rows.map((row: any) => ({ id: String(row.id ?? ""), name: String(row.name ?? "").trim(), suburb: String(row.suburb ?? "").trim() })).filter((row) => row.id)
+          : [];
+        setProperties(next);
+      })
+      .catch(() => setProperties([]));
   }, []);
 
   const cleanerOptions = useMemo(
@@ -656,7 +686,10 @@ export default function JobsPage() {
         <div>
           <h2 className="text-2xl font-bold">Jobs</h2>
           <p className="text-sm text-muted-foreground">
-            {filteredJobs.length} shown from {pagination.totalCount || jobs.length} {activeTab === "completed" ? "completed" : "active"} jobs
+            {pagination.totalCount} {activeTab === "completed" ? "completed" : "active"} jobs
+            {pagination.totalPages > 1 && (
+              <span className="text-muted-foreground"> &middot; Page {pagination.page} of {pagination.totalPages}</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -668,6 +701,53 @@ export default function JobsPage() {
                 {activeFilterCount}
               </span>
             ) : null}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const statusGroup = activeTab === "active" ? "active" : "completed";
+                const params = new URLSearchParams({ statusGroup, limit: "5000" });
+                if (filters.status !== "all") params.set("status", filters.status);
+                if (filters.jobType !== "all") params.set("jobType", filters.jobType);
+                if (filters.clientId !== "all") params.set("clientId", filters.clientId);
+                if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
+                if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+                if (filters.dateTo) params.set("dateTo", filters.dateTo);
+                const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
+                const data = await res.json().catch(() => ({ jobs: [] }));
+                const rows = (Array.isArray(data?.jobs) ? data.jobs : []).map((j: any) => ({
+                  JobNumber: j.jobNumber ?? "",
+                  Property: j.property?.name ?? "",
+                  Suburb: j.property?.suburb ?? "",
+                  Client: j.property?.client?.name ?? j.client?.name ?? "",
+                  Type: (j.jobType ?? "").replace(/_/g, " "),
+                  Status: STATUS_LABELS[j.status] ?? j.status,
+                  ScheduledDate: j.scheduledDate ? new Date(j.scheduledDate).toLocaleDateString("en-AU") : "",
+                  StartTime: j.startTime ?? "",
+                  DueTime: j.dueTime ?? "",
+                  AssignedTo: getAssignmentNames(j).join(", "),
+                }));
+                if (rows.length === 0) {
+                  toast({ title: "No jobs to export", variant: "destructive" });
+                  return;
+                }
+                const headers = Object.keys(rows[0]);
+                const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => `"${String(r[h as keyof typeof r]).replace(/"/g, '""')}"`).join(","))].join("\n");
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `jobs_export_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast({ title: "Export complete", description: `${rows.length} jobs exported.` });
+              } catch {
+                toast({ title: "Export failed", variant: "destructive" });
+              }
+            }}
+          >
+            Export CSV
           </Button>
             <div className="flex rounded-md border">
               <Button
@@ -811,6 +891,38 @@ export default function JobsPage() {
                 onChange={(event) => setFilters((current) => ({ ...current, cleanerName: event.target.value }))}
                 placeholder="Assigned cleaner name"
               />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Client</p>
+              <Select value={filters.clientId} onValueChange={(value) => setFilters((current) => ({ ...current, clientId: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All clients</SelectItem>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Property</p>
+              <Select value={filters.propertyId} onValueChange={(value) => setFilters((current) => ({ ...current, propertyId: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All properties</SelectItem>
+                  {properties.map((property) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.suburb ? `${property.name} (${property.suburb})` : property.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">Date from</p>
