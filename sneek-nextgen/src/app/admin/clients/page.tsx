@@ -12,8 +12,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Search, Mail, Phone, Home, FileText } from "lucide-react";
+import { prisma } from "@/lib/db/prisma";
 
-export default function ClientsPage() {
+async function getClients() {
+  const clients = await prisma.client.findMany({
+    include: {
+      _count: { select: { properties: true, invoices: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return clients;
+}
+
+export default async function ClientsPage() {
+  const clients = await getClients();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -42,7 +55,7 @@ export default function ClientsPage() {
       <Card variant="outlined">
         <CardHeader>
           <CardTitle className="text-base">All Clients</CardTitle>
-          <CardDescription>1 client registered</CardDescription>
+          <CardDescription>{clients.length} clients registered</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -57,43 +70,45 @@ export default function ClientsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[
-                { name: "Harbour Properties Pty Ltd", email: "sarah@harbourproperties.com.au", phone: "+61400000004", properties: 2, invoices: 8, active: true },
-              ].map((client) => (
-                <TableRow key={client.name}>
+              {clients.length > 0 ? clients.map((client) => (
+                <TableRow key={client.id}>
                   <TableCell>
                     <p className="font-medium text-sm">{client.name}</p>
-                  </TableCell>
+                  </td>
                   <TableCell>
                     <div className="space-y-0.5">
                       <p className="text-xs flex items-center gap-1 text-text-secondary">
                         <Mail className="h-3 w-3" />
-                        {client.email}
+                        {client.email ?? "—"}
                       </p>
                       <p className="text-xs flex items-center gap-1 text-text-secondary">
                         <Phone className="h-3 w-3" />
-                        {client.phone}
+                        {client.phone ?? "—"}
                       </p>
                     </div>
-                  </TableCell>
+                  </td>
                   <TableCell className="text-sm flex items-center gap-1">
                     <Home className="h-3 w-3 text-text-tertiary" />
-                    {client.properties}
-                  </TableCell>
+                    {client._count.properties}
+                  </td>
                   <TableCell className="text-sm flex items-center gap-1">
                     <FileText className="h-3 w-3 text-text-tertiary" />
-                    {client.invoices}
-                  </TableCell>
+                    {client._count.invoices}
+                  </td>
                   <TableCell>
-                    {client.active ? <Badge variant="success">Active</Badge> : <Badge variant="neutral">Inactive</Badge>}
-                  </TableCell>
+                    {client.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="neutral">Inactive</Badge>}
+                  </td>
                   <TableCell>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/admin/clients/${client.name.toLowerCase().replace(/\s+/g, "-")}`}>View</Link>
+                      <Link href={`/admin/clients/${client.id}`}>View</Link>
                     </Button>
-                  </TableCell>
+                  </td>
                 </TableRow>
-              ))}
+              )) : (
+                <TableRow>
+                  <td colSpan={8} className="text-center text-text-tertiary py-8">No clients found</td>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

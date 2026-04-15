@@ -70,6 +70,7 @@ export const createSurveySchema = z.object({
   requestedCleanerCount: z.number().int().min(1).max(20).default(1),
   icalUrl: z.string().trim().url().optional().nullable(),
   icalProvider: z.enum(["ICAL_HOSPITABLE", "ICAL_OTHER"]).optional().nullable(),
+  laundrySupplierId: z.string().trim().min(1).optional().nullable(),
   appliances: z.array(applianceSchema).optional().default([]),
   specialRequests: z.array(specialRequestSchema).optional().default([]),
   laundryDetail: laundryDetailSchema.optional().nullable(),

@@ -1,39 +1,41 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase, DollarSign, Users, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { prisma } from "@/lib/db/prisma";
 
-const KPI_CARDS = [
-  {
-    label: "Jobs Today",
-    value: "12",
-    icon: Briefcase,
-    trend: "+3 from yesterday",
-    variant: "default" as const,
-  },
-  {
-    label: "Revenue (MTD)",
-    value: "$24,500",
-    icon: DollarSign,
-    trend: "+12% vs last month",
-    variant: "success" as const,
-  },
-  {
-    label: "Active Cleaners",
-    value: "8",
-    icon: Users,
-    trend: "2 on route",
-    variant: "info" as const,
-  },
-  {
-    label: "Pending Approvals",
-    value: "5",
-    icon: AlertTriangle,
-    trend: "2 pay adjustments",
-    variant: "warning" as const,
-  },
-];
+async function getDashboardStats() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
-export default function AdminDashboard() {
+  const [jobsToday, totalJobs, activeCleaners, pendingApprovals, revenueMTD] = await Promise.all([
+    prisma.job.count({ where: { scheduledDate: { gte: today, lt: tomorrow } } }),
+    prisma.job.count(),
+    prisma.user.count({ where: { role: "CLEANER", isActive: true } }),
+    0,
+    prisma.clientInvoice.aggregate({
+      where: { status: "PAID", createdAt: { gte: new Date(today.getFullYear(), today.getMonth(), 1) } },
+      _sum: { totalAmount: true },
+    }),
+  ]);
+
+  return { jobsToday, totalJobs, activeCleaners, pendingApprovals, revenueMTD: revenueMTD._sum.totalAmount ?? 0 };
+}
+
+async function getRecentActivity() {
+  const recentJobs = await prisma.job.findMany({
+    take: 5,
+    orderBy: { updatedAt: "desc" },
+    include: { property: { select: { name: true } } },
+  });
+  return { recentJobs };
+}
+
+export default async function AdminDashboard() {
+  const stats = await getDashboardStats();
+  const activity = await getRecentActivity();
+
   return (
     <div className="space-y-6">
       <div>
@@ -41,96 +43,75 @@ export default function AdminDashboard() {
         <p className="text-text-secondary mt-1">Overview of your operations</p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {KPI_CARDS.map((kpi) => (
-          <Card key={kpi.label} variant="outlined">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-text-secondary">{kpi.label}</p>
-                <p className="text-2xl font-bold mt-1">{kpi.value}</p>
-                <p className="text-xs text-text-tertiary mt-1">{kpi.trend}</p>
-              </div>
-              <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800">
-                <kpi.icon className="h-5 w-5 text-text-secondary" />
-              </div>
+        <Card variant="outlined">
+          <div className="flex items-start justify-between p-4">
+            <div>
+              <p className="text-sm text-text-secondary">Jobs Today</p>
+              <p className="text-2xl font-bold mt-1">{stats.jobsToday}</p>
+              <p className="text-xs text-text-tertiary mt-1">{stats.totalJobs} total jobs</p>
             </div>
-          </Card>
-        ))}
+            <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800"><Briefcase className="h-5 w-5 text-text-secondary" /></div>
+          </div>
+        </Card>
+        <Card variant="outlined">
+          <div className="flex items-start justify-between p-4">
+            <div>
+              <p className="text-sm text-text-secondary">Revenue (MTD)</p>
+              <p className="text-2xl font-bold mt-1">${stats.revenueMTD.toLocaleString()}</p>
+              <p className="text-xs text-text-tertiary mt-1">Paid invoices this month</p>
+            </div>
+            <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800"><DollarSign className="h-5 w-5 text-text-secondary" /></div>
+          </div>
+        </Card>
+        <Card variant="outlined">
+          <div className="flex items-start justify-between p-4">
+            <div>
+              <p className="text-sm text-text-secondary">Active Cleaners</p>
+              <p className="text-2xl font-bold mt-1">{stats.activeCleaners}</p>
+              <p className="text-xs text-text-tertiary mt-1">On duty today</p>
+            </div>
+            <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800"><Users className="h-5 w-5 text-text-secondary" /></div>
+          </div>
+        </Card>
+        <Card variant="outlined">
+          <div className="flex items-start justify-between p-4">
+            <div>
+              <p className="text-sm text-text-secondary">Pending Approvals</p>
+              <p className="text-2xl font-bold mt-1">{stats.pendingApprovals}</p>
+              <p className="text-xs text-text-tertiary mt-1">Need your action</p>
+            </div>
+            <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800"><AlertTriangle className="h-5 w-5 text-text-secondary" /></div>
+          </div>
+        </Card>
       </div>
 
-      {/* Immediate Attention */}
-      <Card variant="outlined">
-        <CardHeader>
-          <CardTitle className="text-base">Immediate Attention</CardTitle>
-          <CardDescription>Items that need your action right now</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {[
-              { type: "Pay adjustment", detail: "Cleaner #42 requested +2hrs for Job SNK-ABC123", time: "10 min ago" },
-              { type: "Stock alert", detail: "Glass Cleaner running low at 3 properties", time: "1 hour ago" },
-              { type: "Job issue", detail: "Damage report submitted for Property: Harbour View", time: "2 hours ago" },
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-3 p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900"
-              >
-                <AlertTriangle className="h-4 w-4 text-warning-500 mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <Badge variant="warning" className="mb-1">{item.type}</Badge>
-                  <p className="text-sm text-text-primary">{item.detail}</p>
-                </div>
-                <span className="text-xs text-text-tertiary shrink-0">{item.time}</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Daily Briefing + Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card variant="outlined">
-          <CardHeader>
-            <CardTitle className="text-base">Daily Briefing</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Daily Briefing</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {[
-                { icon: Clock, text: "12 jobs scheduled today" },
-                { icon: CheckCircle, text: "8 completed, 3 in progress, 1 pending" },
-                { icon: Users, text: "6 cleaners on duty" },
-                { icon: Briefcase, text: "2 new leads to review" },
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-text-secondary">
-                  <item.icon className="h-4 w-4 text-text-tertiary" />
-                  <span>{item.text}</span>
-                </div>
-              ))}
+              <div className="flex items-center gap-2 text-sm text-text-secondary"><Clock className="h-4 w-4 text-text-tertiary" /><span>{stats.jobsToday} jobs scheduled today</span></div>
+              <div className="flex items-center gap-2 text-sm text-text-secondary"><CheckCircle className="h-4 w-4 text-text-tertiary" /><span>{stats.totalJobs} total jobs in system</span></div>
+              <div className="flex items-center gap-2 text-sm text-text-secondary"><Users className="h-4 w-4 text-text-tertiary" /><span>{stats.activeCleaners} active cleaners</span></div>
+              <div className="flex items-center gap-2 text-sm text-text-secondary"><AlertTriangle className="h-4 w-4 text-text-tertiary" /><span>{stats.pendingApprovals} pending approvals</span></div>
             </div>
           </CardContent>
         </Card>
 
         <Card variant="outlined">
-          <CardHeader>
-            <CardTitle className="text-base">Recent Activity</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {[
-                { action: "Job completed", detail: "SNK-ABC123 — Airbnb Turnover", time: "5 min ago" },
-                { action: "Form submitted", detail: "SNK-DEF456 — Deep Clean", time: "15 min ago" },
-                { action: "Client registered", detail: "Harbour Properties Pty Ltd", time: "1 hour ago" },
-                { action: "Invoice sent", detail: "INV-2026-4521 — $1,200", time: "2 hours ago" },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start justify-between gap-3">
+              {activity.recentJobs.length > 0 ? activity.recentJobs.map((job) => (
+                <div key={job.id} className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-text-primary">{item.action}</p>
-                    <p className="text-xs text-text-tertiary">{item.detail}</p>
+                    <p className="text-sm font-medium text-text-primary">Job {job.jobNumber ?? job.id.slice(0, 8)}</p>
+                    <p className="text-xs text-text-tertiary">{job.jobType} — {job.property?.name ?? "Unknown"}</p>
                   </div>
-                  <span className="text-xs text-text-tertiary shrink-0">{item.time}</span>
+                  <Badge variant={job.status === "COMPLETED" ? "success" : "warning"}>{job.status.replace(/_/g, " ")}</Badge>
                 </div>
-              ))}
+              )) : <p className="text-sm text-text-tertiary">No recent activity</p>}
             </div>
           </CardContent>
         </Card>

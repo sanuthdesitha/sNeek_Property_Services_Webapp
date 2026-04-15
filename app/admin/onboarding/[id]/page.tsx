@@ -160,6 +160,11 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
       items: survey.laundryDetail
         ? [
             survey.laundryDetail.hasLaundry ? "Enabled" : "Disabled",
+            survey.laundrySupplier
+              ? `Partner: ${survey.laundrySupplier.name}${survey.laundrySupplier.pricePerKg ? ` ($${survey.laundrySupplier.pricePerKg.toFixed(2)}/kg)` : ""}`
+              : survey.laundrySupplierId
+                ? "Partner assigned (loading...)"
+                : "No partner assigned",
             survey.laundryDetail.washerType,
             survey.laundryDetail.dryerType,
             survey.laundryDetail.laundryLocation,

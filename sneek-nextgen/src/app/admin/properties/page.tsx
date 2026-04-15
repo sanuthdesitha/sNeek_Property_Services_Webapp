@@ -12,8 +12,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Search, MapPin, Home, Shirt, Briefcase } from "lucide-react";
+import { prisma } from "@/lib/db/prisma";
 
-export default function PropertiesPage() {
+async function getProperties() {
+  const properties = await prisma.property.findMany({
+    include: {
+      client: { select: { name: true } },
+      _count: { select: { jobs: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return properties;
+}
+
+export default async function PropertiesPage() {
+  const properties = await getProperties();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -42,7 +56,7 @@ export default function PropertiesPage() {
       <Card variant="outlined">
         <CardHeader>
           <CardTitle className="text-base">All Properties</CardTitle>
-          <CardDescription>2 properties registered</CardDescription>
+          <CardDescription>{properties.length} properties registered</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -51,7 +65,6 @@ export default function PropertiesPage() {
                 <TableHead>Property</TableHead>
                 <TableHead>Client</TableHead>
                 <TableHead>Details</TableHead>
-                <TableHead>iCal</TableHead>
                 <TableHead>Laundry</TableHead>
                 <TableHead>Inventory</TableHead>
                 <TableHead>Jobs</TableHead>
@@ -59,48 +72,46 @@ export default function PropertiesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[
-                { name: "Harbour View Apartment", address: "123 Harbour St, Sydney", client: "Harbour Properties", beds: 2, baths: 1, balcony: true, ical: true, laundry: true, inventory: true, jobs: 24 },
-                { name: "Beach House", address: "45 Ocean Ave, Bondi", client: "Harbour Properties", beds: 3, baths: 2, balcony: false, ical: false, laundry: true, inventory: true, jobs: 12 },
-              ].map((prop) => (
-                <TableRow key={prop.name}>
+              {properties.length > 0 ? properties.map((prop) => (
+                <TableRow key={prop.id}>
                   <TableCell>
                     <div>
                       <p className="font-medium text-sm">{prop.name}</p>
                       <p className="text-xs text-text-tertiary flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {prop.address}
+                        {prop.address}, {prop.suburb}
                       </p>
                     </div>
-                  </TableCell>
-                  <TableCell className="text-sm">{prop.client}</TableCell>
+                  </td>
+                  <TableCell className="text-sm">{prop.client?.name ?? "—"}</td>
                   <TableCell className="text-sm">
                     <div className="flex items-center gap-2">
                       <Home className="h-3 w-3 text-text-tertiary" />
-                      {prop.beds} bed / {prop.baths} bath
-                      {prop.balcony && <Badge variant="info" className="text-xs">Balcony</Badge>}
+                      {prop.bedrooms} bed / {prop.bathrooms} bath
+                      {prop.hasBalcony && <Badge variant="info" className="text-xs">Balcony</Badge>}
                     </div>
-                  </TableCell>
+                  </td>
                   <TableCell>
-                    {prop.ical ? <Badge variant="success">Connected</Badge> : <Badge variant="neutral">Not set</Badge>}
-                  </TableCell>
+                    {prop.laundryEnabled ? <Badge variant="success"><Shirt className="h-3 w-3 mr-1" />Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
+                  </td>
                   <TableCell>
-                    {prop.laundry ? <Badge variant="success"><Shirt className="h-3 w-3 mr-1" />Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
-                  </TableCell>
-                  <TableCell>
-                    {prop.inventory ? <Badge variant="success">Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
-                  </TableCell>
+                    {prop.inventoryEnabled ? <Badge variant="success">Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
+                  </td>
                   <TableCell className="text-sm flex items-center gap-1">
                     <Briefcase className="h-3 w-3 text-text-tertiary" />
-                    {prop.jobs}
-                  </TableCell>
+                    {prop._count.jobs}
+                  </td>
                   <TableCell>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/admin/properties/${prop.name.toLowerCase().replace(/\s+/g, "-")}`}>View</Link>
+                      <Link href={`/admin/properties/${prop.id}`}>View</Link>
                     </Button>
-                  </TableCell>
+                  </td>
                 </TableRow>
-              ))}
+              )) : (
+                <TableRow>
+                  <td colSpan={8} className="text-center text-text-tertiary py-8">No properties found</td>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

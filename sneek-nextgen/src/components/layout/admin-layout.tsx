@@ -32,6 +32,10 @@ import {
   Menu,
   X,
   LogOut,
+  AlertTriangle,
+  Mail,
+  Truck as DeliveryTruck,
+  ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "next-auth/react";
@@ -64,7 +68,9 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Clients", href: "/admin/clients", icon: Users },
       { label: "Onboarding", href: "/admin/onboarding", icon: UserCog },
       { label: "Quotes", href: "/admin/quotes", icon: FileText },
+      { label: "Leads", href: "/admin/quotes/leads", icon: AlertTriangle },
       { label: "Forms", href: "/admin/forms", icon: FormInput },
+      { label: "Delivery Profiles", href: "/admin/delivery-profiles", icon: DeliveryTruck },
     ],
   },
   {
@@ -98,6 +104,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Reports", href: "/admin/reports", icon: BarChart3 },
       { label: "Cases", href: "/admin/cases", icon: MessageSquare },
+      { label: "Issues", href: "/admin/issues", icon: AlertTriangle },
       { label: "Approvals", href: "/admin/approvals", icon: ClipboardList },
     ],
   },
@@ -114,6 +121,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Marketing & Web",
     items: [
       { label: "Campaigns", href: "/admin/marketing", icon: Megaphone },
+      { label: "Email Campaigns", href: "/admin/email-campaigns", icon: Mail },
       { label: "Website", href: "/admin/website", icon: Globe },
     ],
   },

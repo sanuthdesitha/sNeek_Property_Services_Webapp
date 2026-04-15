@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
         requestedCleanerCount: body.requestedCleanerCount,
         icalUrl: body.icalUrl || undefined,
         icalProvider: body.icalProvider || undefined,
+        laundrySupplierId: body.laundrySupplierId || undefined,
         appliances: body.appliances?.length
           ? { create: body.appliances.map((a) => ({ applianceType: a.applianceType, conditionNote: a.conditionNote, requiresClean: a.requiresClean })) }
           : undefined,

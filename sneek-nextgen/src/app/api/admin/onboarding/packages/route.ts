@@ -209,7 +209,7 @@ export async function POST(req: NextRequest) {
           entityType: item.entityType,
           data: item.data,
           status: "PENDING" as const,
-        })) as Parameters<typeof prisma.onboardingPackage.create>[0]["data"]["items"],
+        })) as any,
       },
     },
     include: { items: true },

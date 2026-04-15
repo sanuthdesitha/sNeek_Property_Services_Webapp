@@ -75,15 +75,15 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
 
         <TabsContent value="properties" className="space-y-3">
           {[
-            { name: "Harbour View Apartment", address: "123 Harbour St, Sydney", jobs: 24 },
-            { name: "Beach House", address: "45 Ocean Ave, Bondi", jobs: 12 },
+            { id: "prop_001", name: "Harbour View Apartment", address: "123 Harbour St, Sydney", jobs: 24 },
+            { id: "prop_002", name: "Beach House", address: "45 Ocean Ave, Bondi", jobs: 12 },
           ].map((prop) => (
-            <div key={prop.name} className="flex items-center justify-between p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900">
+            <div key={prop.id} className="flex items-center justify-between p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900">
               <div>
                 <p className="text-sm font-medium">{prop.name}</p>
                 <p className="text-xs text-text-tertiary">{prop.address} &middot; {prop.jobs} jobs</p>
               </div>
-              <Button variant="ghost" size="sm" asChild><Link href={`/admin/properties/${prop.name.toLowerCase().replace(/\s+/g, "-")}`}>View</Link></Button>
+              <Button variant="ghost" size="sm" asChild><Link href={`/admin/properties/${prop.id}`}>View</Link></Button>
             </div>
           ))}
         </TabsContent>

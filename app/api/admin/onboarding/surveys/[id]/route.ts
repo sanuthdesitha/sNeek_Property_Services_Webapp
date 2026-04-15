@@ -19,6 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         createdClient: { select: { id: true, name: true } },
         submittedBy: { select: { id: true, name: true, email: true } },
         adminReviewer: { select: { id: true, name: true } },
+        laundrySupplier: { select: { id: true, name: true, pricePerKg: true, avgTurnaround: true } },
       },
     });
     if (!survey) return NextResponse.json({ error: "Survey not found." }, { status: 404 });
@@ -40,7 +41,7 @@ function buildNestedUpdate(body: Record<string, unknown>, existing: any) {
     "bedrooms", "bathrooms", "hasBalcony", "floorCount",
     "propertyType", "sizeSqm",
     "requestedCleanerCount", "estimatedCleanerCount", "estimatedHours", "estimatedPrice",
-    "icalUrl", "icalProvider",
+    "icalUrl", "icalProvider", "laundrySupplierId",
     "adminNotes", "adminOverrides",
   ];
   for (const key of scalarKeys) {

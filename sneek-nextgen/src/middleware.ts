@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
 const ROLE_PORTAL_MAP: Record<string, string> = {
   ADMIN: "/admin",
@@ -38,7 +38,7 @@ const MARKETING_ROUTES = [
   "/privacy",
 ];
 
-export default auth((req) => {
+export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow public routes
@@ -49,14 +49,20 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
+  // Read JWT token directly (edge-safe, no Prisma needed)
+  const token = await getToken({
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
+
   // Require authentication for portal and API routes
-  if (!req.auth?.user) {
+  if (!token?.id) {
     const loginUrl = new URL("/login", req.nextUrl.origin);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  const userRole = (req.auth.user as { role: string }).role;
+  const userRole = token.role as string;
 
   // Portal route guards
   if (pathname.startsWith("/admin")) {
@@ -92,7 +98,7 @@ export default auth((req) => {
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [

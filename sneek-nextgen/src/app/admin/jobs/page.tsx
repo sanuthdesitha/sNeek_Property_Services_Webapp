@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Search, Filter, Calendar, MapPin, User } from "lucide-react";
+import { prisma } from "@/lib/db/prisma";
 
 const STATUS_CONFIG: Record<string, "success" | "warning" | "danger" | "info" | "neutral"> = {
   UNASSIGNED: "neutral",
@@ -27,7 +28,21 @@ const STATUS_CONFIG: Record<string, "success" | "warning" | "danger" | "info" | 
   INVOICED: "success",
 };
 
-export default function JobsPage() {
+async function getJobs() {
+  const jobs = await prisma.job.findMany({
+    take: 20,
+    orderBy: { scheduledDate: "desc" },
+    include: {
+      property: { select: { name: true, suburb: true } },
+      assignments: { include: { user: { select: { name: true } } } },
+    },
+  });
+  return jobs;
+}
+
+export default async function JobsPage() {
+  const jobs = await getJobs();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -83,7 +98,7 @@ export default function JobsPage() {
       <Card variant="outlined">
         <CardHeader>
           <CardTitle className="text-base">All Jobs</CardTitle>
-          <CardDescription>Showing 20 of 156 jobs</CardDescription>
+          <CardDescription>Showing {jobs.length} jobs</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -100,52 +115,53 @@ export default function JobsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[
-                { id: "SNK-ABC123", property: "Harbour View Apt", suburb: "Sydney", type: "Airbnb Turnover", date: "2026-04-15", status: "COMPLETED", cleaner: "John C.", estHours: 3, actualHours: 2.5 },
-                { id: "SNK-DEF456", property: "Beach House", suburb: "Bondi", type: "Deep Clean", date: "2026-04-15", status: "IN_PROGRESS", cleaner: "John C.", estHours: 5, actualHours: null },
-                { id: "SNK-GHI789", property: "City Studio", suburb: "CBD", type: "General Clean", date: "2026-04-15", status: "ASSIGNED", cleaner: "Jane S.", estHours: 2.5, actualHours: null },
-                { id: "SNK-JKL012", property: "Mountain Retreat", suburb: "Katoomba", type: "End of Lease", date: "2026-04-16", status: "UNASSIGNED", cleaner: null, estHours: 6, actualHours: null },
-                { id: "SNK-MNO345", property: "Garden Villa", suburb: "Parramatta", type: "Pressure Wash", date: "2026-04-16", status: "OFFERED", cleaner: "Mike J.", estHours: 3, actualHours: null },
-              ].map((job) => (
-                <TableRow key={job.id}>
-                  <TableCell className="font-mono text-sm">{job.id}</TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium text-sm">{job.property}</p>
-                      <p className="text-xs text-text-tertiary flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {job.suburb}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">{job.type}</TableCell>
-                  <TableCell className="text-sm flex items-center gap-1">
-                    <Calendar className="h-3 w-3 text-text-tertiary" />
-                    {job.date}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_CONFIG[job.status] ?? "neutral"}>{job.status.replace(/_/g, " ")}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {job.cleaner ? (
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3 text-text-tertiary" />
-                        {job.cleaner}
-                      </span>
-                    ) : (
-                      <span className="text-text-tertiary">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {job.actualHours ? `${job.actualHours}h / ${job.estHours}h` : `${job.estHours}h est.`}
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/admin/jobs/${job.id}`}>View</Link>
-                    </Button>
-                  </TableCell>
+              {jobs.length > 0 ? jobs.map((job) => {
+                const cleaner = job.assignments.find((a) => a.isPrimary)?.user;
+                return (
+                  <TableRow key={job.id}>
+                    <TableCell className="font-mono text-sm">{job.jobNumber ?? job.id.slice(0, 8)}</td>
+                    <TableCell>
+                      <div>
+                        <p className="font-medium text-sm">{job.property?.name ?? "Unknown"}</p>
+                        <p className="text-xs text-text-tertiary flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {job.property?.suburb ?? ""}
+                        </p>
+                      </div>
+                    </td>
+                    <TableCell className="text-sm">{job.jobType.replace(/_/g, " ")}</td>
+                    <TableCell className="text-sm flex items-center gap-1">
+                      <Calendar className="h-3 w-3 text-text-tertiary" />
+                      {job.scheduledDate?.toLocaleDateString()}
+                    </td>
+                    <TableCell>
+                      <Badge variant={STATUS_CONFIG[job.status] ?? "neutral"}>{job.status.replace(/_/g, " ")}</Badge>
+                    </td>
+                    <TableCell className="text-sm">
+                      {cleaner ? (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3 text-text-tertiary" />
+                          {cleaner.name}
+                        </span>
+                      ) : (
+                        <span className="text-text-tertiary">—</span>
+                      )}
+                    </td>
+                    <TableCell className="text-sm">
+                      {job.actualHours ? `${job.actualHours}h / ${job.estimatedHours}h` : `${job.estimatedHours}h est.`}
+                    </td>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/jobs/${job.id}`}>View</Link>
+                      </Button>
+                    </td>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow>
+                  <td colSpan={8} className="text-center text-text-tertiary py-8">No jobs found</td>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>

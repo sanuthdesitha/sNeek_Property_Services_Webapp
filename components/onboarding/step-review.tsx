@@ -72,7 +72,12 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
     },
     {
       title: "Laundry",
-      items: laundryDetail.hasLaundry ? ["Laundry enabled"] : ["No laundry"],
+      items: laundryDetail.hasLaundry
+        ? [
+            "Laundry enabled",
+            data.laundrySupplierId ? `Partner: ${data.laundrySupplierId}` : "No partner assigned",
+          ]
+        : ["No laundry"],
     },
     {
       title: "Access Details",

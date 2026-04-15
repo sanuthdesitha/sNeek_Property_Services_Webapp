@@ -106,6 +106,27 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
       integrationId = integration.id;
     }
 
+    // 4b. Create LaundryTask if laundry is enabled
+    let laundryTaskId: string | undefined;
+    if (survey.laundryDetail?.hasLaundry) {
+      const pickupDate = new Date();
+      pickupDate.setDate(pickupDate.getDate() + 1);
+      const dropoffDate = new Date(pickupDate);
+      dropoffDate.setDate(dropoffDate.getDate() + 2);
+
+      const laundryTask = await tx.laundryTask.create({
+        data: {
+          propertyId: property.id,
+          jobId: "",
+          pickupDate,
+          dropoffDate,
+          status: "PENDING",
+          supplierId: survey.laundrySupplierId || null,
+        },
+      });
+      laundryTaskId = laundryTask.id;
+    }
+
     // 5. Create Job drafts for selected job types
     const jobIds: string[] = [];
     const estimatedHours = (overrides.estimatedHours as number) ?? survey.estimatedHours;
@@ -151,6 +172,13 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         },
       });
       jobIds.push(job.id);
+
+      if (laundryTaskId && jobIds.length === 1) {
+        await tx.laundryTask.update({
+          where: { id: laundryTaskId },
+          data: { jobId: job.id },
+        });
+      }
     }
 
     // 6. Update survey
@@ -165,11 +193,12 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         createdClientId: clientId,
         createdPropertyId: property.id,
         createdIntegrationId: integrationId,
+        createdLaundryTaskId: laundryTaskId,
         createdJobIds: jobIds,
       },
     });
 
-    return { clientId, propertyId: property.id, integrationId, jobIds };
+    return { clientId, propertyId: property.id, integrationId, laundryTaskId, jobIds };
   });
 
   return { ok: true, ...result };

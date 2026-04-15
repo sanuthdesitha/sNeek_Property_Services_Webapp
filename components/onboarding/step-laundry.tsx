@@ -1,10 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+
+interface Supplier {
+  id: string;
+  name: string;
+  pricePerKg: number | null;
+  avgTurnaround: number | null;
+}
 
 interface StepLaundryProps {
   data: Record<string, unknown>;
@@ -12,8 +20,22 @@ interface StepLaundryProps {
 }
 
 export function StepLaundry({ data, onChange }: StepLaundryProps) {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const laundry = (data.laundryDetail as Record<string, unknown>) ?? {};
   const update = (key: string, value: unknown) => onChange({ ...data, laundryDetail: { ...laundry, [key]: value } });
+
+  useEffect(() => {
+    fetch("/api/admin/laundry/suppliers")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        if (Array.isArray(rows)) {
+          setSuppliers(rows.filter((s: any) => s.isActive !== false));
+        }
+      })
+      .catch(() => setSuppliers([]));
+  }, []);
+
+  const selectedSupplier = suppliers.find((s) => s.id === data.laundrySupplierId);
 
   return (
     <div className="space-y-4">
@@ -27,6 +49,32 @@ export function StepLaundry({ data, onChange }: StepLaundryProps) {
 
       {laundry.hasLaundry === true && (
         <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Label>Assign laundry partner</Label>
+            <Select
+              value={String(data.laundrySupplierId ?? "")}
+              onValueChange={(v) => onChange({ ...data, laundrySupplierId: v || null })}
+            >
+              <SelectTrigger><SelectValue placeholder="Select a laundry partner" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">No partner assigned</SelectItem>
+                {suppliers.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                    {s.pricePerKg ? ` — $${s.pricePerKg.toFixed(2)}/kg` : ""}
+                    {s.avgTurnaround ? ` — ${s.avgTurnaround}h turnaround` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedSupplier && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {selectedSupplier.name}
+                {selectedSupplier.pricePerKg ? ` · $${selectedSupplier.pricePerKg.toFixed(2)}/kg` : ""}
+                {selectedSupplier.avgTurnaround ? ` · ${selectedSupplier.avgTurnaround}h avg turnaround` : ""}
+              </p>
+            )}
+          </div>
           <div>
             <Label>Washer type</Label>
             <Select value={String(laundry.washerType ?? "")} onValueChange={(v) => update("washerType", v)}>
