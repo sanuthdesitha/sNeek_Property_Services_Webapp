@@ -206,9 +206,10 @@ export async function POST(req: NextRequest) {
       },
       items: {
         create: items.map((item) => ({
-          entityType: item.entityType as "CLIENT" | "PROPERTY" | "INTEGRATION" | "FORM_TEMPLATE" | "PRICE_BOOK_ENTRY" | "PROPERTY_CLIENT_RATE" | "JOB_SCHEDULE" | "JOB" | "INVENTORY_DEFAULT" | "LAUNDRY_SETTING",
+          entityType: item.entityType,
           data: item.data,
-        })),
+          status: "PENDING" as const,
+        })) as Parameters<typeof prisma.onboardingPackage.create>[0]["data"]["items"],
       },
     },
     include: { items: true },
