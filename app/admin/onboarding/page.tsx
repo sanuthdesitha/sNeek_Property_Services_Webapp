@@ -132,7 +132,7 @@ export default function OnboardingPage() {
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(survey.createdAt), "dd MMM yyyy")}
                     </p>
-                    {survey.createdProperty && (
+                    {survey.createdPropertyId && (
                       <Badge variant="success" className="mt-1">Property created</Badge>
                     )}
                     {survey.status === "PENDING_REVIEW" && (

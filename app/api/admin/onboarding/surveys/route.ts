@@ -10,12 +10,10 @@ export async function GET(req: NextRequest) {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
-    const sourceType = searchParams.get("sourceType");
     const search = searchParams.get("search");
 
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
-    if (sourceType) where.sourceType = sourceType;
     if (search) {
       where.OR = [
         { surveyNumber: { contains: search, mode: "insensitive" } },
@@ -57,22 +55,37 @@ export async function POST(req: NextRequest) {
         submittedById: session.user.id,
         isNewClient: body.isNewClient ?? false,
         clientData: body.clientData ? (body.clientData as any) : undefined,
-        existingClientId: body.existingClientId,
-        propertyAddress: body.propertyAddress,
-        propertySuburb: body.propertySuburb,
+        existingClientId: body.existingClientId || undefined,
+        propertyAddress: body.propertyAddress || undefined,
+        propertySuburb: body.propertySuburb || undefined,
         propertyState: body.propertyState,
-        propertyPostcode: body.propertyPostcode,
-        propertyName: body.propertyName,
-        propertyNotes: body.propertyNotes,
+        propertyPostcode: body.propertyPostcode || undefined,
+        propertyName: body.propertyName || undefined,
+        propertyNotes: body.propertyNotes || undefined,
         bedrooms: body.bedrooms,
         bathrooms: body.bathrooms,
         hasBalcony: body.hasBalcony,
         floorCount: body.floorCount,
-        propertyType: body.propertyType,
-        sizeSqm: body.sizeSqm,
+        propertyType: body.propertyType || undefined,
+        sizeSqm: body.sizeSqm || undefined,
         requestedCleanerCount: body.requestedCleanerCount,
-        icalUrl: body.icalUrl,
-        icalProvider: body.icalProvider,
+        icalUrl: body.icalUrl || undefined,
+        icalProvider: body.icalProvider || undefined,
+        appliances: body.appliances?.length
+          ? { create: body.appliances.map((a) => ({ applianceType: a.applianceType, conditionNote: a.conditionNote, requiresClean: a.requiresClean })) }
+          : undefined,
+        specialRequests: body.specialRequests?.length
+          ? { create: body.specialRequests.map((r) => ({ description: r.description, priority: r.priority, area: r.area })) }
+          : undefined,
+        laundryDetail: body.laundryDetail?.hasLaundry
+          ? { create: { hasLaundry: body.laundryDetail.hasLaundry, washerType: body.laundryDetail.washerType, dryerType: body.laundryDetail.dryerType, laundryLocation: body.laundryDetail.laundryLocation, suppliesProvided: body.laundryDetail.suppliesProvided, detergentType: body.laundryDetail.detergentType, notes: body.laundryDetail.notes } }
+          : undefined,
+        accessDetails: body.accessDetails?.length
+          ? { create: body.accessDetails.map((d, i) => ({ detailType: d.detailType, value: d.value, photoUrl: d.photoUrl, photoKey: d.photoKey, annotations: d.annotations as any, sortOrder: d.sortOrder ?? i })) }
+          : undefined,
+        jobTypeAnswers: body.jobTypeAnswers?.length
+          ? { create: body.jobTypeAnswers.map((a) => ({ jobType: a.jobType as any, answers: a.answers as any, isComplete: a.isComplete })) }
+          : undefined,
       },
       include: {
         appliances: true,

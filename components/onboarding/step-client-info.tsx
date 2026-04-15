@@ -41,6 +41,8 @@ export function StepClientInfo({ data, onChange }: StepClientInfoProps) {
       c.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const clientData = (data.clientData as Record<string, unknown>) ?? {};
+
   return (
     <div className="space-y-4">
       <label className="flex items-center gap-2">
@@ -59,8 +61,8 @@ export function StepClientInfo({ data, onChange }: StepClientInfoProps) {
           <div>
             <Label>Client name *</Label>
             <Input
-              value={String((data as any).clientName ?? "")}
-              onChange={(e) => onChange({ ...data, clientName: e.target.value })}
+              value={String(clientData.name ?? "")}
+              onChange={(e) => onChange({ ...data, clientData: { ...clientData, name: e.target.value } })}
               placeholder="Full name or company"
             />
           </div>
@@ -68,32 +70,32 @@ export function StepClientInfo({ data, onChange }: StepClientInfoProps) {
             <Label>Email</Label>
             <Input
               type="email"
-              value={String((data as any).clientEmail ?? "")}
-              onChange={(e) => onChange({ ...data, clientEmail: e.target.value })}
+              value={String(clientData.email ?? "")}
+              onChange={(e) => onChange({ ...data, clientData: { ...clientData, email: e.target.value } })}
               placeholder="client@example.com"
             />
           </div>
           <div>
             <Label>Phone</Label>
             <Input
-              value={String((data as any).clientPhone ?? "")}
-              onChange={(e) => onChange({ ...data, clientPhone: e.target.value })}
+              value={String(clientData.phone ?? "")}
+              onChange={(e) => onChange({ ...data, clientData: { ...clientData, phone: e.target.value } })}
               placeholder="04XX XXX XXX"
             />
           </div>
           <div>
             <Label>Address</Label>
             <Input
-              value={String((data as any).clientAddress ?? "")}
-              onChange={(e) => onChange({ ...data, clientAddress: e.target.value })}
+              value={String(clientData.address ?? "")}
+              onChange={(e) => onChange({ ...data, clientData: { ...clientData, address: e.target.value } })}
               placeholder="Client address"
             />
           </div>
           <div className="md:col-span-2">
             <Label>Notes</Label>
             <Textarea
-              value={String((data as any).clientNotes ?? "")}
-              onChange={(e) => onChange({ ...data, clientNotes: e.target.value })}
+              value={String(clientData.notes ?? "")}
+              onChange={(e) => onChange({ ...data, clientData: { ...clientData, notes: e.target.value } })}
               placeholder="Any notes about this client"
             />
           </div>

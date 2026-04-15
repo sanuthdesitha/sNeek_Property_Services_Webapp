@@ -41,11 +41,14 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
     }
   }
 
+  const clientData = (data.clientData as Record<string, unknown>) ?? {};
+  const laundryDetail = (data.laundryDetail as Record<string, unknown>) ?? {};
+
   const sections: { title: string; items: (string | null)[] }[] = [
     {
       title: "Client",
       items: (data.isNewClient
-        ? [`New: ${data.clientName ?? "Unnamed"}`, data.clientEmail, data.clientPhone].filter(Boolean)
+        ? [`New: ${String(clientData.name ?? "Unnamed")}`, clientData.email ? String(clientData.email) : null, clientData.phone ? String(clientData.phone) : null].filter(Boolean)
         : [`Existing client: ${data.existingClientId}`]) as (string | null)[],
     },
     {
@@ -69,7 +72,7 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
     },
     {
       title: "Laundry",
-      items: (data.laundry as any)?.hasLaundry ? ["Laundry enabled"] : ["No laundry"],
+      items: laundryDetail.hasLaundry ? ["Laundry enabled"] : ["No laundry"],
     },
     {
       title: "Access Details",

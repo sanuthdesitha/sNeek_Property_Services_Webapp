@@ -12,8 +12,8 @@ interface StepLaundryProps {
 }
 
 export function StepLaundry({ data, onChange }: StepLaundryProps) {
-  const laundry = (data.laundry as Record<string, unknown>) ?? {};
-  const update = (key: string, value: unknown) => onChange({ ...data, laundry: { ...laundry, [key]: value } });
+  const laundry = (data.laundryDetail as Record<string, unknown>) ?? {};
+  const update = (key: string, value: unknown) => onChange({ ...data, laundryDetail: { ...laundry, [key]: value } });
 
   return (
     <div className="space-y-4">

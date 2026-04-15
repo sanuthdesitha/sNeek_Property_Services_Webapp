@@ -51,7 +51,7 @@ export function StepStaffing({ data, onChange }: StepStaffingProps) {
           specialRequestCount: specialRequests.length,
           conditionLevel: data.conditionLevel ?? "standard",
           selectedJobTypes: data.selectedJobTypes ?? [],
-          laundryEnabled: (data.laundry as any)?.hasLaundry === true,
+          laundryEnabled: (data.laundryDetail as any)?.hasLaundry === true,
         }),
       });
       const result = await res.json();

@@ -1,0 +1,2624 @@
+// sNeek Ops Dashboard — Prisma schema v2 (Next-Gen)
+// Timezone: Australia/Sydney (stored as UTC, displayed via date-fns-tz)
+// All existing models preserved exactly. New models added for multi-tenancy, onboarding, partners.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  OPS_MANAGER
+  CLEANER
+  CLIENT
+  LAUNDRY
+}
+
+enum JobType {
+  AIRBNB_TURNOVER
+  DEEP_CLEAN
+  END_OF_LEASE
+  GENERAL_CLEAN
+  POST_CONSTRUCTION
+  PRESSURE_WASH
+  WINDOW_CLEAN
+  LAWN_MOWING
+  SPECIAL_CLEAN
+  COMMERCIAL_RECURRING
+  CARPET_STEAM_CLEAN
+  MOLD_TREATMENT
+  UPHOLSTERY_CLEANING
+  TILE_GROUT_CLEANING
+  GUTTER_CLEANING
+  SPRING_CLEANING
+}
+
+enum JobStatus {
+  UNASSIGNED
+  OFFERED
+  ASSIGNED
+  EN_ROUTE
+  IN_PROGRESS
+  PAUSED
+  WAITING_CONTINUATION_APPROVAL
+  SUBMITTED
+  QA_REVIEW
+  COMPLETED
+  INVOICED
+}
+
+enum JobAssignmentResponseStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TRANSFERRED
+}
+
+enum LaundryStatus {
+  PENDING
+  CONFIRMED
+  PICKED_UP
+  DROPPED
+  FLAGGED
+  SKIPPED_PICKUP
+}
+
+enum LaundryFlag {
+  NO_WINDOW
+  BUFFER_REQUIRED
+  EXPRESS_OR_EXTRA_LINEN_REQUIRED
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+}
+
+enum StockTxType {
+  USED
+  RESTOCKED
+  ADJUSTED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  CONVERTED
+}
+
+enum PayAdjustmentType {
+  HOURLY
+  FIXED
+}
+
+enum PayAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PayAdjustmentScope {
+  JOB
+  PROPERTY
+  STANDALONE
+}
+
+enum TimeAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUOTED
+  CONVERTED
+  LOST
+}
+
+enum IntegrationProvider {
+  ICAL_HOSPITABLE
+  ICAL_OTHER
+}
+
+enum SyncStatus {
+  IDLE
+  SYNCING
+  SUCCESS
+  ERROR
+}
+
+enum LaundryOutcome {
+  READY_FOR_PICKUP
+  NOT_READY
+  NO_PICKUP_REQUIRED
+}
+
+enum ShoppingRunStatus {
+  DRAFT
+  ACTIVE
+  SUBMITTED
+  APPROVED
+  BILLED
+  REIMBURSED
+  CLOSED
+}
+
+enum ShoppingPaymentMethod {
+  COMPANY_CARD
+  CLIENT_CARD
+  CLEANER_CARD
+  ADMIN_CARD
+  CASH
+  BANK_TRANSFER
+  OTHER
+}
+
+enum ShoppingPaidByScope {
+  COMPANY
+  CLIENT
+  CLEANER
+  ADMIN
+  OTHER
+}
+
+enum StockRunStatus {
+  DRAFT
+  ACTIVE
+  SUBMITTED
+  APPLIED
+  DISCARDED
+}
+
+enum ClientInvoiceStatus {
+  DRAFT
+  APPROVED
+  SENT
+  PAID
+  VOID
+}
+
+enum JobTaskSource {
+  ADMIN
+  CLIENT
+  CARRY_FORWARD
+}
+
+enum JobTaskApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
+}
+
+enum JobTaskExecutionStatus {
+  OPEN
+  COMPLETED
+  NOT_COMPLETED
+  CARRIED_FORWARD
+  CANCELLED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  CONFIRMED
+  PROCESSING
+  COMPLETED
+  FAILED
+  VOID
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PayoutMethod {
+  STRIPE_CONNECT
+  ABA_FILE
+  MANUAL_BANK_TRANSFER
+}
+
+enum GatewayProvider {
+  STRIPE
+  PAYPAL
+  SQUARE
+}
+
+enum GatewayStatus {
+  ACTIVE
+  INACTIVE
+  TEST
+}
+
+enum NotificationRecipientRole {
+  ADMIN
+  CLEANER
+  CLIENT
+}
+
+enum NotificationLogStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+// ── New Enums ──
+
+enum TenantPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+enum PartnerType {
+  LAUNDRY
+  SUPPLY
+  MAINTENANCE
+  SPECIALTY
+}
+
+enum PartnerStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum PartnerJobStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OnboardingStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum OnboardingItemType {
+  CLIENT
+  PROPERTY
+  INTEGRATION
+  FORM_TEMPLATE
+  PRICE_BOOK_ENTRY
+  PROPERTY_CLIENT_RATE
+  JOB_SCHEDULE
+  JOB
+  INVENTORY_DEFAULT
+  LAUNDRY_SETTING
+}
+
+enum OnboardingItemStatus {
+  PENDING
+  APPROVED
+  EDITED
+  REJECTED
+}
+
+enum SurveySectionKey {
+  CLIENT
+  PROPERTY
+  APPLIANCES
+  SPECIAL_REQUESTS
+  LAUNDRY
+  ACCESS
+  TIMING
+  TEAM
+  SERVICES
+  ICAL
+  PRICING
+}
+
+// ─────────────────────────────────────────────
+// Auth (NextAuth v5 compatible)
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// Multi-Tenant
+// ─────────────────────────────────────────────
+
+model Tenant {
+  id         String       @id @default(cuid())
+  name       String
+  slug       String       @unique
+  plan       TenantPlan   @default(FREE)
+  status     TenantStatus @default(TRIAL)
+  settings   Json?
+  trialEnds  DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  users          User[]
+  clients        Client[]
+  properties     Property[]
+  jobs           Job[]
+  partners       Partner[]
+  featureFlags   FeatureFlag[]
+  tenantSettings TenantSetting[]
+  usageRecords   UsageRecord[]
+  subscriptions  Subscription[]
+  billingInvoices BillingInvoice[]
+  surveys         PropertySurvey[]
+}
+
+model TenantSetting {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  tenantId    String
+  key         String
+  enabled     Boolean  @default(false)
+  rolloutPct  Float    @default(100)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+}
+
+model Subscription {
+  id            String   @id @default(cuid())
+  tenantId      String
+  plan          String
+  billingCycle  String   // MONTHLY, ANNUAL
+  status        String   @default("ACTIVE")
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean @default(false)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model UsageRecord {
+  id          String   @id @default(cuid())
+  tenantId    String
+  metric      String   // jobs_created, cleaners_active, properties_managed
+  quantity    Int      @default(1)
+  recordedAt  DateTime @default(now())
+  metadata    Json?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, metric, recordedAt])
+}
+
+model BillingInvoice {
+  id            String   @id @default(cuid())
+  tenantId      String
+  invoiceNumber String   @unique
+  amount        Float
+  currency      String   @default("AUD")
+  status        String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE, VOID
+  periodStart   DateTime
+  periodEnd     DateTime
+  lineItems     Json
+  dueDate       DateTime
+  paidAt        DateTime?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments BillingPayment[]
+}
+
+model BillingPayment {
+  id               String   @id @default(cuid())
+  billingInvoiceId String
+  amount           Float
+  currency         String   @default("AUD")
+  method           String   // STRIPE, BANK_TRANSFER, MANUAL
+  status           String   @default("PENDING")
+  gatewayPaymentId String?
+  paidAt           DateTime?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  billingInvoice BillingInvoice @relation(fields: [billingInvoiceId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Users
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  tenantId      String?
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          Role      @default(CLEANER)
+  phone         String?
+  hourlyRate    Float?
+  isActive      Boolean   @default(true)
+  bankBsb           String?
+  bankAccountNumber   String?
+  bankAccountName     String?
+  stripeAccountId     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant                     Tenant?                    @relation(fields: [tenantId], references: [id])
+  accounts                     Account[]
+  sessions                     Session[]
+  jobAssignments               JobAssignment[]
+  timeLogs                     TimeLog[]
+  formSubmissions              FormSubmission[]
+  auditLogs                    AuditLog[]                  @relation("AuditUser")
+  notifications                Notification[]
+  notificationPreference       UserNotificationPreference?
+  pushDevices                  UserPushDevice[]
+  payAdjustmentRequests        CleanerPayAdjustment[]      @relation("CleanerAdjustmentRequests")
+  payAdjustmentReviews         CleanerPayAdjustment[]      @relation("CleanerAdjustmentReviews")
+  timeAdjustmentRequests       TimeLogAdjustmentRequest[]  @relation("TimeAdjustmentRequestedBy")
+  timeAdjustmentReviews        TimeLogAdjustmentRequest[]  @relation("TimeAdjustmentReviewedBy")
+  icalSyncRunsTriggered        IcalSyncRun[]               @relation("IcalSyncTriggeredBy")
+  icalSyncRunsReverted         IcalSyncRun[]               @relation("IcalSyncRevertedBy")
+  assignedCases                IssueTicket[]               @relation("IssueTicketAssignedTo")
+  caseComments                 CaseComment[]
+  payrollRunsCreated           PayrollRun[]                @relation("PayrollRunCreatedBy")
+  payouts                      Payout[]                    @relation("CleanerPayouts")
+  caseAttachments              CaseAttachment[]
+  stockRuns                    StockRun[]                  @relation("StockRunRequestedBy")
+  shoppingRuns                 ShoppingRun[]               @relation("ShoppingRunOwner")
+  shoppingReceipts             ShoppingReceipt[]           @relation("ShoppingReceiptUploadedBy")
+  shoppingSettlementsPaid      ShoppingSettlement[]        @relation("ShoppingSettlementPaidBy")
+  reportVisibilityUpdates      Report[]                    @relation("ReportVisibilityUpdatedBy")
+  // Client link (optional)
+  clientId                     String?
+  client                       Client?                     @relation(fields: [clientId], references: [id])
+  createdTeamGroups            TeamGroup[]                 @relation("TeamGroupCreatedBy")
+  teamGroupMemberships         TeamGroupMember[]           @relation("TeamGroupMembershipUser")
+  createdWorkforcePosts        WorkforcePost[]             @relation("WorkforcePostCreatedBy")
+  workforcePostReads           WorkforcePostRead[]         @relation("WorkforcePostReadUser")
+  createdChatChannels          ChatChannel[]               @relation("ChatChannelCreatedBy")
+  chatChannelReads             ChatChannelRead[]           @relation("ChatChannelReadUser")
+  sentChatMessages             ChatMessage[]               @relation("ChatMessageSender")
+  learningPathsCreated         LearningPath[]              @relation("LearningPathCreatedBy")
+  learningAssignments          LearningAssignment[]        @relation("LearningAssignmentUser")
+  staffDocuments               StaffDocument[]             @relation("StaffDocumentOwner")
+  uploadedStaffDocuments       StaffDocument[]             @relation("StaffDocumentUploadedBy")
+  verifiedStaffDocuments       StaffDocument[]             @relation("StaffDocumentVerifiedBy")
+  requestedStaffDocuments      StaffDocumentRequest[]      @relation("StaffDocumentRequestUser")
+  createdStaffDocumentRequests StaffDocumentRequest[]      @relation("StaffDocumentRequestCreatedBy")
+  sentRecognitions             StaffRecognition[]          @relation("RecognitionSentBy")
+  receivedRecognitions         StaffRecognition[]          @relation("RecognitionReceivedBy")
+  createdHiringPositions       HiringPosition[]            @relation("HiringPositionCreatedBy")
+  reviewedHiringApplications   HiringApplication[]         @relation("HiringApplicationReviewedBy")
+  hiredFromApplications        HiringApplication[]         @relation("HiringApplicationHiredUser")
+  requestedJobTasks            JobTask[]                   @relation("JobTaskRequestedBy")
+  approvedJobTasks             JobTask[]                   @relation("JobTaskApprovedBy")
+  uploadedJobTaskAttachments   JobTaskAttachment[]         @relation("JobTaskAttachmentUploadedBy")
+  jobTaskEvents                JobTaskEvent[]              @relation("JobTaskEventActor")
+  sentClientMessages           ClientMessage[]             @relation("ClientMessageSender")
+  cleanerAvailabilityEntries   CleanerAvailability[]       @relation("CleanerAvailabilityUser")
+  preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
+  createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
+  cleanerLocationPings         CleanerLocationPing[]
+  // Onboarding
+  surveysConducted             PropertySurvey[]            @relation("SurveyConductedBy")
+  approvalsPerformed         OnboardingApprovalLog[]       @relation("OnboardingApprovalBy")
+
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Clients + Properties
+// ─────────────────────────────────────────────
+
+model Client {
+  id                        String   @id @default(cuid())
+  tenantId                  String?
+  name                      String
+  email                     String?
+  phone                     String?
+  address                   String?
+  notes                     String?  @db.Text
+  portalVisibilityOverrides Json?
+  isActive                  Boolean  @default(true)
+  xeroContactId             String?
+  xeroSyncedAt              DateTime?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  tenant                   Tenant?                    @relation(fields: [tenantId], references: [id])
+  properties               Property[]
+  users                    User[]
+  quotes                   Quote[]
+  jobTasks                 JobTask[]
+  leads                    QuoteLead[]
+  cases                    IssueTicket[]
+  shoppingRuns             ShoppingRun[]
+  invoices                 ClientInvoice[]
+  loyaltyAccount           LoyaltyAccount?
+  referralsMade            Referral[]                 @relation("ReferralReferrer")
+  referralsConverted       Referral[]                 @relation("ReferralReferee")
+  satisfactionRatings      ClientSatisfactionRating[]
+  messages                 ClientMessage[]
+  notificationPref         ClientNotificationPreference?
+  automationRules          ClientAutomationRule[]
+  jobFeedback              JobFeedback[]
+  lastReviewRequestSentAt  DateTime?
+  surveys                  PropertySurvey[]
+
+  @@index([tenantId])
+}
+
+model Property {
+  id                     String   @id @default(cuid())
+  tenantId               String?
+  clientId               String
+  name                   String
+  address                String
+  suburb                 String
+  state                  String   @default("NSW")
+  postcode               String?
+  notes                  String?  @db.Text
+  accessInfo             Json? // { lockbox, codes, parking, other }
+  linenBufferSets        Int      @default(0)
+  inventoryEnabled       Boolean  @default(false)
+  defaultCheckinTime     String   @default("14:00") // HH:mm
+  defaultCheckoutTime    String   @default("10:00") // HH:mm
+  hasBalcony             Boolean  @default(false)
+  bedrooms               Int      @default(1)
+  bathrooms              Int      @default(1)
+  latitude               Float?
+  longitude              Float?
+  accessCode             String?  @db.Text
+  alarmCode              String?  @db.Text
+  keyLocation            String?
+  accessNotes            String?  @db.Text
+  preferredCleanerUserId     String?
+  showCleanerContactToClient Boolean  @default(false)
+  laundryEnabled             Boolean  @default(true)
+  isActive                   Boolean  @default(true)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  tenant           Tenant?                @relation(fields: [tenantId], references: [id])
+  client           Client                 @relation(fields: [clientId], references: [id])
+  preferredCleaner User?                  @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
+  integration      Integration?
+  reservations     Reservation[]
+  jobs             Job[]
+  propertyStock    PropertyStock[]
+  laundryTasks     LaundryTask[]
+  icalSyncRuns     IcalSyncRun[]
+  cases            IssueTicket[]
+  stockRuns        StockRun[]
+  shoppingRunLines ShoppingRunLine[]
+  clientRates      PropertyClientRate[]
+  payAdjustments   CleanerPayAdjustment[]
+  jobTasks         JobTask[]
+
+  @@index([tenantId])
+}
+
+model Integration {
+  id               String              @id @default(cuid())
+  propertyId       String              @unique
+  provider         IntegrationProvider @default(ICAL_HOSPITABLE)
+  icalUrl          String?             @db.Text
+  isEnabled        Boolean             @default(false)
+  lastSyncAt       DateTime?
+  lastSyncEtag     String?
+  lastSyncModified String?
+  syncStatus       SyncStatus          @default(IDLE)
+  syncError        String?             @db.Text
+  notes            String?             @db.Text
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  property Property      @relation(fields: [propertyId], references: [id])
+  syncRuns IcalSyncRun[]
+}
+
+model IcalSyncRun {
+  id            String    @id @default(cuid())
+  integrationId String
+  propertyId    String
+  triggeredById String?
+  revertedById  String?
+  mode          String    @default("MANUAL")
+  status        String    @default("RUNNING")
+  summary       Json?
+  snapshot      Json?
+  error         String?   @db.Text
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  revertedAt    DateTime?
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  triggeredBy User?       @relation("IcalSyncTriggeredBy", fields: [triggeredById], references: [id])
+  revertedBy  User?       @relation("IcalSyncRevertedBy", fields: [revertedById], references: [id])
+
+  @@index([integrationId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model Reservation {
+  id              String    @id @default(cuid())
+  propertyId      String
+  uid             String // iCal UID
+  startDate       DateTime // check-in (UTC)
+  endDate         DateTime // check-out (UTC)
+  summary         String?
+  guestName       String?
+  reservationCode String?
+  guestPhone      String?
+  guestEmail      String?
+  guestProfileUrl String?   @db.Text
+  adults          Int?
+  children        Int?
+  infants         Int?
+  locationText    String?   @db.Text
+  geoLat          Float?
+  geoLng          Float?
+  checkinAtLocal  DateTime?
+  checkoutAtLocal DateTime?
+  source          String?   @default("ical")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id])
+  job      Job?
+
+  @@unique([propertyId, uid])
+}
+
+// ─────────────────────────────────────────────
+// Jobs
+// ─────────────────────────────────────────────
+
+model Job {
+  id                    String    @id @default(cuid())
+  tenantId              String?
+  jobNumber             String    @unique
+  propertyId            String
+  reservationId         String?   @unique
+  jobType               JobType
+  status                JobStatus @default(UNASSIGNED)
+  scheduledDate         DateTime // date of cleaning (UTC start of day)
+  startTime             String? // HH:mm (property local)
+  endTime               String? // HH:mm (property local)
+  dueTime               String? // latest completion HH:mm
+  estimatedHours        Float?
+  actualHours           Float?
+  notes                 String?   @db.Text
+  internalNotes         String?   @db.Text
+  priorityBucket        Int       @default(4)
+  priorityReason        String?
+  sameDayCheckin        Boolean   @default(false)
+  sameDayCheckinTime    String?
+  reminder24hSent       Boolean   @default(false)
+  reminder2hSent        Boolean   @default(false)
+  gpsCheckInLat         Float?
+  gpsCheckInLng         Float?
+  gpsCheckInAt          DateTime?
+  gpsCheckOutLat        Float?
+  gpsCheckOutLng        Float?
+  gpsCheckOutAt         DateTime?
+  gpsDistanceMeters      Int?
+  requiresSafetyCheckin  Boolean   @default(false)
+  safetyCheckinAt        DateTime?
+  manuallyRescheduledAt   DateTime?
+  rescheduledBy           String?
+  enRouteStartedAt        DateTime?
+  enRouteEtaMinutes       Int?
+  enRouteEtaUpdatedAt     DateTime?
+  drivingPausedAt         DateTime?
+  drivingPauseReason      String?
+  drivingDelayedAt        DateTime?
+  drivingDelayedReason    String?
+  arrivedAt               DateTime?
+  lastEtaNotificationAt   DateTime?
+  lastEtaNotifiedMinutes  Int?
+  lastDelayedNotificationAt DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  tenant                 Tenant?                  @relation(fields: [tenantId], references: [id])
+  property               Property                   @relation(fields: [propertyId], references: [id])
+  reservation            Reservation?               @relation(fields: [reservationId], references: [id])
+  assignments            JobAssignment[]
+  timeLogs               TimeLog[]
+  formSubmissions        FormSubmission[]
+  qaReviews              QAReview[]
+  laundryTask            LaundryTask?
+  report                 Report?
+  issueTickets           IssueTicket[]
+  payAdjustments         CleanerPayAdjustment[]
+  timeAdjustmentRequests TimeLogAdjustmentRequest[]
+  auditLogs              AuditLog[]                 @relation("AuditJob")
+  invoiceLines           ClientInvoiceLine[]
+  jobTasks               JobTask[]
+  satisfactionRating     ClientSatisfactionRating?
+  cleanerLocationPings   CleanerLocationPing[]
+  feedback               JobFeedback?
+
+  @@index([tenantId])
+}
+
+model CleanerPayAdjustment {
+  id              String              @id @default(cuid())
+  jobId           String?
+  propertyId      String?
+  cleanerId       String
+  scope           PayAdjustmentScope  @default(JOB)
+  title           String?
+  type            PayAdjustmentType
+  requestedHours  Float?
+  requestedRate   Float?
+  requestedAmount Float
+  approvedAmount  Float?
+  status          PayAdjustmentStatus @default(PENDING)
+  cleanerNote     String?             @db.Text
+  attachmentKeys  Json?
+  adminNote       String?             @db.Text
+  requestedAt     DateTime            @default(now())
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  job        Job?      @relation(fields: [jobId], references: [id])
+  property   Property? @relation(fields: [propertyId], references: [id])
+  cleaner    User      @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
+  reviewedBy User?     @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
+
+  @@index([cleanerId, status])
+  @@index([jobId, status])
+  @@index([propertyId, status])
+}
+
+model JobAssignment {
+  id                       String                      @id @default(cuid())
+  jobId                    String
+  userId                   String
+  isPrimary                Boolean                     @default(false)
+  payRate                  Float?
+  assignedAt               DateTime                    @default(now())
+  offeredAt                DateTime                    @default(now())
+  removedAt                DateTime?
+  responseStatus           JobAssignmentResponseStatus @default(PENDING)
+  respondedAt              DateTime?
+  responseNote             String?                     @db.Text
+  assignedById             String?
+  transferredFromUserId    String?
+
+  job  Job  @relation(fields: [jobId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, userId])
+}
+
+model TimeLog {
+  id        String    @id @default(cuid())
+  jobId     String
+  userId    String
+  startedAt DateTime
+  stoppedAt DateTime?
+  durationM Int?
+  notes     String?
+
+  job                Job                        @relation(fields: [jobId], references: [id])
+  user               User                       @relation(fields: [userId], references: [id])
+  adjustmentRequests TimeLogAdjustmentRequest[]
+}
+
+model TimeLogAdjustmentRequest {
+  id                 String               @id @default(cuid())
+  timeLogId          String
+  jobId              String
+  cleanerId          String
+  requestedDurationM Int
+  requestedStoppedAt DateTime?
+  originalDurationM  Int
+  originalStoppedAt  DateTime?
+  reason             String?              @db.Text
+  status             TimeAdjustmentStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  adminNote          String?              @db.Text
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  timeLog    TimeLog @relation(fields: [timeLogId], references: [id], onDelete: Cascade)
+  job        Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  cleaner    User    @relation("TimeAdjustmentRequestedBy", fields: [cleanerId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("TimeAdjustmentReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([jobId, status])
+  @@index([cleanerId, status])
+}
+
+// ─────────────────────────────────────────────
+// Forms Engine
+// ─────────────────────────────────────────────
+
+model FormTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  serviceType JobType
+  version     Int      @default(1)
+  isActive    Boolean  @default(true)
+  schema      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  submissions FormSubmission[]
+}
+
+model FormSubmission {
+  id                       String          @id @default(cuid())
+  jobId                    String
+  templateId               String
+  submittedById            String
+  data                     Json
+  laundryReady             Boolean?
+  laundryOutcome           LaundryOutcome?
+  laundrySkipReasonCode    String?
+  laundrySkipReasonNote    String?         @db.Text
+  laundryAdminOverrideNote String?         @db.Text
+  laundryAdminOverrideById String?
+  laundryAdminOverrideAt   DateTime?
+  bagLocation              String?
+  autoQaScore              Float?
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+
+  job         Job               @relation(fields: [jobId], references: [id])
+  template    FormTemplate      @relation(fields: [templateId], references: [id])
+  submittedBy User              @relation(fields: [submittedById], references: [id])
+  media       SubmissionMedia[]
+  stockTxs    StockTx[]
+}
+
+model SubmissionMedia {
+  id           String    @id @default(cuid())
+  submissionId String
+  fieldId      String
+  mediaType    MediaType
+  url          String    @db.Text
+  s3Key        String
+  sizeBytes    Int?
+  mimeType     String?
+  label        String?
+  createdAt    DateTime  @default(now())
+
+  submission FormSubmission @relation(fields: [submissionId], references: [id])
+}
+
+model QAReview {
+  id           String   @id @default(cuid())
+  jobId        String
+  reviewedById String?
+  score        Float
+  passed       Boolean
+  notes        String?  @db.Text
+  flags        Json?
+  createdAt    DateTime @default(now())
+
+  job Job @relation(fields: [jobId], references: [id])
+}
+
+model IssueTicket {
+  id               String   @id @default(cuid())
+  jobId            String?
+  clientId         String?
+  propertyId       String?
+  reportId         String?
+  title            String
+  description      String?  @db.Text
+  caseType         String   @default("OPS")
+  source           String?
+  severity         String   @default("MEDIUM")
+  status           String   @default("OPEN")
+  assignedToUserId String?
+  clientVisible    Boolean  @default(false)
+  clientCanReply   Boolean  @default(true)
+  resolutionNote   String?  @db.Text
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  job         Job?             @relation(fields: [jobId], references: [id])
+  client      Client?          @relation(fields: [clientId], references: [id])
+  property    Property?        @relation(fields: [propertyId], references: [id])
+  report      Report?          @relation(fields: [reportId], references: [id])
+  assignedTo  User?            @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
+  comments    CaseComment[]
+  attachments CaseAttachment[]
+}
+
+model JobTask {
+  id                String                 @id @default(cuid())
+  jobId             String?
+  propertyId        String
+  clientId          String?
+  source            JobTaskSource
+  approvalStatus    JobTaskApprovalStatus  @default(APPROVED)
+  executionStatus   JobTaskExecutionStatus @default(OPEN)
+  title             String
+  description       String?                @db.Text
+  requiresPhoto     Boolean                @default(false)
+  requiresNote      Boolean                @default(false)
+  visibleToCleaner  Boolean                @default(false)
+  requestedByUserId String?
+  approvedByUserId  String?
+  parentTaskId      String?
+  autoApproveAt     DateTime?
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  metadata          Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  job         Job?                @relation(fields: [jobId], references: [id])
+  property    Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  client      Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  requestedBy User?               @relation("JobTaskRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approvedBy  User?               @relation("JobTaskApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  parentTask  JobTask?            @relation("JobTaskParent", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks  JobTask[]           @relation("JobTaskParent")
+  attachments JobTaskAttachment[]
+  events      JobTaskEvent[]
+
+  @@index([jobId, approvalStatus, executionStatus])
+  @@index([propertyId, approvalStatus, executionStatus])
+  @@index([clientId, approvalStatus, executionStatus])
+  @@index([autoApproveAt, approvalStatus])
+}
+
+model JobTaskAttachment {
+  id               String    @id @default(cuid())
+  taskId           String
+  uploadedByUserId String?
+  mediaType        MediaType @default(PHOTO)
+  kind             String
+  url              String    @db.Text
+  s3Key            String
+  label            String?
+  createdAt        DateTime  @default(now())
+
+  task       JobTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("JobTaskAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, kind])
+}
+
+model JobTaskEvent {
+  id          String   @id @default(cuid())
+  taskId      String
+  actorUserId String?
+  action      String
+  note        String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  task  JobTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor User?   @relation("JobTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Inventory
+// ─────────────────────────────────────────────
+
+model InventoryItem {
+  id        String   @id @default(cuid())
+  name      String
+  sku       String?  @unique
+  category  String
+  location  String   @default("CLEANERS_CUPBOARD")
+  unit      String   @default("unit")
+  supplier  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  propertyStocks   PropertyStock[]
+  shoppingRunLines ShoppingRunLine[]
+}
+
+model PropertyStock {
+  id               String   @id @default(cuid())
+  propertyId       String
+  itemId           String
+  onHand           Float    @default(0)
+  parLevel         Float    @default(0)
+  reorderThreshold Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  property      Property       @relation(fields: [propertyId], references: [id])
+  item          InventoryItem  @relation(fields: [itemId], references: [id])
+  transactions  StockTx[]
+  stockRunLines StockRunLine[]
+
+  @@unique([propertyId, itemId])
+}
+
+model StockTx {
+  id              String      @id @default(cuid())
+  propertyStockId String
+  submissionId    String?
+  txType          StockTxType
+  quantity        Float
+  notes           String?
+  createdAt       DateTime    @default(now())
+
+  propertyStock PropertyStock   @relation(fields: [propertyStockId], references: [id])
+  submission    FormSubmission? @relation(fields: [submissionId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Laundry
+// ─────────────────────────────────────────────
+
+model LaundryTask {
+  id                String        @id @default(cuid())
+  jobId             String        @unique
+  propertyId        String
+  pickupDate        DateTime
+  dropoffDate       DateTime
+  status            LaundryStatus @default(PENDING)
+  flagReason        LaundryFlag?
+  flagNotes         String?
+  confirmedAt       DateTime?
+  pickedUpAt        DateTime?
+  droppedAt         DateTime?
+  notifyLaundry     Boolean       @default(false)
+  noPickupRequired  Boolean       @default(false)
+  skipReasonCode    String?
+  skipReasonNote    String?       @db.Text
+  adminOverrideNote String?       @db.Text
+  adminOverrideById String?
+  adminOverrideAt   DateTime?
+  bagWeightKg       Float?
+  dropoffCostAud    Float?
+  receiptImageUrl   String?
+  supplierId        String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  job           Job                   @relation(fields: [jobId], references: [id])
+  property      Property              @relation(fields: [propertyId], references: [id])
+  supplier      LaundrySupplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  confirmations LaundryConfirmation[]
+}
+
+model LaundryConfirmation {
+  id            String   @id @default(cuid())
+  laundryTaskId String
+  confirmedById String
+  laundryReady  Boolean
+  bagLocation   String?
+  photoUrl      String?  @db.Text
+  s3Key         String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  laundryTask LaundryTask @relation(fields: [laundryTaskId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Reports
+// ─────────────────────────────────────────────
+
+model Report {
+  id                    String    @id @default(cuid())
+  jobId                 String    @unique
+  htmlContent           String?   @db.Text
+  pdfUrl                String?   @db.Text
+  s3Key                 String?
+  generatedAt           DateTime?
+  sentToClient          Boolean   @default(false)
+  sentAt                DateTime?
+  clientVisible         Boolean   @default(true)
+  cleanerVisible        Boolean   @default(true)
+  laundryVisible        Boolean   @default(false)
+  visibilityNote        String?   @db.Text
+  visibilityUpdatedAt   DateTime?
+  visibilityUpdatedById String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  job                 Job           @relation(fields: [jobId], references: [id])
+  issueTickets        IssueTicket[]
+  visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+}
+
+model CaseComment {
+  id           String   @id @default(cuid())
+  caseId       String
+  authorUserId String
+  body         String   @db.Text
+  isInternal   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author      User        @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+}
+
+model CaseAttachment {
+  id               String   @id @default(cuid())
+  caseId           String
+  uploadedByUserId String
+  s3Key            String
+  url              String   @db.Text
+  mimeType         String?
+  label            String?
+  createdAt        DateTime @default(now())
+
+  issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy  User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Price Book + Quotes
+// ─────────────────────────────────────────────
+
+model PriceBook {
+  id               String   @id @default(cuid())
+  jobType          JobType
+  bedrooms         Int?
+  bathrooms        Int?
+  baseRate         Float
+  pricingModel     String?
+  pricingVariables Json?
+  addOns           Json
+  multipliers      Json
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([jobType, bedrooms, bathrooms])
+}
+
+model DiscountCampaign {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  title         String
+  description   String?   @db.Text
+  discountType  String    @default("PERCENT")
+  discountValue Float
+  minSubtotal   Float?
+  jobTypes      Json?
+  usageLimit    Int?
+  usageCount    Int       @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  tagline        String?
+  description    String?  @db.Text
+  serviceTypes   Json?
+  cadenceOptions Json?
+  startingPrice  Float?
+  priceLabel     String?
+  features       Json?
+  themeKey       String?
+  ctaLabel       String?
+  ctaHref        String?
+  isPublished    Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model QuoteLead {
+  id                    String     @id @default(cuid())
+  clientId              String?
+  serviceType           JobType
+  name                  String
+  email                 String
+  phone                 String?
+  address               String?
+  suburb                String?
+  bedrooms              Int?
+  bathrooms             Int?
+  hasBalcony            Boolean    @default(false)
+  notes                 String?    @db.Text
+  estimateMin           Float?
+  estimateMax           Float?
+  requestedServiceLabel String?
+  promoCode             String?
+  structuredContext     Json?
+  status                LeadStatus @default(NEW)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  client Client? @relation(fields: [clientId], references: [id])
+  quotes Quote[]
+}
+
+model Quote {
+  id             String      @id @default(cuid())
+  leadId         String?
+  clientId       String?
+  serviceType    JobType
+  lineItems      Json
+  subtotal       Float
+  gstAmount      Float
+  totalAmount    Float
+  notes          String?     @db.Text
+  validUntil     DateTime?
+  status         QuoteStatus @default(DRAFT)
+  convertedJobId String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  lead   QuoteLead? @relation(fields: [leadId], references: [id])
+  client Client?    @relation(fields: [clientId], references: [id])
+}
+
+model ShoppingRun {
+  id           String            @id @default(cuid())
+  ownerUserId  String
+  clientId     String?
+  status       ShoppingRunStatus @default(DRAFT)
+  title        String
+  notes        String?           @db.Text
+  startedAt    DateTime?
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  closedAt     DateTime?
+  legacySource Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  owner        User                 @relation("ShoppingRunOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  client       Client?              @relation(fields: [clientId], references: [id])
+  lines        ShoppingRunLine[]
+  receipts     ShoppingReceipt[]
+  settlements  ShoppingSettlement[]
+  invoiceLines ClientInvoiceLine[]
+}
+
+model ShoppingRunLine {
+  id            String   @id @default(cuid())
+  shoppingRunId String
+  propertyId    String
+  itemId        String?
+  itemName      String
+  category      String
+  supplier      String?
+  unit          String   @default("unit")
+  plannedQty    Float    @default(0)
+  purchasedQty  Float    @default(0)
+  unitCost      Float?
+  lineCost      Float?
+  status        String   @default("PENDING")
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  shoppingRun ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  property    Property       @relation(fields: [propertyId], references: [id])
+  item        InventoryItem? @relation(fields: [itemId], references: [id])
+}
+
+model ShoppingReceipt {
+  id               String   @id @default(cuid())
+  shoppingRunId    String
+  uploadedByUserId String
+  s3Key            String
+  url              String   @db.Text
+  mimeType         String?
+  fileName         String
+  amount           Float?
+  createdAt        DateTime @default(now())
+
+  shoppingRun ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  uploadedBy  User        @relation("ShoppingReceiptUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+model ShoppingSettlement {
+  id                                   String                @id @default(cuid())
+  shoppingRunId                        String
+  paymentMethod                        ShoppingPaymentMethod
+  paidByScope                          ShoppingPaidByScope
+  paidByUserId                         String?
+  note                                 String?               @db.Text
+  clientBillable                       Boolean               @default(false)
+  adminApprovedForClient               Boolean               @default(false)
+  adminApprovedForCleanerReimbursement Boolean               @default(false)
+  includeInCleanerInvoice              Boolean               @default(false)
+  includedInClientInvoiceId            String?
+  includedInCleanerInvoiceReference    String?
+  createdAt                            DateTime              @default(now())
+  updatedAt                            DateTime              @updatedAt
+
+  shoppingRun   ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
+  paidByUser    User?          @relation("ShoppingSettlementPaidBy", fields: [paidByUserId], references: [id])
+  clientInvoice ClientInvoice? @relation(fields: [includedInClientInvoiceId], references: [id])
+}
+
+model StockRun {
+  id                String         @id @default(cuid())
+  propertyId        String
+  requestedByUserId String
+  status            StockRunStatus @default(DRAFT)
+  title             String
+  notes             String?        @db.Text
+  requestedByAdmin  Boolean        @default(false)
+  startedAt         DateTime?
+  submittedAt       DateTime?
+  appliedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  requestedBy User           @relation("StockRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  lines       StockRunLine[]
+}
+
+model StockRunLine {
+  id               String   @id @default(cuid())
+  stockRunId       String
+  propertyStockId  String
+  expectedOnHand   Float
+  countedOnHand    Float?
+  parLevel         Float?
+  reorderThreshold Float?
+  note             String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  stockRun      StockRun      @relation(fields: [stockRunId], references: [id], onDelete: Cascade)
+  propertyStock PropertyStock @relation(fields: [propertyStockId], references: [id], onDelete: Cascade)
+}
+
+model PropertyClientRate {
+  id                 String   @id @default(cuid())
+  propertyId         String
+  jobType            JobType
+  baseCharge         Float
+  billingUnit        String   @default("PER_JOB")
+  defaultDescription String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, jobType])
+}
+
+model ClientInvoice {
+  id                    String              @id @default(cuid())
+  clientId              String
+  invoiceNumber         String              @unique
+  status                ClientInvoiceStatus @default(DRAFT)
+  periodStart           DateTime?
+  periodEnd             DateTime?
+  subtotal              Float               @default(0)
+  gstAmount             Float               @default(0)
+  totalAmount           Float               @default(0)
+  gstEnabled            Boolean             @default(true)
+  xeroExportedAt        DateTime?
+  xeroInvoiceId         String?
+  sentAt                DateTime?
+  paidAt                DateTime?
+  stripePaymentIntentId String?
+  metadata              Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines               ClientInvoiceLine[]
+  shoppingSettlements ShoppingSettlement[]
+  payments            ClientPayment[]
+}
+
+model ClientInvoiceLine {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  jobId         String?
+  shoppingRunId String?
+  description   String
+  quantity      Float    @default(1)
+  unitPrice     Float    @default(0)
+  lineTotal     Float    @default(0)
+  category      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  invoice     ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  job         Job?          @relation(fields: [jobId], references: [id])
+  shoppingRun ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Notifications + Audit
+// ─────────────────────────────────────────────
+
+model UserNotificationPreference {
+  userId     String   @id
+  categories Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BlogPost {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  title         String
+  excerpt       String
+  body          String    @db.Text
+  coverImageUrl String?
+  galleryImageUrls String[] @default([])
+  tags          String[]
+  isPublished   Boolean   @default(false)
+  publishedAt   DateTime?
+  authorName    String    @default("sNeek Team")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model ClientSatisfactionRating {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  clientId  String
+  score     Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+model LoyaltyAccount {
+  id        String   @id @default(cuid())
+  clientId  String   @unique
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client       Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+}
+
+model LoyaltyTransaction {
+  id          String   @id @default(cuid())
+  accountId   String
+  points      Int
+  reason      String
+  referenceId String?
+  createdAt   DateTime @default(now())
+
+  account LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model Referral {
+  id                     String    @id @default(cuid())
+  referrerId             String
+  refereeEmail           String
+  refereeClientId        String?
+  code                   String    @unique
+  status                 String    @default("pending")
+  referrerRewardPoints   Int       @default(0)
+  refereeDiscountPercent Int       @default(10)
+  convertedAt            DateTime?
+  expiresAt              DateTime?
+  createdAt              DateTime  @default(now())
+
+  referrer      Client  @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  refereeClient Client? @relation("ReferralReferee", fields: [refereeClientId], references: [id], onDelete: SetNull)
+
+  @@index([referrerId, createdAt])
+  @@index([refereeEmail])
+}
+
+model ClientMessage {
+  id          String   @id @default(cuid())
+  clientId    String
+  sentById    String
+  body        String   @db.Text
+  isFromAdmin Boolean  @default(false)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sentBy User   @relation("ClientMessageSender", fields: [sentById], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@index([clientId, isRead])
+}
+
+model EmailCampaign {
+  id             String    @id @default(cuid())
+  name           String
+  subject        String
+  htmlBody       String    @db.Text
+  audience       Json
+  status         String    @default("draft")
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  recipientCount Int?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+model LaundrySupplier {
+  id               String   @id @default(cuid())
+  name             String
+  phone            String?
+  email            String?
+  address          String?
+  pricePerKg       Float?
+  avgTurnaround    Int?
+  reliabilityScore Float?
+  notes            String?  @db.Text
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  laundryTasks LaundryTask[]
+}
+
+model CleanerAvailability {
+  id          String    @id @default(cuid())
+  userId      String
+  dayOfWeek   Int?
+  date        DateTime?
+  startTime   String
+  endTime     String
+  isAvailable Boolean   @default(true)
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation("CleanerAvailabilityUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayOfWeek])
+  @@index([userId, date])
+}
+
+model Notification {
+  id             String              @id @default(cuid())
+  userId         String?
+  jobId          String?
+  channel        NotificationChannel
+  subject        String?
+  body           String              @db.Text
+  status         NotificationStatus  @default(PENDING)
+  sentAt         DateTime?
+  errorMsg       String?
+  externalId     String?
+  deliveryStatus String?
+  createdAt      DateTime            @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model UserPushDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  appVersion String?
+  provider   String   @default("expo")
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  jobId     String?
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User @relation("AuditUser", fields: [userId], references: [id])
+  job  Job? @relation("AuditJob", fields: [jobId], references: [id])
+}
+
+model TeamGroup {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+  category       String   @default("CUSTOM")
+  membershipMode String   @default("MANUAL")
+  smartRules     Json?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdBy    User              @relation("TeamGroupCreatedBy", fields: [createdById], references: [id])
+  members      TeamGroupMember[]
+  chatChannels ChatChannel[]
+}
+
+model TeamGroupMember {
+  id        String   @id @default(cuid())
+  groupId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  group TeamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation("TeamGroupMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model WorkforcePost {
+  id                        String    @id @default(cuid())
+  type                      String    @default("ANNOUNCEMENT")
+  title                     String
+  body                      String    @db.Text
+  coverImageUrl             String?
+  attachments               Json?
+  audience                  Json?
+  pinned                    Boolean   @default(false)
+  publishAt                 DateTime?
+  notificationsDispatchedAt DateTime?
+  createdById               String
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  createdBy User                @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
+  reads     WorkforcePostRead[]
+}
+
+model WorkforcePostRead {
+  id     String   @id @default(cuid())
+  postId String
+  userId String
+  readAt DateTime @default(now())
+
+  post WorkforcePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User          @relation("WorkforcePostReadUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model ChatChannel {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?  @db.Text
+  kind          String   @default("GROUP")
+  groupId       String?
+  memberUserIds Json?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  group     TeamGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy User              @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
+  messages  ChatMessage[]
+  reads     ChatChannelRead[]
+}
+
+model ChatMessage {
+  id          String    @id @default(cuid())
+  channelId   String
+  senderId    String
+  body        String    @db.Text
+  attachments Json?
+  isPinned    Boolean   @default(false)
+  pinnedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender  User        @relation("ChatMessageSender", fields: [senderId], references: [id])
+}
+
+model ChatChannelRead {
+  id         String   @id @default(cuid())
+  channelId  String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User        @relation("ChatChannelReadUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+}
+
+model LearningPath {
+  id            String   @id @default(cuid())
+  title         String
+  slug          String   @unique
+  type          String   @default("COURSE")
+  description   String?  @db.Text
+  coverImageUrl String?
+  audience      Json?
+  schema        Json
+  isPublished   Boolean  @default(false)
+  mandatory     Boolean  @default(false)
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdBy   User                 @relation("LearningPathCreatedBy", fields: [createdById], references: [id])
+  assignments LearningAssignment[]
+}
+
+model LearningAssignment {
+  id           String    @id @default(cuid())
+  pathId       String
+  userId       String
+  assignedById String?
+  status       String    @default("ASSIGNED")
+  score        Float?
+  starRating   Float?
+  answers      Json?
+  evaluation   Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  path LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
+  user User         @relation("LearningAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pathId, userId])
+}
+
+model StaffDocument {
+  id                String    @id @default(cuid())
+  userId            String
+  uploadedById      String
+  verifiedById      String?
+  category          String
+  title             String
+  fileName          String
+  url               String    @db.Text
+  s3Key             String
+  mimeType          String?
+  notes             String?   @db.Text
+  status            String    @default("PENDING")
+  requiresSignature Boolean   @default(false)
+  expiresAt         DateTime?
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User                   @relation("StaffDocumentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  uploadedBy        User                   @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
+  verifiedBy        User?                  @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
+  fulfilledRequests StaffDocumentRequest[] @relation("StaffDocumentRequestFulfilledDocument")
+}
+
+model StaffDocumentRequest {
+  id                  String    @id @default(cuid())
+  userId              String
+  requestedById       String
+  fulfilledDocumentId String?
+  category            String
+  title               String
+  notes               String?   @db.Text
+  dueAt               DateTime?
+  status              String    @default("REQUESTED")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user              User           @relation("StaffDocumentRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  requestedBy       User           @relation("StaffDocumentRequestCreatedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  fulfilledDocument StaffDocument? @relation("StaffDocumentRequestFulfilledDocument", fields: [fulfilledDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([requestedById, status])
+}
+
+model StaffRecognition {
+  id               String   @id @default(cuid())
+  userId           String
+  sentById         String
+  title            String
+  message          String?  @db.Text
+  badgeKey         String
+  celebrationStyle String   @default("SPOTLIGHT")
+  isPublic         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  user   User @relation("RecognitionReceivedBy", fields: [userId], references: [id], onDelete: Cascade)
+  sentBy User @relation("RecognitionSentBy", fields: [sentById], references: [id])
+}
+
+model HiringPosition {
+  id                String   @id @default(cuid())
+  title             String
+  slug              String   @unique
+  description       String   @db.Text
+  department        String?
+  location          String?
+  employmentType    String?
+  applicationSchema Json
+  screeningSchema   Json?
+  isPublished       Boolean  @default(false)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  createdBy    User                @relation("HiringPositionCreatedBy", fields: [createdById], references: [id])
+  applications HiringApplication[]
+}
+
+model HiringApplication {
+  id              String    @id @default(cuid())
+  positionId      String
+  fullName        String
+  email           String
+  phone           String?
+  status          String    @default("NEW")
+  answers         Json?
+  screeningScore  Float?
+  evaluation      Json?
+  resumeUrl       String?   @db.Text
+  resumeKey       String?
+  coverLetter     String?   @db.Text
+  interviewNotes  String?   @db.Text
+  interviewDate   DateTime?
+  offerDetails    Json?
+  rejectionReason String?   @db.Text
+  reviewedById    String?
+  hiredUserId     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
+  hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Real-Time Location Tracking
+// ─────────────────────────────────────────────
+
+model CleanerLocationPing {
+  id        String   @id @default(cuid())
+  jobId     String
+  userId    String
+  lat       Float
+  lng       Float
+  accuracy  Float?
+  heading   Float?
+  speed     Float?
+  timestamp DateTime @default(now())
+
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, timestamp])
+  @@index([userId, timestamp])
+}
+
+// ─────────────────────────────────────────────
+// Client Notification Preferences
+// ─────────────────────────────────────────────
+
+model ClientNotificationPreference {
+  clientId             String  @id
+  notificationsEnabled Boolean @default(true)
+  notifyOnEnRoute      Boolean @default(true)
+  notifyOnJobStart     Boolean @default(true)
+  notifyOnJobComplete  Boolean @default(true)
+  preferredChannel     String  @default("EMAIL")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Message Templates + Client Automation Rules
+// ─────────────────────────────────────────────
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  triggerType String
+  jobType     String?
+  channel     String
+  subject     String?
+  body        String   @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  automationRules ClientAutomationRule[]
+}
+
+model ClientAutomationRule {
+  id           String   @id @default(cuid())
+  clientId     String
+  triggerType  String
+  jobType      String?
+  templateId   String?
+  delayMinutes Int      @default(120)
+  isEnabled    Boolean  @default(false)
+  channel      String   @default("EMAIL")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client   Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  template MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, isEnabled])
+}
+
+// ─────────────────────────────────────────────
+// Job Feedback
+// ─────────────────────────────────────────────
+
+model JobFeedback {
+  id             String    @id @default(cuid())
+  jobId          String    @unique
+  clientId       String
+  token          String    @unique @default(cuid())
+  rating         Int?
+  comment        String?   @db.Text
+  submittedAt    DateTime?
+  tokenExpiresAt DateTime
+  createdAt      DateTime  @default(now())
+
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Finance: Payroll, Payments, Xero, Notifications
+// ─────────────────────────────────────────────
+
+model PayrollRun {
+  id                        String            @id @default(cuid())
+  periodStart               DateTime
+  periodEnd                 DateTime
+  status                    PayrollRunStatus  @default(DRAFT)
+  totalPayable              Float             @default(0)
+  totalShoppingReimbursements Float           @default(0)
+  totalTransportAllowances  Float             @default(0)
+  totalAdjustments          Float             @default(0)
+  grandTotal                Float             @default(0)
+  cleanerCount              Int               @default(0)
+  createdByUserId           String?
+  confirmedAt               DateTime?
+  completedAt               DateTime?
+  notes                     String?           @db.Text
+  metadata                  Json?
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  createdBy  User?    @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id])
+  payouts    Payout[]
+
+  @@index([status, createdAt])
+  @@index([periodStart, periodEnd])
+}
+
+model Payout {
+  id                    String        @id @default(cuid())
+  payrollRunId          String
+  cleanerId             String
+  amount                Float
+  shoppingReimbursement Float         @default(0)
+  transportAllowance    Float         @default(0)
+  adjustments           Float         @default(0)
+  status                PayoutStatus  @default(PENDING)
+  method                PayoutMethod  @default(MANUAL_BANK_TRANSFER)
+  stripeAccountId       String?
+  stripePayoutId        String?
+  bankBsb               String?
+  bankAccountNumber     String?
+  bankAccountName       String?
+  abaReference          String?
+  processedAt           DateTime?
+  failureReason         String?       @db.Text
+  metadata              Json?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
+  cleaner    User       @relation("CleanerPayouts", fields: [cleanerId], references: [id])
+
+  @@index([payrollRunId, status])
+  @@index([cleanerId, status])
+}
+
+model PaymentGateway {
+  id               String          @id @default(cuid())
+  provider         GatewayProvider
+  status           GatewayStatus   @default(ACTIVE)
+  label            String
+  priority         Int             @default(0)
+  credentials      Json
+  feeRate          Float           @default(0)
+  fixedFee         Float           @default(0)
+  surchargeEnabled Boolean         @default(false)
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  payments ClientPayment[]
+
+  @@index([status, priority])
+}
+
+model ClientPayment {
+  id               String   @id @default(cuid())
+  invoiceId        String?
+  quoteId          String?
+  amount           Float
+  currency         String   @default("AUD")
+  status           String   @default("PENDING")
+  gatewayId        String
+  gatewayProvider  GatewayProvider
+  gatewayPaymentId String?
+  gatewayResponse  Json?
+  feeAmount        Float?
+  surchargeAmount  Float    @default(0)
+  paidAt           DateTime?
+  refundedAt       DateTime?
+  refundAmount     Float?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoice ClientInvoice? @relation(fields: [invoiceId], references: [id])
+  gateway PaymentGateway @relation(fields: [gatewayId], references: [id])
+
+  @@index([invoiceId, status])
+  @@index([gatewayId, status])
+}
+
+model XeroConnection {
+  id            String    @id @default(cuid())
+  tenantId      String    @unique
+  tenantName    String
+  accessToken   String    @db.Text
+  refreshToken  String    @db.Text
+  expiresAt     DateTime
+  scopes        String[]
+  isActive      Boolean   @default(true)
+  lastSyncAt    DateTime?
+  lastSyncError String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model NotificationTemplate {
+  id            String   @id @default(cuid())
+  eventKey      String   @unique
+  label         String
+  category      String
+  description   String?  @db.Text
+  emailSubject  String?
+  emailBodyHtml String?  @db.Text
+  emailBodyText String?  @db.Text
+  smsBody       String?  @db.Text
+  pushTitle     String?
+  pushBody      String?
+  availableVars Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model NotificationPreference {
+  id            String                  @id @default(cuid())
+  eventKey      String
+  recipientRole NotificationRecipientRole
+  channel       NotificationChannel
+  enabled       Boolean                 @default(true)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@unique([eventKey, recipientRole, channel])
+  @@index([eventKey])
+}
+
+model NotificationLog {
+  id             String   @id @default(cuid())
+  eventKey       String
+  recipientEmail String?
+  recipientRole  String
+  channel        NotificationChannel
+  status         NotificationLogStatus
+  subject        String?
+  error          String?  @db.Text
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([eventKey, createdAt])
+  @@index([recipientEmail, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Partners (Generic Extensible Platform)
+// ─────────────────────────────────────────────
+
+model Partner {
+  id            String        @id @default(cuid())
+  tenantId      String?
+  type          PartnerType
+  status        PartnerStatus @default(PENDING)
+  name          String
+  email         String?
+  phone         String?
+  address       String?
+  notes         String?       @db.Text
+  config        Json?
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant  Tenant?       @relation(fields: [tenantId], references: [id])
+  jobs    PartnerJob[]
+  invoices PartnerInvoice[]
+
+  @@index([tenantId, type])
+}
+
+model PartnerJob {
+  id          String          @id @default(cuid())
+  partnerId   String
+  jobId       String?
+  type        PartnerType
+  status      PartnerJobStatus @default(ASSIGNED)
+  assignedAt  DateTime        @default(now())
+  completedAt DateTime?
+  notes       String?         @db.Text
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+
+  partner Partner @relation(fields: [partnerId], references: [id])
+}
+
+model PartnerInvoice {
+  id            String   @id @default(cuid())
+  partnerId     String
+  invoiceNumber String   @unique
+  amount        Float
+  currency      String   @default("AUD")
+  status        String   @default("DRAFT")
+  periodStart   DateTime
+  periodEnd     DateTime
+  lineItems     Json
+  dueDate       DateTime
+  paidAt        DateTime?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Property Onboarding System
+// ─────────────────────────────────────────────
+
+model PropertySurvey {
+  id            String           @id @default(cuid())
+  tenantId      String?
+  surveyorId    String
+  clientId      String?
+  status        OnboardingStatus @default(DRAFT)
+  notes         String?          @db.Text
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  approvedById  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  tenant     Tenant?                 @relation(fields: [tenantId], references: [id])
+  surveyor   User                    @relation("SurveyConductedBy", fields: [surveyorId], references: [id])
+  client     Client?                 @relation(fields: [clientId], references: [id])
+  sections   PropertySurveySection[]
+  photos     PropertySurveyPhoto[]
+  packages   OnboardingPackage[]
+  estimations EstimationResult[]
+  checklists EstimationChecklist[]
+
+  @@index([tenantId, status])
+  @@index([surveyorId, status])
+}
+
+model PropertySurveySection {
+  id          String           @id @default(cuid())
+  surveyId    String
+  sectionKey  SurveySectionKey
+  data        Json
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  survey PropertySurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@unique([surveyId, sectionKey])
+}
+
+model PropertySurveyPhoto {
+  id          String   @id @default(cuid())
+  surveyId    String
+  url         String   @db.Text
+  s3Key       String
+  section     String?
+  fieldId     String?
+  annotations Json?
+  createdAt   DateTime @default(now())
+
+  survey PropertySurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId, section])
+}
+
+model OnboardingPackage {
+  id          String           @id @default(cuid())
+  surveyId    String
+  status      OnboardingStatus @default(SUBMITTED)
+  summary     Json
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  survey PropertySurvey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  items  OnboardingItem[]
+  approvalLogs OnboardingApprovalLog[]
+}
+
+model OnboardingItem {
+  id          String            @id @default(cuid())
+  packageId   String
+  entityType  OnboardingItemType
+  entityId    String?
+  status      OnboardingItemStatus @default(PENDING)
+  data        Json
+  adminNotes  String?           @db.Text
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  package OnboardingPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  approvalLogs OnboardingApprovalLog[]
+}
+
+model OnboardingApprovalLog {
+  id         String   @id @default(cuid())
+  packageId  String
+  itemId     String?
+  action     String   // APPROVE_ALL, APPROVE_ITEM, EDIT_ITEM, REJECT_ITEM, REJECT_ALL
+  adminId    String
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  package OnboardingPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  item    OnboardingItem?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  admin   User              @relation("OnboardingApprovalBy", fields: [adminId], references: [id])
+}
+
+model EstimationResult {
+  id             String   @id @default(cuid())
+  surveyId       String
+  jobType        JobType
+  estimatedHours Float
+  estimatedCost  Float
+  teamSize       Int      @default(1)
+  equipment      Json?
+  riskFlags      Json?
+  createdAt      DateTime @default(now())
+
+  survey PropertySurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+}
+
+model EstimationChecklist {
+  id          String   @id @default(cuid())
+  surveyId    String
+  jobType     JobType
+  checklist   Json
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  survey PropertySurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// NEW: Client Self-Service Booking
+// ─────────────────────────────────────────────
+
+model ClientBooking {
+  id            String   @id @default(cuid())
+  clientId      String
+  propertyId    String
+  jobType       JobType
+  requestedDate DateTime
+  requestedTime String?
+  status        String   @default("PENDING") // PENDING, CONFIRMED, DECLINED, CANCELLED
+  notes         String?  @db.Text
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clientId, status])
+  @@index([requestedDate])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Photo Annotations
+// ─────────────────────────────────────────────
+
+model PhotoAnnotation {
+  id          String   @id @default(cuid())
+  photoUrl    String   @db.Text
+  s3Key       String
+  entityType  String   // JOB, PROPERTY, SURVEY, SUBMISSION
+  entityId    String
+  annotations Json     // { drawings: [], textLabels: [], metadata: {} }
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entityType, entityId])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Routes & Route Optimization
+// ─────────────────────────────────────────────
+
+model Route {
+  id          String   @id @default(cuid())
+  name        String
+  date        DateTime
+  cleanerId   String
+  status      String   @default("DRAFT") // DRAFT, OPTIMIZED, ACTIVE, COMPLETED
+  totalDistance Float?
+  totalDuration Float?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stops RouteStop[]
+
+  @@index([cleanerId, date])
+}
+
+model RouteStop {
+  id         String   @id @default(cuid())
+  routeId    String
+  jobId      String
+  order      Int
+  eta        DateTime?
+  actualArrival DateTime?
+  distanceFromPrev Float?
+  durationFromPrev Float?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  route Route @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([routeId, order])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Custom Fields
+// ─────────────────────────────────────────────
+
+model CustomField {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  entityType  String   // JOB, PROPERTY, CLIENT, PARTNER
+  name        String
+  fieldType   String   // TEXT, NUMBER, DATE, SELECT, MULTI_SELECT, BOOLEAN
+  options     Json?    // for SELECT/MULTI_SELECT
+  required    Boolean  @default(false)
+  validation  Json?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values CustomFieldValue[]
+
+  @@index([tenantId, entityType])
+}
+
+model CustomFieldValue {
+  id            String   @id @default(cuid())
+  fieldId       String
+  entityType    String
+  entityId      String
+  value         Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  field CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, entityType, entityId])
+}
+
+// ─────────────────────────────────────────────
+// NEW: WebSocket & Offline
+// ─────────────────────────────────────────────
+
+model WebSocketSession {
+  id          String   @id @default(cuid())
+  userId      String
+  socketId    String   @unique
+  tenantId    String?
+  connectedAt DateTime @default(now())
+  disconnectedAt DateTime?
+  ipAddress   String?
+
+  @@index([userId])
+}
+
+model OfflineSyncQueue {
+  id          String   @id @default(cuid())
+  userId      String
+  actionType  String
+  payload     Json
+  status      String   @default("PENDING") // PENDING, SYNCED, CONFLICT, FAILED
+  createdAt   DateTime @default(now())
+  syncedAt    DateTime?
+  error       String?  @db.Text
+
+  @@index([userId, status])
+}
+
+model SyncConflict {
+  id          String   @id @default(cuid())
+  queueItemId String
+  entityType  String
+  entityId    String
+  localData   Json
+  serverData  Json
+  resolvedBy  String?  // MANUAL, LOCAL_WINS, SERVER_WINS
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// ─────────────────────────────────────────────
+// NEW: Usage Plans (for usage-based billing)
+// ─────────────────────────────────────────────
+
+model UsagePlan {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  pricing     Json     // { per_job: Float, per_cleaner: Float, per_property: Float }
+  limits      Json?    // { max_jobs: Int, max_cleaners: Int, max_properties: Int }
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FeatureAccess {
+  id          String   @id @default(cuid())
+  planTier    String   // FREE, PRO, ENTERPRISE
+  featureKey  String
+  enabled     Boolean  @default(false)
+  limit       Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([planTier, featureKey])
+}

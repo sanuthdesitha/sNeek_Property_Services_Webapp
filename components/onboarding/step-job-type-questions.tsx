@@ -36,12 +36,21 @@ interface StepJobTypeQuestionsProps {
 export function StepJobTypeQuestions({ data, onChange }: StepJobTypeQuestionsProps) {
   const selectedJobTypes = (data.selectedJobTypes as string[]) ?? [];
   const [questions, setQuestions] = useState<any[]>([]);
-  const [answers, setAnswers] = useState<Record<string, unknown>>((data.questionAnswers as Record<string, unknown>) ?? {});
+  const jobTypeAnswers = (data.jobTypeAnswers as Array<{ jobType: string; answers: Record<string, unknown>; isComplete: boolean }>) ?? [];
+  const [answers, setAnswers] = useState<Record<string, unknown>>(() => {
+    const flat: Record<string, unknown> = {};
+    for (const a of jobTypeAnswers) {
+      for (const [k, v] of Object.entries(a.answers)) {
+        flat[`${a.jobType}.${k}`] = v;
+      }
+    }
+    return flat;
+  });
 
   useEffect(() => {
     const relevant = getRelevantQuestions(
       { ...data, selectedJobTypes },
-      Object.keys(data.questionAnswers ?? {})
+      Object.keys(answers)
     );
     setQuestions(relevant);
   }, [selectedJobTypes, data]);
@@ -56,7 +65,17 @@ export function StepJobTypeQuestions({ data, onChange }: StepJobTypeQuestionsPro
   const handleAnswer = (questionId: string, value: unknown) => {
     const updated = { ...answers, [questionId]: value };
     setAnswers(updated);
-    onChange({ ...data, questionAnswers: updated });
+
+    // Group answers by job type prefix
+    const grouped: Record<string, { jobType: string; answers: Record<string, unknown>; isComplete: boolean }> = {};
+    for (const [key, val] of Object.entries(updated)) {
+      const parts = key.split(".");
+      const jobType = parts[0];
+      const fieldKey = parts.slice(1).join(".");
+      if (!grouped[jobType]) grouped[jobType] = { jobType, answers: {}, isComplete: true };
+      grouped[jobType].answers[fieldKey] = val;
+    }
+    onChange({ ...data, jobTypeAnswers: Object.values(grouped) });
   };
 
   const renderField = (q: any) => {
