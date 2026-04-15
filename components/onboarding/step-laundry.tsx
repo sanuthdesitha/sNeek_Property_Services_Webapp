@@ -52,12 +52,12 @@ export function StepLaundry({ data, onChange }: StepLaundryProps) {
           <div className="md:col-span-2">
             <Label>Assign laundry partner</Label>
             <Select
-              value={String(data.laundrySupplierId ?? "")}
-              onValueChange={(v) => onChange({ ...data, laundrySupplierId: v || null })}
+              value={data.laundrySupplierId ? String(data.laundrySupplierId) : "__none__"}
+              onValueChange={(v) => onChange({ ...data, laundrySupplierId: v === "__none__" ? null : v })}
             >
               <SelectTrigger><SelectValue placeholder="Select a laundry partner" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No partner assigned</SelectItem>
+                <SelectItem value="__none__">No partner assigned</SelectItem>
                 {suppliers.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
