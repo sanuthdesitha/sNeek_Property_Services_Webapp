@@ -37,8 +37,8 @@ export function StepClientInfo({ data, onChange }: StepClientInfoProps) {
 
   const filteredClients = clients.filter(
     (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.email.toLowerCase().includes(search.toLowerCase())
+      (c.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (c.email ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
   const clientData = (data.clientData as Record<string, unknown>) ?? {};
