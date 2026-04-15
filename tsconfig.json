@@ -38,6 +38,7 @@
   "exclude": [
     "node_modules",
     "backups",
-    "mobile-app"
+    "mobile-app",
+    "sneek-nextgen"
   ]
 }

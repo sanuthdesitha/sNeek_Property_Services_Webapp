@@ -46,6 +46,9 @@ const nextConfig = {
       allowedOrigins,
     },
     serverComponentsExternalPackages: ["@prisma/client", "prisma", "pino"],
+    outputFileTracingExcludes: {
+      "*": ["./sneek-nextgen/**/*"],
+    },
   },
   webpack: (config) => {
     // Windows + Node 22 can throw EISDIR on fs.readlink during filesystem cache snapshots.

@@ -76,7 +76,7 @@ const nextBin = path.resolve(process.cwd(), "node_modules", "next", "dist", "bin
 const patch = path.resolve(process.cwd(), "scripts", "fs-readlink-patch.cjs");
 const args = ["-r", patch, nextBin, mode, ...forwardedArgs];
 
-const result = spawnSync(process.execPath, args, {
+const result = spawnSync(process.execPath, ["--max-old-space-size=4096", ...args], {
   stdio: "inherit",
   shell: false,
   env,
