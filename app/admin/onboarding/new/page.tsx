@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { WizardLayout } from "@/components/onboarding/wizard-layout";
 import { StepClientInfo } from "@/components/onboarding/step-client-info";
 import { StepPropertyBasics } from "@/components/onboarding/step-property-basics";
@@ -32,29 +32,71 @@ const STEPS = [
 
 export default function NewOnboardingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
   const [surveyId, setSurveyId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(STEPS[0].id);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
-  const [creating, setCreating] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/admin/onboarding/surveys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.id) {
-          setSurveyId(data.id);
-        } else {
-          toast({ title: "Failed to create survey", variant: "destructive" });
-        }
+    if (editId) {
+      fetch(`/api/admin/onboarding/surveys/${editId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.id) {
+            setSurveyId(data.id);
+            const mapped: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(data)) {
+              if (key === "laundryDetail" && value) {
+                mapped.laundryDetail = value;
+              } else if (key === "clientData" && value) {
+                mapped.clientData = value;
+              } else if (["id", "surveyNumber", "sourceType", "status", "submittedById", "adminReviewerId",
+                "reviewedAt", "rejectionReason", "createdAt", "updatedAt", "submittedAt",
+                "createdClientId", "createdPropertyId", "createdIntegrationId", "createdJobIds",
+                "existingClient", "createdClient", "submittedBy", "adminReviewer",
+                "appliances", "specialRequests", "accessDetails", "jobTypeAnswers"].includes(key)) {
+                continue;
+              } else {
+                mapped[key] = value;
+              }
+            }
+            if (data.appliances) mapped.appliances = data.appliances;
+            if (data.specialRequests) mapped.specialRequests = data.specialRequests;
+            if (data.laundryDetail) mapped.laundryDetail = data.laundryDetail;
+            if (data.accessDetails) mapped.accessDetails = data.accessDetails;
+            if (data.jobTypeAnswers) mapped.jobTypeAnswers = data.jobTypeAnswers;
+            setFormData(mapped);
+          } else {
+            toast({ title: "Survey not found", variant: "destructive" });
+            router.push("/admin/onboarding");
+          }
+        })
+        .catch(() => {
+          toast({ title: "Failed to load survey", variant: "destructive" });
+          router.push("/admin/onboarding");
+        })
+        .finally(() => setLoading(false));
+    } else {
+      fetch("/api/admin/onboarding/surveys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       })
-      .catch(() => toast({ title: "Failed to create survey", variant: "destructive" }))
-      .finally(() => setCreating(false));
-  }, []);
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.id) {
+            setSurveyId(data.id);
+          } else {
+            toast({ title: "Failed to create survey", variant: "destructive" });
+          }
+        })
+        .catch(() => toast({ title: "Failed to create survey", variant: "destructive" }))
+        .finally(() => setLoading(false));
+    }
+  }, [editId]);
 
   const handleCompleteStep = useCallback(async (stepId: string, stepData: Record<string, unknown>) => {
     if (!surveyId) return false;
@@ -82,8 +124,8 @@ export default function NewOnboardingPage() {
     setCurrentStep(stepId);
   }, []);
 
-  if (creating || !surveyId) {
-    return <p className="text-sm text-muted-foreground">Creating survey...</p>;
+  if (loading || !surveyId) {
+    return <p className="text-sm text-muted-foreground">{editId ? "Loading survey..." : "Creating survey..."}</p>;
   }
 
   const stepComponents = {

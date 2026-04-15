@@ -4,12 +4,19 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ArrowLeft, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Loader2, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,6 +41,8 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
   const [rejectReason, setRejectReason] = useState("");
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function loadSurvey() {
     try {
@@ -94,6 +103,24 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
       toast({ title: "Rejection failed", description: err.message, variant: "destructive" });
     } finally {
       setRejecting(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/onboarding/surveys/${params.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Delete failed");
+      }
+      toast({ title: "Survey deleted" });
+      router.push("/admin/onboarding");
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setDeleteOpen(false);
     }
   }
 
@@ -171,6 +198,19 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
           Back
         </Button>
         <div className="flex-1" />
+        {survey.status === "DRAFT" && (
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/admin/onboarding/new?edit=${survey.id}`}>
+              <Edit className="mr-1 h-3 w-3" />
+              Edit
+            </Link>
+          </Button>
+        )}
+        {(survey.status === "DRAFT" || survey.status === "REJECTED") && (
+          <Button size="sm" variant="ghost" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        )}
         <Badge variant={STATUS_COLORS[survey.status] as any}>{STATUS_LABELS[survey.status]}</Badge>
       </div>
 
@@ -263,6 +303,25 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete survey</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {survey.surveyNumber} and all its data. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
