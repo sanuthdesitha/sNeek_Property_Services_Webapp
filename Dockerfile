@@ -17,6 +17,7 @@ ENV NODE_ENV=production
 ENV NEXT_DIST_DIR=.next-prod
 
 RUN npx prisma generate
+RUN npx prisma migrate deploy
 RUN npx playwright install --with-deps chromium
 RUN node ./scripts/run-next.cjs build
 
