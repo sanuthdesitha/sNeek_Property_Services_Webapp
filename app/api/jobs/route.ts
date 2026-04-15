@@ -77,12 +77,19 @@ const JOB_INCLUDE = {
 };
 
 function buildOrderBy(statusGroup: string | null) {
-  const direction = statusGroup === "completed" ? "desc" : "asc";
+  if (statusGroup === "completed") {
+    return [
+      { scheduledDate: "desc" as const },
+      { priorityBucket: "asc" as const },
+      { dueTime: "desc" as const },
+      { startTime: "desc" as const },
+    ];
+  }
   return [
-    { scheduledDate: direction as const },
+    { scheduledDate: "asc" as const },
     { priorityBucket: "asc" as const },
-    { dueTime: direction as const },
-    { startTime: direction as const },
+    { dueTime: "asc" as const },
+    { startTime: "asc" as const },
   ];
 }
 

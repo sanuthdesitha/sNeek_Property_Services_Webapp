@@ -235,12 +235,10 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   if (params.laundryOutcome === "READY_FOR_PICKUP") {
     const laundryPhotoUrl = publicUrl(params.laundryPhotoKey!);
 
-    const terminalStatuses = [
-      LaundryStatus.PICKED_UP,
-      LaundryStatus.DROPPED,
-      LaundryStatus.RETURNED,
-    ];
-    if (terminalStatuses.includes(laundryTask.status)) {
+    if (
+      laundryTask.status === LaundryStatus.PICKED_UP ||
+      laundryTask.status === LaundryStatus.DROPPED
+    ) {
       return { ok: true, duplicated: true, laundryTask };
     }
 
@@ -321,13 +319,11 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   const noPickupRequired = params.laundryOutcome === "NO_PICKUP_REQUIRED";
   const nextStatus = noPickupRequired ? LaundryStatus.SKIPPED_PICKUP : LaundryStatus.FLAGGED;
 
-  const terminalStatuses = [
-    LaundryStatus.PICKED_UP,
-    LaundryStatus.DROPPED,
-    LaundryStatus.RETURNED,
-    LaundryStatus.SKIPPED_PICKUP,
-  ];
-  if (terminalStatuses.includes(laundryTask.status)) {
+  if (
+    laundryTask.status === LaundryStatus.PICKED_UP ||
+    laundryTask.status === LaundryStatus.DROPPED ||
+    laundryTask.status === LaundryStatus.SKIPPED_PICKUP
+  ) {
     return { ok: true, duplicated: true, laundryTask };
   }
 
