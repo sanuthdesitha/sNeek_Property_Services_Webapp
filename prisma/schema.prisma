@@ -335,6 +335,8 @@ model User {
   preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
   createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
   cleanerLocationPings         CleanerLocationPing[]
+  submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
+  reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
 }
 
 // ─────────────────────────────────────────────
@@ -372,6 +374,8 @@ model Client {
   automationRules      ClientAutomationRule[]
   jobFeedback          JobFeedback[]
   lastReviewRequestSentAt DateTime?
+  onboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingExistingClient")
+  createdOnboardingSurveys PropertyOnboardingSurvey[] @relation("OnboardingCreatedClient")
 }
 
 model Property {
@@ -1871,6 +1875,19 @@ enum NotificationLogStatus {
   SKIPPED
 }
 
+enum OnboardingSurveyStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum OnboardingSourceType {
+  ADMIN_CREATED
+  CLIENT_SUBMITTED
+  WEB_FORM
+}
+
 model PayrollRun {
   id                        String            @id @default(cuid())
   periodStart               DateTime
@@ -2031,4 +2048,145 @@ model NotificationLog {
 
   @@index([eventKey, createdAt])
   @@index([recipientEmail, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Property Onboarding
+// ─────────────────────────────────────────────
+
+model PropertyOnboardingSurvey {
+  id                    String                  @id @default(cuid())
+  surveyNumber          String                  @unique
+  sourceType            OnboardingSourceType    @default(ADMIN_CREATED)
+  status                OnboardingSurveyStatus  @default(DRAFT)
+  submittedById         String?
+  adminReviewerId       String?
+  reviewedAt            DateTime?
+  rejectionReason       String?                 @db.Text
+
+  // Client linkage
+  isNewClient           Boolean                 @default(false)
+  clientData            Json?                   // { name, email, phone, address, notes }
+  existingClientId      String?
+
+  // Property basics
+  propertyAddress       String?
+  propertySuburb        String?
+  propertyState         String                  @default("NSW")
+  propertyPostcode      String?
+  propertyName          String?
+  propertyNotes         String?                 @db.Text
+
+  bedrooms              Int                     @default(1)
+  bathrooms             Int                     @default(1)
+  hasBalcony            Boolean                 @default(false)
+  floorCount            Int                     @default(1)
+  propertyType          String?                 // HOUSE, APARTMENT, TOWNHOUSE, UNIT, DUPLEX
+  sizeSqm               Float?
+
+  // Staffing & estimation
+  requestedCleanerCount Int                     @default(1)
+  estimatedCleanerCount Int?
+  estimatedHours        Float?
+  estimatedPrice        Float?
+
+  // iCal (optional)
+  icalUrl               String?                 @db.Text
+  icalProvider          IntegrationProvider?    @default(ICAL_OTHER)
+
+  // Approval/edit
+  adminNotes            String?                 @db.Text
+  adminOverrides        Json?                   // { cleanerCount, hours, price, ... }
+
+  // Created entities on approval
+  createdClientId       String?
+  createdPropertyId     String?
+  createdIntegrationId  String?
+  createdJobIds         String[]                @default([])
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  submittedAt           DateTime?
+
+  submittedBy           User?                   @relation("OnboardingSubmittedBy", fields: [submittedById], references: [id])
+  adminReviewer         User?                   @relation("OnboardingReviewedBy", fields: [adminReviewerId], references: [id])
+  existingClient        Client?                 @relation("OnboardingExistingClient", fields: [existingClientId], references: [id])
+  createdClient         Client?                 @relation("OnboardingCreatedClient", fields: [createdClientId], references: [id])
+
+  appliances            OnboardingAppliance[]
+  specialRequests       OnboardingSpecialRequest[]
+  laundryDetail         OnboardingLaundryDetail?
+  accessDetails         OnboardingAccessDetail[]
+  jobTypeAnswers        OnboardingJobTypeAnswer[]
+
+  @@index([status, createdAt])
+  @@index([sourceType, status])
+  @@index([existingClientId])
+  @@index([createdPropertyId])
+}
+
+model OnboardingAppliance {
+  id            String                    @id @default(cuid())
+  surveyId      String
+  applianceType String                    // OVEN, FRIDGE, DISHWASHER, WASHER, DRYER, RANGEHOOD, MICROWAVE
+  conditionNote String?                   @db.Text
+  requiresClean Boolean                   @default(true)
+
+  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+}
+
+model OnboardingSpecialRequest {
+  id            String                    @id @default(cuid())
+  surveyId      String
+  description   String                    @db.Text
+  priority      String                    @default("NORMAL")  // LOW, NORMAL, HIGH, URGENT
+  area          String?                   // KITCHEN, BATHROOM, BEDROOM, LIVING, OUTDOOR, GARAGE
+
+  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+}
+
+model OnboardingLaundryDetail {
+  id              String                    @id @default(cuid())
+  surveyId        String                    @unique
+  hasLaundry      Boolean                   @default(false)
+  washerType      String?                   // FRONT_LOAD, TOP_LOAD, COMBO
+  dryerType       String?                   // DRYER, COMBO, NONE
+  laundryLocation String?                   // INSIDE_UNIT, SEPARATE_ROOM, GARAGE, OUTDOOR
+  suppliesProvided Boolean                  @default(false)
+  detergentType   String?                   // STANDARD, HYPOALLERGENIC, ECO, CLIENT_PROVIDED
+  notes           String?                   @db.Text
+
+  survey          PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+}
+
+model OnboardingAccessDetail {
+  id            String                    @id @default(cuid())
+  surveyId      String
+  detailType    String                    // LOCKBOX, KEY_LOCATION, PARKING, ENTRY_PHOTO, BUILDING_ACCESS
+  value         String?                   @db.Text
+  photoUrl      String?                   @db.Text
+  photoKey      String?
+  annotations   Json?                     // [{ x, y, text }]
+  sortOrder     Int                       @default(0)
+
+  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+}
+
+model OnboardingJobTypeAnswer {
+  id            String                    @id @default(cuid())
+  surveyId      String
+  jobType       JobType
+  answers       Json                      // { questionId: answer }
+  isComplete    Boolean                   @default(false)
+
+  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@unique([surveyId, jobType])
+  @@index([surveyId])
 }

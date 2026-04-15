@@ -36,6 +36,7 @@ import {
   Clock3,
   Rocket,
   Zap,
+  ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,6 +53,7 @@ export const ADMIN_NAV_GROUPS = [
     label: "Operations",
     items: [
       { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
+      { label: "Onboarding", href: "/admin/onboarding", icon: ClipboardCheck },
       { label: "Calendar", href: "/admin/calendar", icon: Calendar },
       { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
       { label: "Laundry", href: "/admin/laundry", icon: Shirt },
