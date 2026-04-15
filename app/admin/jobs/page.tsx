@@ -735,7 +735,7 @@ export default function JobsPage() {
                   return;
                 }
                 const headers = Object.keys(rows[0]);
-                const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => `"${String(r[h as keyof typeof r]).replace(/"/g, '""')}"`).join(","))].join("\n");
+                const csv = [headers.join(","), ...rows.map((r: Record<string, string>) => headers.map((h) => `"${String(r[h]).replace(/"/g, '""')}"`).join(","))].join("\n");
                 const blob = new Blob([csv], { type: "text/csv" });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
