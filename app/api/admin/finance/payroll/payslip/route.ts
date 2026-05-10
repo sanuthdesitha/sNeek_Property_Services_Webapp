@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       margin: { top: "16px", right: "16px", bottom: "16px", left: "16px" },
     });
     const fileName = `${(row.cleaner.name?.trim() || row.cleaner.email.split("@")[0] || "cleaner").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${startDate}-${endDate}.pdf`;
-    return new NextResponse(pdf, {
+    return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${fileName}"`,
