@@ -31,12 +31,8 @@ export async function POST(req: NextRequest) {
       logoUrl: settings.logoUrl,
     });
     try {
-      const { chromium } = await import("playwright");
-      const browser = await chromium.launch();
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle" });
-      const pdf = await page.pdf({ format: "A4", printBackground: true });
-      await browser.close();
+      const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+      const pdf = await renderPdfFromHtml(html, "quote preview PDF generation");
 
       return new NextResponse(new Uint8Array(pdf), {
         headers: {

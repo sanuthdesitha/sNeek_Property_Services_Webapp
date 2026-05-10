@@ -14,6 +14,8 @@ type Args = {
   jsonOnly: boolean;
   skipDb: boolean;
   jsonExport: boolean;
+  retentionDays: number;
+  keepExtracted: boolean;
 };
 
 type BackupManifest = {
@@ -48,6 +50,10 @@ type BackupManifest = {
 
 function parseArgs(argv: string[]): Args {
   const outputArg = argv.find((arg) => arg.startsWith("--output-dir="));
+  const retentionArg = argv.find((arg) => arg.startsWith("--retention-days="));
+  const parsedRetention = retentionArg
+    ? Number(retentionArg.slice("--retention-days=".length))
+    : 3;
   return {
     outputDir: outputArg ? outputArg.slice("--output-dir=".length) : "backups",
     includeUploads: argv.includes("--include-uploads"),
@@ -55,6 +61,8 @@ function parseArgs(argv: string[]): Args {
     jsonOnly: argv.includes("--json-only"),
     skipDb: argv.includes("--skip-db"),
     jsonExport: argv.includes("--json-export"),
+    retentionDays: Number.isFinite(parsedRetention) && parsedRetention >= 0 ? parsedRetention : 3,
+    keepExtracted: argv.includes("--keep-extracted"),
   };
 }
 
@@ -172,6 +180,62 @@ async function maybeCreateArchive(rootDir: string, folderName: string, archivePa
   return true;
 }
 
+async function pruneOldArchives(rootDir: string, retentionDays: number): Promise<{ deleted: string[]; failed: string[] }> {
+  const deleted: string[] = [];
+  const failed: string[] = [];
+  if (retentionDays <= 0) return { deleted, failed };
+
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(rootDir);
+  } catch {
+    return { deleted, failed };
+  }
+
+  for (const entry of entries) {
+    if (!entry.startsWith("backup-") || !entry.endsWith(".tar.gz")) continue;
+    const fullPath = path.join(rootDir, entry);
+    try {
+      const stat = await fs.stat(fullPath);
+      if (stat.mtimeMs < cutoff) {
+        await fs.unlink(fullPath);
+        deleted.push(entry);
+      }
+    } catch (error: any) {
+      failed.push(`${entry}: ${error?.message ?? "unknown error"}`);
+    }
+  }
+
+  return { deleted, failed };
+}
+
+async function pruneStaleExtractedFolders(rootDir: string): Promise<string[]> {
+  const removed: string[] = [];
+  let entries: string[];
+  try {
+    entries = await fs.readdir(rootDir);
+  } catch {
+    return removed;
+  }
+
+  for (const entry of entries) {
+    if (!entry.startsWith("backup-") || entry.endsWith(".tar.gz")) continue;
+    const fullPath = path.join(rootDir, entry);
+    try {
+      const stat = await fs.stat(fullPath);
+      if (stat.isDirectory()) {
+        await fs.rm(fullPath, { recursive: true, force: true });
+        removed.push(entry);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return removed;
+}
+
 async function maybeUploadOffsite(archivePath: string) {
   const backupBucket = process.env.BACKUP_S3_BUCKET?.trim();
   if (!backupBucket) return { uploaded: false, key: null as string | null };
@@ -196,6 +260,15 @@ async function main() {
   const folderName = `backup-${timestamp}`;
   const backupDir = path.join(rootOutput, folderName);
   const archiveFile = path.join(rootOutput, `${folderName}.tar.gz`);
+
+  await fs.mkdir(rootOutput, { recursive: true });
+
+  // Clean up any leftover uncompressed folders from previous runs (the script
+  // never used to delete these, so they accumulate alongside the .tar.gz files).
+  const stalePruned = await pruneStaleExtractedFolders(rootOutput);
+  if (stalePruned.length > 0) {
+    console.log(`Removed ${stalePruned.length} leftover extracted backup folder(s) from previous runs.`);
+  }
 
   await fs.mkdir(backupDir, { recursive: true });
 
@@ -302,11 +375,37 @@ async function main() {
 
     await fs.writeFile(path.join(backupDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
 
+    // Delete the extracted backup folder once the .tar.gz exists. The folder is
+    // pure duplication of the archive contents and was the main cause of the
+    // /app/backups directory ballooning in size.
+    let extractedRemoved = false;
+    if (manifest.archive.created && !args.keepExtracted) {
+      try {
+        await fs.rm(backupDir, { recursive: true, force: true });
+        extractedRemoved = true;
+      } catch (error: any) {
+        manifest.warnings.push(`Could not remove extracted folder ${backupDir}: ${error?.message ?? "unknown error"}`);
+      }
+    }
+
+    // Enforce retention on .tar.gz archives.
+    const pruneResult = await pruneOldArchives(rootOutput, args.retentionDays);
+    for (const failure of pruneResult.failed) {
+      manifest.warnings.push(`Archive prune failed: ${failure}`);
+    }
+
     console.log("");
     console.log("Backup completed");
-    console.log(`- Backup folder: ${backupDir}`);
+    if (extractedRemoved) {
+      console.log(`- Extracted folder removed (kept archive only).`);
+    } else {
+      console.log(`- Backup folder: ${backupDir}`);
+    }
     if (manifest.archive.created && manifest.archive.file) {
       console.log(`- Archive: ${manifest.archive.file}`);
+    }
+    if (pruneResult.deleted.length > 0) {
+      console.log(`- Pruned ${pruneResult.deleted.length} archive(s) older than ${args.retentionDays} day(s): ${pruneResult.deleted.join(", ")}`);
     }
     console.log(`- JSON export models: ${Object.keys(manifest.database.modelCounts).length}`);
     console.log(`- Upload objects downloaded: ${manifest.uploads.downloadedCount}`);

@@ -420,26 +420,9 @@ export async function generateJobReport(jobId: string): Promise<void> {
 
   let pdfUrl: string | null = null;
 
-  // Render to PDF via Playwright (best-effort - skip if Playwright unavailable)
   try {
-    const { chromium } = await import("playwright");
-    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-    let launchError: unknown = null;
-    try {
-      browser = await chromium.launch();
-    } catch (err) {
-      launchError = err;
-      browser = await chromium.launch({ channel: "msedge" }).catch(async () => {
-        return chromium.launch({ channel: "chrome" });
-      });
-    }
-    if (!browser) {
-      throw launchError ?? new Error("Could not launch browser for report PDF generation.");
-    }
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
-    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
-    await browser.close();
+    const { renderPdfFromHtml } = await import("./pdf");
+    const pdfBuffer = await renderPdfFromHtml(html, "job report PDF generation");
 
     if (s3Enabled) {
       const pdfKey = `reports/${jobId}/report.pdf`;

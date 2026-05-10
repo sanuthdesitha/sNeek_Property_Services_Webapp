@@ -216,18 +216,8 @@ export function buildShoppingListHtml(input: {
 }
 
 export async function renderShoppingListPdf(html: string): Promise<Buffer> {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "12mm", right: "10mm", bottom: "12mm", left: "10mm" },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+  const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+  return renderPdfFromHtml(html, "shopping list PDF generation", {
+    margin: { top: "12mm", right: "10mm", bottom: "12mm", left: "10mm" },
+  });
 }

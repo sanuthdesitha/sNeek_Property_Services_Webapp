@@ -2325,29 +2325,9 @@ export function buildShoppingRunClientReimbursementHtml(input: {
 }
 
 export async function renderShoppingRunPdf(html: string): Promise<Buffer> {
-  const { chromium } = await import("playwright");
-  const launchers = [undefined, { channel: "msedge" as const }, { channel: "chrome" as const }];
-  let lastErr: unknown;
-  for (const opts of launchers) {
-    let browser: any;
-    try {
-      browser = await chromium.launch(opts ? opts : undefined);
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle" });
-      const pdf = await page.pdf({
-        format: "A4",
-        printBackground: true,
-        margin: { top: "10mm", right: "8mm", bottom: "10mm", left: "8mm" },
-      });
-      return Buffer.from(pdf);
-    } catch (err) {
-      lastErr = err;
-    } finally {
-      try {
-        await browser?.close();
-      } catch {}
-    }
-  }
-  throw lastErr ?? new Error("PDF generation failed");
+  const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+  return renderPdfFromHtml(html, "shopping run PDF generation", {
+    margin: { top: "10mm", right: "8mm", bottom: "10mm", left: "8mm" },
+  });
 }
 

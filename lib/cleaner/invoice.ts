@@ -520,32 +520,10 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
 }
 
 export async function renderCleanerInvoicePdf(html: string): Promise<Buffer> {
-  const { chromium } = await import("playwright");
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-  let launchError: unknown = null;
-  try {
-    browser = await chromium.launch();
-  } catch (err) {
-    launchError = err;
-    browser = await chromium.launch({ channel: "msedge" }).catch(async () => {
-      return chromium.launch({ channel: "chrome" });
-    });
-  }
-  if (!browser) {
-    throw launchError ?? new Error("Could not launch browser for invoice PDF generation.");
-  }
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "16mm", right: "10mm", bottom: "16mm", left: "10mm" },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+  const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+  return renderPdfFromHtml(html, "cleaner invoice PDF generation", {
+    margin: { top: "16mm", right: "10mm", bottom: "16mm", left: "10mm" },
+  });
 }
 
 function escapeHtml(input: string): string {

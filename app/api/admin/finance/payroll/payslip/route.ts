@@ -36,24 +36,18 @@ export async function GET(req: NextRequest) {
       endDate,
     });
 
-    const { chromium } = await import("playwright");
-    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-    try {
-      browser = await chromium.launch().catch(async () => chromium.launch({ channel: "msedge" }).catch(async () => chromium.launch({ channel: "chrome" })));
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle" });
-      const pdf = await page.pdf({ format: "A4", printBackground: true, margin: { top: "16px", right: "16px", bottom: "16px", left: "16px" } });
-      const fileName = `${(row.cleaner.name?.trim() || row.cleaner.email.split("@")[0] || "cleaner").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${startDate}-${endDate}.pdf`;
-      return new NextResponse(Buffer.from(pdf), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `inline; filename="${fileName}"`,
-          "Cache-Control": "no-store",
-        },
-      });
-    } finally {
-      await browser?.close().catch(() => {});
-    }
+    const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+    const pdf = await renderPdfFromHtml(html, "payslip PDF generation", {
+      margin: { top: "16px", right: "16px", bottom: "16px", left: "16px" },
+    });
+    const fileName = `${(row.cleaner.name?.trim() || row.cleaner.email.split("@")[0] || "cleaner").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${startDate}-${endDate}.pdf`;
+    return new NextResponse(pdf, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error: any) {
     const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not generate payslip." }, { status });

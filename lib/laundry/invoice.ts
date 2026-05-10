@@ -478,26 +478,8 @@ export function buildLaundryInvoiceHtml(args: {
 }
 
 export async function renderLaundryInvoicePdf(html: string): Promise<Buffer> {
-  const { chromium } = await import("playwright");
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-  let launchError: unknown = null;
-  try {
-    browser = await chromium.launch();
-  } catch (err) {
-    launchError = err;
-    browser = await chromium.launch({ channel: "msedge" }).catch(async () => chromium.launch({ channel: "chrome" }));
-  }
-  if (!browser) throw (launchError ?? new Error("Could not launch browser for laundry invoice PDF."));
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "12mm", right: "8mm", bottom: "12mm", left: "8mm" },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+  const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+  return renderPdfFromHtml(html, "laundry invoice PDF generation", {
+    margin: { top: "12mm", right: "8mm", bottom: "12mm", left: "8mm" },
+  });
 }
