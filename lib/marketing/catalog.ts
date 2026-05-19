@@ -88,6 +88,18 @@ export const MARKETED_SERVICES: MarketedService[] = [
     cardColor: "from-[#4b305c]/95 to-[#7f4b93]/90",
   },
   {
+    jobType: "SPECIAL_CLEAN",
+    slug: "move-in-cleaning",
+    family: "residential",
+    label: "Move-In Cleaning",
+    shortLabel: "Move-In Clean",
+    tagline: "Detailed pre-move clean before furniture arrives.",
+    summary: "For homes that need a move-in reset before unpacking, with kitchen, bathroom, cupboard, window-track, and high-touch detail checks.",
+    highlights: ["Pre-move reset", "Cupboards and fixtures", "Inspection-style checklist"],
+    autoPricingMode: "estimate",
+    cardColor: "from-[#5a4a2f]/95 to-[#8a7145]/90",
+  },
+  {
     jobType: "SPRING_CLEANING",
     slug: "spring-cleaning",
     family: "residential",

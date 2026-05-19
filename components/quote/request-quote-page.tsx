@@ -46,6 +46,7 @@ const roomBasedServices = new Set<MarketedJobTypeValue>([
   "GENERAL_CLEAN",
   "DEEP_CLEAN",
   "END_OF_LEASE",
+  "SPECIAL_CLEAN",
   "SPRING_CLEANING",
 ]);
 const areaBasedServices = new Set<MarketedJobTypeValue>([
@@ -89,6 +90,65 @@ const FREQUENCIES = [
   { value: "monthly", label: "Monthly" },
 ] as const;
 
+const EXTRA_GROUPS = [
+  {
+    title: "Kitchen & Appliances",
+    items: [
+      ["largeKitchen", "Large kitchen"],
+      ["oven", "Inside oven, trays and racks"],
+      ["grill", "Grill / cooktop detail"],
+      ["rangehood", "Rangehood and filters"],
+      ["fridge", "Inside fridge"],
+      ["fridgeFull", "Full fridge clean"],
+      ["freezer", "Freezer clean"],
+      ["dishwasher", "Dishwasher inside and out"],
+      ["insideCupboards", "Inside cupboards and drawers"],
+      ["pantry", "Pantry shelves and doors"],
+      ["washDishes", "Wash dishes"],
+    ],
+  },
+  {
+    title: "Windows, Walls & Fixtures",
+    items: [
+      ["interiorWindows", "Interior windows and tracks"],
+      ["exteriorWindows", "Exterior windows"],
+      ["slidingGlassDoor", "Sliding glass door and tracks"],
+      ["blindsShutters", "Blinds / shutters wet wipe"],
+      ["wallSpotClean", "Spot clean walls"],
+      ["wallWashing", "Full wall washing"],
+      ["ceilingFans", "Ceiling fans"],
+      ["airConditionerVents", "A/C vents"],
+    ],
+  },
+  {
+    title: "Outdoor, Laundry & Rooms",
+    items: [
+      ["smallBalcony", "Small balcony"],
+      ["largeBalcony", "Large balcony"],
+      ["deckPatio", "Deck / patio"],
+      ["alfresco", "Alfresco area / BBQ exterior"],
+      ["pergola", "Pergola"],
+      ["garage", "Garage sweep and tidy"],
+      ["wardrobe", "Wardrobe tracks, mirrors and internals"],
+      ["rumpusRoom", "Rumpus room"],
+      ["laundryLoad", "Laundry load / hang out"],
+      ["laundryFold", "Fold laundry"],
+      ["laundryCloset", "Laundry closet"],
+      ["changeBedsheets", "Change bedsheets"],
+    ],
+  },
+  {
+    title: "Condition & Specialty",
+    items: [
+      ["heavyMess", "Heavy duty / extra attention"],
+      ["furnished", "Furnished property"],
+      ["pets", "Pets / pet hair"],
+      ["outdoorArea", "Outdoor entry area"],
+      ["carpetSteam", "Carpet steam clean allowance"],
+    ],
+  },
+] as const;
+
 const serviceLabelByType = new Map<MarketedJobTypeValue, string>(MARKETED_SERVICES.map((service) => [service.jobType, service.label]));
 
 function defaultServiceForFamily(family: ServiceFamily) {
@@ -121,11 +181,41 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
     exteriorAccess: false,
     oven: false,
     fridge: false,
+    fridgeFull: false,
+    freezer: false,
     heavyMess: false,
     sameDay: false,
     furnished: false,
     pets: false,
     outdoorArea: false,
+    largeKitchen: false,
+    smallBalcony: false,
+    largeBalcony: false,
+    grill: false,
+    rangehood: false,
+    dishwasher: false,
+    insideCupboards: false,
+    pantry: false,
+    interiorWindows: false,
+    exteriorWindows: false,
+    slidingGlassDoor: false,
+    blindsShutters: false,
+    wallSpotClean: false,
+    wallWashing: false,
+    ceilingFans: false,
+    airConditionerVents: false,
+    wardrobe: false,
+    garage: false,
+    deckPatio: false,
+    alfresco: false,
+    pergola: false,
+    carpetSteam: false,
+    changeBedsheets: false,
+    washDishes: false,
+    laundryLoad: false,
+    laundryFold: false,
+    laundryCloset: false,
+    rumpusRoom: false,
     conditionLevel: "standard",
     promoCode: "",
     scopeNotes: "",
@@ -225,11 +315,41 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
           addOns: {
             oven: form.oven,
             fridge: form.fridge,
+            fridgeFull: form.fridgeFull,
+            freezer: form.freezer,
             heavyMess: form.heavyMess,
             sameDay: form.sameDay,
             furnished: form.furnished,
             pets: form.pets,
             outdoorArea: form.outdoorArea,
+            largeKitchen: form.largeKitchen,
+            smallBalcony: form.smallBalcony,
+            largeBalcony: form.largeBalcony,
+            grill: form.grill,
+            rangehood: form.rangehood,
+            dishwasher: form.dishwasher,
+            insideCupboards: form.insideCupboards,
+            pantry: form.pantry,
+            interiorWindows: form.interiorWindows,
+            exteriorWindows: form.exteriorWindows,
+            slidingGlassDoor: form.slidingGlassDoor,
+            blindsShutters: form.blindsShutters,
+            wallSpotClean: form.wallSpotClean,
+            wallWashing: form.wallWashing,
+            ceilingFans: form.ceilingFans,
+            airConditionerVents: form.airConditionerVents,
+            wardrobe: form.wardrobe,
+            garage: form.garage,
+            deckPatio: form.deckPatio,
+            alfresco: form.alfresco,
+            pergola: form.pergola,
+            carpetSteam: form.carpetSteam,
+            changeBedsheets: form.changeBedsheets,
+            washDishes: form.washDishes,
+            laundryLoad: form.laundryLoad,
+            laundryFold: form.laundryFold,
+            laundryCloset: form.laundryCloset,
+            rumpusRoom: form.rumpusRoom,
           },
           conditionLevel: form.conditionLevel,
           promoCode: form.promoCode || undefined,
@@ -293,11 +413,41 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               exteriorAccess: form.exteriorAccess,
               oven: form.oven,
               fridge: form.fridge,
+              fridgeFull: form.fridgeFull,
+              freezer: form.freezer,
               heavyMess: form.heavyMess,
               sameDay: form.sameDay,
               furnished: form.furnished,
               pets: form.pets,
               outdoorArea: form.outdoorArea,
+              largeKitchen: form.largeKitchen,
+              smallBalcony: form.smallBalcony,
+              largeBalcony: form.largeBalcony,
+              grill: form.grill,
+              rangehood: form.rangehood,
+              dishwasher: form.dishwasher,
+              insideCupboards: form.insideCupboards,
+              pantry: form.pantry,
+              interiorWindows: form.interiorWindows,
+              exteriorWindows: form.exteriorWindows,
+              slidingGlassDoor: form.slidingGlassDoor,
+              blindsShutters: form.blindsShutters,
+              wallSpotClean: form.wallSpotClean,
+              wallWashing: form.wallWashing,
+              ceilingFans: form.ceilingFans,
+              airConditionerVents: form.airConditionerVents,
+              wardrobe: form.wardrobe,
+              garage: form.garage,
+              deckPatio: form.deckPatio,
+              alfresco: form.alfresco,
+              pergola: form.pergola,
+              carpetSteam: form.carpetSteam,
+              changeBedsheets: form.changeBedsheets,
+              washDishes: form.washDishes,
+              laundryLoad: form.laundryLoad,
+              laundryFold: form.laundryFold,
+              laundryCloset: form.laundryCloset,
+              rumpusRoom: form.rumpusRoom,
             },
             estimate: result,
             manualQuoteRequired,
@@ -596,21 +746,26 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                     <SelectContent>{WINDOW_ACCESS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    { key: "hasBalcony", label: "Balcony or extra outdoor access" },
-                    { key: "exteriorAccess", label: "Exterior / ladder-style access" },
-                    { key: "oven", label: "Oven clean" },
-                    { key: "fridge", label: "Fridge clean" },
-                    { key: "heavyMess", label: "Heavy mess / recovery work" },
-                    { key: "furnished", label: "Furnished property" },
-                    { key: "pets", label: "Pets / pet hair" },
-                    { key: "outdoorArea", label: "Outdoor entry / patio area" },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-3 rounded-2xl border border-border/70 px-4 py-3 text-sm">
-                      <Checkbox checked={(form as Record<string, boolean | string>)[key] === true} onCheckedChange={(checked) => setForm((current) => ({ ...current, [key]: checked === true }))} />
-                      <span>{label}</span>
-                    </label>
+                <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-white px-4 py-3 text-sm">
+                  <Checkbox checked={form.exteriorAccess} onCheckedChange={(checked) => setForm((current) => ({ ...current, exteriorAccess: checked === true }))} />
+                  <span>Exterior / ladder-style access required</span>
+                </label>
+                <div className="space-y-4">
+                  {EXTRA_GROUPS.map((group) => (
+                    <div key={group.title} className="rounded-[1.35rem] border border-border/70 bg-white p-4">
+                      <p className="text-sm font-semibold">{group.title}</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {group.items.map(([key, label]) => (
+                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-xl border border-border/60 px-3 py-2 text-sm">
+                            <Checkbox
+                              checked={(form as Record<string, boolean | string>)[key] === true}
+                              onCheckedChange={(checked) => setForm((current) => ({ ...current, [key]: checked === true }))}
+                            />
+                            <span className="leading-5">{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>

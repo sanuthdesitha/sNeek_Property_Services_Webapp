@@ -23,11 +23,41 @@ interface QuoteInput {
   addOns?: {
     oven?: boolean;
     fridge?: boolean;
+    fridgeFull?: boolean;
+    freezer?: boolean;
     heavyMess?: boolean;
     sameDay?: boolean;
     furnished?: boolean;
     pets?: boolean;
     outdoorArea?: boolean;
+    largeKitchen?: boolean;
+    smallBalcony?: boolean;
+    largeBalcony?: boolean;
+    grill?: boolean;
+    rangehood?: boolean;
+    dishwasher?: boolean;
+    insideCupboards?: boolean;
+    pantry?: boolean;
+    interiorWindows?: boolean;
+    exteriorWindows?: boolean;
+    slidingGlassDoor?: boolean;
+    blindsShutters?: boolean;
+    wallSpotClean?: boolean;
+    wallWashing?: boolean;
+    ceilingFans?: boolean;
+    airConditionerVents?: boolean;
+    wardrobe?: boolean;
+    garage?: boolean;
+    deckPatio?: boolean;
+    alfresco?: boolean;
+    pergola?: boolean;
+    carpetSteam?: boolean;
+    changeBedsheets?: boolean;
+    washDishes?: boolean;
+    laundryLoad?: boolean;
+    laundryFold?: boolean;
+    laundryCloset?: boolean;
+    rumpusRoom?: boolean;
   };
   conditionLevel?: "light" | "standard" | "heavy";
   promoCode?: string;
@@ -61,14 +91,44 @@ const AREA_SQM_FALLBACKS = {
 } as const;
 
 const LOCAL_ADD_ON_RATES = {
-  oven: 35,
-  fridge: 28,
-  balcony: 18,
-  heavyMess: 40,
-  sameDay: 30,
-  furnished: 20,
-  pets: 18,
-  outdoorArea: 28,
+  oven: 70,
+  fridge: 45,
+  fridgeFull: 75,
+  freezer: 30,
+  balcony: 28,
+  smallBalcony: 28,
+  largeBalcony: 55,
+  heavyMess: 85,
+  sameDay: 65,
+  furnished: 35,
+  pets: 30,
+  outdoorArea: 45,
+  largeKitchen: 45,
+  grill: 45,
+  rangehood: 35,
+  dishwasher: 30,
+  insideCupboards: 85,
+  pantry: 45,
+  interiorWindows: 75,
+  exteriorWindows: 110,
+  slidingGlassDoor: 35,
+  blindsShutters: 70,
+  wallSpotClean: 65,
+  wallWashing: 180,
+  ceilingFans: 35,
+  airConditionerVents: 45,
+  wardrobe: 45,
+  garage: 60,
+  deckPatio: 50,
+  alfresco: 65,
+  pergola: 55,
+  carpetSteam: 85,
+  changeBedsheets: 18,
+  washDishes: 30,
+  laundryLoad: 25,
+  laundryFold: 35,
+  laundryCloset: 35,
+  rumpusRoom: 55,
   additionalFloor: 18,
   streetParking: 6,
   limitedParking: 14,
@@ -168,12 +228,42 @@ function addCommonLocalAdjustments(input: QuoteInput, lineItems: QuoteResult["li
 
   addFlatCharge(input.addOns?.oven, LOCAL_ADD_ON_RATES.oven, "Oven clean");
   addFlatCharge(input.addOns?.fridge, LOCAL_ADD_ON_RATES.fridge, "Fridge clean");
+  addFlatCharge(input.addOns?.fridgeFull, LOCAL_ADD_ON_RATES.fridgeFull, "Full fridge clean");
+  addFlatCharge(input.addOns?.freezer, LOCAL_ADD_ON_RATES.freezer, "Freezer clean");
   addFlatCharge(input.hasBalcony, LOCAL_ADD_ON_RATES.balcony, "Balcony");
+  addFlatCharge(input.addOns?.smallBalcony, LOCAL_ADD_ON_RATES.smallBalcony, "Small balcony");
+  addFlatCharge(input.addOns?.largeBalcony, LOCAL_ADD_ON_RATES.largeBalcony, "Large balcony");
   addFlatCharge(input.addOns?.heavyMess, LOCAL_ADD_ON_RATES.heavyMess, "Heavy mess surcharge");
   addFlatCharge(input.addOns?.sameDay, LOCAL_ADD_ON_RATES.sameDay, "Priority turnaround surcharge");
   addFlatCharge(input.addOns?.furnished, LOCAL_ADD_ON_RATES.furnished, "Furnished property allowance");
   addFlatCharge(input.addOns?.pets, LOCAL_ADD_ON_RATES.pets, "Pets / pet hair allowance");
   addFlatCharge(input.addOns?.outdoorArea, LOCAL_ADD_ON_RATES.outdoorArea, "Outdoor area allowance");
+  addFlatCharge(input.addOns?.largeKitchen, LOCAL_ADD_ON_RATES.largeKitchen, "Large kitchen allowance");
+  addFlatCharge(input.addOns?.grill, LOCAL_ADD_ON_RATES.grill, "Grill clean");
+  addFlatCharge(input.addOns?.rangehood, LOCAL_ADD_ON_RATES.rangehood, "Rangehood and filter clean");
+  addFlatCharge(input.addOns?.dishwasher, LOCAL_ADD_ON_RATES.dishwasher, "Dishwasher clean");
+  addFlatCharge(input.addOns?.insideCupboards, LOCAL_ADD_ON_RATES.insideCupboards, "Inside cupboards and drawers");
+  addFlatCharge(input.addOns?.pantry, LOCAL_ADD_ON_RATES.pantry, "Pantry clean");
+  addFlatCharge(input.addOns?.interiorWindows, LOCAL_ADD_ON_RATES.interiorWindows, "Interior windows and tracks");
+  addFlatCharge(input.addOns?.exteriorWindows, LOCAL_ADD_ON_RATES.exteriorWindows, "Exterior windows");
+  addFlatCharge(input.addOns?.slidingGlassDoor, LOCAL_ADD_ON_RATES.slidingGlassDoor, "Sliding glass door and tracks");
+  addFlatCharge(input.addOns?.blindsShutters, LOCAL_ADD_ON_RATES.blindsShutters, "Blinds / shutters wet wipe");
+  addFlatCharge(input.addOns?.wallSpotClean, LOCAL_ADD_ON_RATES.wallSpotClean, "Wall spot clean");
+  addFlatCharge(input.addOns?.wallWashing, LOCAL_ADD_ON_RATES.wallWashing, "Wall washing");
+  addFlatCharge(input.addOns?.ceilingFans, LOCAL_ADD_ON_RATES.ceilingFans, "Ceiling fan clean");
+  addFlatCharge(input.addOns?.airConditionerVents, LOCAL_ADD_ON_RATES.airConditionerVents, "Air conditioner vent clean");
+  addFlatCharge(input.addOns?.wardrobe, LOCAL_ADD_ON_RATES.wardrobe, "Wardrobe clean");
+  addFlatCharge(input.addOns?.garage, LOCAL_ADD_ON_RATES.garage, "Garage sweep and tidy");
+  addFlatCharge(input.addOns?.deckPatio, LOCAL_ADD_ON_RATES.deckPatio, "Deck / patio clean");
+  addFlatCharge(input.addOns?.alfresco, LOCAL_ADD_ON_RATES.alfresco, "Alfresco area clean");
+  addFlatCharge(input.addOns?.pergola, LOCAL_ADD_ON_RATES.pergola, "Pergola clean");
+  addFlatCharge(input.addOns?.carpetSteam, LOCAL_ADD_ON_RATES.carpetSteam, "Carpet steam clean allowance");
+  addFlatCharge(input.addOns?.changeBedsheets, LOCAL_ADD_ON_RATES.changeBedsheets, "Change bedsheets");
+  addFlatCharge(input.addOns?.washDishes, LOCAL_ADD_ON_RATES.washDishes, "Wash dishes");
+  addFlatCharge(input.addOns?.laundryLoad, LOCAL_ADD_ON_RATES.laundryLoad, "Laundry load / hang out");
+  addFlatCharge(input.addOns?.laundryFold, LOCAL_ADD_ON_RATES.laundryFold, "Laundry fold");
+  addFlatCharge(input.addOns?.laundryCloset, LOCAL_ADD_ON_RATES.laundryCloset, "Laundry closet clean");
+  addFlatCharge(input.addOns?.rumpusRoom, LOCAL_ADD_ON_RATES.rumpusRoom, "Rumpus room clean");
 
   const extraFloors = Math.max(0, (input.floors ?? 1) - 1);
   if (extraFloors > 0) {
@@ -210,13 +300,15 @@ async function calculateLocalMarketingQuote(input: QuoteInput, gstSettings: GstS
   let baseRate = 0;
 
   switch (input.serviceType) {
-    case "SPRING_CLEANING": {
+    case "SPRING_CLEANING":
+    case "SPECIAL_CLEAN": {
       const bedrooms = Math.max(1, input.bedrooms ?? 2);
       const bathrooms = Math.max(1, input.bathrooms ?? 1);
-      const baseVisit = 110;
-      const bedroomRate = 42;
-      const bathroomRate = 28;
-      lineItems.push({ label: "Spring clean base visit", unitPrice: baseVisit, qty: 1, total: baseVisit });
+      const isMoveIn = input.serviceType === "SPECIAL_CLEAN";
+      const baseVisit = isMoveIn ? 220 : 130;
+      const bedroomRate = isMoveIn ? 65 : 48;
+      const bathroomRate = isMoveIn ? 55 : 38;
+      lineItems.push({ label: isMoveIn ? "Move-in clean base visit" : "Spring clean base visit", unitPrice: baseVisit, qty: 1, total: baseVisit });
       lineItems.push({ label: "Bedrooms", unitPrice: bedroomRate, qty: bedrooms, total: bedrooms * bedroomRate });
       lineItems.push({ label: "Bathrooms", unitPrice: bathroomRate, qty: bathrooms, total: bathrooms * bathroomRate });
       baseRate = baseVisit + bedrooms * bedroomRate + bathrooms * bathroomRate;
@@ -372,11 +464,18 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
 
   if (!entry) {
     entry =
-      allRows.find(
-        (row) =>
-          (row.bedrooms ?? 0) <= (input.bedrooms ?? 0) &&
-          (row.bathrooms ?? 0) <= (input.bathrooms ?? 0)
-      ) ??
+      [...allRows]
+        .filter(
+          (row) =>
+            (row.bedrooms ?? 0) <= (input.bedrooms ?? 0) &&
+            (row.bathrooms ?? 0) <= (input.bathrooms ?? 0)
+        )
+        .sort(
+          (left, right) =>
+            (right.bedrooms ?? 0) - (left.bedrooms ?? 0) ||
+            (right.bathrooms ?? 0) - (left.bathrooms ?? 0) ||
+            Number(right.baseRate ?? 0) - Number(left.baseRate ?? 0)
+        )[0] ??
       allRows.find((row) => (row.bedrooms ?? 0) === 0 && (row.bathrooms ?? 0) === 0) ??
       allRows[0] ??
       null;
@@ -426,12 +525,42 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
 
   maybeAddFlatCharge(input.addOns?.oven, "oven", "Oven clean");
   maybeAddFlatCharge(input.addOns?.fridge, "fridge", "Fridge clean");
+  maybeAddFlatCharge(input.addOns?.fridgeFull, "fridgeFull", "Full fridge clean");
+  maybeAddFlatCharge(input.addOns?.freezer, "freezer", "Freezer clean");
   maybeAddFlatCharge(input.hasBalcony, "balcony", "Balcony");
+  maybeAddFlatCharge(input.addOns?.smallBalcony, "smallBalcony", "Small balcony");
+  maybeAddFlatCharge(input.addOns?.largeBalcony, "largeBalcony", "Large balcony");
   maybeAddFlatCharge(input.addOns?.heavyMess, "heavyMess", "Heavy mess surcharge");
   maybeAddFlatCharge(input.addOns?.sameDay, "sameDay", "Priority turnaround surcharge");
   maybeAddFlatCharge(input.addOns?.furnished, "furnished", "Furnished property allowance");
   maybeAddFlatCharge(input.addOns?.pets, "pets", "Pets / pet hair allowance");
   maybeAddFlatCharge(input.addOns?.outdoorArea, "outdoorArea", "Outdoor area allowance");
+  maybeAddFlatCharge(input.addOns?.largeKitchen, "largeKitchen", "Large kitchen allowance");
+  maybeAddFlatCharge(input.addOns?.grill, "grill", "Grill clean");
+  maybeAddFlatCharge(input.addOns?.rangehood, "rangehood", "Rangehood and filter clean");
+  maybeAddFlatCharge(input.addOns?.dishwasher, "dishwasher", "Dishwasher clean");
+  maybeAddFlatCharge(input.addOns?.insideCupboards, "insideCupboards", "Inside cupboards and drawers");
+  maybeAddFlatCharge(input.addOns?.pantry, "pantry", "Pantry clean");
+  maybeAddFlatCharge(input.addOns?.interiorWindows, "interiorWindows", "Interior windows and tracks");
+  maybeAddFlatCharge(input.addOns?.exteriorWindows, "exteriorWindows", "Exterior windows");
+  maybeAddFlatCharge(input.addOns?.slidingGlassDoor, "slidingGlassDoor", "Sliding glass door and tracks");
+  maybeAddFlatCharge(input.addOns?.blindsShutters, "blindsShutters", "Blinds / shutters wet wipe");
+  maybeAddFlatCharge(input.addOns?.wallSpotClean, "wallSpotClean", "Wall spot clean");
+  maybeAddFlatCharge(input.addOns?.wallWashing, "wallWashing", "Wall washing");
+  maybeAddFlatCharge(input.addOns?.ceilingFans, "ceilingFans", "Ceiling fan clean");
+  maybeAddFlatCharge(input.addOns?.airConditionerVents, "airConditionerVents", "Air conditioner vent clean");
+  maybeAddFlatCharge(input.addOns?.wardrobe, "wardrobe", "Wardrobe clean");
+  maybeAddFlatCharge(input.addOns?.garage, "garage", "Garage sweep and tidy");
+  maybeAddFlatCharge(input.addOns?.deckPatio, "deckPatio", "Deck / patio clean");
+  maybeAddFlatCharge(input.addOns?.alfresco, "alfresco", "Alfresco area clean");
+  maybeAddFlatCharge(input.addOns?.pergola, "pergola", "Pergola clean");
+  maybeAddFlatCharge(input.addOns?.carpetSteam, "carpetSteam", "Carpet steam clean allowance");
+  maybeAddFlatCharge(input.addOns?.changeBedsheets, "changeBedsheets", "Change bedsheets");
+  maybeAddFlatCharge(input.addOns?.washDishes, "washDishes", "Wash dishes");
+  maybeAddFlatCharge(input.addOns?.laundryLoad, "laundryLoad", "Laundry load / hang out");
+  maybeAddFlatCharge(input.addOns?.laundryFold, "laundryFold", "Laundry fold");
+  maybeAddFlatCharge(input.addOns?.laundryCloset, "laundryCloset", "Laundry closet clean");
+  maybeAddFlatCharge(input.addOns?.rumpusRoom, "rumpusRoom", "Rumpus room clean");
 
   const extraFloors = Math.max(0, (input.floors ?? 1) - 1);
   const extraFloorRate = Number(addOns.additionalFloor ?? addOns.extraFloor ?? 18);
