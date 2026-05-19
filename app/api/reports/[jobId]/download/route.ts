@@ -88,6 +88,9 @@ export async function GET(
           headers: {
             "Content-Type": "application/pdf",
             "Content-Disposition": `attachment; filename="job-report-${params.jobId}.pdf"`,
+            "Cache-Control": "no-store, max-age=0",
+            Pragma: "no-cache",
+            Expires: "0",
           },
         });
       } catch (error: any) {

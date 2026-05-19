@@ -9,6 +9,7 @@ const hasStorageConfig = Boolean(
     process.env.AWS_ACCESS_KEY_ID &&
     process.env.AWS_SECRET_ACCESS_KEY
 );
+const hasPublicStorageConfig = Boolean(hasStorageConfig && process.env.S3_PUBLIC_BASE_URL);
 
 const PDF_IMAGE_MAX_DIMENSION = Number(process.env.PDF_IMAGE_MAX_DIMENSION ?? 1024);
 const PDF_IMAGE_QUALITY = Number(process.env.PDF_IMAGE_QUALITY ?? 75);
@@ -177,7 +178,37 @@ async function loadStoredPdfFromUrl(pdfUrl: string): Promise<Buffer | null> {
   }
 }
 
-export async function getJobReportPdfBuffer(report: { pdfUrl: string | null; htmlContent: string | null }, jobId: string) {
+async function refreshStoredJobReportPdf(jobId: string, pdf: Buffer) {
+  if (!hasPublicStorageConfig || !process.env.S3_BUCKET_NAME) return;
+  try {
+    await s3
+      .putObject({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: `reports/${jobId}/report.pdf`,
+        Body: pdf,
+        ContentType: "application/pdf",
+      })
+      .promise();
+  } catch (err) {
+    logger.warn({ err, jobId }, "Failed to refresh stored job report PDF");
+  }
+}
+
+export async function getJobReportPdfBuffer(
+  report: { pdfUrl: string | null; htmlContent: string | null },
+  jobId: string,
+  options: { preferStored?: boolean } = {}
+) {
+  if (report.htmlContent && !options.preferStored) {
+    try {
+      const rendered = await renderPdfFromHtml(report.htmlContent, "job report PDF generation");
+      await refreshStoredJobReportPdf(jobId, rendered);
+      return rendered;
+    } catch (err) {
+      logger.warn({ err, jobId }, "Fresh job report PDF render failed; falling back to stored PDF");
+    }
+  }
+
   const storedFromBucket = await loadStoredPdfFromBucket(jobId);
   if (storedFromBucket) return storedFromBucket;
 
