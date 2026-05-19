@@ -12,10 +12,23 @@ const hasStorageConfig = Boolean(
 
 const PDF_IMAGE_MAX_DIMENSION = Number(process.env.PDF_IMAGE_MAX_DIMENSION ?? 1024);
 const PDF_IMAGE_QUALITY = Number(process.env.PDF_IMAGE_QUALITY ?? 75);
+const PDF_FETCH_TIMEOUT_MS = Number(process.env.PDF_FETCH_TIMEOUT_MS ?? 12000);
+const PDF_RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS ?? 30000);
 
 type SharpModule = typeof import("sharp");
 
 let sharpModulePromise: Promise<SharpModule | null> | null = null;
+
+async function fetchWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal, cache: "no-store" });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadSharp(): Promise<SharpModule | null> {
   if (!sharpModulePromise) {
     sharpModulePromise = import("sharp")
@@ -69,7 +82,7 @@ export async function renderPdfFromHtml(
           return route.continue();
         }
         try {
-          const response = await fetch(url);
+          const response = await fetchWithTimeout(url, PDF_FETCH_TIMEOUT_MS);
           if (!response.ok) return route.continue();
           const original = Buffer.from(await response.arrayBuffer());
           const resized = await sharp(original, { failOn: "none" })
@@ -93,7 +106,11 @@ export async function renderPdfFromHtml(
     }
 
     const page = await context.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
+    await page.setContent(html, {
+      waitUntil: "domcontentloaded",
+      timeout: PDF_RENDER_TIMEOUT_MS,
+    });
+    await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -131,7 +148,7 @@ async function loadStoredPdfFromBucket(jobId: string): Promise<Buffer | null> {
 
 async function loadStoredPdfFromUrl(pdfUrl: string): Promise<Buffer | null> {
   try {
-    const response = await fetch(pdfUrl, { cache: "no-store" });
+    const response = await fetchWithTimeout(pdfUrl, PDF_FETCH_TIMEOUT_MS);
     if (!response.ok) return null;
     return Buffer.from(await response.arrayBuffer());
   } catch {

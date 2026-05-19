@@ -15,13 +15,21 @@ function parseFilenameFromDisposition(contentDisposition: string | null, fallbac
 }
 
 export async function downloadFromApi(url: string, fallbackFilename: string, init?: RequestInit) {
-  const res = await fetch(url, {
+  const requestInit: RequestInit = {
     ...init,
+    cache: "no-store",
     headers: {
       "x-progress-toast": "force",
       ...(init?.headers ?? {}),
     },
-  });
+  };
+  let res: Response;
+  try {
+    res = await fetch(url, requestInit);
+  } catch {
+    // One retry for transient network drops (common on long-running PDF responses).
+    res = await fetch(url, requestInit);
+  }
 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
