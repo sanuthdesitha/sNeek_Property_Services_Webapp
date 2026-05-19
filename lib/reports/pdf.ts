@@ -14,6 +14,7 @@ const PDF_IMAGE_MAX_DIMENSION = Number(process.env.PDF_IMAGE_MAX_DIMENSION ?? 10
 const PDF_IMAGE_QUALITY = Number(process.env.PDF_IMAGE_QUALITY ?? 75);
 const PDF_FETCH_TIMEOUT_MS = Number(process.env.PDF_FETCH_TIMEOUT_MS ?? 12000);
 const PDF_RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS ?? 30000);
+const PDF_IMAGE_WAIT_TIMEOUT_MS = Number(process.env.PDF_IMAGE_WAIT_TIMEOUT_MS ?? 20000);
 
 type SharpModule = typeof import("sharp");
 
@@ -110,7 +111,27 @@ export async function renderPdfFromHtml(
       waitUntil: "domcontentloaded",
       timeout: PDF_RENDER_TIMEOUT_MS,
     });
-    await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+    await page
+      .evaluate(async (timeoutMs) => {
+        const images = Array.from(document.images || []);
+        if (!images.length) return;
+        await Promise.race([
+          Promise.all(
+            images.map((img) => {
+              if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+              return new Promise<void>((resolve) => {
+                const done = () => resolve();
+                img.addEventListener("load", done, { once: true });
+                img.addEventListener("error", done, { once: true });
+              });
+            })
+          ),
+          new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+        ]);
+      },
+      PDF_IMAGE_WAIT_TIMEOUT_MS)
+      .catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 1500 }).catch(() => {});
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
