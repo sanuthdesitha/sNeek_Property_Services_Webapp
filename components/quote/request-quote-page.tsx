@@ -218,6 +218,8 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
     rumpusRoom: false,
     conditionLevel: "standard",
     promoCode: "",
+    preferredDate: "",
+    preferredTime: "any",
     scopeNotes: "",
   });
   const [lead, setLead] = useState({ name: "", email: "", phone: "", address: "", suburb: "" });
@@ -408,6 +410,8 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
             parkingAccess: form.parkingAccess,
             frequency: form.frequency,
             conditionLevel: form.conditionLevel,
+            preferredDate: form.preferredDate,
+            preferredTime: form.preferredTime,
             addOns: {
               balcony: form.hasBalcony,
               exteriorAccess: form.exteriorAccess,
@@ -508,12 +512,20 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className={mode === "public" ? "page-fade relative min-h-[calc(100vh-160px)] py-8 sm:py-12 lg:py-16" : "space-y-6"}>
+    <div className={mode === "public" ? "page-fade bg-slate-50 py-12 sm:py-16 lg:py-20" : "space-y-6"}>
       {mode === "public" && (
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(37,169,184,0.08),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(255,177,95,0.10),transparent_40%)]" />
+        <div className="mx-auto mb-10 max-w-3xl px-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.34em] text-primary">Free Quote</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+            Tell us about your property
+          </h1>
+          <p className="mt-3 text-sm text-slate-600 sm:text-base">
+            Takes 2 minutes. No commitment. We'll confirm availability within 4 hours.
+          </p>
+        </div>
       )}
-      <div className={`mx-auto grid max-w-6xl gap-5 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] xl:gap-8 2xl:gap-10 ${mode === "public" ? "px-4 sm:px-6 lg:px-8 xl:px-10" : ""}`}>
-        <div className="min-w-0 space-y-5">
+      <div className={`mx-auto grid max-w-[650px] gap-5 ${mode === "public" ? "px-4" : ""}`}>
+        <div className={mode === "public" ? "hidden" : "min-w-0 space-y-5"}>
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               <Quote className="h-3.5 w-3.5" />
@@ -562,17 +574,44 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
           </Card>
         </div>
 
-        <Card className="min-w-0 overflow-hidden rounded-[2rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
-          <CardHeader>
-            <CardTitle>{wizardSteps[stepIndex]}</CardTitle>
-            <CardDescription>
-              {stepIndex < 5 ? "Move step by step so the estimate reflects the actual scope. If the work should be reviewed properly first, the request will switch to a tailored quote path." : "Review the estimate and send the request with the full scope context attached."}
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 bg-white shadow-[0_18px_34px_rgba(15,23,42,0.12)]">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
+            <div className="-mx-1 min-w-0 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-max items-center gap-2 sm:gap-3">
+                {wizardSteps.map((step, index) => (
+                  <div key={step} className="flex items-center gap-2 sm:gap-3">
+                    <div
+                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors ${
+                        index < stepIndex
+                          ? "border-primary bg-primary text-white"
+                          : index === stepIndex
+                            ? "border-primary bg-white text-primary"
+                            : "border-slate-200 bg-white text-slate-400"
+                      }`}
+                      title={step}
+                      aria-label={`Step ${index + 1}: ${step}`}
+                    >
+                      {index < stepIndex ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+                    </div>
+                    {index < wizardSteps.length - 1 ? (
+                      <div className={`h-0.5 w-7 ${index < stepIndex ? "bg-primary" : "bg-slate-200"}`} />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="shrink-0 pl-3 text-sm text-slate-500">Step {stepIndex + 1} of {wizardSteps.length}</p>
+          </div>
+          <CardHeader className="px-5 pb-4 pt-7 sm:px-6">
+            <CardTitle className="text-xl font-semibold tracking-tight text-slate-950">{wizardSteps[stepIndex]}</CardTitle>
+            <CardDescription className="text-sm leading-6 text-slate-600">
+              {stepIndex < 6 ? "Answer each section so the estimate reflects the actual property, access, and condition." : "Review the estimate and send the request with the full scope context attached."}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-5 px-5 pb-6 sm:px-6">
             {stepIndex === 0 ? (
               <div className="space-y-5">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   {(Object.keys(SERVICE_FAMILY_META) as ServiceFamily[]).map((family) => (
                     <button
                       type="button"
@@ -581,25 +620,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                         setSelectedFamily(family);
                         setServiceType(defaultServiceForFamily(family));
                       }}
-                      className={`min-w-0 rounded-[1.5rem] border p-5 text-left transition-colors ${selectedFamily === family ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
+                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${selectedFamily === family ? "border-primary bg-primary/5" : "border-slate-200 bg-white"}`}
                     >
-                      <p className="font-semibold">{SERVICE_FAMILY_META[family].label}</p>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{SERVICE_FAMILY_META[family].description}</p>
+                      <p className="font-semibold text-slate-950">{SERVICE_FAMILY_META[family].label}</p>
+                      <p className="mt-1 text-sm leading-5 text-slate-500">{SERVICE_FAMILY_META[family].description}</p>
                     </button>
                   ))}
                 </div>
 
-                <div className="rounded-[1.5rem] border border-border/70 bg-muted/20 p-4 sm:p-5">
+                <div className="rounded-[28px] bg-slate-50 p-4 sm:p-5">
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Services in this category</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {familyServices.map((service) => (
-                      <div key={service.jobType} className="rounded-2xl border border-border/70 bg-white px-4 py-3">
-                        <p className="font-medium">{service.label}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{service.tagline}</p>
+                      <div key={service.jobType} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <p className="font-medium text-slate-950">{service.label}</p>
+                        <p className="mt-1 text-sm text-slate-500">{service.tagline}</p>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
+                  <p className="mt-3 text-sm text-slate-500">
                     Next, choose the exact service you want quoted from this category.
                   </p>
                 </div>
@@ -607,18 +646,18 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
             ) : null}
 
             {stepIndex === 1 ? (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {familyServices.map((service) => (
                     <button
                       type="button"
                       key={service.jobType}
                       onClick={() => setServiceType(service.jobType)}
-                      className={`min-w-0 rounded-[1.5rem] border p-5 text-left transition-colors ${serviceType === service.jobType ? "border-primary/40 bg-primary/5" : "border-border/70 bg-white"}`}
+                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${serviceType === service.jobType ? "border-primary bg-primary/5" : "border-slate-200 bg-white"}`}
                     >
-                      <p className="font-semibold">{service.label}</p>
+                      <p className="font-semibold text-slate-950">{service.label}</p>
                       <p className="mt-1 text-sm font-medium text-primary">{service.tagline}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{service.summary}</p>
-                    <p className="mt-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">{service.autoPricingMode === "estimate" ? "Instant estimate path" : "Manual review path"}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">{service.summary}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-400">{service.autoPricingMode === "estimate" ? "Instant estimate path" : "Manual review path"}</p>
                   </button>
                 ))}
               </div>
@@ -628,7 +667,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               <div className="space-y-5">
                 <p className="text-sm leading-6 text-muted-foreground">
                   Upload photos of the property to help us quote accurately. Kitchen, bathrooms, and problem areas are most useful.
-                  <span className="ml-1 font-medium text-foreground">This step is optional — skip if not ready.</span>
+                  <span className="ml-1 font-medium text-foreground">This step is optional - skip if not ready.</span>
                 </p>
 
                 {/* Upload button */}
@@ -644,7 +683,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-full"
+                    className="rounded-full px-5"
                     disabled={photoUrls.length >= 5 || uploadingPhotos.size > 0}
                     onClick={() => photoInputRef.current?.click()}
                   >
@@ -656,14 +695,14 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
                 {/* Uploading indicator */}
                 {uploadingPhotos.size > 0 && (
-                  <p className="text-sm text-primary animate-pulse">Uploading {uploadingPhotos.size} photo{uploadingPhotos.size > 1 ? "s" : ""}…</p>
+                  <p className="animate-pulse text-sm text-primary">Uploading {uploadingPhotos.size} photo{uploadingPhotos.size > 1 ? "s" : ""}...</p>
                 )}
 
                 {/* Photo thumbnails */}
                 {photoUrls.length > 0 && (
                   <div className="flex flex-wrap gap-3">
                     {photoUrls.map((url) => (
-                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-2xl border border-border/70 bg-muted shadow-sm">
+                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-2xl border border-slate-200 bg-muted shadow-sm">
                         <img src={url} alt="Uploaded property photo" className="h-full w-full object-cover" />
                         <button
                           type="button"
@@ -684,19 +723,19 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               <div className="space-y-4">
                 {roomBasedServices.has(serviceType) ? (
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="space-y-2"><Label>Bedrooms</Label><Input value={form.bedrooms} onChange={(event) => setForm((current) => ({ ...current, bedrooms: event.target.value }))} /></div>
-                    <div className="space-y-2"><Label>Bathrooms</Label><Input value={form.bathrooms} onChange={(event) => setForm((current) => ({ ...current, bathrooms: event.target.value }))} /></div>
-                    <div className="space-y-2"><Label>Floors</Label><Input value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
+                    <div className="space-y-2"><Label>Bedrooms</Label><Input className="rounded-full" value={form.bedrooms} onChange={(event) => setForm((current) => ({ ...current, bedrooms: event.target.value }))} /></div>
+                    <div className="space-y-2"><Label>Bathrooms</Label><Input className="rounded-full" value={form.bathrooms} onChange={(event) => setForm((current) => ({ ...current, bathrooms: event.target.value }))} /></div>
+                    <div className="space-y-2"><Label>Floors</Label><Input className="rounded-full" value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
                   </div>
                 ) : null}
 
                 {areaBasedServices.has(serviceType) ? (
                   <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="min-w-0 space-y-2"><Label>Estimated service area (sqm)</Label><Input value={form.areaSqm} onChange={(event) => setForm((current) => ({ ...current, areaSqm: event.target.value }))} placeholder="Optional if unknown" /></div>
+                  <div className="min-w-0 space-y-2"><Label>Estimated service area (sqm)</Label><Input className="rounded-full" value={form.areaSqm} onChange={(event) => setForm((current) => ({ ...current, areaSqm: event.target.value }))} placeholder="Optional if unknown" /></div>
                   <div className="space-y-2">
                     <Label>Area band</Label>
                     <Select value={form.areaBand} onValueChange={(value) => setForm((current) => ({ ...current, areaBand: value }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
                         <SelectContent>{AREA_BANDS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
@@ -705,14 +744,14 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
                 {unitBasedServices.has(serviceType) ? (
                   <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="min-w-0 space-y-2"><Label>{unitPromptForService(serviceType).label}</Label><Input value={serviceType === "WINDOW_CLEAN" ? form.windowCount : form.serviceUnits} onChange={(event) => setForm((current) => serviceType === "WINDOW_CLEAN" ? { ...current, windowCount: event.target.value } : { ...current, serviceUnits: event.target.value })} placeholder={unitPromptForService(serviceType).placeholder} /></div>
-                  <div className="space-y-2"><Label>Floors / storeys</Label><Input value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
+                  <div className="min-w-0 space-y-2"><Label>{unitPromptForService(serviceType).label}</Label><Input className="rounded-full" value={serviceType === "WINDOW_CLEAN" ? form.windowCount : form.serviceUnits} onChange={(event) => setForm((current) => serviceType === "WINDOW_CLEAN" ? { ...current, windowCount: event.target.value } : { ...current, serviceUnits: event.target.value })} placeholder={unitPromptForService(serviceType).placeholder} /></div>
+                  <div className="space-y-2"><Label>Floors / storeys</Label><Input className="rounded-full" value={form.floors} onChange={(event) => setForm((current) => ({ ...current, floors: event.target.value }))} /></div>
                 </div>
               ) : null}
 
                 <div className="space-y-2">
                   <Label>Anything the estimator should know?</Label>
-                  <Textarea rows={4} value={form.scopeNotes} onChange={(event) => setForm((current) => ({ ...current, scopeNotes: event.target.value }))} placeholder="For example: neglected condition, limited access, staged clean, inspection pressure, furnished site, pets, or unusual exterior access." />
+                  <Textarea className="rounded-[28px]" rows={4} value={form.scopeNotes} onChange={(event) => setForm((current) => ({ ...current, scopeNotes: event.target.value }))} placeholder="For example: neglected condition, limited access, staged clean, inspection pressure, furnished site, pets, or unusual exterior access." />
                 </div>
               </div>
             ) : null}
@@ -723,7 +762,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                   <div className="space-y-2">
                     <Label>Condition level</Label>
                     <Select value={form.conditionLevel} onValueChange={(value) => setForm((current) => ({ ...current, conditionLevel: value }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="light">Light</SelectItem>
                         <SelectItem value="standard">Standard</SelectItem>
@@ -734,7 +773,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                   <div className="space-y-2">
                     <Label>Parking / access</Label>
                     <Select value={form.parkingAccess} onValueChange={(value) => setForm((current) => ({ ...current, parkingAccess: value }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
                       <SelectContent>{PARKING_ACCESS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
@@ -742,21 +781,21 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                 <div className="space-y-2">
                   <Label>Window / access complexity</Label>
                   <Select value={form.windowAccess} onValueChange={(value) => setForm((current) => ({ ...current, windowAccess: value }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
                     <SelectContent>{WINDOW_ACCESS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-white px-4 py-3 text-sm">
+                <label className="flex items-center gap-3 rounded-[28px] border border-slate-200 bg-white px-4 py-3 text-sm">
                   <Checkbox checked={form.exteriorAccess} onCheckedChange={(checked) => setForm((current) => ({ ...current, exteriorAccess: checked === true }))} />
                   <span>Exterior / ladder-style access required</span>
                 </label>
                 <div className="space-y-4">
                   {EXTRA_GROUPS.map((group) => (
-                    <div key={group.title} className="rounded-[1.35rem] border border-border/70 bg-white p-4">
-                      <p className="text-sm font-semibold">{group.title}</p>
+                    <div key={group.title} className="rounded-[28px] border border-slate-200 bg-white p-4">
+                      <p className="text-sm font-semibold text-slate-950">{group.title}</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {group.items.map(([key, label]) => (
-                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-xl border border-border/60 px-3 py-2 text-sm">
+                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 text-sm">
                             <Checkbox
                               checked={(form as Record<string, boolean | string>)[key] === true}
                               onCheckedChange={(checked) => setForm((current) => ({ ...current, [key]: checked === true }))}
@@ -777,22 +816,46 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                   <div className="space-y-2">
                     <Label>Service cadence</Label>
                     <Select value={form.frequency} onValueChange={(value) => setForm((current) => ({ ...current, frequency: value }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
                       <SelectContent>{FREQUENCIES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                  <label className="flex items-center gap-3 rounded-2xl border border-border/70 px-4 py-3 text-sm">
+                  <label className="flex items-center gap-3 rounded-[28px] border border-slate-200 px-4 py-3 text-sm">
                     <Checkbox checked={form.sameDay} onCheckedChange={(checked) => setForm((current) => ({ ...current, sameDay: checked === true }))} />
                     <span>Priority or same-day turnaround</span>
                   </label>
                 </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Preferred date</Label>
+                    <Input
+                      className="rounded-full"
+                      type="date"
+                      value={form.preferredDate}
+                      onChange={(event) => setForm((current) => ({ ...current, preferredDate: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Preferred time</Label>
+                    <Select value={form.preferredTime} onValueChange={(value) => setForm((current) => ({ ...current, preferredTime: value }))}>
+                      <SelectTrigger className="rounded-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any time</SelectItem>
+                        <SelectItem value="morning">Morning</SelectItem>
+                        <SelectItem value="midday">Midday</SelectItem>
+                        <SelectItem value="afternoon">Afternoon</SelectItem>
+                        <SelectItem value="evening">Evening</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                   <div className="space-y-2">
                     <Label>Promo code</Label>
-                    <Input value={form.promoCode} onChange={(event) => setForm((current) => ({ ...current, promoCode: event.target.value.toUpperCase() }))} placeholder="Optional" />
+                    <Input className="rounded-full" value={form.promoCode} onChange={(event) => setForm((current) => ({ ...current, promoCode: event.target.value.toUpperCase() }))} placeholder="Optional" />
                   </div>
                   <div className="flex items-end">
-                    <Button type="button" variant="outline" onClick={validateCampaign} className="w-full sm:w-auto">
+                    <Button type="button" variant="outline" onClick={validateCampaign} className="w-full rounded-full sm:w-auto">
                       <TicketPercent className="mr-2 h-4 w-4" />
                       Check code
                     </Button>
@@ -804,7 +867,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
             {stepIndex === 6 ? (
               <div className="space-y-4">
-                <div className="rounded-[1.5rem] border border-border/70 bg-white px-4 py-4">
+                <div className="rounded-[28px] bg-slate-50 px-5 py-5">
                   {loadingEstimate ? (
                     <p className="text-sm text-muted-foreground">Building estimate...</p>
                   ) : manualQuoteRequired ? (
@@ -838,25 +901,26 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                     <p className="text-sm text-muted-foreground">No estimate has been generated yet.</p>
                   )}
                 </div>
-                <Button type="button" variant="outline" onClick={buildEstimate} disabled={loadingEstimate}>Refresh estimate</Button>
+                <Button type="button" variant="outline" onClick={buildEstimate} disabled={loadingEstimate} className="rounded-full px-5">Refresh estimate</Button>
               </div>
             ) : null}
 
             {stepIndex === 7 ? (
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label>Full name</Label><Input value={lead.name} onChange={(event) => setLead((current) => ({ ...current, name: event.target.value }))} /></div>
-                  <div className="space-y-2"><Label>Email</Label><Input type="email" value={lead.email} onChange={(event) => setLead((current) => ({ ...current, email: event.target.value }))} /></div>
+                  <div className="space-y-2"><Label>Full name</Label><Input className="rounded-full" value={lead.name} onChange={(event) => setLead((current) => ({ ...current, name: event.target.value }))} /></div>
+                  <div className="space-y-2"><Label>Email</Label><Input className="rounded-full" type="email" value={lead.email} onChange={(event) => setLead((current) => ({ ...current, email: event.target.value }))} /></div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label>Phone</Label><Input value={lead.phone} onChange={(event) => setLead((current) => ({ ...current, phone: event.target.value }))} placeholder="0451217210 or +61451217210" /></div>
-                  <div className="space-y-2"><Label>Suburb</Label><Input value={lead.suburb} onChange={(event) => setLead((current) => ({ ...current, suburb: event.target.value }))} /></div>
+                  <div className="space-y-2"><Label>Phone</Label><Input className="rounded-full" value={lead.phone} onChange={(event) => setLead((current) => ({ ...current, phone: event.target.value }))} placeholder="0451217210 or +61451217210" /></div>
+                  <div className="space-y-2"><Label>Suburb</Label><Input className="rounded-full" value={lead.suburb} onChange={(event) => setLead((current) => ({ ...current, suburb: event.target.value }))} /></div>
                 </div>
                 <div className="space-y-2">
                   <Label>Address</Label>
                   <GoogleAddressInput
                     value={lead.address}
-                    placeholder="Start typing your address…"
+                    placeholder="Start typing your address..."
+                    className="rounded-full"
                     onChange={(value) => setLead((current) => ({ ...current, address: value }))}
                     onResolved={(parts) =>
                       setLead((current) => ({
@@ -870,24 +934,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:justify-between">
-              <Button type="button" variant="outline" onClick={previousStep} disabled={stepIndex === 0} className="w-full sm:w-auto">
+            <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-between">
+              <Button type="button" variant="outline" onClick={previousStep} disabled={stepIndex === 0} className="w-full rounded-full px-6 sm:w-auto">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
               <div className="flex flex-col gap-2 sm:flex-row">
                 {stepIndex === 2 && (
-                  <Button type="button" variant="ghost" onClick={nextStep} className="w-full sm:w-auto text-muted-foreground">
-                    Skip this step →
+                  <Button type="button" variant="ghost" onClick={nextStep} className="w-full rounded-full text-muted-foreground sm:w-auto">
+                    Skip this step
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 )}
                 {stepIndex < wizardSteps.length - 1 ? (
-                  <Button type="button" onClick={nextStep} disabled={stepIndex === 2 && uploadingPhotos.size > 0} className="w-full sm:w-auto">
-                    Continue
+                  <Button type="button" onClick={nextStep} disabled={stepIndex === 2 && uploadingPhotos.size > 0} className="w-full rounded-full px-8 sm:w-auto">
+                    Next
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 ) : (
-                  <Button type="button" onClick={submitLead} disabled={submitting || !lead.name || !lead.email} className="w-full sm:w-auto">
+                  <Button type="button" onClick={submitLead} disabled={submitting || !lead.name || !lead.email} className="w-full rounded-full px-8 sm:w-auto">
                     {submitting ? "Submitting..." : manualQuoteRequired ? "Request manual quote" : "Send quote request"}
                   </Button>
                 )}
