@@ -236,6 +236,12 @@ enum EmailStatus {
   UNSUBSCRIBED
 }
 
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -360,6 +366,7 @@ model User {
   state        String?
   postcode     String?
   uiDensity    UiDensity   @default(DEFAULT)
+  themePreference ThemePreference @default(SYSTEM)
   emailStatus  EmailStatus @default(OK)
   lastSeenAt   DateTime?
 
