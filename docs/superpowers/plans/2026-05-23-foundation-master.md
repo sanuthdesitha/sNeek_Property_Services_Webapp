@@ -97,7 +97,7 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan C — Layout shells, navigation, command palette, density preference
 
-**Status:** to-be-written when Plan B merges.
+**Status:** drafted 2026-05-24 — see docs/superpowers/plans/2026-05-24-foundation-c-shells.md.
 
 **Summary:**
 - Rebuild admin sidebar shell with new tokens, section groupings, collapsible to icon-only.
@@ -117,7 +117,7 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan D — Address autocomplete + geocoding integration
 
-**Status:** to-be-written when Plan A merges (can run in parallel with B/C).
+**Status:** drafted 2026-05-24 — see docs/superpowers/plans/2026-05-24-foundation-c-shells.md (C), -d-address.md (D), -e-uploads.md (E), -f-email-gps.md (F) (can run in parallel with B/C).
 
 **Summary:**
 - New `lib/google-maps/client.ts` — singleton wrapper around the Google Maps JS SDK; lazy-loads on first use.
@@ -137,7 +137,7 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan E — Upload pipeline reliability
 
-**Status:** to-be-written when Plan A merges (parallel with B/C/D).
+**Status:** drafted 2026-05-24 — see docs/superpowers/plans/2026-05-24-foundation-c-shells.md (C), -d-address.md (D), -e-uploads.md (E), -f-email-gps.md (F) (parallel with B/C/D).
 
 **Summary:**
 - New `lib/uploads/multipart-client.ts` — browser-side S3 multipart with presigned part URLs.
@@ -158,7 +158,7 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan F — Email deliverability + live GPS tracking
 
-**Status:** to-be-written when Plan A merges (parallel with B/C/D/E).
+**Status:** drafted 2026-05-24 — see docs/superpowers/plans/2026-05-24-foundation-c-shells.md (C), -d-address.md (D), -e-uploads.md (E), -f-email-gps.md (F) (parallel with B/C/D/E).
 
 **Summary:**
 
@@ -188,7 +188,7 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan G — Audits + cleanup + acceptance gates
 
-**Status:** to-be-written when D/E/F merge.
+**Status:** drafted 2026-05-24 — see docs/superpowers/plans/2026-05-24-foundation-g-audits.md.
 
 **Summary:**
 - Implement `scripts/audit/broken-links.ts` — Playwright crawler running against `npm run start` build, login as each role from seed accounts, BFS depth 5, output `docs/audits/broken-links-report.md`. Fix or remove every entry.
