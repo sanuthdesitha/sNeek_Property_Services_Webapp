@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 
 // Note: dev/layout.tsx already gates this route (admin + non-prod) and is
 // dynamic via getServerSession, so this client page doesn't need its own
@@ -319,6 +320,11 @@ export default function PrimitivesDemoPage() {
             <Label htmlFor="sw1">Notifications</Label>
           </div>
         </div>
+      </section>
+
+      <section id="progress" className="space-y-4">
+        <h2 className="text-lg font-semibold">Progress</h2>
+        <Progress value={40} label="Upload progress" className="max-w-md" />
       </section>
     </div>
   );
