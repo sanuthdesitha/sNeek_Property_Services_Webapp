@@ -236,4 +236,32 @@ Estimated calendar: Plan A 1–2 days, Plan B 2–3 days, Plan C 2 days, Plans D
 
 ## Plan retros (appended after each merge)
 
-*(none yet)*
+### Plan A — 2026-05-24 (pushed, awaiting PR + merge)
+
+**Branch:** `feat/foundation-a-schema-tokens` (15 commits beyond main).
+
+**Status:** Functionally complete. Tests green (7/7 Vitest, smoke E2E). Build passes. Branch pushed.
+
+**Discovered + handled in-flight:**
+
+1. **Inter was never actually loaded.** `globals.css` referenced `var(--font-sans)` and `var(--font-display)` but nothing defined them — site fell back to Segoe UI. Task 7 added Inter alongside JetBrains Mono as a bonus fix.
+2. **Pre-existing migration bug blocks shadow DB replay.** `prisma/migrations/20260408220915_add_en_route_notifications_automation/migration.sql` line 8 uses `'JobStatus'::regtype` (unquoted, lowercased by Postgres → fails on fresh shadow DB). `prisma migrate dev` is unusable until this is fixed. **Plan B MUST fix this before any new migration work.**
+3. **Schema branch / dev DB drift.** The local dev DB had the QA migration applied (from sibling branch work) but the foundation schema didn't include QA. `prisma migrate diff --from-schema-datasource` wanted to drop QA tables. **Workaround used for this PR only:** hand-wrote additive SQL, applied via `prisma db execute`, recorded via `prisma migrate resolve --applied`. Not a sustainable pattern — Plans B+ should land on a branch where the dev DB and schema are in sync (likely by rebasing onto whatever ships first).
+4. **`Inter Display` is not a real Google Fonts family.** Used weighted Inter (500/600/700) for the display variable. If a distinct display cut is wanted, swap to Inter Tight, Manrope, etc. in a follow-up.
+5. **Property already had geocode columns** (`latitude`, `longitude`, `suburb`, `state`, `postcode`) — Task 4 only added `placeId` + indexes on Property. `suburb`/`state` on Property are non-nullable (pre-existing); on User/Client they're nullable. Plan D's `<AddressAutocomplete>` will need to handle both shapes.
+6. **No ESLint config exists.** `npm run lint` triggers Next's interactive config wizard. Skipped in CI checks. Scaffold an `.eslintrc` in a separate PR.
+7. **A11y baseline:** Only 1 violation type (`color-contrast`, 9 nodes) found on `/` — not the 3 the PR template anticipated. Specifically: WhatsApp CTA white-on-green (1.98:1), footer `text-white/40` headings (3.71:1), footer `#617074` copy (3.16:1). All eligible for Plan G fixes.
+8. **Build fix required.** Adding `"types": ["vitest/globals"]` to `tsconfig.json` pulled in Vite type conflicts during Next's build. Excluded `vitest.config.ts`, `vitest.setup.ts`, `playwright.config.ts`, `tests/**`, `e2e/**` from the build tsconfig — Vitest uses its own resolution; tests still pass.
+
+**Punch list deferred to later plans:**
+
+- **Plan B prereq:** fix the historic migration bug in `20260408220915_add_en_route_notifications_automation/migration.sql` (1-char-pair change: `'JobStatus'::regtype` → `'"JobStatus"'::regtype`) + reconcile `_prisma_migrations.checksum` via `migrate resolve` so future `prisma migrate dev` calls work.
+- **Plan D:** address autocomplete must handle Property's non-nullable `suburb`/`state` vs User/Client's nullable variants.
+- **Plan G:** add `.marketing-only` class to public marketing layout root so decorative animations re-activate there only (currently scoped, currently inert everywhere because no consumer applies the class).
+- **Plan G:** drive a11y violations to zero — 1 type, 9 nodes captured in `docs/audits/a11y-baseline.md`.
+- **Independent follow-up:** scaffold ESLint config; install `gh` CLI on dev machine for PR ergonomics.
+
+**Manual outstanding:** Task 13 (visual route walk by human) and Task 16 step 3 (open PR via GitHub UI — `gh` not installed).
+
+**PR URL when opened:** https://github.com/sanuthdesitha/sNeek_Property_Services_Webapp/pull/new/feat/foundation-a-schema-tokens
+
