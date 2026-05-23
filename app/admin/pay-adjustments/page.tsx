@@ -105,6 +105,7 @@ export default function AdminPayAdjustmentsPage() {
   const [sendClientTitle, setSendClientTitle] = useState("");
   const [sendClientDescription, setSendClientDescription] = useState("");
   const [sendingClientApproval, setSendingClientApproval] = useState(false);
+  const [reversingClientApprovalId, setReversingClientApprovalId] = useState<string | null>(null);
   const [detailRow, setDetailRow] = useState<PayAdjustmentRow | null>(null);
   const [linkPropertyFor, setLinkPropertyFor] = useState<PayAdjustmentRow | null>(null);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
@@ -200,6 +201,10 @@ export default function AdminPayAdjustmentsPage() {
       toast({ title: "Title is required.", variant: "destructive" });
       return;
     }
+    const confirmed = window.confirm(
+      `Send this pay request to the client for ${formatMoney(amount)} approval?\n\nThis will appear in the client portal and notify the client.`
+    );
+    if (!confirmed) return;
     setSendingClientApproval(true);
     const res = await fetch(`/api/admin/pay-adjustments/${sendToClientFor.id}/send-to-client`, {
       method: "POST",
@@ -223,6 +228,30 @@ export default function AdminPayAdjustmentsPage() {
     }
     toast({ title: "Sent to client for approval" });
     setSendToClientFor(null);
+    await load();
+  }
+
+  async function reverseClientApproval(row: PayAdjustmentRow) {
+    if (!row.clientApproval) return;
+    const confirmed = window.confirm(
+      "Reverse this client approval request?\n\nIt will be removed from the client portal. You can send it again later if needed."
+    );
+    if (!confirmed) return;
+    setReversingClientApprovalId(row.id);
+    const res = await fetch(`/api/admin/pay-adjustments/${row.id}/send-to-client`, {
+      method: "DELETE",
+    });
+    const body = await res.json().catch(() => ({}));
+    setReversingClientApprovalId(null);
+    if (!res.ok) {
+      toast({
+        title: "Could not reverse client approval",
+        description: body.error ?? "Request failed.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "Client approval reversed", description: "The request was removed from the client portal." });
     await load();
   }
 
@@ -342,6 +371,17 @@ export default function AdminPayAdjustmentsPage() {
                             disabled={row.clientApproval?.status === "PENDING"}
                           >
                             {row.clientApproval?.status === "PENDING" ? "Client Pending" : "Send to Client"}
+                          </Button>
+                        ) : null}
+                        {row.clientApproval ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => reverseClientApproval(row)}
+                            disabled={reversingClientApprovalId === row.id}
+                            className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                          >
+                            {reversingClientApprovalId === row.id ? "Reversing..." : "Reverse client send"}
                           </Button>
                         ) : null}
                         {row.status === "PENDING" ? (
