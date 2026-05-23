@@ -136,7 +136,7 @@ export function AdminSidebar({
   return (
     <aside
       className={cn(
-        "relative z-20 flex h-screen flex-col border-r border-white/60 bg-white/75 backdrop-blur-md transition-all duration-300",
+        "relative z-20 flex h-screen flex-col border-r border-border bg-surface-raised/85 backdrop-blur-md transition-all duration-300",
         collapsed ? "w-16" : "w-60",
         className
       )}
@@ -144,7 +144,7 @@ export function AdminSidebar({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_20%_12%,rgba(255,174,87,0.21),transparent_65%),radial-gradient(circle_at_90%_4%,rgba(39,153,163,0.2),transparent_52%)]" />
 
       {/* Logo */}
-      <div className="relative flex items-center gap-3 border-b border-white/70 px-4 py-5">
+      <div className="relative flex items-center gap-3 border-b border-border px-4 py-5">
         {logoUrl ? (
           <img src={logoUrl} alt={`${companyName} logo`} className="h-8 w-8 rounded-lg object-cover bg-white p-0.5 shadow-sm shrink-0" />
         ) : (
@@ -168,9 +168,9 @@ export function AdminSidebar({
       </ScrollArea>
 
       {/* Footer */}
-      <div className="space-y-1 border-t border-white/70 p-2">
+      <div className="space-y-1 border-t border-border p-2">
         {!collapsed ? (
-          <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-surface-raised/70 px-3 py-2">
             {userImage ? (
               <img src={userImage} alt={userName || "User"} className="h-8 w-8 rounded-full object-cover" />
             ) : (
@@ -187,7 +187,7 @@ export function AdminSidebar({
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-3 text-muted-foreground hover:bg-white/75"
+          className="w-full justify-start gap-3 text-muted-foreground hover:bg-surface-raised"
           onClick={() => {
             const callbackUrl = `${window.location.origin}/login`;
             window.location.assign(`/api/auth/local-signout?callbackUrl=${encodeURIComponent(callbackUrl)}`);
@@ -199,7 +199,7 @@ export function AdminSidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="w-full hover:bg-white/75"
+          className="w-full hover:bg-surface-raised"
           onClick={() => setCollapsed(!collapsed)}
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -264,7 +264,7 @@ export function AdminNavLinks({
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
                   active
                     ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]"
-                    : "text-muted-foreground hover:bg-white/75 hover:text-foreground"
+                    : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
                 )}
                 title={collapsed ? item.label : undefined}
               >
