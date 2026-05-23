@@ -13,6 +13,20 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +128,47 @@ export default function PrimitivesDemoPage() {
           <StatusPill variant="success" withDot>Completed</StatusPill>
           <StatusPill variant="warning" withDot>At risk</StatusPill>
           <StatusPill variant="danger" withDot>Breached</StatusPill>
+        </div>
+      </section>
+
+      <section id="dialog" className="space-y-4">
+        <h2 className="text-lg font-semibold">Dialog + Drawer</h2>
+        <div className="flex flex-wrap gap-3">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline">Open dialog</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Example dialog</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">Body text inside the dialog.</p>
+            </DialogContent>
+          </Dialog>
+
+          <Drawer>
+            <DrawerTrigger asChild>
+              <Button variant="outline">Open right drawer</Button>
+            </DrawerTrigger>
+            <DrawerContent side="right">
+              <DrawerHeader>
+                <DrawerTitle>Right drawer</DrawerTitle>
+              </DrawerHeader>
+              <p className="text-sm text-muted-foreground">Right-side drawer for desktop.</p>
+            </DrawerContent>
+          </Drawer>
+
+          <Drawer>
+            <DrawerTrigger asChild>
+              <Button variant="outline">Open bottom drawer</Button>
+            </DrawerTrigger>
+            <DrawerContent side="bottom">
+              <DrawerHeader>
+                <DrawerTitle>Bottom drawer</DrawerTitle>
+              </DrawerHeader>
+              <p className="text-sm text-muted-foreground">Bottom sheet drawer for mobile.</p>
+            </DrawerContent>
+          </Drawer>
         </div>
       </section>
     </div>
