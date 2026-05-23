@@ -22,6 +22,32 @@ type Payout = {
   bankAccountName: string | null;
   stripeAccountId: string | null;
   failureReason: string | null;
+  metadata?: {
+    jobs?: Array<{
+      id: string;
+      propertyName: string;
+      jobType: string;
+      hours: number;
+      spentHours: number | null;
+      originalHours: number;
+      payBasis: "ALLOCATED" | "TIMER";
+      split: number;
+      rate: number | null;
+      baseGross: number;
+      approvedExtraAmount: number;
+      transportAllowance: number;
+      gross: number;
+    }>;
+    shoppingReimbursements?: Array<{ id: string; label: string; amount: number }>;
+    shoppingTime?: Array<{ id: string; label: string; amount: number }>;
+    totals?: {
+      paidHours: number;
+      jobGross: number;
+      shoppingReimbursements: number;
+      shoppingTime: number;
+      grossPay: number;
+    };
+  };
 };
 
 type PayrollRun = {
@@ -232,9 +258,10 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
         <CardContent>
           <div className="space-y-2">
             {run.payouts.map((payout) => (
-              <div key={payout.id} className="flex items-center justify-between rounded-lg border p-3">
+              <div key={payout.id} className="rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{payout.cleanerName || payout.cleanerEmail}</span>
                     <Badge className={PAYOUT_STATUS_COLORS[payout.status] || "bg-gray-100 text-gray-700"}>
                       {payout.status}
@@ -264,6 +291,46 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                   )}
                 </div>
                 <p className="text-lg font-semibold">${payout.amount.toFixed(2)}</p>
+                </div>
+                {payout.metadata?.jobs?.length ? (
+                  <div className="mt-3 overflow-x-auto rounded-md border bg-muted/20">
+                    <table className="w-full min-w-[760px] text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/50 text-muted-foreground">
+                          <th className="px-2 py-2 text-left">Job</th>
+                          <th className="px-2 py-2 text-left">Basis</th>
+                          <th className="px-2 py-2 text-right">Paid h</th>
+                          <th className="px-2 py-2 text-right">Clock h</th>
+                          <th className="px-2 py-2 text-right">Split</th>
+                          <th className="px-2 py-2 text-right">Rate</th>
+                          <th className="px-2 py-2 text-right">Base</th>
+                          <th className="px-2 py-2 text-right">Extras</th>
+                          <th className="px-2 py-2 text-right">Transport</th>
+                          <th className="px-2 py-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payout.metadata.jobs.map((job) => (
+                          <tr key={job.id} className="border-b last:border-0">
+                            <td className="px-2 py-2">
+                              <p className="font-medium">{job.propertyName}</p>
+                              <p className="text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
+                            </td>
+                            <td className="px-2 py-2">{job.payBasis === "ALLOCATED" ? "Allocated" : "Timer"}</td>
+                            <td className="px-2 py-2 text-right">{Number(job.hours ?? 0).toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right">{Number(job.spentHours ?? 0).toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right">{job.split}</td>
+                            <td className="px-2 py-2 text-right">{job.rate == null ? "Not set" : `$${Number(job.rate).toFixed(2)}`}</td>
+                            <td className="px-2 py-2 text-right">${Number(job.baseGross ?? 0).toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right">${Number(job.approvedExtraAmount ?? 0).toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right">${Number(job.transportAllowance ?? 0).toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right font-semibold">${Number(job.gross ?? 0).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

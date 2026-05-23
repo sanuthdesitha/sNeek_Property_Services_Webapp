@@ -3,14 +3,19 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { createPayrollRun, listPayrollRuns } from "@/lib/payroll/engine";
+import { getAppSettings } from "@/lib/settings";
+import { resolvePayPeriod } from "@/lib/payroll/period";
 
 export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || undefined;
-    const runs = await listPayrollRuns({ status: status as any, limit: 50 });
-    return NextResponse.json(runs);
+    const [runs, settings] = await Promise.all([
+      listPayrollRuns({ status: status as any, limit: 50 }),
+      getAppSettings(),
+    ]);
+    return NextResponse.json({ runs, defaultPeriod: resolvePayPeriod(settings.payrollPeriod) });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Could not list payroll runs." }, { status });

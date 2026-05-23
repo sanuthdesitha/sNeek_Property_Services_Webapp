@@ -53,6 +53,8 @@ const JOB_INCLUDE = {
       name: true,
       suburb: true,
       address: true,
+      defaultCheckinTime: true,
+      defaultCheckoutTime: true,
       latitude: true,
       longitude: true,
       client: { select: { id: true, name: true, email: true } },

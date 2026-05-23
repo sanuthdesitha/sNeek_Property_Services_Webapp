@@ -12,7 +12,7 @@ import {
   requiredNameSchema,
 } from "@/lib/validations/common";
 
-const adminCreateRoleSchema = z.enum(["CLEANER", "CLIENT", "LAUNDRY"]);
+const adminCreateRoleSchema = z.enum(["CLEANER", "CLIENT", "LAUNDRY", "QA_INSPECTOR"]);
 const registerRoleSchema = z.enum(["CLEANER", "CLIENT"]);
 
 const bankDetailsSchema = z
@@ -71,7 +71,7 @@ export const updateUserByAdminSchema = z.object({
   name: requiredNameSchema.optional(),
   email: optionalEmailSchema,
   phone: optionalAustralianMobileSchema.nullable().optional(),
-  role: z.enum(["ADMIN", "OPS_MANAGER", "CLEANER", "CLIENT", "LAUNDRY"]).optional(),
+  role: z.enum(["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "CLEANER", "CLIENT", "LAUNDRY"]).optional(),
   isActive: z.boolean().optional(),
   clientId: z.string().trim().nullable().optional(),
   businessName: optionalBusinessNameSchema.nullable().optional(),

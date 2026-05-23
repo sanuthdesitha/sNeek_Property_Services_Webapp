@@ -21,6 +21,7 @@ import { sendClientJobNotification } from "@/lib/notifications/client-job-notifi
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import {
   JobStatus,
+  MediaOverrideStatus,
   MediaType,
   Role,
 } from "@prisma/client";
@@ -254,15 +255,67 @@ export async function POST(
         proofKeys: Array.isArray(update?.proofKeys) ? update.proofKeys : [],
       };
     });
+    const approvedOverrideRows = await db.mediaOverrideRequest.findMany({
+      where: {
+        jobId: job.id,
+        requestedById: session.user.id,
+        status: MediaOverrideStatus.APPROVED,
+      },
+      select: { fieldId: true },
+    });
+    const approvedOverrideFieldIds = new Set(approvedOverrideRows.map((row) => row.fieldId));
+    const requestedOverrideByFieldId = new Map(
+      (body.mediaOverrideRequests ?? []).map((item) => [item.fieldId, item])
+    );
     const missingRequiredUploads = collectRequiredUploadFields(
       template.schema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
       legacyReady
     ).filter(
-      (field) => !uploads[field.id] || uploads[field.id].length === 0
+      (field) => (!uploads[field.id] || uploads[field.id].length === 0) && !approvedOverrideFieldIds.has(field.id)
     );
     if (missingRequiredUploads.length > 0) {
+      const requestedMissingOverrides = missingRequiredUploads.filter((field) =>
+        requestedOverrideByFieldId.has(field.id)
+      );
+      if (requestedMissingOverrides.length > 0) {
+        for (const field of requestedMissingOverrides) {
+          const request = requestedOverrideByFieldId.get(field.id);
+          await db.mediaOverrideRequest.upsert({
+            where: {
+              jobId_requestedById_fieldId_status: {
+                jobId: job.id,
+                requestedById: session.user.id,
+                fieldId: field.id,
+                status: MediaOverrideStatus.PENDING,
+              },
+            },
+            update: {
+              fieldLabel: request?.fieldLabel ?? field.label,
+              reason: request?.reason ?? null,
+              updatedAt: new Date(),
+            },
+            create: {
+              jobId: job.id,
+              requestedById: session.user.id,
+              fieldId: field.id,
+              fieldLabel: request?.fieldLabel ?? field.label,
+              reason: request?.reason ?? null,
+              status: MediaOverrideStatus.PENDING,
+            },
+          });
+        }
+        return NextResponse.json(
+          {
+            error:
+              "Upload-later request sent. Admin or OPS must approve the missing media before this job can be submitted.",
+            mediaOverridePending: true,
+            missingUploadFields: requestedMissingOverrides,
+          },
+          { status: 409 }
+        );
+      }
       const missingUploadSummary = missingRequiredUploads
         .map((field) =>
           field.sectionLabel && field.sectionLabel !== field.label
@@ -408,14 +461,31 @@ export async function POST(
 
     if (Object.keys(uploads).length > 0) {
       const mediaRows = Object.entries(uploads).flatMap(([fieldId, keys]) =>
-        keys.map((key) => ({
-          submissionId: submission.id,
-          fieldId,
-          mediaType: inferMediaType(fieldId, key),
-          url: publicUrl(key),
-          s3Key: key,
-          label: fieldId.replace(/_/g, " "),
-        }))
+        keys.map((key) => {
+          const annotation =
+            body.mediaAnnotations && typeof body.mediaAnnotations === "object"
+              ? (body.mediaAnnotations as Record<string, unknown>)[key]
+              : undefined;
+          const annotationRecord =
+            annotation && typeof annotation === "object" ? (annotation as Record<string, unknown>) : null;
+          const annotatedS3Key =
+            typeof annotationRecord?.annotatedS3Key === "string" && annotationRecord.annotatedS3Key.trim()
+              ? annotationRecord.annotatedS3Key.trim()
+              : null;
+          return {
+            submissionId: submission.id,
+            fieldId,
+            mediaType: inferMediaType(fieldId, key),
+            url: annotatedS3Key ? publicUrl(annotatedS3Key) : publicUrl(key),
+            s3Key: annotatedS3Key ?? key,
+            originalUrl: annotatedS3Key ? publicUrl(key) : null,
+            originalS3Key: annotatedS3Key ? key : null,
+            annotatedUrl: annotatedS3Key ? publicUrl(annotatedS3Key) : null,
+            annotatedS3Key,
+            annotationData: annotationRecord ? (annotationRecord as any) : undefined,
+            label: fieldId.replace(/_/g, " "),
+          };
+        })
       );
       await db.submissionMedia.createMany({
         data: mediaRows,

@@ -37,7 +37,7 @@ interface SettingsEditorProps {
 
 const SETTINGS_RESTORED_EVENT = "sneek:settings-restored";
 
-const ROLES: Role[] = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER, Role.CLIENT, Role.LAUNDRY];
+const ROLES: Role[] = [Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR, Role.CLEANER, Role.CLIENT, Role.LAUNDRY];
 const JOB_TYPES: JobType[] = [
   JobType.AIRBNB_TURNOVER,
   JobType.DEEP_CLEAN,
@@ -50,6 +50,48 @@ const JOB_TYPES: JobType[] = [
   JobType.SPECIAL_CLEAN,
   JobType.COMMERCIAL_RECURRING,
 ];
+
+type QuoteRoomPackageKey = "regularHouse" | "accommodation" | "deepHouse" | "postRenovation" | "endOfLease";
+
+const QUOTE_ROOM_PACKAGES: Array<{ key: QuoteRoomPackageKey; title: string; help: string }> = [
+  { key: "regularHouse", title: "Regular House Cleaning", help: "Used for General Clean estimates." },
+  { key: "accommodation", title: "Accommodation Cleaning", help: "Used for Airbnb / short-stay turnover estimates." },
+  { key: "deepHouse", title: "Deep / Spring / Move-In Clean", help: "Used for detailed residential reset estimates." },
+  { key: "postRenovation", title: "Post Renovation Clean", help: "Used for post-construction style public estimates." },
+  { key: "endOfLease", title: "End of Lease House Clean", help: "Used for vacate and handover estimates." },
+];
+
+const QUOTE_EXTRA_RATE_FIELDS = [
+  ["studyArea", "Study area"],
+  ["oven", "Oven clean"],
+  ["insideCupboards", "Inside cupboards area set"],
+  ["blindsShutters", "Venetian / shutter blind wash"],
+  ["wallWashing", "Wall wash per level"],
+  ["waterPressureWash", "Water pressure wash per sqm"],
+  ["fridge", "Inside fridge"],
+  ["extraLivingArea", "Extra living area"],
+  ["largeKitchen", "Extra kitchen"],
+  ["balcony", "Balcony sweep, mop, and glass doors"],
+  ["kingQueenBedMaking", "King / queen bed making"],
+  ["singleDoubleBedMaking", "Single / double bed making"],
+  ["bbqClean", "BBQ clean"],
+  ["garage", "Garage"],
+  ["laundryFold", "Wash, dry, fold per hour"],
+  ["washDishes", "Dishes wash up per hour"],
+  ["extraToilet", "Extra toilet"],
+  ["petFurVacuum", "Heavy vacuum pet fur per hour"],
+  ["moveFurniture", "Move furniture per hour"],
+  ["ceilingFans", "Ceiling fan"],
+  ["travelDistance", "Travel distance 30 min interval"],
+  ["ceilingWash", "Ceiling wash per room"],
+  ["smallWindowPanels", "Small window panel"],
+  ["largeWindowPanels", "Large window panel"],
+  ["stairsMachineAccess", "Machine stair access level"],
+  ["rug", "Rug unit"],
+  ["singleDoubleMattress", "Single / double mattress"],
+  ["queenKingMattress", "Queen / king mattress"],
+  ["bedFrames", "Bed frame"],
+] as const;
 
 function cleanerLabel(cleaner: { id: string; name: string | null; email: string }) {
   if (cleaner.name?.trim()) return `${cleaner.name} (${cleaner.email})`;
@@ -378,6 +420,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
   const [newBagLocation, setNewBagLocation] = useState("");
   const [newDropoffLocation, setNewDropoffLocation] = useState("");
   const [selectedCleanerToAdd, setSelectedCleanerToAdd] = useState("");
+  const [selectedBetaCleanerToAdd, setSelectedBetaCleanerToAdd] = useState("");
   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<AppEmailTemplateKey>("signupOtp");
   const [selectedNotificationTemplate, setSelectedNotificationTemplate] =
     useState<AppNotificationTemplateKey>("newProfileCreated");
@@ -410,6 +453,13 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
         (cleaner) => !settings.selectAllAllowedCleanerIds.includes(cleaner.id)
       ),
     [cleanerOptions, settings.selectAllAllowedCleanerIds]
+  );
+  const availableBetaCleaners = useMemo(
+    () =>
+      cleanerOptions.filter(
+        (cleaner) => !(settings.betaCleanerReportUserIds ?? []).includes(cleaner.id)
+      ),
+    [cleanerOptions, settings.betaCleanerReportUserIds]
   );
 
   function hydrateFromSnapshot(nextSettings: AppSettings) {
@@ -550,6 +600,78 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
     setSettings((prev) => ({
       ...prev,
       selectAllAllowedCleanerIds: prev.selectAllAllowedCleanerIds.filter((id) => id !== cleanerId),
+    }));
+  }
+
+  function updateQuoteRoomPackage(
+    key: QuoteRoomPackageKey,
+    updater: (current: AppSettings["pricing"]["blueCleanQuote"]["roomPackages"][QuoteRoomPackageKey]) => AppSettings["pricing"]["blueCleanQuote"]["roomPackages"][QuoteRoomPackageKey]
+  ) {
+    setSettings((prev) => ({
+      ...prev,
+      pricing: {
+        ...prev.pricing,
+        blueCleanQuote: {
+          ...prev.pricing.blueCleanQuote,
+          roomPackages: {
+            ...prev.pricing.blueCleanQuote.roomPackages,
+            [key]: updater(prev.pricing.blueCleanQuote.roomPackages[key]),
+          },
+        },
+      },
+    }));
+  }
+
+  function updateQuoteExtraRate(key: string, value: number) {
+    setSettings((prev) => ({
+      ...prev,
+      pricing: {
+        ...prev.pricing,
+        blueCleanQuote: {
+          ...prev.pricing.blueCleanQuote,
+          extraRates: {
+            ...prev.pricing.blueCleanQuote.extraRates,
+            [key]: Math.max(0, Number.isFinite(value) ? value : 0),
+          },
+        },
+      },
+    }));
+  }
+
+  function updateQuoteSpecialtyRate(
+    updater: (current: AppSettings["pricing"]["blueCleanQuote"]["specialtyRates"]) => AppSettings["pricing"]["blueCleanQuote"]["specialtyRates"]
+  ) {
+    setSettings((prev) => ({
+      ...prev,
+      pricing: {
+        ...prev.pricing,
+        blueCleanQuote: {
+          ...prev.pricing.blueCleanQuote,
+          specialtyRates: updater(prev.pricing.blueCleanQuote.specialtyRates),
+        },
+      },
+    }));
+  }
+
+  function updateNumberArray(value: number[], index: number, nextValue: number) {
+    return value.map((item, itemIndex) => (itemIndex === index ? Math.max(0, Number.isFinite(nextValue) ? nextValue : 0) : item));
+  }
+
+  function addBetaCleaner() {
+    if (!selectedBetaCleanerToAdd) return;
+    setSettings((prev) => ({
+      ...prev,
+      betaCleanerReportUserIds: Array.from(
+        new Set([...(prev.betaCleanerReportUserIds ?? []), selectedBetaCleanerToAdd])
+      ),
+    }));
+    setSelectedBetaCleanerToAdd("");
+  }
+
+  function removeBetaCleaner(cleanerId: string) {
+    setSettings((prev) => ({
+      ...prev,
+      betaCleanerReportUserIds: (prev.betaCleanerReportUserIds ?? []).filter((id) => id !== cleanerId),
     }));
   }
 
@@ -1030,6 +1152,268 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
 
         <div className="space-y-4 rounded-md border p-4">
           <div>
+            <p className="text-sm font-medium">Instant quote pricing</p>
+            <p className="text-xs text-muted-foreground">
+              Edit the public quote room packages and extras pricing used by the instant estimator.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room package amounts</p>
+            <div className="grid gap-4">
+              {QUOTE_ROOM_PACKAGES.map((definition) => {
+                const packageRates = settings.pricing.blueCleanQuote.roomPackages[definition.key];
+                return (
+                  <div key={definition.key} className="space-y-3 rounded-md border p-3">
+                    <div>
+                      <p className="text-sm font-medium">{definition.title}</p>
+                      <p className="text-xs text-muted-foreground">{definition.help}</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="space-y-1.5">
+                        <Label>Bathroom rate</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={packageRates.bathroomRate}
+                          onChange={(event) =>
+                            updateQuoteRoomPackage(definition.key, (current) => ({
+                              ...current,
+                              bathroomRate: Number(event.target.value || 0),
+                            }))
+                          }
+                          disabled={readOnly}
+                        />
+                      </div>
+                      {packageRates.base !== undefined ? (
+                        <div className="space-y-1.5">
+                          <Label>Base amount</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={packageRates.base}
+                            onChange={(event) =>
+                              updateQuoteRoomPackage(definition.key, (current) => ({
+                                ...current,
+                                base: Number(event.target.value || 0),
+                              }))
+                            }
+                            disabled={readOnly}
+                          />
+                        </div>
+                      ) : null}
+                      {packageRates.storyRate !== undefined ? (
+                        <div className="space-y-1.5">
+                          <Label>Per-story rate</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={packageRates.storyRate}
+                            onChange={(event) =>
+                              updateQuoteRoomPackage(definition.key, (current) => ({
+                                ...current,
+                                storyRate: Number(event.target.value || 0),
+                              }))
+                            }
+                            disabled={readOnly}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Bedroom / studio amounts</Label>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {packageRates.bedrooms.map((amount, index) => (
+                          <div key={`${definition.key}-bedroom-${index}`} className="space-y-1">
+                            <Label className="text-xs">{index === 0 ? "Studio / 0 bed" : `${index} bed`}</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={amount}
+                              onChange={(event) =>
+                                updateQuoteRoomPackage(definition.key, (current) => ({
+                                  ...current,
+                                  bedrooms: updateNumberArray(current.bedrooms, index, Number(event.target.value || 0)),
+                                }))
+                              }
+                              disabled={readOnly}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {packageRates.stories ? (
+                      <div className="space-y-2">
+                        <Label>Story amounts</Label>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                          {packageRates.stories.map((amount, index) => (
+                            <div key={`${definition.key}-story-${index}`} className="space-y-1">
+                              <Label className="text-xs">{index === 0 ? "Single story" : `${index + 1} stories`}</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={amount}
+                                onChange={(event) =>
+                                  updateQuoteRoomPackage(definition.key, (current) => ({
+                                    ...current,
+                                    stories: updateNumberArray(current.stories ?? [], index, Number(event.target.value || 0)),
+                                  }))
+                                }
+                                disabled={readOnly}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Specialty service amounts</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label>Carpet steam base</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settings.pricing.blueCleanQuote.specialtyRates.carpetSteamBase}
+                  onChange={(event) =>
+                    updateQuoteSpecialtyRate((current) => ({
+                      ...current,
+                      carpetSteamBase: Number(event.target.value || 0),
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label>Upholstery base</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settings.pricing.blueCleanQuote.specialtyRates.upholsteryBase}
+                  onChange={(event) =>
+                    updateQuoteSpecialtyRate((current) => ({
+                      ...current,
+                      upholsteryBase: Number(event.target.value || 0),
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label>Upholstery per seater</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settings.pricing.blueCleanQuote.specialtyRates.upholsterySeatRate}
+                  onChange={(event) =>
+                    updateQuoteSpecialtyRate((current) => ({
+                      ...current,
+                      upholsterySeatRate: Number(event.target.value || 0),
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label>Window cleaning base</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settings.pricing.blueCleanQuote.specialtyRates.windowBase}
+                  onChange={(event) =>
+                    updateQuoteSpecialtyRate((current) => ({
+                      ...current,
+                      windowBase: Number(event.target.value || 0),
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label>Window per panel</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settings.pricing.blueCleanQuote.specialtyRates.windowPanelRate}
+                  onChange={(event) =>
+                    updateQuoteSpecialtyRate((current) => ({
+                      ...current,
+                      windowPanelRate: Number(event.target.value || 0),
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+            <div className="space-y-2 rounded-md border p-3">
+              <Label>Carpet room range amounts</Label>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {settings.pricing.blueCleanQuote.specialtyRates.carpetRoomRanges.map((amount, index) => (
+                  <div key={`carpet-room-${index}`} className="space-y-1">
+                    <Label className="text-xs">{index === 0 ? "Rooms?" : `${index} room${index === 1 ? "" : "s"}`}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={amount}
+                      onChange={(event) =>
+                        updateQuoteSpecialtyRate((current) => ({
+                          ...current,
+                          carpetRoomRanges: updateNumberArray(
+                            current.carpetRoomRanges,
+                            index,
+                            Number(event.target.value || 0)
+                          ),
+                        }))
+                      }
+                      disabled={readOnly}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extra item amounts</p>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {QUOTE_EXTRA_RATE_FIELDS.map(([key, label]) => (
+                <div key={key} className="space-y-1.5 rounded-md border p-3">
+                  <Label>{label}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={settings.pricing.blueCleanQuote.extraRates[key] ?? 0}
+                    onChange={(event) => updateQuoteExtraRate(key, Number(event.target.value || 0))}
+                    disabled={readOnly}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-md border p-4">
+          <div>
             <p className="text-sm font-medium">Invoicing &amp; Payment Details</p>
             <p className="text-xs text-muted-foreground">
               Bank and company details shown on client invoice PDFs and email attachments.
@@ -1365,6 +1749,135 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           <p className="text-xs text-muted-foreground">
             Only selected cleaners can use the checklist Select All button.
           </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Beta guided report cleaners</Label>
+          <div className="flex gap-2">
+            <Select
+              value={selectedBetaCleanerToAdd}
+              onValueChange={setSelectedBetaCleanerToAdd}
+              disabled={readOnly || availableBetaCleaners.length === 0}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={availableBetaCleaners.length === 0 ? "No more cleaners to add" : "Select a cleaner"} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableBetaCleaners.map((cleaner) => (
+                  <SelectItem key={cleaner.id} value={cleaner.id}>
+                    {cleanerLabel(cleaner)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" onClick={addBetaCleaner} disabled={readOnly || !selectedBetaCleanerToAdd}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add
+            </Button>
+          </div>
+          <div className="space-y-2 rounded-xl border border-input/70 bg-white/60 p-3">
+            {(settings.betaCleanerReportUserIds ?? []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">No cleaners are using the guided beta report yet.</p>
+            ) : (
+              (settings.betaCleanerReportUserIds ?? []).map((cleanerId) => {
+                const cleaner = cleanerById.get(cleanerId);
+                return (
+                  <div key={cleanerId} className="flex items-center justify-between rounded-lg border border-border/70 bg-card px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {cleaner ? cleaner.name ?? cleaner.email : cleanerId}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {cleaner ? `${cleaner.email} - ${cleanerId}` : cleanerId}
+                      </p>
+                    </div>
+                    {!readOnly && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeBetaCleaner(cleanerId)}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Selected cleaners see the guided report, attention prompts, and required-first capture queue. Others keep the current form.
+          </p>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-input/70 bg-white/60 p-4">
+          <div>
+            <p className="text-sm font-medium">Cleaner payout period</p>
+            <p className="text-xs text-muted-foreground">
+              Used by cleaner invoice previews and admin payroll run defaults.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Period interval</Label>
+              <Select
+                value={settings.payrollPeriod.interval}
+                onValueChange={(value) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    payrollPeriod: {
+                      ...prev.payrollPeriod,
+                      interval: value as "WEEKLY" | "FORTNIGHTLY" | "MONTHLY",
+                    },
+                  }))
+                }
+                disabled={readOnly}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WEEKLY">Weekly</SelectItem>
+                  <SelectItem value="FORTNIGHTLY">Fortnightly</SelectItem>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Anchor start date</Label>
+              <Input
+                type="date"
+                value={settings.payrollPeriod.anchorDate}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    payrollPeriod: { ...prev.payrollPeriod, anchorDate: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Payout delay days</Label>
+              <Input
+                type="number"
+                min={0}
+                max={31}
+                value={settings.payrollPeriod.payoutDelayDays}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    payrollPeriod: {
+                      ...prev.payrollPeriod,
+                      payoutDelayDays: Math.max(0, Number(event.target.value || 0)),
+                    },
+                  }))
+                }
+                disabled={readOnly}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="space-y-2">

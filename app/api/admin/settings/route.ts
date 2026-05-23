@@ -148,6 +148,37 @@ const qaAutomationSchema = z.object({
 
 const pricingSchema = z.object({
   gstEnabled: z.boolean().optional(),
+  blueCleanQuote: z
+    .object({
+      roomPackages: z.record(
+        z.object({
+          label: z.string().trim().min(1).optional(),
+          base: z.number().min(0).max(10000).optional(),
+          bedrooms: z.array(z.number().min(0).max(10000)).min(1).max(20).optional(),
+          bathroomRate: z.number().min(0).max(10000).optional(),
+          stories: z.array(z.number().min(0).max(10000)).min(1).max(20).optional(),
+          storyRate: z.number().min(0).max(10000).optional(),
+        })
+      ).optional(),
+      extraRates: z.record(z.number().min(0).max(5000)).optional(),
+      specialtyRates: z
+        .object({
+          carpetSteamBase: z.number().min(0).max(10000).optional(),
+          carpetRoomRanges: z.array(z.number().min(0).max(10000)).min(1).max(30).optional(),
+          upholsteryBase: z.number().min(0).max(10000).optional(),
+          upholsterySeatRate: z.number().min(0).max(10000).optional(),
+          windowBase: z.number().min(0).max(10000).optional(),
+          windowPanelRate: z.number().min(0).max(10000).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+const payrollPeriodSchema = z.object({
+  interval: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]).optional(),
+  anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  payoutDelayDays: z.number().int().min(0).max(31).optional(),
 });
 
 const updateSchema = z.object({
@@ -168,11 +199,13 @@ const updateSchema = z.object({
   laundryBagLocationOptions: z.array(z.string().trim().min(1)).min(1).optional(),
   laundryDropoffLocationOptions: z.array(z.string().trim().min(1)).min(1).optional(),
   selectAllAllowedCleanerIds: z.array(z.string().trim().min(1)).optional(),
+  betaCleanerReportUserIds: z.array(z.string().trim().min(1)).optional(),
   cleanerJobHourlyRates: z.record(z.record(z.number().min(0).max(1000))).optional(),
   profileEditPolicy: z
     .object({
       ADMIN: rolePolicySchema.optional(),
       OPS_MANAGER: rolePolicySchema.optional(),
+      QA_INSPECTOR: rolePolicySchema.optional(),
       CLEANER: rolePolicySchema.optional(),
       CLIENT: rolePolicySchema.optional(),
       LAUNDRY: rolePolicySchema.optional(),
@@ -192,6 +225,7 @@ const updateSchema = z.object({
   routeOptimization: routeOptimizationSchema.optional(),
   qaAutomation: qaAutomationSchema.optional(),
   pricing: pricingSchema.optional(),
+  payrollPeriod: payrollPeriodSchema.optional(),
   emailTemplates: z
     .record(
       z.enum(EMAIL_TEMPLATE_KEYS as [string, ...string[]]),

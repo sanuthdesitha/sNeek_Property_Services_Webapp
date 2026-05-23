@@ -16,7 +16,7 @@ import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
-type AccountRole = "ADMIN" | "OPS_MANAGER" | "CLEANER" | "CLIENT" | "LAUNDRY";
+type AccountRole = "ADMIN" | "OPS_MANAGER" | "QA_INSPECTOR" | "CLEANER" | "CLIENT" | "LAUNDRY";
 
 interface BankDetails {
   accountName?: string;
@@ -57,7 +57,7 @@ interface ClientItem {
   name: string;
 }
 
-const MANAGED_ROLES: AccountRole[] = ["ADMIN", "OPS_MANAGER", "CLEANER", "CLIENT", "LAUNDRY"];
+const MANAGED_ROLES: AccountRole[] = ["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "CLEANER", "CLIENT", "LAUNDRY"];
 
 export function UsersManager({ canManage }: { canManage: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -105,7 +105,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     name: "",
     email: "",
     password: "",
-    role: "CLEANER" as Extract<AccountRole, "CLEANER" | "CLIENT" | "LAUNDRY">,
+    role: "CLEANER" as Extract<AccountRole, "CLEANER" | "CLIENT" | "LAUNDRY" | "QA_INSPECTOR">,
     phone: "",
     clientId: "new",
     clientName: "",
@@ -606,6 +606,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="CLEANER">Cleaner</SelectItem>
+                        <SelectItem value="QA_INSPECTOR">QA Inspector</SelectItem>
                         <SelectItem value="CLIENT">Client</SelectItem>
                         <SelectItem value="LAUNDRY">Laundry</SelectItem>
                       </SelectContent>

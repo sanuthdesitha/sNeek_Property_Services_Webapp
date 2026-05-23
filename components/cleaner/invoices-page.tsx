@@ -13,6 +13,7 @@ import { toast } from "@/hooks/use-toast";
 
 interface InvoiceRow {
   jobId: string;
+  jobNumber?: string;
   date: string;
   jobName: string;
   jobType: string;
@@ -57,6 +58,12 @@ interface InvoicePreview {
   shoppingTimeTotal?: number;
   pendingAdjustmentCount?: number;
   pendingAdjustmentAmount?: number;
+  payPeriod?: {
+    startDate: string;
+    endDate: string;
+    nextPayoutDate: string;
+    label: string;
+  };
 }
 
 function money(value: number | null | undefined) {
@@ -119,6 +126,10 @@ export function CleanerInvoicesPage() {
     }
 
     setInvoicePreview(body);
+    if (body.payPeriod) {
+      setStartDate((current) => current || body.payPeriod.startDate || "");
+      setEndDate((current) => current || body.payPeriod.endDate || "");
+    }
     setJobComments((prev) => {
       const next = { ...prev };
       for (const row of body.rows ?? []) {
@@ -266,6 +277,12 @@ export function CleanerInvoicesPage() {
               </label>
             </div>
           </div>
+          {invoicePreview?.payPeriod ? (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+              Current payout period: {invoicePreview.payPeriod.label}. Next payout estimate:{" "}
+              {new Date(invoicePreview.payPeriod.nextPayoutDate).toLocaleDateString()}.
+            </div>
+          ) : null}
 
           <div className="rounded-md border p-2">
             {loadingPreview ? (

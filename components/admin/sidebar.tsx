@@ -56,6 +56,7 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Onboarding", href: "/admin/onboarding", icon: ClipboardCheck },
       { label: "Calendar", href: "/admin/calendar", icon: Calendar },
       { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
+      { label: "QA", href: "/admin/qa", icon: ClipboardCheck },
       { label: "Laundry", href: "/admin/laundry", icon: Shirt },
       { label: "Inventory", href: "/admin/inventory", icon: Package },
       { label: "Stock Counts", href: "/admin/stock-runs", icon: ClipboardList },

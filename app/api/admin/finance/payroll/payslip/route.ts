@@ -36,18 +36,29 @@ export async function GET(req: NextRequest) {
       endDate,
     });
 
-    const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
-    const pdf = await renderPdfFromHtml(html, "payslip PDF generation", {
-      margin: { top: "16px", right: "16px", bottom: "16px", left: "16px" },
-    });
     const fileName = `${(row.cleaner.name?.trim() || row.cleaner.email.split("@")[0] || "cleaner").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${startDate}-${endDate}.pdf`;
-    return new NextResponse(new Uint8Array(pdf), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    try {
+      const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+      const pdf = await renderPdfFromHtml(html, "payslip PDF generation", {
+        margin: { top: "16px", right: "16px", bottom: "16px", left: "16px" },
+      });
+      return new NextResponse(new Uint8Array(pdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${fileName}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (pdfError) {
+      console.warn("[payroll] PDF generation failed; returning printable HTML payslip.", pdfError);
+      return new NextResponse(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Disposition": `inline; filename="${fileName.replace(/\.pdf$/, ".html")}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
   } catch (error: any) {
     const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not generate payslip." }, { status });

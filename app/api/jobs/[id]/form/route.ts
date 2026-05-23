@@ -35,6 +35,11 @@ export async function GET(
             bedrooms: true,
             bathrooms: true,
             inventoryEnabled: true,
+            latitude: true,
+            longitude: true,
+            defaultCheckinTime: true,
+            defaultCheckoutTime: true,
+            clientId: true,
           },
         },
         assignments: {
@@ -85,6 +90,7 @@ export async function GET(
     }
     const settings = await getAppSettings();
     const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const reservationContext = jobMeta.reservationContext ?? {};
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
     await attachPendingCarryForwardTasksToJob({
       jobId: job.id,
@@ -93,6 +99,9 @@ export async function GET(
       startTime: job.startTime,
     });
     const jobTasks = await listCleanerJobTasks(job.id);
+    const cleanerReportBetaEnabled =
+      session.user.role === Role.CLEANER &&
+      settings.betaCleanerReportUserIds.includes(session.user.id);
 
     const configuredPropertyTemplateId =
       settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
@@ -217,6 +226,52 @@ export async function GET(
       },
       orderBy: [{ createdAt: "asc" }],
     });
+    const recentPropertyIssues = await db.issueTicket.findMany({
+      where: {
+        propertyId: job.propertyId,
+        jobId: { not: job.id },
+        OR: [
+          { status: { not: "RESOLVED" } },
+          { severity: { in: ["HIGH", "CRITICAL"] } },
+          { caseType: { in: ["COMPLAINT", "DAMAGE", "QUALITY"] } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        severity: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+    });
+    const previousMedia = await db.submissionMedia.findMany({
+      where: {
+        submission: {
+          job: {
+            propertyId: job.propertyId,
+            id: { not: job.id },
+          },
+        },
+      },
+      select: {
+        id: true,
+        fieldId: true,
+        label: true,
+        mediaType: true,
+        url: true,
+        createdAt: true,
+        submission: {
+          select: {
+            job: { select: { jobNumber: true, scheduledDate: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+    });
     let expectedStartDate: string;
     try {
       expectedStartDate = format(toZonedTime(job.scheduledDate, settings.timezone || "Australia/Sydney"), "yyyy-MM-dd");
@@ -260,6 +315,24 @@ export async function GET(
       template,
       templateSource,
       configuredPropertyTemplateId,
+      cleanerReportBetaEnabled,
+      briefingSummary: {
+        previousIssues: recentPropertyIssues,
+        previousMedia,
+        timing: {
+          defaultCheckinTime: job.property.defaultCheckinTime,
+          defaultCheckoutTime: job.property.defaultCheckoutTime,
+          sameDayCheckin: job.sameDayCheckin,
+          sameDayCheckinTime: job.sameDayCheckinTime,
+          dueTime: job.dueTime,
+          startTime: job.startTime,
+          endTime: job.endTime,
+        },
+        reservationContext,
+        laundryReady:
+          job.laundryTask?.status === "DROPPED" ||
+          job.laundryTask?.confirmations?.[0]?.laundryReady === true,
+      },
       inventoryStock,
       carryForwardTasks: unresolvedCarryForwardTasks.map((ticket) => ({
         id: ticket.id,

@@ -138,6 +138,17 @@ export const submitJobSchema = z.object({
       })
     )
     .optional(),
+  mediaOverrideRequests: z
+    .array(
+      z.object({
+        fieldId: z.string().trim().min(1),
+        fieldLabel: z.string().trim().max(240).optional(),
+        reason: z.string().trim().max(2000).optional(),
+      })
+    )
+    .max(40)
+    .optional(),
+  mediaAnnotations: z.record(z.unknown()).optional(),
   laundryReady: z.boolean().optional(),
   laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
   laundrySkipReasonCode: z.string().trim().max(120).optional(),

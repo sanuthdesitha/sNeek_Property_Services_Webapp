@@ -1,6 +1,7 @@
 import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import { resolvePayPeriod } from "@/lib/payroll/period";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import {
   listCleanerApprovedShoppingTimeRuns,
@@ -26,6 +27,7 @@ export interface CleanerInvoiceData {
   showSpentHours: boolean;
   rows: Array<{
     jobId: string;
+    jobNumber: string;
     date: string;
     jobName: string;
     property: string;
@@ -70,19 +72,22 @@ export interface CleanerInvoiceData {
   pendingAdjustmentAmount: number;
   companyName: string;
   logoUrl?: string;
+  payPeriod: {
+    startDate: string;
+    endDate: string;
+    nextPayoutDate: string;
+    label: string;
+  };
 }
 
-function resolveDateRange(startDate?: string, endDate?: string) {
-  const now = new Date();
-  const start = startDate
-    ? new Date(`${startDate}T00:00:00.000Z`)
-    : new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = endDate ? new Date(`${endDate}T23:59:59.999Z`) : now;
+function resolveDateRange(settings: Awaited<ReturnType<typeof getAppSettings>>, startDate?: string, endDate?: string) {
+  const period = resolvePayPeriod(settings.payrollPeriod);
+  const start = new Date(`${startDate ?? period.startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate ?? period.endDate}T23:59:59.999Z`);
   return { start, end };
 }
 
 export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<CleanerInvoiceData> {
-  const { start, end } = resolveDateRange(options.startDate, options.endDate);
   const showSpentHours = options.showSpentHours === true;
   const [user, settings] = await Promise.all([
     db.user.findUnique({
@@ -95,6 +100,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   if (!user?.email) {
     throw new Error("Cleaner account not found.");
   }
+  const configuredPeriod = resolvePayPeriod(settings.payrollPeriod);
+  const { start, end } = resolveDateRange(settings, options.startDate, options.endDate);
 
   const payableJobs = await db.job.findMany({
     where: {
@@ -213,6 +220,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
       return {
         jobId: job.id,
+        jobNumber: job.jobNumber,
         date: new Date(job.scheduledDate).toLocaleDateString("en-AU"),
         jobName: `${job.property.name} - ${job.jobType.replace(/_/g, " ")}`,
         property: job.property.name,
@@ -294,6 +302,12 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     pendingAdjustmentAmount,
     companyName: settings.companyName,
     logoUrl: settings.logoUrl,
+    payPeriod: {
+      startDate: options.startDate ?? configuredPeriod.startDate,
+      endDate: options.endDate ?? configuredPeriod.endDate,
+      nextPayoutDate: configuredPeriod.nextPayoutDate,
+      label: configuredPeriod.label,
+    },
   };
 }
 

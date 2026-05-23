@@ -117,7 +117,7 @@ export function getMissingRequiredProfileFields(
   role: Role,
   profile: UserExtendedProfile | null
 ): string[] {
-  if (role === Role.ADMIN || role === Role.OPS_MANAGER) return [];
+  if (role === Role.ADMIN || role === Role.OPS_MANAGER || role === Role.QA_INSPECTOR) return [];
 
   const missing: string[] = [];
   if (!profile?.contactNumber?.trim()) missing.push("contactNumber");

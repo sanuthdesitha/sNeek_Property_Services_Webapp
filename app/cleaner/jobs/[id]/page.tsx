@@ -20,7 +20,7 @@ import { AccessInstructionsPanel } from "@/components/shared/access-instructions
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
-import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
+import { collectRequiredAnswerFields, collectRequiredUploadFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -319,6 +319,10 @@ export default function CleanerJobPage() {
   const [damageTitle, setDamageTitle] = useState("");
   const [damageDescription, setDamageDescription] = useState("");
   const [damageEstimatedCost, setDamageEstimatedCost] = useState("0");
+  const [lostFoundItemName, setLostFoundItemName] = useState("");
+  const [lostFoundLocation, setLostFoundLocation] = useState("");
+  const [lostFoundNotes, setLostFoundNotes] = useState("");
+  const [submittingLostFound, setSubmittingLostFound] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [reschedulePreferredDate, setReschedulePreferredDate] = useState("");
   const [rescheduleRemainingHours, setRescheduleRemainingHours] = useState("");
@@ -336,6 +340,11 @@ export default function CleanerJobPage() {
   const [transferCleanerId, setTransferCleanerId] = useState("");
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [assignmentActionLoading, setAssignmentActionLoading] = useState<"ACCEPT" | "DECLINE" | "TRANSFER" | null>(null);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  const [finishAttentionAcknowledged, setFinishAttentionAcknowledged] = useState(false);
+  const [activeGuidedCaptureIndex, setActiveGuidedCaptureIndex] = useState(0);
+  const [mediaOverrideRequests, setMediaOverrideRequests] = useState<Record<string, { fieldId: string; fieldLabel: string; reason: string }>>({});
+  const [mediaAnnotations, setMediaAnnotations] = useState<Record<string, { labels: string[]; note: string; updatedAt: string }>>({});
 
   const [startingDriving, setStartingDriving] = useState(false);
   const [stoppingDriving, setStoppingDriving] = useState(false);
@@ -463,6 +472,8 @@ export default function CleanerJobPage() {
       damageEstimatedCost,
       showRescheduleForm,
       missedTaskNotes,
+      mediaOverrideRequests,
+      mediaAnnotations,
     };
   }
 
@@ -536,6 +547,16 @@ export default function CleanerJobPage() {
         ? [draft.missedTaskNote]
         : [];
     setMissedTaskNotes(draftNotes.length > 0 ? draftNotes : [""]);
+    setMediaOverrideRequests(
+      draft.mediaOverrideRequests && typeof draft.mediaOverrideRequests === "object"
+        ? draft.mediaOverrideRequests
+        : {}
+    );
+    setMediaAnnotations(
+      draft.mediaAnnotations && typeof draft.mediaAnnotations === "object"
+        ? draft.mediaAnnotations
+        : {}
+    );
     lastKnownSharedDraftAtRef.current =
       typeof draft.updatedAt === "string" && draft.updatedAt ? draft.updatedAt : lastKnownSharedDraftAtRef.current;
   }
@@ -1243,6 +1264,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     savedLaundryUpdate,
     lastLaundrySubmittedAt,
     laundryUpdateCollapsed,
+    mediaOverrideRequests,
+    mediaAnnotations,
     missedTaskNotes,
     payload,
     resolvedCarryForwardIds,
@@ -1288,6 +1311,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     laundrySkipReasonCode,
     laundrySkipReasonNote,
     laundryUpdateCollapsed,
+    mediaOverrideRequests,
+    mediaAnnotations,
     missedTaskNotes,
     payload?.job?.status,
     resolvedCarryForwardIds,
@@ -1609,6 +1634,56 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }).length;
   const progress = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
   const uploadedCount = Object.values(uploads).reduce((sum, keys) => sum + keys.length, 0);
+  const cleanerReportBetaEnabled = Boolean(payload?.cleanerReportBetaEnabled);
+  const guidedRequiredUploadFields = useMemo(
+    () =>
+      template
+        ? collectRequiredUploadFields(
+            template.schema,
+            formData,
+            (job?.property ?? {}) as Record<string, unknown>,
+            laundryOutcome === "READY_FOR_PICKUP"
+          )
+        : [],
+    [template, formData, job?.property, laundryOutcome]
+  );
+  const guidedCaptureQueue = useMemo(() => {
+    const requiredIds = new Set(guidedRequiredUploadFields.map((field: any) => field.id));
+    const requiredUploadItems = uploadFields.map((field: any) => ({
+      id: String(field.id),
+      label: String(field.label ?? field.id),
+      sectionLabel: String(field.sectionLabel ?? "Report photos"),
+      required: requiredIds.has(String(field.id)),
+      type: /video/i.test(String(field.label ?? field.id)) ? "video" : "photo",
+      source: "form",
+    }));
+    const taskProofItems = unifiedJobTasks
+      .filter((task) => task.requiresPhoto === true)
+      .map((task) => ({
+        id: jobTaskProofFieldId(String(task.id)),
+        label: String(task.title ?? "Task proof"),
+        sectionLabel: formatJobTaskSourceLabel(String(task.source ?? "ADMIN")),
+        required: true,
+        type: "photo",
+        source: "task",
+      }));
+    const specialTaskItems = specialRequestTasks
+      .filter((task) => task.requiresPhoto === true)
+      .map((task) => ({
+        id: adminRequestedTaskPhotoFieldId(task.id),
+        label: task.title,
+        sectionLabel: "Admin request",
+        required: true,
+        type: "photo",
+        source: "admin",
+      }));
+    return [...requiredUploadItems, ...taskProofItems, ...specialTaskItems].sort((a, b) => Number(b.required) - Number(a.required));
+  }, [guidedRequiredUploadFields, uploadFields, unifiedJobTasks, specialRequestTasks]);
+  const activeGuidedCapture = guidedCaptureQueue[Math.min(activeGuidedCaptureIndex, Math.max(0, guidedCaptureQueue.length - 1))] ?? null;
+  const guidedCaptureCompletedCount = guidedCaptureQueue.filter((item) => (uploads[item.id]?.length ?? 0) > 0).length;
+  const guidedCaptureProgress = guidedCaptureQueue.length > 0
+    ? Math.round((guidedCaptureCompletedCount / guidedCaptureQueue.length) * 100)
+    : 0;
   const bagLocation = bagLocationSelection === "__custom" ? bagLocationCustom : bagLocationSelection;
   const laundryPhotoKey =
     uploads.laundry_photo?.[0] ??
@@ -1961,6 +2036,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
       showPopupNotification("Job started", "Timer is now running.");
       setStep("checklist");
+      if (cleanerReportBetaEnabled) setAttentionOpen(true);
       return;
     }
 
@@ -1989,6 +2065,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
     showPopupNotification("Job started", "Timer is now running.");
     setStep("checklist");
+    if (cleanerReportBetaEnabled) setAttentionOpen(true);
   }
 
   async function handleStop() {
@@ -2216,6 +2293,49 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
   }
 
+  function requestUploadLater(field: { id: string; label: string; sectionLabel?: string }) {
+    const reason = window.prompt(`Why will "${field.label}" be uploaded later?`);
+    if (reason === null) return;
+    setMediaOverrideRequests((prev) => ({
+      ...prev,
+      [field.id]: {
+        fieldId: field.id,
+        fieldLabel: field.sectionLabel ? `${field.sectionLabel}: ${field.label}` : field.label,
+        reason: reason.trim() || "Cleaner requested admin approval to upload this media later.",
+      },
+    }));
+    toast({
+      title: "Upload-later request saved",
+      description: "Final submission will send this to admin/OPS for approval.",
+    });
+  }
+
+  function clearUploadLaterRequest(fieldId: string) {
+    setMediaOverrideRequests((prev) => {
+      const next = { ...prev };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  function annotateUploadedImage(key: string, label: string) {
+    const current = mediaAnnotations[key];
+    const note = window.prompt(`Add labels/notes for ${label}. Separate labels with commas.`, current?.note ?? "");
+    if (note === null) return;
+    setMediaAnnotations((prev) => ({
+      ...prev,
+      [key]: {
+        note: note.trim(),
+        labels: note
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+    toast({ title: "Image annotation saved", description: "Labels will be stored with the submission media." });
+  }
+
   async function handleLaundryPhotoUpload(files: FileList | File[], source: UploadSource = "gallery") {
     const { uploadedKeys, failedCount } = await uploadFilesForField("laundry_photo", files, source);
     if (uploadedKeys.length > 0) {
@@ -2439,6 +2559,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                       <span className="hidden sm:inline">Preview</span>
                     </Button>
                   ) : null}
+                  {isImage && item.key ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 shrink-0 px-2 text-[11px]"
+                      onClick={() => annotateUploadedImage(item.key!, item.name)}
+                    >
+                      Annotate
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"
@@ -2462,6 +2593,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               )}
               {item.status === "failed" && item.error ? (
                 <p className="text-[10px] text-destructive">{item.error}</p>
+              ) : null}
+              {item.key && mediaAnnotations[item.key] ? (
+                <p className="text-[10px] text-emerald-700">
+                  Annotated: {mediaAnnotations[item.key].labels.join(", ") || mediaAnnotations[item.key].note || "note saved"}
+                </p>
               ) : null}
             </div>
           );
@@ -2703,6 +2839,15 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         ? body.missingRequiredFields.filter((field: any) => field && typeof field === "object")
         : [];
       if (missingUploadFields.length > 0) {
+        if (body?.mediaOverridePending) {
+          toast({
+            title: "Admin approval required",
+            description: body.error ?? "Upload-later request sent for admin/OPS approval.",
+            variant: "destructive",
+          });
+          setStep("uploads");
+          return false;
+        }
         const missingIds = new Set(
           missingUploadFields
             .map((field: any) => (typeof field.id === "string" ? field.id : ""))
@@ -2853,14 +2998,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
     if (!template) {
       toast({ title: "No form template available", variant: "destructive" });
-      return null;
-    }
-    if (!laundryOutcome && !savedLaundryUpdate) {
-      toast({
-        title: "Laundry outcome required",
-        description: "Select and send a laundry outcome now or include one with the final submission.",
-        variant: "destructive",
-      });
       return null;
     }
     if (laundryOutcome && !validateLaundryState()) return null;
@@ -3029,6 +3166,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     );
     const payloadToSubmit = {
       templateId: template.id,
+      mediaOverrideRequests: Object.values(mediaOverrideRequests),
+      mediaAnnotations,
       jobTasks: unifiedTaskPayload.map((task) => ({
         id: task.id,
         decision: task.decision,
@@ -3195,6 +3334,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   async function handleSubmit() {
+    if (cleanerReportBetaEnabled && guidedAttentionItems.length > 0 && !finishAttentionAcknowledged) {
+      setAttentionOpen(true);
+      toast({
+        title: "Review priority items first",
+        description: "Confirm admin/client/carry-forward items before final submission.",
+      });
+      return;
+    }
     const payloadToSubmit = buildSubmissionPayload();
     if (!payloadToSubmit) return;
 
@@ -3283,6 +3430,38 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
     showPopupNotification("Damage report saved", "It will be submitted with the full job form.");
+  }
+
+  async function handleSubmitLostFound() {
+    if (!lostFoundItemName.trim() || !lostFoundLocation.trim() || !lostFoundNotes.trim()) {
+      toast({ title: "Complete lost and found fields", variant: "destructive" });
+      return;
+    }
+    setSubmittingLostFound(true);
+    const res = await fetch("/api/cleaner/lost-found", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jobId,
+        itemName: lostFoundItemName.trim(),
+        location: lostFoundLocation.trim(),
+        notes: lostFoundNotes.trim(),
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSubmittingLostFound(false);
+    if (!res.ok) {
+      toast({
+        title: "Could not submit lost and found",
+        description: body.error ?? "Try again or tell admin.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setLostFoundItemName("");
+    setLostFoundLocation("");
+    setLostFoundNotes("");
+    showPopupNotification("Lost and found submitted", body.notificationWarning ?? "Admin has been notified.");
   }
 
   async function handleRequestReschedule() {
@@ -3394,6 +3573,21 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     .filter((item) => item.status === "queued" || item.status === "uploading").length;
   const hasPendingUploads = pendingUploadCount > 0;
   const hasPendingContinuationRequest = rescheduleRequests.some((row) => row.status === "PENDING");
+  const guidedAttentionItems = [
+    ...jobTimingHighlights.map((item) => ({ label: item, tone: "timing" })),
+    ...specialRequestTasks.map((task) => ({ label: `Admin request: ${task.title}`, tone: "admin" })),
+    ...unifiedJobTasks
+      .filter((task) => ["ADMIN", "CLIENT", "CARRY_FORWARD"].includes(String(task.source)))
+      .map((task) => ({ label: `${formatJobTaskSourceLabel(String(task.source))}: ${String(task.title ?? "Task")}`, tone: "task" })),
+    ...carryForwardTasks.map((task) => ({ label: `Previous clean carry-forward: ${String(task.description ?? "Review required")}`, tone: "carry" })),
+    ...((payload?.briefingSummary?.previousIssues ?? []) as any[]).slice(0, 3).map((issue) => ({
+      label: `Previous issue: ${issue.title}`,
+      tone: "issue",
+    })),
+    ...(payload?.briefingSummary?.laundryReady === false
+      ? [{ label: "Laundry is not confirmed ready. Confirm status before finishing.", tone: "laundry" }]
+      : []),
+  ];
   const latestEarlyCheckoutRequest = earlyCheckoutRequests[0] ?? null;
   const pendingEarlyCheckoutRequest = earlyCheckoutRequests.find((row) => row.status === "PENDING") ?? null;
   const mapsUrl = buildGoogleMapsDirectionsUrl({
@@ -3495,6 +3689,118 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {cleanerReportBetaEnabled ? (
+        <Card className="border-emerald-200 bg-emerald-50/70">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base text-emerald-950">
+              <Camera className="h-4 w-4" />
+              Guided beta report
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-lg border border-emerald-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Guest count</p>
+                <p className="text-lg font-semibold">{preparationGuestCount || "Check booking"}</p>
+                <p className="text-[11px] text-muted-foreground">{String(preparationSource).replace(/_/g, " ")}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Laundry</p>
+                <p className="text-sm font-semibold">
+                  {payload?.briefingSummary?.laundryReady ? "Confirmed ready/delivered" : "Needs confirmation"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Attention items</p>
+                <p className="text-lg font-semibold">{guidedAttentionItems.length}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Capture queue</p>
+                <p className="text-lg font-semibold">{guidedCaptureQueue.filter((item) => (uploads[item.id]?.length ?? 0) === 0).length}</p>
+              </div>
+            </div>
+
+            {guidedAttentionItems.length > 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-950">Do not miss</p>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setAttentionOpen(true)}>
+                    View all
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  {guidedAttentionItems.slice(0, 4).map((item, index) => (
+                    <p key={`${item.tone}-${index}`} className="text-sm text-amber-900">- {item.label}</p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {activeGuidedCapture ? (
+              <div className="rounded-lg border bg-white/90 p-3">
+                <div className="mb-3 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Photo routine progress</span>
+                    <span>{guidedCaptureCompletedCount}/{guidedCaptureQueue.length} categories</span>
+                  </div>
+                  <Progress value={guidedCaptureProgress} className="h-2" />
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Guided capture {Math.min(activeGuidedCaptureIndex + 1, guidedCaptureQueue.length)} of {guidedCaptureQueue.length}
+                    </p>
+                    <p className="font-semibold">{activeGuidedCapture.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {activeGuidedCapture.sectionLabel} - {activeGuidedCapture.required ? "Required" : "Optional"} - {(uploads[activeGuidedCapture.id]?.length ?? 0)} uploaded
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => setStep("uploads")}>
+                      Open upload section
+                    </Button>
+                    <label className="inline-flex cursor-pointer items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+                      Open camera
+                      <input
+                        type="file"
+                        accept={activeGuidedCapture.type === "video" ? "video/*" : "image/*"}
+                        capture={activeGuidedCapture.type === "video" ? "environment" : "environment"}
+                        multiple
+                        className="hidden"
+                        onChange={async (event) => {
+                          if (event.target.files?.length) {
+                            await handleUpload(activeGuidedCapture.id, event.target.files, "camera");
+                            setActiveGuidedCaptureIndex((prev) => Math.min(prev + 1, Math.max(0, guidedCaptureQueue.length - 1)));
+                            clearUploadLaterRequest(activeGuidedCapture.id);
+                          }
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <Button type="button" variant="outline" onClick={() => requestUploadLater(activeGuidedCapture)}>
+                      Upload later
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setActiveGuidedCaptureIndex((prev) => Math.min(prev + 1, Math.max(0, guidedCaptureQueue.length - 1)))}
+                      disabled={guidedCaptureQueue.length <= 1}
+                    >
+                      Confirm category done
+                    </Button>
+                  </div>
+                </div>
+                {mediaOverrideRequests[activeGuidedCapture.id] ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Upload-later approval requested: {mediaOverrideRequests[activeGuidedCapture.id].reason}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
       ) : null}
 
       {job?.status === "EN_ROUTE" && (
@@ -4890,7 +5196,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                     type="button"
                     className="bg-emerald-600 text-white shadow-[0_10px_24px_-12px_rgba(5,150,105,0.8)] hover:bg-emerald-700 hover:text-white"
                     onClick={handleSendLaundryUpdateNow}
-                    disabled={savingLaundryUpdate || !hasStartedJob}
+                    disabled={savingLaundryUpdate}
                   >
                     {savingLaundryUpdate ? "Sending..." : "Send laundry update now"}
                   </Button>
@@ -5141,6 +5447,53 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </CardContent>
           </Card>
 
+          <Card className="border-sky-200 bg-sky-50/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Lost and Found</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-sky-950">
+                Submit this immediately if you find guest or owner belongings. It opens an admin case without waiting for the full job report.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Item</Label>
+                  <Input
+                    placeholder="Example: watch, charger, keys"
+                    value={lostFoundItemName}
+                    onChange={(event) => setLostFoundItemName(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Where found</Label>
+                  <Input
+                    placeholder="Example: bedside drawer"
+                    value={lostFoundLocation}
+                    onChange={(event) => setLostFoundLocation(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Notes</Label>
+                <Textarea
+                  rows={2}
+                  placeholder="Add useful details for admin or the client."
+                  value={lostFoundNotes}
+                  onChange={(event) => setLostFoundNotes(event.target.value)}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-sky-300 bg-white text-sky-900 hover:bg-sky-100"
+                onClick={handleSubmitLostFound}
+                disabled={submittingLostFound}
+              >
+                {submittingLostFound ? "Submitting..." : "Submit lost and found"}
+              </Button>
+            </CardContent>
+          </Card>
+
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep("laundry")}>
               {"<- Back"}
@@ -5177,6 +5530,46 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md object-contain"
               />
             ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={attentionOpen} onOpenChange={setAttentionOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Priority items before you finish</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {guidedAttentionItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No special attention items for this job.</p>
+            ) : (
+              <div className="max-h-[55vh] space-y-2 overflow-auto">
+                {guidedAttentionItems.map((item, index) => (
+                  <div key={`${item.tone}-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+            )}
+            {payload?.briefingSummary?.previousMedia?.length > 0 ? (
+              <div className="rounded-lg border p-3">
+                <p className="mb-2 text-sm font-semibold">Recent property photos</p>
+                <MediaGallery
+                  items={payload.briefingSummary.previousMedia.slice(0, 8).map((item: any) => ({
+                    id: item.id,
+                    url: item.url,
+                    mediaType: item.mediaType,
+                    label: item.label || item.fieldId,
+                  }))}
+                />
+              </div>
+            ) : null}
+            <Button className="w-full" onClick={() => {
+              setFinishAttentionAcknowledged(true);
+              setAttentionOpen(false);
+            }}>
+              I have reviewed these
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

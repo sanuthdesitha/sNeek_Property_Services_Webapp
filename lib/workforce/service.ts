@@ -728,17 +728,26 @@ export async function listVisibleWorkforcePosts(userId: string) {
       OR: [{ publishAt: null }, { publishAt: { lte: new Date() } }],
     },
     include: {
-      createdBy: { select: { id: true, name: true, role: true, image: true } },
       reads: { where: { userId }, select: { id: true, readAt: true }, take: 1 },
       _count: { select: { reads: true } },
     },
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
     take: 40,
   });
+  const creatorIds = Array.from(new Set(posts.map((post) => post.createdById)));
+  const creators =
+    creatorIds.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: creatorIds } },
+          select: { id: true, name: true, role: true, image: true },
+        })
+      : [];
+  const creatorById = new Map(creators.map((creator) => [creator.id, creator]));
   return posts
     .filter((post) => canUserSeeAudience(user, parseAudience(post.audience), groupIds))
     .map((post) => ({
       ...post,
+      createdBy: creatorById.get(post.createdById) ?? null,
       attachments: safeAttachments(post.attachments),
       isUnread: (post.reads?.length ?? 0) === 0,
       seenCount: post._count?.reads ?? 0,
@@ -748,14 +757,23 @@ export async function listVisibleWorkforcePosts(userId: string) {
 export async function listAdminWorkforcePosts() {
   const posts = await db.workforcePost.findMany({
     include: {
-      createdBy: { select: { id: true, name: true, role: true, image: true } },
       _count: { select: { reads: true } },
     },
     orderBy: [{ pinned: "desc" }, { publishAt: "asc" }, { createdAt: "desc" }],
     take: 100,
   });
+  const creatorIds = Array.from(new Set(posts.map((post) => post.createdById)));
+  const creators =
+    creatorIds.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: creatorIds } },
+          select: { id: true, name: true, role: true, image: true },
+        })
+      : [];
+  const creatorById = new Map(creators.map((creator) => [creator.id, creator]));
   return posts.map((post) => ({
     ...post,
+    createdBy: creatorById.get(post.createdById) ?? null,
     attachments: safeAttachments(post.attachments),
     seenCount: post._count?.reads ?? 0,
   }));

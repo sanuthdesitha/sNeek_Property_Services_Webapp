@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, Quote, Sparkles, TicketPercent, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, Minus, Plus, Quote, Sparkles, TicketPercent, X } from "lucide-react";
 import { MARKETED_SERVICES, SERVICE_FAMILY_META, getMarketedService, getServicesByFamily, type ServiceFamily } from "@/lib/marketing/catalog";
 import type { MarketedJobTypeValue } from "@/lib/marketing/job-types";
 import { Button } from "@/components/ui/button";
@@ -92,59 +92,47 @@ const FREQUENCIES = [
 
 const EXTRA_GROUPS = [
   {
-    title: "Kitchen & Appliances",
+    title: "Kitchen & Detail Extras",
     items: [
-      ["largeKitchen", "Large kitchen"],
-      ["oven", "Inside oven, trays and racks"],
-      ["grill", "Grill / cooktop detail"],
-      ["rangehood", "Rangehood and filters"],
-      ["fridge", "Inside fridge"],
-      ["fridgeFull", "Full fridge clean"],
-      ["freezer", "Freezer clean"],
-      ["dishwasher", "Dishwasher inside and out"],
-      ["insideCupboards", "Inside cupboards and drawers"],
-      ["pantry", "Pantry shelves and doors"],
-      ["washDishes", "Wash dishes"],
+      ["oven", "Oven clean - $150"],
+      ["insideCupboards", "Inside cupboards area set - $100"],
+      ["fridge", "Inside fridge - $80"],
+      ["largeKitchen", "Extra kitchen - $100"],
+      ["washDishes", "Dishes wash up per hour - $40"],
+      ["bbqClean", "BBQ clean - $100"],
     ],
   },
   {
-    title: "Windows, Walls & Fixtures",
+    title: "Rooms, Beds & Living Areas",
     items: [
-      ["interiorWindows", "Interior windows and tracks"],
-      ["exteriorWindows", "Exterior windows"],
-      ["slidingGlassDoor", "Sliding glass door and tracks"],
-      ["blindsShutters", "Blinds / shutters wet wipe"],
-      ["wallSpotClean", "Spot clean walls"],
-      ["wallWashing", "Full wall washing"],
-      ["ceilingFans", "Ceiling fans"],
-      ["airConditionerVents", "A/C vents"],
+      ["studyArea", "Study area - $20"],
+      ["extraLivingArea", "Extra living area - $50"],
+      ["kingQueenBedMaking", "King / queen bed making - $15"],
+      ["singleDoubleBedMaking", "Single / double bed making - $10"],
+      ["laundryFold", "Wash, dry, fold per hour - $55"],
+      ["extraToilet", "Extra toilet - $25"],
     ],
   },
   {
-    title: "Outdoor, Laundry & Rooms",
+    title: "Windows, Walls & Access",
     items: [
-      ["smallBalcony", "Small balcony"],
-      ["largeBalcony", "Large balcony"],
-      ["deckPatio", "Deck / patio"],
-      ["alfresco", "Alfresco area / BBQ exterior"],
-      ["pergola", "Pergola"],
-      ["garage", "Garage sweep and tidy"],
-      ["wardrobe", "Wardrobe tracks, mirrors and internals"],
-      ["rumpusRoom", "Rumpus room"],
-      ["laundryLoad", "Laundry load / hang out"],
-      ["laundryFold", "Fold laundry"],
-      ["laundryCloset", "Laundry closet"],
-      ["changeBedsheets", "Change bedsheets"],
+      ["blindsShutters", "Venetian / shutter blind wash - $20"],
+      ["wallWashing", "Wall wash per level - $250"],
+      ["ceilingWash", "Ceiling wash per room - $200"],
+      ["smallWindowPanels", "Small window panel - $10"],
+      ["largeWindowPanels", "Large window panel - $20"],
+      ["moveFurniture", "Move furniture per hour - $50"],
     ],
   },
   {
-    title: "Condition & Specialty",
+    title: "Outdoor, Steam & Travel",
     items: [
-      ["heavyMess", "Heavy duty / extra attention"],
-      ["furnished", "Furnished property"],
-      ["pets", "Pets / pet hair"],
-      ["outdoorArea", "Outdoor entry area"],
-      ["carpetSteam", "Carpet steam clean allowance"],
+      ["largeBalcony", "Balcony sweep, mop, and glass doors - $80"],
+      ["garage", "Garage - $60"],
+      ["outdoorArea", "Water pressure wash per sqm - $5"],
+      ["petFurVacuum", "Heavy vacuum pet fur per hour - $44"],
+      ["stairsMachineAccess", "Machine stair access level - $30"],
+      ["travelDistance", "Travel distance 30 min interval - $25"],
     ],
   },
 ] as const;
@@ -158,7 +146,7 @@ function defaultServiceForFamily(family: ServiceFamily) {
 function unitPromptForService(serviceType: MarketedJobTypeValue) {
   if (serviceType === "WINDOW_CLEAN") return { label: "Approximate window count", placeholder: "20" };
   if (serviceType === "CARPET_STEAM_CLEAN") return { label: "Rooms to treat", placeholder: "3" };
-  if (serviceType === "UPHOLSTERY_CLEANING") return { label: "Pieces to treat", placeholder: "2" };
+  if (serviceType === "UPHOLSTERY_CLEANING") return { label: "Seaters to treat", placeholder: "3" };
   return { label: "Service units", placeholder: "1" };
 }
 
@@ -216,6 +204,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
     laundryFold: false,
     laundryCloset: false,
     rumpusRoom: false,
+    studyArea: 0,
+    extraLivingArea: 0,
+    kingQueenBedMaking: 0,
+    singleDoubleBedMaking: 0,
+    bbqClean: 0,
+    extraToilet: 0,
+    petFurVacuum: 0,
+    moveFurniture: 0,
+    ceilingWash: 0,
+    smallWindowPanels: 0,
+    largeWindowPanels: 0,
+    steamCleaningQuote: 0,
+    travelDistance: 0,
+    groundLevelAccess: 0,
+    stairsMachineAccess: 0,
+    rug: 0,
+    singleDoubleMattress: 0,
+    queenKingMattress: 0,
+    bedFrames: 0,
     conditionLevel: "standard",
     promoCode: "",
     preferredDate: "",
@@ -247,6 +254,17 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
       setServiceType(matched.jobType);
     }
   }, [mode]);
+
+  function extraQuantity(key: string) {
+    const value = (form as Record<string, boolean | number | string>)[key];
+    if (typeof value === "number") return Math.max(0, value);
+    return value === true ? 1 : 0;
+  }
+
+  function setExtraQuantity(key: string, quantity: number) {
+    const nextQuantity = Math.max(0, Math.min(99, Number.isFinite(quantity) ? Math.floor(quantity) : 0));
+    setForm((current) => ({ ...current, [key]: nextQuantity }));
+  }
 
   async function uploadPhoto(file: File) {
     const tempId = `${file.name}-${Date.now()}`;
@@ -352,6 +370,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
             laundryFold: form.laundryFold,
             laundryCloset: form.laundryCloset,
             rumpusRoom: form.rumpusRoom,
+            studyArea: form.studyArea,
+            extraLivingArea: form.extraLivingArea,
+            kingQueenBedMaking: form.kingQueenBedMaking,
+            singleDoubleBedMaking: form.singleDoubleBedMaking,
+            bbqClean: form.bbqClean,
+            extraToilet: form.extraToilet,
+            petFurVacuum: form.petFurVacuum,
+            moveFurniture: form.moveFurniture,
+            ceilingWash: form.ceilingWash,
+            smallWindowPanels: form.smallWindowPanels,
+            largeWindowPanels: form.largeWindowPanels,
+            steamCleaningQuote: form.steamCleaningQuote,
+            travelDistance: form.travelDistance,
+            groundLevelAccess: form.groundLevelAccess,
+            stairsMachineAccess: form.stairsMachineAccess,
+            rug: form.rug,
+            singleDoubleMattress: form.singleDoubleMattress,
+            queenKingMattress: form.queenKingMattress,
+            bedFrames: form.bedFrames,
           },
           conditionLevel: form.conditionLevel,
           promoCode: form.promoCode || undefined,
@@ -452,6 +489,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               laundryFold: form.laundryFold,
               laundryCloset: form.laundryCloset,
               rumpusRoom: form.rumpusRoom,
+              studyArea: form.studyArea,
+              extraLivingArea: form.extraLivingArea,
+              kingQueenBedMaking: form.kingQueenBedMaking,
+              singleDoubleBedMaking: form.singleDoubleBedMaking,
+              bbqClean: form.bbqClean,
+              extraToilet: form.extraToilet,
+              petFurVacuum: form.petFurVacuum,
+              moveFurniture: form.moveFurniture,
+              ceilingWash: form.ceilingWash,
+              smallWindowPanels: form.smallWindowPanels,
+              largeWindowPanels: form.largeWindowPanels,
+              steamCleaningQuote: form.steamCleaningQuote,
+              travelDistance: form.travelDistance,
+              groundLevelAccess: form.groundLevelAccess,
+              stairsMachineAccess: form.stairsMachineAccess,
+              rug: form.rug,
+              singleDoubleMattress: form.singleDoubleMattress,
+              queenKingMattress: form.queenKingMattress,
+              bedFrames: form.bedFrames,
             },
             estimate: result,
             manualQuoteRequired,
@@ -794,15 +850,40 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                     <div key={group.title} className="rounded-[28px] border border-slate-200 bg-white p-4">
                       <p className="text-sm font-semibold text-slate-950">{group.title}</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {group.items.map(([key, label]) => (
-                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 text-sm">
-                            <Checkbox
-                              checked={(form as Record<string, boolean | string>)[key] === true}
-                              onCheckedChange={(checked) => setForm((current) => ({ ...current, [key]: checked === true }))}
-                            />
-                            <span className="leading-5">{label}</span>
-                          </label>
-                        ))}
+                        {group.items.map(([key, label]) => {
+                          const quantity = extraQuantity(key);
+                          return (
+                            <div key={key} className={`flex min-h-[68px] items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-sm transition-colors ${quantity > 0 ? "border-primary/45 bg-primary/5" : "border-slate-200 bg-white"}`}>
+                              <span className="min-w-0 leading-5">{label}</span>
+                              <div className="flex shrink-0 items-center gap-2" aria-label={`${label} quantity`}>
+                                <button
+                                  type="button"
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => setExtraQuantity(key, quantity - 1)}
+                                  disabled={quantity === 0}
+                                  aria-label={`Decrease ${label}`}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
+                                <Input
+                                  className="h-9 w-14 rounded-full px-2 text-center"
+                                  inputMode="numeric"
+                                  value={quantity}
+                                  onChange={(event) => setExtraQuantity(key, Number(event.target.value || 0))}
+                                  aria-label={`${label} count`}
+                                />
+                                <button
+                                  type="button"
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/25 bg-white text-primary transition-colors hover:bg-primary hover:text-white"
+                                  onClick={() => setExtraQuantity(key, quantity + 1)}
+                                  aria-label={`Increase ${label}`}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}

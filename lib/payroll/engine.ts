@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { PayrollRunStatus, PayoutStatus, PayoutMethod, Role, PayAdjustmentStatus } from "@prisma/client";
+import { PayrollRunStatus, PayoutStatus, PayoutMethod } from "@prisma/client";
 import { getPayrollSummary } from "@/lib/finance/payroll";
 
 export interface PayrollRunDetail {
@@ -36,6 +36,7 @@ export interface PayoutDetail {
   bankAccountName: string | null;
   stripeAccountId: string | null;
   failureReason: string | null;
+  metadata: any;
 }
 
 /**
@@ -104,6 +105,13 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
         bankAccountNumber: user.bankAccountNumber,
         bankAccountName: user.bankAccountName,
         stripeAccountId: user.stripeAccountId,
+        metadata: {
+          jobs: cleaner.jobs,
+          adjustments: cleaner.adjustments,
+          shoppingReimbursements: cleaner.shoppingReimbursements,
+          shoppingTime: cleaner.shoppingTime,
+          totals: cleaner.totals,
+        },
       },
     });
   }
@@ -179,6 +187,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail | n
       bankAccountName: p.bankAccountName,
       stripeAccountId: p.stripeAccountId,
       failureReason: p.failureReason,
+      metadata: p.metadata,
     })),
   };
 }

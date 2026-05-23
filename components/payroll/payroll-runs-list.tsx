@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,8 +39,14 @@ export function PayrollRunsList() {
   const [loading, setLoading] = useState(true);
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
+  const [defaultPeriodLabel, setDefaultPeriodLabel] = useState("");
+  const [nextPayoutDate, setNextPayoutDate] = useState("");
   const [creating, setCreating] = useState(false);
   const router = useRouter();
+  const reviewHref =
+    periodStart && periodEnd
+      ? `/admin/finance/payroll?startDate=${encodeURIComponent(periodStart)}&endDate=${encodeURIComponent(periodEnd)}`
+      : "/admin/finance/payroll";
 
   useEffect(() => {
     loadRuns();
@@ -48,7 +55,17 @@ export function PayrollRunsList() {
   async function loadRuns() {
     try {
       const res = await fetch("/api/admin/payroll/runs");
-      if (res.ok) setRuns(await res.json());
+      if (res.ok) {
+        const body = await res.json();
+        const nextRuns = Array.isArray(body) ? body : body.runs;
+        setRuns(Array.isArray(nextRuns) ? nextRuns : []);
+        if (!Array.isArray(body) && body.defaultPeriod) {
+          setPeriodStart((current) => current || body.defaultPeriod.startDate || "");
+          setPeriodEnd((current) => current || body.defaultPeriod.endDate || "");
+          setDefaultPeriodLabel(body.defaultPeriod.label || "");
+          setNextPayoutDate(body.defaultPeriod.nextPayoutDate || "");
+        }
+      }
     } catch {
       // ignore
     } finally {
@@ -91,6 +108,12 @@ export function PayrollRunsList() {
           <CardTitle className="text-base">Create Payroll Run</CardTitle>
         </CardHeader>
         <CardContent>
+          {defaultPeriodLabel ? (
+            <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+              Default period from settings: {defaultPeriodLabel}
+              {nextPayoutDate ? ` | Next payout ${new Date(nextPayoutDate).toLocaleDateString()}` : ""}
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="mb-1 block text-sm font-medium">Period Start</label>
@@ -102,6 +125,9 @@ export function PayrollRunsList() {
             </div>
             <Button onClick={handleCreate} disabled={creating || !periodStart || !periodEnd}>
               {creating ? "Creating..." : "Create Payroll Run"}
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href={reviewHref}>Review cleaner income</Link>
             </Button>
           </div>
         </CardContent>

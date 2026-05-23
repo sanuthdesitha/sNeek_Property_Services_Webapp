@@ -104,6 +104,7 @@ export default async function HomePage() {
 
   const role = session.user.role as Role;
   if (role === Role.ADMIN || role === Role.OPS_MANAGER) return redirect("/admin");
+  if (role === Role.QA_INSPECTOR) return redirect("/qa");
   if (role === Role.CLEANER) return redirect("/cleaner");
   if (role === Role.CLIENT) return redirect("/client");
   if (role === Role.LAUNDRY) return redirect("/laundry");

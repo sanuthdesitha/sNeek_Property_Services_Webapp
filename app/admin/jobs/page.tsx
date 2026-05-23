@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
+import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
 
 const JOB_STATUSES = [
   "UNASSIGNED",
@@ -73,6 +74,18 @@ const JOB_FILTER_DEFAULTS = {
 const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
 const JOBS_PAGE_SIZE = 50;
 const KANBAN_COLUMN_PREVIEW = 12;
+const ACTIVE_KANBAN_STATUSES = [
+  "UNASSIGNED",
+  "OFFERED",
+  "ASSIGNED",
+  "EN_ROUTE",
+  "IN_PROGRESS",
+  "PAUSED",
+  "WAITING_CONTINUATION_APPROVAL",
+  "SUBMITTED",
+  "QA_REVIEW",
+];
+const COMPLETED_KANBAN_STATUSES = ["COMPLETED", "INVOICED"];
 
 type JobFilters = typeof JOB_FILTER_DEFAULTS;
 
@@ -635,6 +648,7 @@ export default function JobsPage() {
     acc[status] = filteredJobs.filter((job) => job.status === status);
     return acc;
   }, {} as Record<string, any[]>);
+  const boardStatuses = activeTab === "completed" ? COMPLETED_KANBAN_STATUSES : ACTIVE_KANBAN_STATUSES;
   const statusCounts = useMemo(
     () =>
       JOB_STATUSES.reduce<Record<string, number>>((acc, status) => {
@@ -651,6 +665,34 @@ export default function JobsPage() {
           .filter(Boolean)
       : [];
     return Array.from(new Set(names));
+  }
+
+  function getTimingHighlights(job: any) {
+    const meta = parseJobInternalNotes(job?.internalNotes);
+    const early = resolveRuleTime(meta.earlyCheckin);
+    const late = resolveRuleTime(meta.lateCheckout);
+    const items: Array<{ key: string; label: string; className: string }> = [];
+    if (late) {
+      items.push({
+        key: "late-checkout",
+        label: `Late checkout: start after ${late}`,
+        className: "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800",
+      });
+    }
+    if (early) {
+      items.push({
+        key: "early-checkin",
+        label: `Early check-in: finish before ${early}`,
+        className: "border-sky-300 bg-sky-50 text-sky-800",
+      });
+    } else if (job?.sameDayCheckin && job?.sameDayCheckinTime) {
+      items.push({
+        key: "same-day-checkin",
+        label: `Same-day check-in: ${job.sameDayCheckinTime}`,
+        className: "border-cyan-300 bg-cyan-50 text-cyan-800",
+      });
+    }
+    return items;
   }
 
   function hasActiveDamageCase(job: any) {
@@ -1211,6 +1253,7 @@ export default function JobsPage() {
                   (() => {
                     const assignmentNames = getAssignmentNames(job);
                     const slaStatus = getSlaStatus(job);
+                    const timingHighlights = getTimingHighlights(job);
                     return (
                   <div
                     key={job.id}
@@ -1254,6 +1297,11 @@ export default function JobsPage() {
                             </Link>
                           </Button>
                         ) : null}
+                        {timingHighlights.map((highlight) => (
+                          <Badge key={highlight.key} variant="outline" className={highlight.className}>
+                            {highlight.label}
+                          </Badge>
+                        ))}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
@@ -1322,7 +1370,7 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {["UNASSIGNED", "OFFERED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
+          {boardStatuses.map((status) => (
             <div key={status} className="min-w-[260px] flex-shrink-0">
               <div className="mb-3 flex items-center gap-2">
                 <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>
@@ -1335,6 +1383,7 @@ export default function JobsPage() {
                     (() => {
                     const assignmentNames = getAssignmentNames(job);
                     const slaStatus = getSlaStatus(job);
+                    const timingHighlights = getTimingHighlights(job);
                     return (
                   <Card
                     key={job.id}
@@ -1370,6 +1419,11 @@ export default function JobsPage() {
                             </Link>
                           </Button>
                         ) : null}
+                        {timingHighlights.map((highlight) => (
+                          <Badge key={highlight.key} variant="outline" className={highlight.className}>
+                            {highlight.label}
+                          </Badge>
+                        ))}
                       </div>
                       <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
@@ -1451,21 +1505,23 @@ export default function JobsPage() {
       </Tabs>
 
       {selectedIds.length > 0 ? (
-        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border bg-background/95 px-4 py-3 shadow-xl backdrop-blur">
+        <div className="fixed inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-[70] mx-auto flex w-[min(960px,calc(100vw-1.5rem))] flex-wrap items-center justify-between gap-3 rounded-2xl border bg-background/95 px-4 py-3 shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="flex items-center gap-2">
             <Checkbox checked={allFilteredSelected} onCheckedChange={toggleAllSelectedJobs} />
             <span className="text-sm font-medium">{selectedIds.length} selected</span>
           </div>
-          <Button size="sm" onClick={() => setBulkAssignOpen(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Bulk assign
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setBulkStatusOpen(true)}>
-            Change status
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearBulkSelection}>
-            Clear
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => setBulkAssignOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Bulk assign
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setBulkStatusOpen(true)}>
+              Change status
+            </Button>
+            <Button size="sm" variant="ghost" onClick={clearBulkSelection}>
+              Clear
+            </Button>
+          </div>
         </div>
       ) : null}
 

@@ -4,6 +4,7 @@ import { applyCampaignDiscount, validateDiscountCampaign } from "@/lib/marketing
 import { supportsDirectPriceBookQuery } from "@/lib/marketing/persistence";
 import type { MarketedJobTypeValue } from "@/lib/marketing/job-types";
 import { getAppSettings } from "@/lib/settings";
+import type { BlueCleanQuotePricingSettings, BlueCleanRoomPackagePricing } from "@/lib/settings";
 import { calculateGstBreakdown, type GstSettings } from "@/lib/pricing/gst";
 
 interface QuoteInput {
@@ -20,45 +21,7 @@ interface QuoteInput {
   frequency?: "one_off" | "weekly" | "fortnightly" | "monthly";
   hasBalcony?: boolean;
   exteriorAccess?: boolean;
-  addOns?: {
-    oven?: boolean;
-    fridge?: boolean;
-    fridgeFull?: boolean;
-    freezer?: boolean;
-    heavyMess?: boolean;
-    sameDay?: boolean;
-    furnished?: boolean;
-    pets?: boolean;
-    outdoorArea?: boolean;
-    largeKitchen?: boolean;
-    smallBalcony?: boolean;
-    largeBalcony?: boolean;
-    grill?: boolean;
-    rangehood?: boolean;
-    dishwasher?: boolean;
-    insideCupboards?: boolean;
-    pantry?: boolean;
-    interiorWindows?: boolean;
-    exteriorWindows?: boolean;
-    slidingGlassDoor?: boolean;
-    blindsShutters?: boolean;
-    wallSpotClean?: boolean;
-    wallWashing?: boolean;
-    ceilingFans?: boolean;
-    airConditionerVents?: boolean;
-    wardrobe?: boolean;
-    garage?: boolean;
-    deckPatio?: boolean;
-    alfresco?: boolean;
-    pergola?: boolean;
-    carpetSteam?: boolean;
-    changeBedsheets?: boolean;
-    washDishes?: boolean;
-    laundryLoad?: boolean;
-    laundryFold?: boolean;
-    laundryCloset?: boolean;
-    rumpusRoom?: boolean;
-  };
+  addOns?: Record<string, boolean | number | undefined>;
   conditionLevel?: "light" | "standard" | "heavy";
   promoCode?: string;
 }
@@ -144,15 +107,34 @@ const CONDITION_MULTIPLIERS = {
 
 const FREQUENCY_MULTIPLIERS = {
   one_off: 1,
-  weekly: 0.92,
-  fortnightly: 0.96,
-  monthly: 0.985,
+  weekly: 1,
+  fortnightly: 1,
+  monthly: 1,
 } as const;
+
+const BLUE_CLEAN_STYLE_SERVICES = new Set<MarketedJobTypeValue>([
+  "GENERAL_CLEAN",
+  "AIRBNB_TURNOVER",
+  "DEEP_CLEAN",
+  "SPRING_CLEANING",
+  "SPECIAL_CLEAN",
+  "END_OF_LEASE",
+  "POST_CONSTRUCTION",
+  "CARPET_STEAM_CLEAN",
+  "UPHOLSTERY_CLEANING",
+  "WINDOW_CLEAN",
+  "PRESSURE_WASH",
+]);
 
 function makeManualQuoteError(message: string) {
   const error = new Error(message) as Error & { code?: string };
   error.code = "MANUAL_REVIEW_REQUIRED";
   return error;
+}
+
+function selectionQuantity(value: boolean | number | undefined) {
+  if (typeof value === "number") return Math.max(0, value);
+  return value ? 1 : 0;
 }
 
 function finalizeQuote({
@@ -220,17 +202,19 @@ function finalizeQuote({
 
 function addCommonLocalAdjustments(input: QuoteInput, lineItems: QuoteResult["lineItems"]) {
   let addOnTotal = 0;
-  const addFlatCharge = (enabled: boolean | undefined, amount: number, label: string) => {
-    if (!enabled || amount <= 0) return;
-    addOnTotal += amount;
-    lineItems.push({ label, unitPrice: amount, qty: 1, total: amount });
+  const addFlatCharge = (selection: boolean | number | undefined, amount: number, label: string) => {
+    const qty = selectionQuantity(selection);
+    if (qty <= 0 || amount <= 0) return;
+    const total = qty * amount;
+    addOnTotal += total;
+    lineItems.push({ label, unitPrice: amount, qty, total });
   };
 
   addFlatCharge(input.addOns?.oven, LOCAL_ADD_ON_RATES.oven, "Oven clean");
   addFlatCharge(input.addOns?.fridge, LOCAL_ADD_ON_RATES.fridge, "Fridge clean");
   addFlatCharge(input.addOns?.fridgeFull, LOCAL_ADD_ON_RATES.fridgeFull, "Full fridge clean");
   addFlatCharge(input.addOns?.freezer, LOCAL_ADD_ON_RATES.freezer, "Freezer clean");
-  addFlatCharge(input.hasBalcony, LOCAL_ADD_ON_RATES.balcony, "Balcony");
+  addFlatCharge(input.hasBalcony ? 1 : undefined, LOCAL_ADD_ON_RATES.balcony, "Balcony");
   addFlatCharge(input.addOns?.smallBalcony, LOCAL_ADD_ON_RATES.smallBalcony, "Small balcony");
   addFlatCharge(input.addOns?.largeBalcony, LOCAL_ADD_ON_RATES.largeBalcony, "Large balcony");
   addFlatCharge(input.addOns?.heavyMess, LOCAL_ADD_ON_RATES.heavyMess, "Heavy mess surcharge");
@@ -293,6 +277,178 @@ function addCommonLocalAdjustments(input: QuoteInput, lineItems: QuoteResult["li
   }
 
   return addOnTotal;
+}
+
+function addBlueCleanExtras(
+  input: QuoteInput,
+  lineItems: QuoteResult["lineItems"],
+  extraRates: BlueCleanQuotePricingSettings["extraRates"]
+) {
+  let addOnTotal = 0;
+  const rate = (key: string) => Number(extraRates[key] ?? 0);
+  const addFlatCharge = (selection: boolean | number | undefined, amount: number, label: string) => {
+    const qty = selectionQuantity(selection);
+    if (qty <= 0 || amount <= 0) return;
+    const total = qty * amount;
+    addOnTotal += total;
+    lineItems.push({ label, unitPrice: amount, qty, total });
+  };
+
+  addFlatCharge(input.addOns?.studyArea, rate("studyArea"), "Study area");
+  addFlatCharge(input.addOns?.oven, rate("oven"), "Oven clean");
+  addFlatCharge(input.addOns?.insideCupboards, rate("insideCupboards"), "Inside cupboards area set");
+  addFlatCharge(input.addOns?.blindsShutters, rate("blindsShutters"), "Venetian / shutter blind wash");
+  addFlatCharge(input.addOns?.wallWashing, rate("wallWashing"), "Wall wash per level");
+  addFlatCharge(input.addOns?.fridge, rate("fridge"), "Inside fridge");
+  addFlatCharge(input.addOns?.extraLivingArea, rate("extraLivingArea"), "Extra living area");
+  addFlatCharge(input.addOns?.largeKitchen, rate("largeKitchen"), "Extra kitchen");
+  addFlatCharge(
+    Math.max(selectionQuantity(input.hasBalcony), selectionQuantity(input.addOns?.largeBalcony), selectionQuantity(input.addOns?.smallBalcony)),
+    rate("balcony"),
+    "Balcony sweep, mop, and glass doors"
+  );
+  addFlatCharge(input.addOns?.kingQueenBedMaking, rate("kingQueenBedMaking"), "King / queen bed making");
+  addFlatCharge(input.addOns?.singleDoubleBedMaking, rate("singleDoubleBedMaking"), "Single / double bed making");
+  addFlatCharge(input.addOns?.bbqClean, rate("bbqClean"), "BBQ clean");
+  addFlatCharge(input.addOns?.garage, rate("garage"), "Garage");
+  addFlatCharge(input.addOns?.laundryFold, rate("laundryFold"), "Wash, dry, fold per hour");
+  addFlatCharge(input.addOns?.washDishes, rate("washDishes"), "Dishes wash up per hour");
+  addFlatCharge(input.addOns?.extraToilet, rate("extraToilet"), "Extra toilet");
+  addFlatCharge(Math.max(selectionQuantity(input.addOns?.petFurVacuum), selectionQuantity(input.addOns?.pets)), rate("petFurVacuum"), "Heavy vacuum to remove pet fur per hour");
+  addFlatCharge(input.addOns?.moveFurniture, rate("moveFurniture"), "Move furniture per hour");
+  addFlatCharge(input.addOns?.ceilingFans, rate("ceilingFans"), "Ceiling fan");
+  addFlatCharge(input.addOns?.travelDistance, rate("travelDistance"), "Travel distance 30 minute interval");
+  addFlatCharge(input.addOns?.ceilingWash, rate("ceilingWash"), "Ceiling wash per room");
+  addFlatCharge(input.addOns?.smallWindowPanels, rate("smallWindowPanels"), "Small window panel");
+  addFlatCharge(input.addOns?.largeWindowPanels, rate("largeWindowPanels"), "Large window panel");
+  addFlatCharge(input.addOns?.stairsMachineAccess, rate("stairsMachineAccess"), "Machine stair access level");
+  addFlatCharge(input.addOns?.rug, rate("rug"), "Rug unit");
+  addFlatCharge(input.addOns?.singleDoubleMattress, rate("singleDoubleMattress"), "Single / double mattress");
+  addFlatCharge(input.addOns?.queenKingMattress, rate("queenKingMattress"), "Queen / king mattress");
+  addFlatCharge(input.addOns?.bedFrames, rate("bedFrames"), "Bed frame");
+
+  if (input.serviceType === "PRESSURE_WASH") {
+    const areaSqm = Math.max(1, Number(input.areaSqm ?? AREA_SQM_FALLBACKS[input.areaBand ?? "standard"]));
+    const amount = rate("waterPressureWash");
+    const total = areaSqm * amount;
+    addOnTotal += total;
+    lineItems.push({ label: "Water pressure wash area", unitPrice: amount, qty: areaSqm, total });
+  } else {
+    addFlatCharge(input.addOns?.outdoorArea, rate("waterPressureWash"), "Water pressure wash per sqm");
+  }
+
+  return addOnTotal;
+}
+
+function addRoomPackage(
+  input: QuoteInput,
+  lineItems: QuoteResult["lineItems"],
+  packageRate: BlueCleanRoomPackagePricing
+) {
+  let baseRate = Number(packageRate.base ?? 0);
+  if (baseRate > 0) {
+    lineItems.push({ label: `${packageRate.label} base`, unitPrice: baseRate, qty: 1, total: baseRate });
+  }
+
+  const bedroomRates = packageRate.bedrooms.length > 0 ? packageRate.bedrooms : [0];
+  const bedrooms = Math.max(0, Math.min(input.bedrooms ?? 0, bedroomRates.length - 1));
+  const bedroomPrice = Number(bedroomRates[bedrooms] ?? bedroomRates[bedroomRates.length - 1] ?? 0);
+  baseRate += bedroomPrice;
+  lineItems.push({ label: `${packageRate.label} - ${bedrooms === 0 ? "studio / no bedroom" : `${bedrooms} bedroom${bedrooms === 1 ? "" : "s"}`}`, unitPrice: bedroomPrice, qty: 1, total: bedroomPrice });
+
+  const bathrooms = Math.max(0, input.bathrooms ?? 0);
+  const bathroomRate = Number(packageRate.bathroomRate ?? 0);
+  const bathroomTotal = Number((bathrooms * bathroomRate).toFixed(2));
+  if (bathroomTotal > 0) {
+    baseRate += bathroomTotal;
+    lineItems.push({ label: "Bathrooms", unitPrice: bathroomRate, qty: bathrooms, total: bathroomTotal });
+  }
+
+  const floors = Math.max(1, input.floors ?? 1);
+  const storyRates = packageRate.stories ?? [];
+  const storyPrice = storyRates.length > 0
+    ? Number(storyRates[Math.min(floors, storyRates.length) - 1] ?? storyRates[storyRates.length - 1] ?? 0)
+    : floors * Number(packageRate.storyRate ?? 0);
+  if (storyPrice > 0) {
+    baseRate += storyPrice;
+    lineItems.push({ label: "Stories", unitPrice: storyPrice, qty: 1, total: storyPrice });
+  }
+
+  return baseRate;
+}
+
+async function calculateBlueCleanStyleQuote(
+  input: QuoteInput,
+  gstSettings: GstSettings,
+  quotePricing: BlueCleanQuotePricingSettings
+): Promise<QuoteResult> {
+  const lineItems: QuoteResult["lineItems"] = [];
+  let baseRate = 0;
+
+  switch (input.serviceType) {
+    case "GENERAL_CLEAN":
+      baseRate = addRoomPackage(input, lineItems, quotePricing.roomPackages.regularHouse);
+      break;
+    case "AIRBNB_TURNOVER":
+      baseRate = addRoomPackage(input, lineItems, quotePricing.roomPackages.accommodation);
+      break;
+    case "DEEP_CLEAN":
+    case "SPRING_CLEANING":
+    case "SPECIAL_CLEAN":
+      baseRate = addRoomPackage(input, lineItems, quotePricing.roomPackages.deepHouse);
+      break;
+    case "END_OF_LEASE":
+      baseRate = addRoomPackage(input, lineItems, quotePricing.roomPackages.endOfLease);
+      break;
+    case "POST_CONSTRUCTION":
+      baseRate = addRoomPackage(input, lineItems, quotePricing.roomPackages.postRenovation);
+      break;
+    case "CARPET_STEAM_CLEAN": {
+      const rooms = Math.max(0, Number(input.serviceUnits ?? input.bedrooms ?? 0));
+      const roomRanges = quotePricing.specialtyRates.carpetRoomRanges.length > 0 ? quotePricing.specialtyRates.carpetRoomRanges : [0];
+      const roomTotal = Number(roomRanges[Math.min(rooms, roomRanges.length - 1)] ?? roomRanges[roomRanges.length - 1] ?? 0);
+      const carpetSteamBase = Number(quotePricing.specialtyRates.carpetSteamBase ?? 0);
+      baseRate = carpetSteamBase + roomTotal;
+      lineItems.push({ label: "Carpet steam clean base", unitPrice: carpetSteamBase, qty: 1, total: carpetSteamBase });
+      if (roomTotal > 0) lineItems.push({ label: "Carpeted rooms", unitPrice: roomTotal, qty: 1, total: roomTotal });
+      break;
+    }
+    case "UPHOLSTERY_CLEANING": {
+      const seats = Math.max(1, Number(input.serviceUnits ?? 1));
+      const upholsteryBase = Number(quotePricing.specialtyRates.upholsteryBase ?? 0);
+      const upholsterySeatRate = Number(quotePricing.specialtyRates.upholsterySeatRate ?? 0);
+      baseRate = upholsteryBase + seats * upholsterySeatRate;
+      lineItems.push({ label: "Couch / lounge base", unitPrice: upholsteryBase, qty: 1, total: upholsteryBase });
+      lineItems.push({ label: "Seaters", unitPrice: upholsterySeatRate, qty: seats, total: seats * upholsterySeatRate });
+      break;
+    }
+    case "WINDOW_CLEAN": {
+      const panels = Math.max(0, Number(input.windowCount ?? input.serviceUnits ?? 0));
+      const windowBase = Number(quotePricing.specialtyRates.windowBase ?? 0);
+      const windowPanelRate = Number(quotePricing.specialtyRates.windowPanelRate ?? 0);
+      baseRate = windowBase + panels * windowPanelRate;
+      lineItems.push({ label: "Windows cleaning base", unitPrice: windowBase, qty: 1, total: windowBase });
+      if (panels > 0) lineItems.push({ label: "Window panels", unitPrice: windowPanelRate, qty: panels, total: panels * windowPanelRate });
+      break;
+    }
+    case "PRESSURE_WASH":
+      baseRate = 0;
+      break;
+    default:
+      return calculateLocalMarketingQuote(input, gstSettings);
+  }
+
+  const addOnTotal = addBlueCleanExtras(input, lineItems, quotePricing.extraRates);
+  const multiplier = FREQUENCY_MULTIPLIERS[input.frequency ?? "one_off"] ?? 1;
+  return finalizeQuote({
+    baseRate,
+    addOnTotal,
+    multiplier,
+    lineItems,
+    input,
+    pricingMode: "exact",
+    gstSettings,
+  });
 }
 
 async function calculateLocalMarketingQuote(input: QuoteInput, gstSettings: GstSettings): Promise<QuoteResult> {
@@ -421,6 +577,10 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
   const settings = await getAppSettings();
   const gstSettings = settings.pricing;
 
+  if (BLUE_CLEAN_STYLE_SERVICES.has(input.serviceType)) {
+    return calculateBlueCleanStyleQuote(input, gstSettings, settings.pricing.blueCleanQuote);
+  }
+
   if (!supportsDirectPriceBookQuery(input.serviceType)) {
     return calculateLocalMarketingQuote(input, gstSettings);
   }
@@ -516,11 +676,13 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
   }
 
   let addOnTotal = 0;
-  const maybeAddFlatCharge = (enabled: boolean | undefined, key: string, label: string) => {
+  const maybeAddFlatCharge = (selection: boolean | number | undefined, key: string, label: string) => {
     const amount = Number(addOns[key] ?? 0);
-    if (!enabled || amount <= 0) return;
-    addOnTotal += amount;
-    lineItems.push({ label, unitPrice: amount, qty: 1, total: amount });
+    const qty = selectionQuantity(selection);
+    if (qty <= 0 || amount <= 0) return;
+    const total = qty * amount;
+    addOnTotal += total;
+    lineItems.push({ label, unitPrice: amount, qty, total });
   };
 
   maybeAddFlatCharge(input.addOns?.oven, "oven", "Oven clean");

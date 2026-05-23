@@ -20,7 +20,7 @@ export const PERMISSIONS = {
   "jobs:write": [Role.ADMIN, Role.OPS_MANAGER],
   "jobs:assign": [Role.ADMIN, Role.OPS_MANAGER],
   "jobs:delete": [Role.ADMIN],
-  "jobs:qa": [Role.ADMIN, Role.OPS_MANAGER],
+  "jobs:qa": [Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR],
   // Jobs – cleaner self
   "jobs:read:own": [Role.CLEANER],
   "jobs:start": [Role.CLEANER],

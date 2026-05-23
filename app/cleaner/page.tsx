@@ -208,7 +208,9 @@ export default async function CleanerDashboard() {
   );
   const todayJobs = confirmedJobs.filter((job) => isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
   const upcomingJobs = confirmedJobs.filter((job) => !isSameLocalDay(toZonedTime(job.scheduledDate, TZ), now));
-  const nextJobCandidates = [...confirmedJobs, ...awaitingConfirmationJobs].filter((job) => job.id !== ongoingJob?.id);
+  const nextJobCandidates = [...confirmedJobs, ...awaitingConfirmationJobs].filter(
+    (job) => job.id !== ongoingJob?.id && !["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job.status)
+  );
   const nextJob = nextJobCandidates[0] ?? null;
   const nextJobMeta = nextJob ? parseJobInternalNotes(nextJob.internalNotes) : null;
   const nextJobTimingHighlights = nextJob

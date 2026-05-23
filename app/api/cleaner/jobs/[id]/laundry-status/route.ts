@@ -62,17 +62,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Job is already finished." }, { status: 400 });
     }
 
-    const hasStartedLog = await db.timeLog.findFirst({
-      where: { jobId: params.id, userId: session.user.id },
-      select: { id: true },
-    });
-    if (!hasStartedLog) {
-      return NextResponse.json(
-        { error: "Start the job before sending laundry updates." },
-        { status: 409 }
-      );
-    }
-
     const bagLocation = body.bagLocation?.trim();
     const laundrySkipReasonCode = body.laundrySkipReasonCode?.trim();
     const laundrySkipReasonNote = body.laundrySkipReasonNote?.trim();

@@ -1,13 +1,15 @@
 ﻿import Link from "next/link";
-import { addDays, format, startOfMonth } from "date-fns";
+import { format } from "date-fns";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getPayrollSummary } from "@/lib/finance/payroll";
+import { getAppSettings } from "@/lib/settings";
+import { resolvePayPeriod } from "@/lib/payroll/period";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-function money(value: number) {
+function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
@@ -17,9 +19,10 @@ export default async function AdminPayrollPage({
   searchParams: { startDate?: string; endDate?: string };
 }) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const today = new Date();
-  const startDate = typeof searchParams?.startDate === "string" && searchParams.startDate ? searchParams.startDate : format(startOfMonth(today), "yyyy-MM-dd");
-  const endDate = typeof searchParams?.endDate === "string" && searchParams.endDate ? searchParams.endDate : format(today, "yyyy-MM-dd");
+  const settings = await getAppSettings();
+  const defaultPeriod = resolvePayPeriod(settings.payrollPeriod);
+  const startDate = typeof searchParams?.startDate === "string" && searchParams.startDate ? searchParams.startDate : defaultPeriod.startDate;
+  const endDate = typeof searchParams?.endDate === "string" && searchParams.endDate ? searchParams.endDate : defaultPeriod.endDate;
   const rows = await getPayrollSummary({ startDate, endDate });
   const totals = rows.reduce(
     (acc, row) => {
@@ -66,11 +69,66 @@ export default async function AdminPayrollPage({
       </Card>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Cleaners in range" value={String(rows.length)} />
+        <MetricCard label="Active cleaners shown" value={String(rows.length)} />
         <MetricCard label="Paid hours" value={totals.hours.toFixed(2)} />
         <MetricCard label="Gross payroll" value={money(totals.gross)} />
         <MetricCard label="Period" value={`${startDate} - ${endDate}`} />
       </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">All Cleaner Income</CardTitle>
+          <CardDescription>
+            Every active cleaner is listed for the selected dates, including cleaners with no payable jobs.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto rounded-2xl border">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-muted/40 text-left">
+                <tr>
+                  <th className="px-3 py-2">Cleaner</th>
+                  <th className="px-3 py-2 text-right">Jobs</th>
+                  <th className="px-3 py-2 text-right">Paid hours</th>
+                  <th className="px-3 py-2 text-right">Clocked hours</th>
+                  <th className="px-3 py-2 text-right">Job pay</th>
+                  <th className="px-3 py-2 text-right">Shopping</th>
+                  <th className="px-3 py-2 text-right">Shopping time</th>
+                  <th className="px-3 py-2 text-right">Gross income</th>
+                  <th className="px-3 py-2 text-right">Payslip</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const cleanerName = row.cleaner.name?.trim() || row.cleaner.email;
+                  const clockedHours = row.jobs.reduce((sum, job) => sum + Number(job.spentHours ?? 0), 0);
+                  const payslipHref = `/api/admin/finance/payroll/payslip?cleanerId=${encodeURIComponent(row.cleaner.id)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+                  return (
+                    <tr key={row.cleaner.id} className="border-t">
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{cleanerName}</p>
+                        <p className="text-xs text-muted-foreground">{row.cleaner.email}</p>
+                      </td>
+                      <td className="px-3 py-2 text-right">{row.jobs.length}</td>
+                      <td className="px-3 py-2 text-right">{row.totals.paidHours.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right">{clockedHours.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right">{money(row.totals.jobGross)}</td>
+                      <td className="px-3 py-2 text-right">{money(row.totals.shoppingReimbursements)}</td>
+                      <td className="px-3 py-2 text-right">{money(row.totals.shoppingTime)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{money(row.totals.grossPay)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <Button size="sm" variant="outline" asChild>
+                          <Link href={payslipHref} target="_blank">Generate</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="space-y-4">
         {rows.map((row) => {

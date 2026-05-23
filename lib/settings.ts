@@ -161,6 +161,42 @@ export interface QaAutomationSettings {
 
 export interface PricingSettings {
   gstEnabled: boolean;
+  blueCleanQuote: BlueCleanQuotePricingSettings;
+}
+
+export interface PayrollPeriodSettings {
+  interval: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
+  anchorDate: string;
+  payoutDelayDays: number;
+}
+
+export type BlueCleanRoomPackageKey =
+  | "regularHouse"
+  | "accommodation"
+  | "deepHouse"
+  | "postRenovation"
+  | "endOfLease";
+
+export interface BlueCleanRoomPackagePricing {
+  label: string;
+  base?: number;
+  bedrooms: number[];
+  bathroomRate: number;
+  stories?: number[];
+  storyRate?: number;
+}
+
+export interface BlueCleanQuotePricingSettings {
+  roomPackages: Record<BlueCleanRoomPackageKey, BlueCleanRoomPackagePricing>;
+  extraRates: Record<string, number>;
+  specialtyRates: {
+    carpetSteamBase: number;
+    carpetRoomRanges: number[];
+    upholsteryBase: number;
+    upholsterySeatRate: number;
+    windowBase: number;
+    windowPanelRate: number;
+  };
 }
 
 export type PropertyFormTemplateOverrides = Record<string, Partial<Record<JobType, string>>>;
@@ -186,6 +222,7 @@ export interface AppSettings {
   laundryBagLocationOptions: string[];
   laundryDropoffLocationOptions: string[];
   selectAllAllowedCleanerIds: string[];
+  betaCleanerReportUserIds: string[];
   cleanerJobHourlyRates: Record<string, Partial<Record<JobType, number>>>;
   profileEditPolicy: Record<Role, ProfileEditPolicy>;
   profileEditOverrides: Record<string, ProfileEditPolicy>;
@@ -202,6 +239,7 @@ export interface AppSettings {
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
   pricing: PricingSettings;
+  payrollPeriod: PayrollPeriodSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
   notificationTemplates: AppNotificationTemplates;
@@ -243,6 +281,81 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferenceMap = {
   approvals: { web: true, email: true, sms: false },
 };
 
+export const DEFAULT_BLUE_CLEAN_QUOTE_PRICING: BlueCleanQuotePricingSettings = {
+  roomPackages: {
+    regularHouse: {
+      label: "Regular house cleaning",
+      bedrooms: [100, 100, 120, 140, 190, 240, 280, 330, 380, 430, 450],
+      bathroomRate: 15,
+      stories: [11, 31, 52, 73, 93],
+    },
+    accommodation: {
+      label: "Accommodation cleaning",
+      bedrooms: [93, 93, 104, 114, 124, 176, 218],
+      bathroomRate: 10.4,
+      stories: [11, 31, 52, 73, 93],
+    },
+    deepHouse: {
+      label: "Deep house clean",
+      bedrooms: [130, 130, 200, 270, 360, 490, 590],
+      bathroomRate: 40,
+      storyRate: 20,
+    },
+    postRenovation: {
+      label: "Post renovation clean",
+      bedrooms: [210, 260, 340, 400, 540, 600, 700],
+      bathroomRate: 40,
+      stories: [11, 31, 52, 73, 93],
+    },
+    endOfLease: {
+      label: "End of lease house clean",
+      base: 50,
+      bedrooms: [250, 280, 350, 420, 600, 700, 800, 920, 1050, 1200, 1350],
+      bathroomRate: 40,
+      storyRate: 20,
+    },
+  },
+  extraRates: {
+    studyArea: 20,
+    oven: 150,
+    insideCupboards: 100,
+    blindsShutters: 20,
+    wallWashing: 250,
+    waterPressureWash: 5,
+    fridge: 80,
+    extraLivingArea: 50,
+    largeKitchen: 100,
+    balcony: 80,
+    kingQueenBedMaking: 15,
+    singleDoubleBedMaking: 10,
+    bbqClean: 100,
+    garage: 60,
+    laundryFold: 55,
+    washDishes: 40,
+    extraToilet: 25,
+    petFurVacuum: 44,
+    moveFurniture: 50,
+    ceilingFans: 40,
+    travelDistance: 25,
+    ceilingWash: 200,
+    smallWindowPanels: 10,
+    largeWindowPanels: 20,
+    stairsMachineAccess: 30,
+    rug: 50,
+    singleDoubleMattress: 50,
+    queenKingMattress: 100,
+    bedFrames: 50,
+  },
+  specialtyRates: {
+    carpetSteamBase: 120,
+    carpetRoomRanges: [0, 30, 60, 90, 120, 150, 180, 210, 240, 280, 320, 360, 400],
+    upholsteryBase: 80,
+    upholsterySeatRate: 30,
+    windowBase: 100,
+    windowPanelRate: 10,
+  },
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
   projectName: "sneek-ops-dashboard",
@@ -276,10 +389,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     "Garage storage",
   ],
   selectAllAllowedCleanerIds: [],
+  betaCleanerReportUserIds: [],
   cleanerJobHourlyRates: {},
   profileEditPolicy: {
     [Role.ADMIN]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.OPS_MANAGER]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    [Role.QA_INSPECTOR]: { canEditName: true, canEditPhone: true, canEditEmail: false },
     [Role.CLEANER]: { canEditName: true, canEditPhone: true, canEditEmail: false },
     [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: false },
     [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: false },
@@ -390,6 +505,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   pricing: {
     gstEnabled: true,
+    blueCleanQuote: DEFAULT_BLUE_CLEAN_QUOTE_PRICING,
+  },
+  payrollPeriod: {
+    interval: "FORTNIGHTLY",
+    anchorDate: "2026-01-05",
+    payoutDelayDays: 2,
   },
   propertyFormTemplateOverrides: {},
   emailTemplates: getDefaultEmailTemplates(),
@@ -770,7 +891,101 @@ function sanitizePricingSettings(input: unknown, fallback: PricingSettings): Pri
   const row = input as Record<string, unknown>;
   return {
     gstEnabled: typeof row.gstEnabled === "boolean" ? row.gstEnabled : fallback.gstEnabled,
+    blueCleanQuote: sanitizeBlueCleanQuotePricing(row.blueCleanQuote, fallback.blueCleanQuote),
   };
+}
+
+function sanitizePayrollPeriodSettings(input: unknown, fallback: PayrollPeriodSettings): PayrollPeriodSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const interval =
+    row.interval === "WEEKLY" || row.interval === "FORTNIGHTLY" || row.interval === "MONTHLY"
+      ? row.interval
+      : fallback.interval;
+  const anchorDate =
+    typeof row.anchorDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.anchorDate)
+      ? row.anchorDate
+      : fallback.anchorDate;
+  return {
+    interval,
+    anchorDate,
+    payoutDelayDays: clamp(Number(row.payoutDelayDays ?? fallback.payoutDelayDays), 0, 31),
+  };
+}
+
+function sanitizeMoney(value: unknown, fallback: number, max = 10000) {
+  const numeric = Number(value ?? fallback);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Number(clamp(numeric, 0, max).toFixed(2));
+}
+
+function sanitizeMoneyArray(input: unknown, fallback: number[], maxLength = 20) {
+  if (!Array.isArray(input)) return fallback;
+  const cleaned = input
+    .slice(0, maxLength)
+    .map((value, index) => sanitizeMoney(value, fallback[index] ?? 0))
+    .filter((value) => Number.isFinite(value));
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
+function sanitizeBlueCleanRoomPackage(
+  input: unknown,
+  fallback: BlueCleanRoomPackagePricing
+): BlueCleanRoomPackagePricing {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const next: BlueCleanRoomPackagePricing = {
+    label: typeof row.label === "string" && row.label.trim() ? row.label.trim() : fallback.label,
+    bedrooms: sanitizeMoneyArray(row.bedrooms, fallback.bedrooms),
+    bathroomRate: sanitizeMoney(row.bathroomRate, fallback.bathroomRate),
+  };
+  if (fallback.base !== undefined || row.base !== undefined) {
+    next.base = sanitizeMoney(row.base, fallback.base ?? 0);
+  }
+  if (fallback.stories || row.stories) {
+    next.stories = sanitizeMoneyArray(row.stories, fallback.stories ?? []);
+  }
+  if (fallback.storyRate !== undefined || row.storyRate !== undefined) {
+    next.storyRate = sanitizeMoney(row.storyRate, fallback.storyRate ?? 0);
+  }
+  return next;
+}
+
+function sanitizeBlueCleanQuotePricing(
+  input: unknown,
+  fallback: BlueCleanQuotePricingSettings
+): BlueCleanQuotePricingSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const roomPackagesRow = row.roomPackages as Record<string, unknown> | undefined;
+  const extraRatesRow = row.extraRates as Record<string, unknown> | undefined;
+  const roomPackages = { ...fallback.roomPackages };
+  for (const key of Object.keys(fallback.roomPackages) as BlueCleanRoomPackageKey[]) {
+    roomPackages[key] = sanitizeBlueCleanRoomPackage(roomPackagesRow?.[key], fallback.roomPackages[key]);
+  }
+  const extraRates = { ...fallback.extraRates };
+  if (extraRatesRow && typeof extraRatesRow === "object" && !Array.isArray(extraRatesRow)) {
+    for (const key of Object.keys(fallback.extraRates)) {
+      extraRates[key] = sanitizeMoney(extraRatesRow[key], fallback.extraRates[key], 5000);
+    }
+  }
+  const specialtyRatesRow = row.specialtyRates as Record<string, unknown> | undefined;
+  const specialtyRates = {
+    carpetSteamBase: sanitizeMoney(specialtyRatesRow?.carpetSteamBase, fallback.specialtyRates.carpetSteamBase),
+    carpetRoomRanges: sanitizeMoneyArray(
+      specialtyRatesRow?.carpetRoomRanges,
+      fallback.specialtyRates.carpetRoomRanges,
+      30
+    ),
+    upholsteryBase: sanitizeMoney(specialtyRatesRow?.upholsteryBase, fallback.specialtyRates.upholsteryBase),
+    upholsterySeatRate: sanitizeMoney(
+      specialtyRatesRow?.upholsterySeatRate,
+      fallback.specialtyRates.upholsterySeatRate
+    ),
+    windowBase: sanitizeMoney(specialtyRatesRow?.windowBase, fallback.specialtyRates.windowBase),
+    windowPanelRate: sanitizeMoney(specialtyRatesRow?.windowPanelRate, fallback.specialtyRates.windowPanelRate),
+  };
+  return { roomPackages, extraRates, specialtyRates };
 }
 
 function sanitizePropertyFormTemplateOverrides(
@@ -862,6 +1077,15 @@ function sanitizeSettings(input: unknown): AppSettings {
     selectAllAllowedCleanerIds = Array.from(new Set(cleaned));
   }
 
+  let betaCleanerReportUserIds = DEFAULT_SETTINGS.betaCleanerReportUserIds;
+  if (Array.isArray((parsed as any).betaCleanerReportUserIds)) {
+    const cleaned = (parsed as any).betaCleanerReportUserIds
+      .filter((v: unknown): v is string => typeof v === "string")
+      .map((v: string) => v.trim())
+      .filter((v: string) => v.length > 0);
+    betaCleanerReportUserIds = Array.from(new Set(cleaned));
+  }
+
   const cleanerJobHourlyRates = sanitizeHourlyRates(
     (parsed as any).cleanerJobHourlyRates,
     DEFAULT_SETTINGS.cleanerJobHourlyRates
@@ -918,6 +1142,7 @@ function sanitizeSettings(input: unknown): AppSettings {
     laundryBagLocationOptions,
     laundryDropoffLocationOptions,
     selectAllAllowedCleanerIds,
+    betaCleanerReportUserIds,
     cleanerJobHourlyRates,
     profileEditPolicy: sanitizeRolePolicy(parsed.profileEditPolicy, DEFAULT_SETTINGS.profileEditPolicy),
     profileEditOverrides,
@@ -964,6 +1189,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       DEFAULT_SETTINGS.qaAutomation
     ),
     pricing: sanitizePricingSettings((parsed as any).pricing, DEFAULT_SETTINGS.pricing),
+    payrollPeriod: sanitizePayrollPeriodSettings(
+      (parsed as any).payrollPeriod,
+      DEFAULT_SETTINGS.payrollPeriod
+    ),
     propertyFormTemplateOverrides: sanitizePropertyFormTemplateOverrides(
       (parsed as any).propertyFormTemplateOverrides,
       DEFAULT_SETTINGS.propertyFormTemplateOverrides
@@ -1023,6 +1252,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
     pricing: input.pricing ?? current.pricing,
+    payrollPeriod: input.payrollPeriod ?? current.payrollPeriod,
     websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
     scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,

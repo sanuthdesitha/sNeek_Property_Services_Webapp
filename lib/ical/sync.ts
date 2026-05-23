@@ -638,12 +638,12 @@ async function syncTurnoverJobsForReservations(params: {
     const turnoverDate = reservation.endDate;
     const turnoverDateKey = turnoverDate.toISOString().slice(0, 10);
     const incomingCheckin = params.sameDayCheckinsByDate.get(turnoverDateKey);
-    const sameDayCheckinTime = incomingCheckin?.checkinTime ?? params.property.defaultCheckinTime;
+    const sameDayCheckinTime = params.property.defaultCheckinTime;
     const priority = classifySameDayCheckinPriority({
       sameDayCheckin: Boolean(incomingCheckin),
       sameDayCheckinTime,
     });
-    const startTime = toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime;
+    const startTime = params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
     const reservationContext =
       incomingCheckin?.reservationContext ?? buildPropertyMaxGuestPreparationContext(params.property.maxGuestCount);
@@ -728,12 +728,21 @@ async function syncTurnoverJobsForReservations(params: {
       currentEstimatedHours == null && params.property.defaultEstimatedHours != null;
     const mergedInternalNotes = mergeReservationContextIntoInternalNotes(existingJob.internalNotes, reservationContext);
     const shouldUpdateReservationContext = (mergedInternalNotes ?? null) !== (existingJob.internalNotes ?? null);
-    if (!params.syncOptions.updateExistingLinkedJobs && !shouldBackfillEstimatedHours && !shouldUpdateReservationContext) continue;
-
     const before = jobState(existingJob);
     // Skip overwriting date/time fields if admin or client manually rescheduled this job
     const isManuallyRescheduled = existingJob.manuallyRescheduledAt != null;
+    const shouldCorrectDefaultTimes =
+      !isManuallyRescheduled &&
+      ((existingJob.startTime ?? null) !== startTime || (existingJob.dueTime ?? null) !== sameDayCheckinTime);
     const syncDates = params.syncOptions.updateExistingLinkedJobs && !isManuallyRescheduled;
+    if (
+      !syncDates &&
+      !shouldCorrectDefaultTimes &&
+      !shouldBackfillEstimatedHours &&
+      !shouldUpdateReservationContext
+    ) {
+      continue;
+    }
 
     const afterCandidate: JobState | null = {
       id: existingJob.id,
@@ -741,8 +750,8 @@ async function syncTurnoverJobsForReservations(params: {
       scheduledDate: syncDates
         ? turnoverDate.toISOString()
         : existingJob.scheduledDate.toISOString(),
-      startTime: syncDates ? startTime : existingJob.startTime ?? null,
-      dueTime: syncDates ? sameDayCheckinTime : existingJob.dueTime ?? null,
+      startTime: syncDates || shouldCorrectDefaultTimes ? startTime : existingJob.startTime ?? null,
+      dueTime: syncDates || shouldCorrectDefaultTimes ? sameDayCheckinTime : existingJob.dueTime ?? null,
       estimatedHours: shouldBackfillEstimatedHours ? params.property.defaultEstimatedHours : currentEstimatedHours,
       internalNotes: shouldUpdateReservationContext ? mergedInternalNotes ?? null : existingJob.internalNotes ?? null,
       status: existingJob.status,
@@ -775,6 +784,7 @@ async function syncTurnoverJobsForReservations(params: {
               sameDayCheckinTime: priority.sameDayCheckinTime,
             }
           : {}),
+        ...(!syncDates && shouldCorrectDefaultTimes ? { startTime, dueTime: sameDayCheckinTime } : {}),
         ...(shouldBackfillEstimatedHours ? { estimatedHours: params.property.defaultEstimatedHours } : {}),
         ...(shouldUpdateReservationContext ? { internalNotes: mergedInternalNotes } : {}),
       },
