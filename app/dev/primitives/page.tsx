@@ -1,5 +1,8 @@
 import { DensityProvider } from "@/lib/density/context";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +50,20 @@ export default function PrimitivesDemoPage() {
         <div className="flex gap-3">
           <Button disabled>Disabled</Button>
           <Button variant="outline" disabled>Disabled outline</Button>
+        </div>
+      </section>
+
+      <section id="input" className="space-y-4">
+        <h2 className="text-lg font-semibold">Input / Textarea / Label</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" placeholder="you@example.com" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea id="notes" placeholder="Anything you want to add…" />
+          </div>
         </div>
       </section>
     </div>
