@@ -4,6 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { FormField } from "@/components/ui/form-field";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +86,18 @@ export default function PrimitivesDemoPage() {
             <Input id="ff-pw" type="password" />
           </FormField>
         </div>
+      </section>
+
+      <section id="card" className="space-y-4">
+        <h2 className="text-lg font-semibold">Card</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Card title</CardTitle>
+            <CardDescription>Card description goes here.</CardDescription>
+          </CardHeader>
+          <CardContent>Card content body.</CardContent>
+          <CardFooter><Button size="sm">Action</Button></CardFooter>
+        </Card>
       </section>
     </div>
   );
