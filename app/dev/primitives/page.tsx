@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,18 @@ export default function PrimitivesDemoPage() {
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" placeholder="Anything you want to add…" />
           </div>
+        </div>
+      </section>
+
+      <section id="form-field" className="space-y-4">
+        <h2 className="text-lg font-semibold">FormField</h2>
+        <div className="grid max-w-md gap-4">
+          <FormField id="ff-email" label="Email" hint="We never share it.">
+            <Input id="ff-email" type="email" />
+          </FormField>
+          <FormField id="ff-pw" label="Password" required error="Too short.">
+            <Input id="ff-pw" type="password" />
+          </FormField>
         </div>
       </section>
     </div>
