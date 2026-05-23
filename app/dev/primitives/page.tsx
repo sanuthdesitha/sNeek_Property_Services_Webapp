@@ -1,4 +1,5 @@
 import { DensityProvider } from "@/lib/density/context";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,26 @@ export default function PrimitivesDemoPage() {
       </section>
 
       {/* Other primitive sections appended by tasks 3-13 */}
+
+      <section id="button" className="space-y-4">
+        <h2 className="text-lg font-semibold">Button</h2>
+        <div className="flex flex-wrap gap-3">
+          {(["default", "secondary", "outline", "ghost", "destructive", "link"] as const).map((v) => (
+            <Button key={v} variant={v}>{v}</Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {(["xs", "sm", "default", "lg", "icon"] as const).map((s) => (
+            <Button key={s} size={s} aria-label={s === "icon" ? "icon" : undefined}>
+              {s === "icon" ? "★" : s}
+            </Button>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <Button disabled>Disabled</Button>
+          <Button variant="outline" disabled>Disabled outline</Button>
+        </div>
+      </section>
     </div>
   );
 }
