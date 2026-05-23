@@ -55,6 +55,20 @@ npm run dev           # Next.js dev server (http://localhost:3000)
 npm run workers:dev   # pg-boss background workers (separate terminal)
 ```
 
+## Testing
+
+```bash
+npm test              # Vitest unit + integration
+npm run test:watch    # Vitest in watch mode
+npm run test:e2e      # Playwright E2E + a11y
+npm run test:visual   # Playwright visual regression suite (Plan G onwards)
+npm run test:a11y     # Axe accessibility tests
+npm run lint          # ESLint
+```
+
+See `docs/style/design-tokens.md` for the design system source of truth.
+See `docs/superpowers/plans/2026-05-23-foundation-master.md` for the foundation phase plan index.
+
 ## Demo Credentials (after seed)
 
 | Role | Email | Password |
