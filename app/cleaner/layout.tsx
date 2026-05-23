@@ -3,6 +3,11 @@ import { getAppSettings } from "@/lib/settings";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
+import { DensityShell } from "@/app/_density-shell";
+import { ThemeProvider } from "@/lib/theme/context";
+import { getThemeForUser } from "@/lib/theme/server";
+import { ShortcutCheatsheet } from "@/components/shortcuts/cheatsheet";
+import { GlobalShortcutListener } from "@/hooks/use-keyboard-shortcuts";
 
 export const metadata: Metadata = {
   title: { default: "My Jobs", template: "%s | sNeek Property Services Cleaner" },
@@ -13,9 +18,13 @@ export default async function CleanerLayout({ children }: { children: React.Reac
   const settings = await getAppSettings();
   const companyName = settings.companyName || "sNeek Property Services";
   const visibility = settings.cleanerPortalVisibility;
+  const themePref = await getThemeForUser(session.user.id);
 
   return (
-    <PortalShell
+    <DensityShell>
+      <ThemeProvider initial={themePref}>
+        <GlobalShortcutListener />
+        <PortalShell
       companyName={companyName}
       logoUrl={settings.logoUrl}
       portalLabel="Cleaner Portal"
@@ -37,8 +46,11 @@ export default async function CleanerLayout({ children }: { children: React.Reac
         ...(visibility.showPayRequests ? [{ href: "/cleaner/pay-requests", label: "Pay Requests" }] : []),
         ...(visibility.showLostFound ? [{ href: "/cleaner/lost-found", label: "Lost & Found" }] : []),
       ]}
-    >
-      {children}
-    </PortalShell>
+        >
+          {children}
+        </PortalShell>
+        <ShortcutCheatsheet />
+      </ThemeProvider>
+    </DensityShell>
   );
 }
