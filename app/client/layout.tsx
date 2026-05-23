@@ -3,6 +3,11 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { DensityShell } from "@/app/_density-shell";
+import { ThemeProvider } from "@/lib/theme/context";
+import { getThemeForUser } from "@/lib/theme/server";
+import { ShortcutCheatsheet } from "@/components/shortcuts/cheatsheet";
+import { GlobalShortcutListener } from "@/hooks/use-keyboard-shortcuts";
 
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const session = await requireRole([Role.CLIENT]);
@@ -10,9 +15,13 @@ export default async function ClientLayout({ children }: { children: React.React
   const portal = await getClientPortalContext(session.user.id, settings);
   const companyName = settings.companyName || "sNeek Property Services";
   const visibility = portal.visibility;
+  const themePref = await getThemeForUser(session.user.id);
 
   return (
-    <PortalShell
+    <DensityShell>
+      <ThemeProvider initial={themePref}>
+        <GlobalShortcutListener />
+        <PortalShell
       companyName={companyName}
       logoUrl={settings.logoUrl}
       portalLabel="Client Portal"
@@ -41,8 +50,11 @@ export default async function ClientLayout({ children }: { children: React.React
         ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),
         ...(visibility.showCases ? [{ href: "/client/cases", label: "Cases" }] : []),
       ]}
-    >
-      {children}
-    </PortalShell>
+        >
+          {children}
+        </PortalShell>
+        <ShortcutCheatsheet />
+      </ThemeProvider>
+    </DensityShell>
   );
 }
