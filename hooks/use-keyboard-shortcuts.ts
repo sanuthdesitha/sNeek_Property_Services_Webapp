@@ -55,7 +55,7 @@ export function GlobalShortcutListener() {
     const onKey = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) return;
       // Single-key shortcuts
-      for (const def of registry.values()) {
+      for (const def of Array.from(registry.values())) {
         if (matchShortcut(def.keys, e)) {
           def.handler(e);
           return;
@@ -72,7 +72,7 @@ export function GlobalShortcutListener() {
         sequenceTimer = setTimeout(() => {
           sequenceBuffer = "";
         }, 600);
-        for (const def of registry.values()) {
+        for (const def of Array.from(registry.values())) {
           if (def.keys.includes(" ") && def.keys.replace(/\s/g, "") === sequenceBuffer) {
             def.handler(e);
             sequenceBuffer = "";
