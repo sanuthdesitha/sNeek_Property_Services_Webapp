@@ -1,3 +1,5 @@
+"use client";
+
 import { DensityProvider } from "@/lib/density/context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +33,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ErrorState } from "@/components/ui/error-state";
 
-export const dynamic = "force-dynamic";
+// Note: dev/layout.tsx already gates this route (admin + non-prod) and is
+// dynamic via getServerSession, so this client page doesn't need its own
+// `export const dynamic = "force-dynamic"`.
 
 export default function PrimitivesDemoPage() {
   return (
