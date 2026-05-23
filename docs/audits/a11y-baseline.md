@@ -4,6 +4,10 @@ Captured 2026-05-24 via `e2e/foundation/home-a11y.spec.ts` (axe-core 4.11, chrom
 
 The test runs as a `expect.soft` baseline in Plan A. **Plan G owns driving these to zero** and flipping the assertion to a hard `expect`.
 
+## Update — 2026-05-24 (Plan B)
+
+The `aria-progressbar-name` (serious) violation has been resolved by Plan B Task 14 — `components/ui/progress.tsx` now requires either `label` or `aria-label` and explicitly sets `role="progressbar"` and `aria-label` on the Radix Root. Remaining violations from the original baseline (button-name, color-contrast on marketing surfaces) are still scoped to Plan G.
+
 ## Blocking violations on `/` (critical + serious)
 
 | Rule | Impact | Nodes | Notes |
