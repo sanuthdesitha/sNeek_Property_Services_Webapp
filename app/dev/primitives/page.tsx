@@ -27,6 +27,9 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +172,15 @@ export default function PrimitivesDemoPage() {
               <p className="text-sm text-muted-foreground">Bottom sheet drawer for mobile.</p>
             </DrawerContent>
           </Drawer>
+        </div>
+      </section>
+
+      <section id="states" className="space-y-4">
+        <h2 className="text-lg font-semibold">Empty / Loading / Error states</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <EmptyState title="No jobs scheduled" body="Create one to get started." action={<Button size="sm">Create job</Button>} />
+          <LoadingState variant="card" />
+          <ErrorState message="Couldn't reach the server — check your connection." onRetry={() => {}} />
         </div>
       </section>
     </div>
