@@ -58,6 +58,15 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 
 // Note: dev/layout.tsx already gates this route (admin + non-prod) and is
 // dynamic via getServerSession, so this client page doesn't need its own
@@ -275,6 +284,40 @@ export default function PrimitivesDemoPage() {
               <TooltipContent>This is a tooltip</TooltipContent>
             </Tooltip>
           </TooltipProvider>
+        </div>
+      </section>
+
+      <section id="tabs-acc-ck-sw" className="space-y-4">
+        <h2 className="text-lg font-semibold">Tabs / Accordion / Checkbox / Switch</h2>
+        <Tabs defaultValue="a" className="w-full max-w-md">
+          <TabsList>
+            <TabsTrigger value="a">Tab A</TabsTrigger>
+            <TabsTrigger value="b">Tab B</TabsTrigger>
+            <TabsTrigger value="c">Tab C</TabsTrigger>
+          </TabsList>
+          <TabsContent value="a">Tab A content</TabsContent>
+          <TabsContent value="b">Tab B content</TabsContent>
+          <TabsContent value="c">Tab C content</TabsContent>
+        </Tabs>
+        <Accordion type="single" collapsible className="w-full max-w-md">
+          <AccordionItem value="i1">
+            <AccordionTrigger>Item one</AccordionTrigger>
+            <AccordionContent>Item one content.</AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="i2">
+            <AccordionTrigger>Item two</AccordionTrigger>
+            <AccordionContent>Item two content.</AccordionContent>
+          </AccordionItem>
+        </Accordion>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Checkbox id="ck1" />
+            <Label htmlFor="ck1">Accept terms</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch id="sw1" />
+            <Label htmlFor="sw1">Notifications</Label>
+          </div>
         </div>
       </section>
     </div>
