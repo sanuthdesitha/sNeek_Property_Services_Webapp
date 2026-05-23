@@ -34,6 +34,30 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { FAB } from "@/components/ui/fab";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  TooltipProvider,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 // Note: dev/layout.tsx already gates this route (admin + non-prod) and is
 // dynamic via getServerSession, so this client page doesn't need its own
@@ -209,6 +233,49 @@ export default function PrimitivesDemoPage() {
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>Something went wrong.</AlertDescription>
         </Alert>
+      </section>
+
+      <section id="floating" className="space-y-4">
+        <h2 className="text-lg font-semibold">DropdownMenu / Select / Popover / Tooltip</h2>
+        <div className="flex flex-wrap gap-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">Dropdown</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem>Item one</DropdownMenuItem>
+              <DropdownMenuItem>Item two</DropdownMenuItem>
+              <DropdownMenuItem>Item three</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Select>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select an option" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="a">Option A</SelectItem>
+              <SelectItem value="b">Option B</SelectItem>
+              <SelectItem value="c">Option C</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline">Popover</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+              <p className="text-sm">Popover content goes here.</p>
+            </PopoverContent>
+          </Popover>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline">Hover for tooltip</Button>
+              </TooltipTrigger>
+              <TooltipContent>This is a tooltip</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </section>
     </div>
   );
