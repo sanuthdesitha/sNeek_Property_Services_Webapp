@@ -11,22 +11,22 @@ async function getCleanerStats(userId: string) {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const [jobsToday, completedJobs, totalEstHours] = await Promise.all([
+  const [jobsToday, completedJobs, totalHours] = await Promise.all([
     prisma.jobAssignment.count({
       where: { userId, job: { scheduledDate: { gte: today, lt: tomorrow } } },
     }),
     prisma.jobAssignment.count({
-      where: { userId, responseStatus: "COMPLETED" as const },
+      where: { userId, responseStatus: "ACCEPTED" },
     }),
     prisma.job.findMany({
-      where: { assignments: { some: { userId, job: { scheduledDate: { gte: today, lt: tomorrow } } } } },
-      select: { estHours: true },
+      where: { assignments: { some: { userId } }, scheduledDate: { gte: today, lt: tomorrow } },
+      select: { estimatedHours: true },
     }),
   ]);
 
-  const totalHours = totalEstHours.reduce((sum, j) => sum + (j.estHours ?? 0), 0);
+  const hours = totalHours.reduce((sum, j) => sum + (j.estimatedHours ?? 0), 0);
 
-  return { jobsToday, completedJobs, totalHours };
+  return { jobsToday, completedJobs, totalHours: hours };
 }
 
 async function getTodayJobs(userId: string) {
@@ -101,7 +101,7 @@ export default async function CleanerDashboard() {
             <div className="space-y-3">
               {jobs.map((job) => (
                 <div key={job.id} className="flex items-center gap-4 p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900">
-                  <Badge variant={job.assignmentStatus === "COMPLETED" as const ? "success" : job.assignmentStatus === "ACCEPTED" ? "info" : "neutral"}>
+                  <Badge variant={job.assignmentStatus === "ACCEPTED" ? "success" : job.assignmentStatus === "DECLINED" ? "danger" : "neutral"}>
                     {job.assignmentStatus.replace(/_/g, " ")}
                   </Badge>
                   <div className="flex-1 min-w-0">

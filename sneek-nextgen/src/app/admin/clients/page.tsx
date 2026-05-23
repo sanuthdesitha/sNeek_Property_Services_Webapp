@@ -74,7 +74,7 @@ export default async function ClientsPage() {
                 <TableRow key={client.id}>
                   <TableCell>
                     <p className="font-medium text-sm">{client.name}</p>
-                  </td>
+                  </TableCell>
                   <TableCell>
                     <div className="space-y-0.5">
                       <p className="text-xs flex items-center gap-1 text-text-secondary">
@@ -86,27 +86,27 @@ export default async function ClientsPage() {
                         {client.phone ?? "—"}
                       </p>
                     </div>
-                  </td>
+                  </TableCell>
                   <TableCell className="text-sm flex items-center gap-1">
                     <Home className="h-3 w-3 text-text-tertiary" />
                     {client._count.properties}
-                  </td>
+                  </TableCell>
                   <TableCell className="text-sm flex items-center gap-1">
                     <FileText className="h-3 w-3 text-text-tertiary" />
                     {client._count.invoices}
-                  </td>
+                  </TableCell>
                   <TableCell>
                     {client.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="neutral">Inactive</Badge>}
-                  </td>
+                  </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="sm" asChild>
                       <Link href={`/admin/clients/${client.id}`}>View</Link>
                     </Button>
-                  </td>
+                  </TableCell>
                 </TableRow>
               )) : (
                 <TableRow>
-                  <td colSpan={8} className="text-center text-text-tertiary py-8">No clients found</td>
+                  <TableCell colSpan={6} className="text-center text-text-tertiary py-8">No clients found</TableCell>
                 </TableRow>
               )}
             </TableBody>

@@ -1,9 +1,10 @@
 import { requireApiRole, apiSuccess, apiError } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
-  await requireApiRole("ADMIN", "OPS_MANAGER");
+  const session = await requireApiRole("ADMIN", "OPS_MANAGER");
+  if (session instanceof NextResponse) return session;
 
   const { searchParams } = new URL(req.url);
   const category = searchParams.get("category");
@@ -33,7 +34,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await requireApiRole("ADMIN");
+  const session = await requireApiRole("ADMIN");
+  if (session instanceof NextResponse) return session;
 
   const body = await req.json();
   const { name, sku, category, location, unit, supplier } = body;

@@ -1,10 +1,11 @@
 import { requireApiRole, apiSuccess, apiError } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { hash, generateTempPassword } from "@/lib/auth/crypto";
 
 export async function GET(req: NextRequest) {
-  await requireApiRole("ADMIN", "OPS_MANAGER");
+  const session = await requireApiRole("ADMIN", "OPS_MANAGER");
+  if (session instanceof NextResponse) return session;
 
   const { searchParams } = new URL(req.url);
   const role = searchParams.get("role");
@@ -42,7 +43,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await requireApiRole("ADMIN");
+  const session = await requireApiRole("ADMIN");
+  if (session instanceof NextResponse) return session;
 
   const body = await req.json();
   const { email, name, role, phone, hourlyRate, isActive } = body;

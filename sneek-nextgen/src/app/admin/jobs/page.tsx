@@ -119,7 +119,7 @@ export default async function JobsPage() {
                 const cleaner = job.assignments.find((a) => a.isPrimary)?.user;
                 return (
                   <TableRow key={job.id}>
-                    <TableCell className="font-mono text-sm">{job.jobNumber ?? job.id.slice(0, 8)}</td>
+                    <TableCell className="font-mono text-sm">{job.jobNumber ?? job.id.slice(0, 8)}</TableCell>
                     <TableCell>
                       <div>
                         <p className="font-medium text-sm">{job.property?.name ?? "Unknown"}</p>
@@ -128,15 +128,15 @@ export default async function JobsPage() {
                           {job.property?.suburb ?? ""}
                         </p>
                       </div>
-                    </td>
-                    <TableCell className="text-sm">{job.jobType.replace(/_/g, " ")}</td>
+                    </TableCell>
+                    <TableCell className="text-sm">{job.jobType.replace(/_/g, " ")}</TableCell>
                     <TableCell className="text-sm flex items-center gap-1">
                       <Calendar className="h-3 w-3 text-text-tertiary" />
                       {job.scheduledDate?.toLocaleDateString()}
-                    </td>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_CONFIG[job.status] ?? "neutral"}>{job.status.replace(/_/g, " ")}</Badge>
-                    </td>
+                    </TableCell>
                     <TableCell className="text-sm">
                       {cleaner ? (
                         <span className="flex items-center gap-1">
@@ -146,20 +146,20 @@ export default async function JobsPage() {
                       ) : (
                         <span className="text-text-tertiary">—</span>
                       )}
-                    </td>
+                    </TableCell>
                     <TableCell className="text-sm">
                       {job.actualHours ? `${job.actualHours}h / ${job.estimatedHours}h` : `${job.estimatedHours}h est.`}
-                    </td>
+                    </TableCell>
                     <TableCell>
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/admin/jobs/${job.id}`}>View</Link>
                       </Button>
-                    </td>
+                    </TableCell>
                   </TableRow>
                 );
               }) : (
                 <TableRow>
-                  <td colSpan={8} className="text-center text-text-tertiary py-8">No jobs found</td>
+                  <TableCell colSpan={8} className="text-center text-text-tertiary py-8">No jobs found</TableCell>
                 </TableRow>
               )}
             </TableBody>

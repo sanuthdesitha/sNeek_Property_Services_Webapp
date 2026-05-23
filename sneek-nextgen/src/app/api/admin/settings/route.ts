@@ -1,9 +1,10 @@
 import { requireApiRole, apiSuccess, apiError } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
-  await requireApiRole("ADMIN");
+  const session = await requireApiRole("ADMIN");
+  if (session instanceof NextResponse) return session;
 
   const settings = await prisma.appSetting.findMany();
   const settingsMap: Record<string, unknown> = {};
@@ -15,7 +16,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  await requireApiRole("ADMIN");
+  const session = await requireApiRole("ADMIN");
+  if (session instanceof NextResponse) return session;
 
   const body = await req.json();
   const { key, value } = body;

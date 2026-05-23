@@ -1,9 +1,10 @@
 import { requireApiRole, apiSuccess, apiError } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
-  await requireApiRole("ADMIN", "OPS_MANAGER");
+  const session = await requireApiRole("ADMIN", "OPS_MANAGER");
+  if (session instanceof NextResponse) return session;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");

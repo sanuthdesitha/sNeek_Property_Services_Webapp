@@ -1,14 +1,70 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
-export default async function ApplyPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const title = slug.replace(/-/g, " ");
+export default function ApplyPage({ params }: { params: { slug: string } }) {
+  const title = params.slug.replace(/-/g, " ");
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      name: `${formData.get("firstName")} ${formData.get("lastName")}`.trim(),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      position: title,
+      experience: formData.get("experience"),
+      availability: formData.get("availability"),
+      notes: formData.get("notes"),
+    };
+
+    try {
+      const res = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to submit application");
+      }
+
+      setSubmitted(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to submit application");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <CheckCircle2 className="h-12 w-12 text-success-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-text-primary mb-2">Application Submitted!</h2>
+            <p className="text-text-secondary mb-6">We&apos;ll review your application and get back to you within 48 hours.</p>
+            <Button asChild><Link href="/careers">Back to Careers</Link></Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -33,27 +89,26 @@ export default async function ApplyPage({ params }: { params: Promise<{ slug: st
 
           <Card variant="outlined">
             <CardContent className="pt-6">
-              <form className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="rounded-lg bg-danger-50 p-3 text-sm text-danger-700 dark:bg-danger-900/30 dark:text-danger-400">{error}</div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="First Name" placeholder="John" required />
-                  <Input label="Last Name" placeholder="Doe" required />
+                  <Input name="firstName" label="First Name" placeholder="John" required />
+                  <Input name="lastName" label="Last Name" placeholder="Doe" required />
                 </div>
-                <Input label="Email" type="email" placeholder="john@example.com" required />
-                <Input label="Phone" type="tel" placeholder="+61 400 000 000" required />
-                <Input label="Suburb" placeholder="Your suburb" required />
-                <Select
-                  label="Experience Level"
-                  options={[
-                    { value: "none", label: "No experience" },
-                    { value: "1-2", label: "1-2 years" },
-                    { value: "3-5", label: "3-5 years" },
-                    { value: "5+", label: "5+ years" },
-                  ]}
-                  placeholder="Select experience"
-                />
-                <Input label="Availability" placeholder="e.g., Mon-Fri 7am-3pm" />
-                <Textarea label="Why do you want to work with us?" placeholder="Tell us about yourself..." />
-                <Button type="submit" className="w-full" size="lg">Submit Application</Button>
+                <Input name="email" label="Email" type="email" placeholder="john@example.com" required />
+                <Input name="phone" label="Phone" type="tel" placeholder="+61 400 000 000" required />
+                <Input name="suburb" label="Suburb" placeholder="Your suburb" required />
+                <Select name="experience" label="Experience Level" options={[
+                  { value: "none", label: "No experience" },
+                  { value: "1-2", label: "1-2 years" },
+                  { value: "3-5", label: "3-5 years" },
+                  { value: "5+", label: "5+ years" },
+                ]} placeholder="Select experience" />
+                <Input name="availability" label="Availability" placeholder="e.g., Mon-Fri 7am-3pm" />
+                <Textarea name="notes" label="Why do you want to work with us?" placeholder="Tell us about yourself..." />
+                <Button type="submit" className="w-full" size="lg" loading={loading}>Submit Application</Button>
               </form>
             </CardContent>
           </Card>

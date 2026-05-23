@@ -45,10 +45,10 @@ export default function HomePage() {
             <span className="font-semibold text-text-primary">sNeek Property Service</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
-            <a href="/services" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Services</a>
-            <a href="/why-us" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Why Us</a>
-            <a href="/faq" className="text-sm text-text-secondary hover:text-text-primary transition-colors">FAQ</a>
-            <a href="/contact" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Contact</a>
+            <Link href="/services" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Services</Link>
+            <Link href="/why-us" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Why Us</Link>
+            <Link href="/faq" className="text-sm text-text-secondary hover:text-text-primary transition-colors">FAQ</Link>
+            <Link href="/contact" className="text-sm text-text-secondary hover:text-text-primary transition-colors">Contact</Link>
           </nav>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
@@ -170,9 +170,9 @@ export default function HomePage() {
               <span className="font-semibold text-text-primary">sNeek Property Service</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-text-secondary">
-              <a href="/terms" className="hover:text-text-primary transition-colors">Terms</a>
-              <a href="/privacy" className="hover:text-text-primary transition-colors">Privacy</a>
-              <a href="/contact" className="hover:text-text-primary transition-colors">Contact</a>
+              <Link href="/terms" className="hover:text-text-primary transition-colors">Terms</Link>
+              <Link href="/privacy" className="hover:text-text-primary transition-colors">Privacy</Link>
+              <Link href="/contact" className="hover:text-text-primary transition-colors">Contact</Link>
             </div>
             <p className="text-sm text-text-tertiary">
               &copy; {new Date().getFullYear()} sNeek Property Service. All rights reserved.

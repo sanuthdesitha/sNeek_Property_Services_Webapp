@@ -17,25 +17,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = credentials.email as string;
         const password = credentials.password as string;
 
-        const user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
-          include: { client: { select: { id: true, name: true } } },
-        });
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase() },
+            include: { client: { select: { id: true, name: true } } },
+          });
 
-        if (!user || !user.passwordHash) return null;
-        if (!user.isActive) return null;
+          if (!user || !user.passwordHash || !user.isActive) return null;
 
-        const isValid = await compare(password, user.passwordHash);
-        if (!isValid) return null;
+          const isValid = await compare(password, user.passwordHash);
+          if (!isValid) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          image: user.image ?? undefined,
-          clientId: user.clientId ?? undefined,
-        };
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            image: user.image ?? undefined,
+            clientId: user.clientId ?? undefined,
+          };
+        } catch {
+          return null;
+        }
       },
     }),
   ],

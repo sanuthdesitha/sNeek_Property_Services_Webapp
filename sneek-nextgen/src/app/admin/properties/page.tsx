@@ -82,34 +82,34 @@ export default async function PropertiesPage() {
                         {prop.address}, {prop.suburb}
                       </p>
                     </div>
-                  </td>
-                  <TableCell className="text-sm">{prop.client?.name ?? "—"}</td>
+                  </TableCell>
+                  <TableCell className="text-sm">{prop.client?.name ?? "—"}</TableCell>
                   <TableCell className="text-sm">
                     <div className="flex items-center gap-2">
                       <Home className="h-3 w-3 text-text-tertiary" />
                       {prop.bedrooms} bed / {prop.bathrooms} bath
                       {prop.hasBalcony && <Badge variant="info" className="text-xs">Balcony</Badge>}
                     </div>
-                  </td>
+                  </TableCell>
                   <TableCell>
                     {prop.laundryEnabled ? <Badge variant="success"><Shirt className="h-3 w-3 mr-1" />Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
-                  </td>
+                  </TableCell>
                   <TableCell>
                     {prop.inventoryEnabled ? <Badge variant="success">Enabled</Badge> : <Badge variant="neutral">Disabled</Badge>}
-                  </td>
+                  </TableCell>
                   <TableCell className="text-sm flex items-center gap-1">
                     <Briefcase className="h-3 w-3 text-text-tertiary" />
                     {prop._count.jobs}
-                  </td>
+                  </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="sm" asChild>
                       <Link href={`/admin/properties/${prop.id}`}>View</Link>
                     </Button>
-                  </td>
+                  </TableCell>
                 </TableRow>
               )) : (
                 <TableRow>
-                  <td colSpan={8} className="text-center text-text-tertiary py-8">No properties found</td>
+                  <TableCell colSpan={8} className="text-center text-text-tertiary py-8">No properties found</TableCell>
                 </TableRow>
               )}
             </TableBody>

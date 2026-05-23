@@ -1,11 +1,12 @@
 import { requireApiRole, apiSuccess, apiError } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createJob, assignJob } from "@/lib/jobs/service";
 import type { JobType, JobStatus } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
-  await requireApiRole("ADMIN", "OPS_MANAGER");
+  const session = await requireApiRole("ADMIN", "OPS_MANAGER");
+  if (session instanceof NextResponse) return session;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") as JobStatus | null;
@@ -49,7 +50,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await requireApiRole("ADMIN", "OPS_MANAGER");
+  const session = await requireApiRole("ADMIN", "OPS_MANAGER");
+  if (session instanceof NextResponse) return session;
 
   const body = await req.json();
 

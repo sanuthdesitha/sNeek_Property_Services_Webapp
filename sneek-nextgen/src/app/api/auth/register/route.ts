@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
 
   const passwordHash = await hash(password);
 
-  const userRole: Role = ["ADMIN", "OPS_MANAGER", "CLEANER", "CLIENT", "LAUNDRY"].includes(role)
-    ? (role as Role)
-    : "CLEANER";
+  // Self-registration is limited to CLIENT and CLEANER only
+  const allowedRoles: Role[] = ["CLIENT", "CLEANER"];
+  const userRole: Role = allowedRoles.includes(role) ? (role as Role) : "CLIENT";
 
   const user = await prisma.user.create({
     data: {

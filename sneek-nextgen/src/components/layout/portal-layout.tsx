@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { signOut } from "next-auth/react";
 import {
@@ -206,7 +207,7 @@ export function PortalLayout({
               <ul className="space-y-0.5">
                 {section.items.map((item) => (
                   <li key={item.href}>
-                    <a
+                    <Link
                       href={item.href}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors",
@@ -217,7 +218,7 @@ export function PortalLayout({
                     >
                       <item.icon className="h-4 w-4 shrink-0" />
                       {!collapsed && <span className="truncate">{item.label}</span>}
-                    </a>
+                    </Link>
                   </li>
                 ))}
               </ul>

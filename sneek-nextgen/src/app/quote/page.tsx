@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +10,64 @@ import { Select } from "@/components/ui/select";
 import { ArrowRight, CheckCircle2, Star, Shield, Clock } from "lucide-react";
 
 export default function QuotePage() {
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      name: formData.get("name"),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      serviceType: formData.get("serviceType"),
+      address: formData.get("address"),
+      bedrooms: parseInt(formData.get("bedrooms") as string) || null,
+      bathrooms: parseInt(formData.get("bathrooms") as string) || null,
+      hasBalcony: formData.get("balcony") === "yes",
+      condition: formData.get("condition") || "standard",
+      notes: formData.get("notes"),
+    };
+
+    try {
+      const res = await fetch("/api/client/quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to submit quote request");
+      }
+
+      setSubmitted(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to submit quote request");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <CheckCircle2 className="h-12 w-12 text-success-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-text-primary mb-2">Quote Request Submitted!</h2>
+            <p className="text-text-secondary mb-6">We&apos;ll get back to you within 24 hours with a detailed quote.</p>
+            <Button asChild><Link href="/">Back to Home</Link></Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/80 dark:bg-neutral-950/80 backdrop-blur border-b border-border">
@@ -32,38 +93,38 @@ export default function QuotePage() {
 
           <Card variant="outlined">
             <CardContent className="pt-6">
-              <form className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="rounded-lg bg-danger-50 p-3 text-sm text-danger-700 dark:bg-danger-900/30 dark:text-danger-400">
+                    {error}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="Full Name" placeholder="John Doe" required />
-                  <Input label="Email" type="email" placeholder="john@example.com" required />
+                  <Input name="name" label="Full Name" placeholder="John Doe" required />
+                  <Input name="email" label="Email" type="email" placeholder="john@example.com" required />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="Phone" type="tel" placeholder="+61 400 000 000" />
-                  <Select
-                    label="Service Type"
-                    options={[
-                      { value: "AIRBNB_TURNOVER", label: "Airbnb Turnover" },
-                      { value: "DEEP_CLEAN", label: "Deep Clean" },
-                      { value: "END_OF_LEASE", label: "End of Lease" },
-                      { value: "GENERAL_CLEAN", label: "General Clean" },
-                      { value: "POST_CONSTRUCTION", label: "Post Construction" },
-                      { value: "PRESSURE_WASH", label: "Pressure Wash" },
-                      { value: "WINDOW_CLEAN", label: "Window Clean" },
-                      { value: "OTHER", label: "Other" },
-                    ]}
-                    placeholder="Select service"
-                    required
-                  />
+                  <Input name="phone" label="Phone" type="tel" placeholder="+61 400 000 000" />
+                  <Select name="serviceType" label="Service Type" options={[
+                    { value: "AIRBNB_TURNOVER", label: "Airbnb Turnover" },
+                    { value: "DEEP_CLEAN", label: "Deep Clean" },
+                    { value: "END_OF_LEASE", label: "End of Lease" },
+                    { value: "GENERAL_CLEAN", label: "General Clean" },
+                    { value: "POST_CONSTRUCTION", label: "Post Construction" },
+                    { value: "PRESSURE_WASH", label: "Pressure Wash" },
+                    { value: "WINDOW_CLEAN", label: "Window Clean" },
+                    { value: "OTHER", label: "Other" },
+                  ]} placeholder="Select service" required />
                 </div>
-                <Input label="Property Address" placeholder="123 Harbour Street, Sydney NSW 2000" required />
+                <Input name="address" label="Property Address" placeholder="123 Harbour Street, Sydney NSW 2000" required />
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <Input label="Bedrooms" type="number" min={1} placeholder="2" />
-                  <Input label="Bathrooms" type="number" min={1} placeholder="1" />
-                  <Select label="Balcony?" options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} placeholder="Select" />
-                  <Select label="Condition" options={[{ value: "light", label: "Light" }, { value: "standard", label: "Standard" }, { value: "heavy", label: "Heavy" }]} placeholder="Select" />
+                  <Input name="bedrooms" label="Bedrooms" type="number" min={1} placeholder="2" />
+                  <Input name="bathrooms" label="Bathrooms" type="number" min={1} placeholder="1" />
+                  <Select name="balcony" label="Balcony?" options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} placeholder="Select" />
+                  <Select name="condition" label="Condition" options={[{ value: "light", label: "Light" }, { value: "standard", label: "Standard" }, { value: "heavy", label: "Heavy" }]} placeholder="Select" />
                 </div>
-                <Textarea label="Additional Notes" placeholder="Any special requirements or requests..." />
-                <Button type="submit" className="w-full" size="lg">
+                <Textarea name="notes" label="Additional Notes" placeholder="Any special requirements or requests..." />
+                <Button type="submit" className="w-full" size="lg" loading={loading}>
                   Submit Quote Request
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>

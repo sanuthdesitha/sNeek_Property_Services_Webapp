@@ -1,11 +1,55 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { MapPin, Plus } from "lucide-react";
+import { MapPin, Plus, CheckCircle2 } from "lucide-react";
 
 export default function CleanerLostFoundPage() {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/cleaner/lost-found")
+      .then((res) => res.json())
+      .then((data) => setItems(data.data?.items || []))
+      .catch(() => {});
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      propertyId: formData.get("propertyId"),
+      description: formData.get("description"),
+      locationFound: formData.get("locationFound"),
+      notes: formData.get("notes"),
+    };
+
+    try {
+      const res = await fetch("/api/cleaner/lost-found", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        setSubmitted(true);
+        setTimeout(() => setSubmitted(false), 3000);
+        e.currentTarget.reset();
+      }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -15,17 +59,26 @@ export default function CleanerLostFoundPage() {
         </div>
       </div>
 
+      {submitted && (
+        <Card variant="outlined" className="border-success-500">
+          <CardContent className="pt-4 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-success-600" />
+            <p className="text-sm text-text-primary">Item reported successfully!</p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card variant="outlined">
         <CardHeader>
           <CardTitle className="text-base">Report a Found Item</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4">
-            <Input label="Property" placeholder="Select property" />
-            <Input label="Item Description" placeholder="Describe the found item" />
-            <Input label="Location Found" placeholder="e.g., Under the bed in bedroom 2" leftIcon={<MapPin className="h-4 w-4" />} />
-            <Textarea label="Additional Notes" placeholder="Any additional details..." />
-            <Button type="submit"><Plus className="h-4 w-4 mr-2" />Report Item</Button>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input name="propertyId" label="Property ID" placeholder="Enter property ID" required />
+            <Input name="description" label="Item Description" placeholder="Describe the found item" required />
+            <Input name="locationFound" label="Location Found" placeholder="e.g., Under the bed in bedroom 2" leftIcon={<MapPin className="h-4 w-4" />} />
+            <Textarea name="notes" label="Additional Notes" placeholder="Any additional details..." />
+            <Button type="submit" loading={loading}><Plus className="h-4 w-4 mr-2" />Report Item</Button>
           </form>
         </CardContent>
       </Card>
@@ -35,22 +88,23 @@ export default function CleanerLostFoundPage() {
           <CardTitle className="text-base">Reported Items</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {[
-              { item: "Silver necklace", property: "Harbour View Apt", location: "Under bed, bedroom 2", date: "Apr 14", status: "RETURNED" },
-              { item: "Phone charger", property: "Beach House", location: "Kitchen counter", date: "Apr 13", status: "PENDING" },
-            ].map((found, i) => (
-              <div key={i} className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">{found.item}</p>
-                    <p className="text-xs text-text-tertiary">{found.property} &middot; {found.location}</p>
+          {items.length > 0 ? (
+            <div className="space-y-3">
+              {items.map((item: any, i: number) => (
+                <div key={i} className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-900">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{item.description}</p>
+                      <p className="text-xs text-text-tertiary">{item.locationFound}</p>
+                    </div>
+                    <Badge variant={item.status === "RETURNED" ? "success" : "warning"}>{item.status}</Badge>
                   </div>
-                  <Badge variant={found.status === "RETURNED" ? "success" : "warning"}>{found.status}</Badge>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-text-tertiary text-center py-4">No items reported yet</p>
+          )}
         </CardContent>
       </Card>
     </div>
