@@ -17,6 +17,7 @@ datasource db {
 enum Role {
   ADMIN
   OPS_MANAGER
+  QA_INSPECTOR
   CLEANER
   CLIENT
   LAUNDRY
@@ -80,6 +81,21 @@ enum LaundryFlag {
 enum MediaType {
   PHOTO
   VIDEO
+}
+
+enum QaAssignmentStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MediaOverrideStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  RESOLVED
 }
 
 enum StockTxType {
@@ -284,6 +300,13 @@ model User {
   jobAssignments               JobAssignment[]
   timeLogs                     TimeLog[]
   formSubmissions              FormSubmission[]
+  qaAssignmentsAssigned        QaAssignment[]              @relation("QaAssignmentAssignedTo")
+  qaAssignmentsCreated         QaAssignment[]              @relation("QaAssignmentCreatedBy")
+  qaAssignmentsPickedUp        QaAssignment[]              @relation("QaAssignmentPickedUpBy")
+  qaFormSubmissions            QaFormSubmission[]          @relation("QaFormSubmissionSubmittedBy")
+  qaReviews                    QAReview[]                  @relation("QAReviewReviewedBy")
+  mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
+  mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")
   notifications                Notification[]
   notificationPreference       UserNotificationPreference?
@@ -422,6 +445,7 @@ model Property {
   clientRates      PropertyClientRate[]
   payAdjustments   CleanerPayAdjustment[]
   jobTasks         JobTask[]
+  qaFormTemplates  QaFormTemplate[]
 }
 
 model Integration {
@@ -554,6 +578,9 @@ model Job {
   timeLogs               TimeLog[]
   formSubmissions        FormSubmission[]
   qaReviews              QAReview[]
+  qaAssignments           QaAssignment[]
+  qaFormSubmissions       QaFormSubmission[]
+  mediaOverrideRequests   MediaOverrideRequest[]
   laundryTask            LaundryTask?
   report                 Report?
   issueTickets           IssueTicket[]
@@ -701,6 +728,7 @@ model FormSubmission {
   submittedBy User              @relation(fields: [submittedById], references: [id])
   media       SubmissionMedia[]
   stockTxs    StockTx[]
+  mediaOverrideRequests MediaOverrideRequest[]
 }
 
 model SubmissionMedia {
@@ -710,6 +738,11 @@ model SubmissionMedia {
   mediaType    MediaType
   url          String    @db.Text
   s3Key        String
+  originalUrl   String?   @db.Text
+  originalS3Key String?
+  annotatedUrl  String?   @db.Text
+  annotatedS3Key String?
+  annotationData Json?
   sizeBytes    Int?
   mimeType     String?
   label        String?
@@ -728,7 +761,103 @@ model QAReview {
   flags        Json? // array of field ids that failed
   createdAt    DateTime @default(now())
 
-  job Job @relation(fields: [jobId], references: [id])
+  job        Job   @relation(fields: [jobId], references: [id])
+  reviewedBy User? @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
+  qaFormSubmissions QaFormSubmission[]
+}
+
+model QaFormTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  serviceType JobType
+  propertyId  String?
+  version     Int      @default(1)
+  isActive    Boolean  @default(true)
+  schema      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property    Property? @relation(fields: [propertyId], references: [id])
+  submissions QaFormSubmission[]
+
+  @@index([serviceType, isActive, version])
+  @@index([propertyId, serviceType, isActive])
+}
+
+model QaAssignment {
+  id           String             @id @default(cuid())
+  jobId        String
+  assignedToId String?
+  createdById  String?
+  pickedUpById String?
+  status       QaAssignmentStatus @default(OPEN)
+  dueAt        DateTime?
+  pickedUpAt   DateTime?
+  completedAt  DateTime?
+  notes        String?            @db.Text
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  job          Job   @relation(fields: [jobId], references: [id])
+  assignedTo   User? @relation("QaAssignmentAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User? @relation("QaAssignmentCreatedBy", fields: [createdById], references: [id])
+  pickedUpBy   User? @relation("QaAssignmentPickedUpBy", fields: [pickedUpById], references: [id])
+  submissions  QaFormSubmission[]
+
+  @@index([status, dueAt])
+  @@index([assignedToId, status])
+  @@index([jobId, status])
+}
+
+model QaFormSubmission {
+  id             String   @id @default(cuid())
+  jobId          String
+  templateId     String
+  assignmentId   String?
+  qaReviewId     String?
+  submittedById  String
+  data           Json
+  categoryScores Json?
+  media          Json?
+  score          Float
+  passed         Boolean
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job          Job            @relation(fields: [jobId], references: [id])
+  template     QaFormTemplate @relation(fields: [templateId], references: [id])
+  assignment   QaAssignment?  @relation(fields: [assignmentId], references: [id])
+  qaReview     QAReview?      @relation(fields: [qaReviewId], references: [id])
+  submittedBy  User           @relation("QaFormSubmissionSubmittedBy", fields: [submittedById], references: [id])
+
+  @@index([jobId, createdAt])
+  @@index([submittedById, createdAt])
+}
+
+model MediaOverrideRequest {
+  id                String              @id @default(cuid())
+  jobId             String
+  submissionId      String?
+  requestedById     String
+  decidedById       String?
+  fieldId           String
+  fieldLabel        String?
+  reason            String?             @db.Text
+  status            MediaOverrideStatus @default(PENDING)
+  decisionNote      String?             @db.Text
+  decidedAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  job          Job             @relation(fields: [jobId], references: [id])
+  submission   FormSubmission? @relation(fields: [submissionId], references: [id])
+  requestedBy  User            @relation("MediaOverrideRequestedBy", fields: [requestedById], references: [id])
+  decidedBy    User?           @relation("MediaOverrideDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([jobId, status])
+  @@index([requestedById, status])
+  @@unique([jobId, requestedById, fieldId, status])
 }
 
 model IssueTicket {
