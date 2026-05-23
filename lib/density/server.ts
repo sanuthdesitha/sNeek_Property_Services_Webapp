@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import type { Density } from "./context";
 
 const PRISMA_TO_DENSITY: Record<string, Density> = {
@@ -13,7 +13,7 @@ const PRISMA_TO_DENSITY: Record<string, Density> = {
  */
 export async function getDensityForUser(userId: string | null | undefined): Promise<Density> {
   if (!userId) return "default";
-  const user = await prisma.user.findUnique({
+  const user = await db.user.findUnique({
     where: { id: userId },
     select: { uiDensity: true },
   });
