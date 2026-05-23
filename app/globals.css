@@ -4,57 +4,90 @@
 
 @layer base {
   :root {
-    --background: 44 48% 97%;
-    --foreground: 195 26% 16%;
+    /* Surfaces */
+    --background:          210 20% 98%;
+    --foreground:          215 28% 14%;
+    --surface:             0 0% 100%;
+    --surface-raised:      210 20% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 195 26% 16%;
+    --card:                0 0% 100%;
+    --card-foreground:     215 28% 14%;
+    --popover:             0 0% 100%;
+    --popover-foreground:  215 28% 14%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 195 26% 16%;
+    /* Brand */
+    --primary:             188 78% 30%;
+    --primary-foreground:  43 100% 97%;
+    --primary-soft:        188 60% 94%;
 
-    --primary: 188 78% 30%;
-    --primary-foreground: 43 100% 96%;
+    /* Secondary / muted / accent */
+    --secondary:           210 18% 92%;
+    --secondary-foreground: 215 28% 22%;
+    --muted:               210 18% 94%;
+    --muted-foreground:    215 12% 45%;
+    --accent:              35 95% 50%;
+    --accent-foreground:   25 90% 18%;
 
-    --secondary: 186 26% 90%;
-    --secondary-foreground: 193 31% 22%;
-
-    --muted: 38 34% 92%;
-    --muted-foreground: 196 12% 41%;
-
-    --accent: 24 84% 92%;
-    --accent-foreground: 20 55% 28%;
-
-    --destructive: 0 72% 52%;
+    /* Status */
+    --success:             152 62% 38%;
+    --success-foreground:  152 80% 96%;
+    --warning:             38 95% 50%;
+    --warning-foreground:  35 90% 14%;
+    --danger:              0 72% 52%;
+    --destructive:         0 72% 52%;
     --destructive-foreground: 0 0% 98%;
+    --info:                212 80% 50%;
+    --info-foreground:     210 90% 96%;
 
-    --border: 188 20% 83%;
-    --input: 188 20% 83%;
-    --ring: 188 78% 30%;
+    /* Hairlines */
+    --border:              214 15% 88%;
+    --border-strong:       214 15% 78%;
+    --input:               214 15% 88%;
+    --ring:                188 78% 40%;
 
-    --radius: 0.9rem;
+    /* Radii */
+    --radius-sm:           4px;
+    --radius:              8px;
+    --radius-lg:           12px;
+    --radius-xl:           16px;
   }
 
   .dark {
-    --background: 210 21% 10%;
-    --foreground: 43 70% 95%;
-    --card: 210 21% 12%;
-    --card-foreground: 43 70% 95%;
-    --popover: 210 21% 12%;
-    --popover-foreground: 43 70% 95%;
-    --primary: 188 70% 46%;
-    --primary-foreground: 210 21% 10%;
-    --secondary: 207 18% 20%;
-    --secondary-foreground: 43 70% 95%;
-    --muted: 208 16% 18%;
-    --muted-foreground: 205 12% 72%;
-    --accent: 27 36% 24%;
-    --accent-foreground: 43 70% 95%;
-    --destructive: 0 63% 44%;
+    --background:          222 22% 9%;
+    --foreground:          210 22% 94%;
+    --surface:             222 18% 12%;
+    --surface-raised:      222 16% 16%;
+
+    --card:                222 18% 12%;
+    --card-foreground:     210 22% 94%;
+    --popover:             222 18% 12%;
+    --popover-foreground:  210 22% 94%;
+
+    --primary:             185 68% 48%;
+    --primary-foreground:  222 22% 8%;
+    --primary-soft:        185 50% 22%;
+
+    --secondary:           218 14% 22%;
+    --secondary-foreground: 210 20% 88%;
+    --muted:               222 13% 19%;
+    --muted-foreground:    210 14% 65%;
+    --accent:              38 95% 60%;
+    --accent-foreground:   30 50% 14%;
+
+    --success:             152 55% 50%;
+    --success-foreground:  152 30% 12%;
+    --warning:             38 95% 58%;
+    --warning-foreground:  35 80% 10%;
+    --danger:              0 70% 60%;
+    --destructive:         0 70% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 208 15% 28%;
-    --input: 208 15% 28%;
-    --ring: 188 70% 46%;
+    --info:                212 80% 60%;
+    --info-foreground:     212 30% 10%;
+
+    --border:              220 13% 22%;
+    --border-strong:       220 13% 32%;
+    --input:               220 13% 22%;
+    --ring:                185 68% 56%;
   }
 
   * {
@@ -71,10 +104,16 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans), "Segoe UI", sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+    background-image: none;
+    background-color: hsl(var(--background));
+  }
+
+  body.marketing,
+  body[data-portal-theme="public"] {
     background-image:
-      radial-gradient(circle at 12% 14%, rgba(255, 177, 95, 0.18), transparent 32%),
-      radial-gradient(circle at 86% 6%, rgba(37, 169, 184, 0.2), transparent 28%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(248, 245, 238, 0.9) 100%);
+      radial-gradient(circle at 12% 14%, hsl(35 95% 60% / 0.10), transparent 32%),
+      radial-gradient(circle at 86% 6%, hsl(188 78% 40% / 0.12), transparent 28%),
+      linear-gradient(180deg, hsl(0 0% 100% / 0.86) 0%, hsl(44 50% 96% / 0.9) 100%);
     background-attachment: fixed;
   }
 
@@ -165,15 +204,15 @@
     text-wrap: balance;
   }
 
-  .animate-float-slow {
+  .marketing-only .animate-float-slow {
     animation: floatSlow 8s ease-in-out infinite;
   }
 
-  .animate-float-slower {
+  .marketing-only .animate-float-slower {
     animation: floatSlower 12s ease-in-out infinite;
   }
 
-  .animate-gentle-pulse {
+  .marketing-only .animate-gentle-pulse {
     animation: gentlePulse 4.5s ease-in-out infinite;
   }
 
@@ -193,44 +232,44 @@
     animation: bounceIn 600ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
 
-  .animate-marquee {
+  .marketing-only .animate-marquee {
     animation: marquee 28s linear infinite;
   }
 
   /* ── Scroll-triggered reveal ── */
-  .scroll-reveal {
+  .marketing-only .scroll-reveal {
     opacity: 0;
     transform: translateY(28px);
     transition: opacity 0.6s ease, transform 0.6s ease;
   }
-  .scroll-reveal.is-visible {
+  .marketing-only .scroll-reveal.is-visible {
     opacity: 1;
     transform: translateY(0);
   }
-  .scroll-reveal-left {
+  .marketing-only .scroll-reveal-left {
     opacity: 0;
     transform: translateX(-32px);
     transition: opacity 0.65s ease, transform 0.65s ease;
   }
-  .scroll-reveal-left.is-visible {
+  .marketing-only .scroll-reveal-left.is-visible {
     opacity: 1;
     transform: translateX(0);
   }
-  .scroll-reveal-right {
+  .marketing-only .scroll-reveal-right {
     opacity: 0;
     transform: translateX(32px);
     transition: opacity 0.65s ease, transform 0.65s ease;
   }
-  .scroll-reveal-right.is-visible {
+  .marketing-only .scroll-reveal-right.is-visible {
     opacity: 1;
     transform: translateX(0);
   }
-  .scroll-reveal-scale {
+  .marketing-only .scroll-reveal-scale {
     opacity: 0;
     transform: scale(0.94);
     transition: opacity 0.55s ease, transform 0.55s ease;
   }
-  .scroll-reveal-scale.is-visible {
+  .marketing-only .scroll-reveal-scale.is-visible {
     opacity: 1;
     transform: scale(1);
   }
@@ -345,90 +384,79 @@
 /* existing Tailwind classes (bg-background, text-foreground etc) */
 /* automatically inherit the portal theme with no extra changes.  */
 
-/* DARK theme — rich charcoal with teal accents */
+[data-portal-theme="light"] {
+  --background:          210 20% 98%;
+  --foreground:          215 28% 14%;
+  --surface:             0 0% 100%;
+  --surface-raised:      210 20% 96%;
+  --card:                0 0% 100%;
+  --card-foreground:     215 28% 14%;
+  --popover:             0 0% 100%;
+  --popover-foreground:  215 28% 14%;
+  --primary:             188 78% 30%;
+  --primary-foreground:  43 100% 97%;
+  --secondary:           210 18% 92%;
+  --secondary-foreground: 215 28% 22%;
+  --muted:               210 18% 94%;
+  --muted-foreground:    215 12% 45%;
+  --accent:              35 95% 50%;
+  --accent-foreground:   25 90% 18%;
+  --destructive:         0 72% 52%;
+  --destructive-foreground: 0 0% 98%;
+  --border:              214 15% 88%;
+  --input:               214 15% 88%;
+  --ring:                188 78% 40%;
+
+  --portal-sidebar-bg:         0 0% 100%;
+  --portal-sidebar-fg:         215 12% 45%;
+  --portal-sidebar-active-bg:  188 78% 30%;
+  --portal-sidebar-active-fg:  43 100% 97%;
+  --portal-amber:              38 90% 50%;
+}
+
 [data-portal-theme="dark"] {
-  /* Page background */
-  --background:          222 18% 11%;
+  --background:          222 22% 9%;
   --foreground:          210 22% 94%;
-
-  /* Cards */
-  --card:                222 16% 14%;
+  --surface:             222 18% 12%;
+  --surface-raised:      222 16% 16%;
+  --card:                222 18% 12%;
   --card-foreground:     210 22% 94%;
-
-  --popover:             222 16% 14%;
+  --popover:             222 18% 12%;
   --popover-foreground:  210 22% 94%;
-
-  /* Primary: bright teal — AA contrast on dark */
   --primary:             185 68% 48%;
-  --primary-foreground:  222 18% 8%;
-
-  /* Secondary */
+  --primary-foreground:  222 22% 8%;
   --secondary:           218 14% 22%;
   --secondary-foreground: 210 20% 88%;
-
-  /* Muted: raised enough to be distinct, light enough to read */
   --muted:               222 13% 19%;
-  --muted-foreground:    210 14% 68%;
-
-  /* Accent: warm amber */
-  --accent:              34 38% 22%;
-  --accent-foreground:   40 90% 84%;
-
-  --destructive:         0 65% 56%;
+  --muted-foreground:    210 14% 65%;
+  --accent:              38 95% 60%;
+  --accent-foreground:   30 50% 14%;
+  --destructive:         0 70% 60%;
   --destructive-foreground: 0 0% 98%;
+  --border:              220 13% 22%;
+  --input:               220 13% 22%;
+  --ring:                185 68% 56%;
 
-  /* Borders */
-  --border:              220 13% 24%;
-  --input:               220 13% 24%;
-  --ring:                185 68% 48%;
-
-  /* Sidebar */
-  --portal-sidebar-bg:         222 20% 8%;
-  --portal-sidebar-fg:         210 14% 64%;
+  --portal-sidebar-bg:         222 22% 7%;
+  --portal-sidebar-fg:         210 14% 60%;
   --portal-sidebar-active-bg:  185 68% 48%;
-  --portal-sidebar-active-fg:  222 18% 8%;
+  --portal-sidebar-active-fg:  222 22% 8%;
   --portal-amber:              38 90% 62%;
 }
 
-/* LIGHT theme — clean white (matches brand defaults) */
-[data-portal-theme="light"] {
-  --background:          44 48% 97%;
-  --foreground:          195 26% 16%;
-  --card:                0 0% 100%;
-  --card-foreground:     195 26% 16%;
-  --popover:             0 0% 100%;
-  --popover-foreground:  195 26% 16%;
-  --primary:             188 78% 30%;
-  --primary-foreground:  43 100% 96%;
-  --secondary:           186 26% 90%;
-  --secondary-foreground: 193 31% 22%;
-  --muted:               38 34% 92%;
-  --muted-foreground:    196 12% 41%;
-  --accent:              24 84% 92%;
-  --accent-foreground:   20 55% 28%;
-  --destructive:         0 72% 52%;
-  --destructive-foreground: 0 0% 98%;
-  --border:              188 20% 83%;
-  --input:               188 20% 83%;
-  --ring:                188 78% 30%;
-
-  --portal-sidebar-bg:         0 0% 100%;
-  --portal-sidebar-fg:         196 12% 41%;
-  --portal-sidebar-active-bg:  188 78% 30%;
-  --portal-sidebar-active-fg:  43 100% 96%;
-  --portal-amber:              38 90% 46%;
-}
-
-/* PUBLIC theme — brand teal sidebar, light content */
 [data-portal-theme="public"] {
+  /* Public marketing site keeps a slightly warmer surface to retain brand
+     personality on the sales surface. Portal pages should NOT use this theme. */
   --background:          44 48% 97%;
   --foreground:          195 26% 16%;
+  --surface:             0 0% 100%;
+  --surface-raised:      210 20% 96%;
   --card:                0 0% 100%;
   --card-foreground:     195 26% 16%;
   --popover:             0 0% 100%;
   --popover-foreground:  195 26% 16%;
   --primary:             188 78% 30%;
-  --primary-foreground:  43 100% 96%;
+  --primary-foreground:  43 100% 97%;
   --secondary:           186 26% 90%;
   --secondary-foreground: 193 31% 22%;
   --muted:               38 34% 92%;
@@ -445,34 +473,12 @@
   --portal-sidebar-fg:         43 100% 90%;
   --portal-sidebar-active-bg:  43 100% 96%;
   --portal-sidebar-active-fg:  188 78% 20%;
-  --portal-amber:              38 90% 46%;
+  --portal-amber:              38 90% 50%;
 }
 
-/* Apply dark CSS vars to body when a dark portal is rendered,
-   so shadcn Radix portals (dropdowns, dialogs) also use dark vars */
 body:has([data-portal-theme="dark"]) {
-  --background:          222 18% 11%;
-  --foreground:          210 22% 94%;
-  --card:                222 16% 14%;
-  --card-foreground:     210 22% 94%;
-  --popover:             222 16% 14%;
-  --popover-foreground:  210 22% 94%;
-  --primary:             185 68% 48%;
-  --primary-foreground:  222 18% 8%;
-  --secondary:           218 14% 22%;
-  --secondary-foreground: 210 20% 88%;
-  --muted:               222 13% 19%;
-  --muted-foreground:    210 14% 68%;
-  --accent:              34 38% 22%;
-  --accent-foreground:   40 90% 84%;
-  --destructive:         0 65% 56%;
-  --destructive-foreground: 0 0% 98%;
-  --border:              220 13% 24%;
-  --input:               220 13% 24%;
-  --ring:                185 68% 48%;
-  /* Remove light gradient — use flat dark background */
   background-image: none;
-  background-color: hsl(222 18% 11%);
+  background-color: hsl(222 22% 9%);
 }
 
 /* Sidebar slide-in animation */
