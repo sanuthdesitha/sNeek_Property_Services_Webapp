@@ -222,6 +222,20 @@ enum JobTaskExecutionStatus {
   CANCELLED
 }
 
+enum UiDensity {
+  COMPACT
+  DEFAULT
+  COMFORTABLE
+}
+
+enum EmailStatus {
+  OK
+  SOFT_BOUNCE
+  HARD_BOUNCE
+  COMPLAINT
+  UNSUBSCRIBED
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -337,6 +351,20 @@ model User {
   cleanerLocationPings         CleanerLocationPing[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
+  uploadFailures               UploadFailure[]
+
+  latitude     Float?
+  longitude    Float?
+  placeId      String?
+  suburb       String?
+  state        String?
+  postcode     String?
+  uiDensity    UiDensity   @default(DEFAULT)
+  emailStatus  EmailStatus @default(OK)
+  lastSeenAt   DateTime?
+
+  @@index([emailStatus])
+  @@index([lastSeenAt])
 }
 
 // ─────────────────────────────────────────────
@@ -354,6 +382,12 @@ model Client {
   isActive                  Boolean  @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
+  latitude                  Float?
+  longitude                 Float?
+  placeId                   String?
+  suburb                    String?
+  state                     String?
+  postcode                  String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
@@ -408,6 +442,8 @@ model Property {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
+  placeId          String?
+
   client           Client                 @relation(fields: [clientId], references: [id])
   preferredCleaner User?                  @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
   integration      Integration?
@@ -422,6 +458,9 @@ model Property {
   clientRates      PropertyClientRate[]
   payAdjustments   CleanerPayAdjustment[]
   jobTasks         JobTask[]
+
+  @@index([placeId])
+  @@index([suburb])
 }
 
 model Integration {
@@ -565,6 +604,7 @@ model Job {
   satisfactionRating     ClientSatisfactionRating?
   cleanerLocationPings   CleanerLocationPing[]
   feedback               JobFeedback?
+  uploadFailures         UploadFailure[]
 }
 
 model CleanerPayAdjustment {
@@ -2195,4 +2235,27 @@ model OnboardingJobTypeAnswer {
 
   @@unique([surveyId, jobType])
   @@index([surveyId])
+}
+
+model UploadFailure {
+  id          String    @id @default(cuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  jobId       String?
+  job         Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  filename    String
+  size        Int
+  mime        String
+  reason      String    // canonical short code, e.g. "S3_TIMEOUT", "PRESIGN_REJECTED", "CLIENT_ABORT"
+  message     String?
+  stack       String?   @db.Text
+  context     Json?     // optional payload (file slice index, retry count, etc.)
+  occurredAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+
+  @@index([occurredAt])
+  @@index([userId, occurredAt])
+  @@index([jobId])
+  @@index([resolvedAt])
 }
