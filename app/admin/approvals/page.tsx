@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +87,11 @@ export default function AdminApprovalsPage() {
   const [acting, setActing] = useState<string | null>(null);
   const [payApproveAmounts, setPayApproveAmounts] = useState<Record<string, string>>({});
   const [sendingClientApproval, setSendingClientApproval] = useState<string | null>(null);
+  const [reversingClientApproval, setReversingClientApproval] = useState<string | null>(null);
+  const [sendToClientFor, setSendToClientFor] = useState<any | null>(null);
+  const [sendClientAmount, setSendClientAmount] = useState("");
+  const [sendClientTitle, setSendClientTitle] = useState("");
+  const [sendClientDescription, setSendClientDescription] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,18 +124,42 @@ export default function AdminApprovalsPage() {
     await load();
   }
 
-  async function sendPayToClient(row: any) {
-    setSendingClientApproval(row.id);
+  function openSendPayToClient(row: any) {
     const propertyName = row.job?.property?.name ?? row.property?.name ?? "Request";
+    setSendToClientFor(row);
+    setSendClientAmount(String(Number(row.clientRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)));
+    setSendClientTitle(`Additional charge approval - ${propertyName}`);
+    setSendClientDescription(
+      row.cleanerNote?.trim()
+        ? `Cleaner requested additional payment. Note: ${row.cleanerNote}`
+        : "Cleaner requested additional payment."
+    );
+  }
+
+  async function sendPayToClientFromDialog() {
+    if (!sendToClientFor) return;
+    const row = sendToClientFor;
+    const amount = Number(sendClientAmount || 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast({ title: "Valid client amount is required.", variant: "destructive" });
+      return;
+    }
+    if (!sendClientTitle.trim()) {
+      toast({ title: "Title is required.", variant: "destructive" });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Send this pay request to the client for $${amount.toFixed(2)} approval?\n\nThis will appear in the client portal and notify the client.`
+    );
+    if (!confirmed) return;
+    setSendingClientApproval(row.id);
     const res = await fetch(`/api/admin/pay-adjustments/${row.id}/send-to-client`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        amount: Number(row.clientRequestedAmount ?? row.requestedAmount ?? 0),
-        title: `Additional charge approval — ${propertyName}`,
-        description: row.cleanerNote?.trim()
-          ? `Cleaner requested additional payment. Note: ${row.cleanerNote}`
-          : "Cleaner requested additional payment.",
+        amount,
+        title: sendClientTitle.trim(),
+        description: sendClientDescription.trim(),
         currency: "AUD",
       }),
     });
@@ -138,6 +170,27 @@ export default function AdminApprovalsPage() {
       return;
     }
     toast({ title: "Sent to client for approval" });
+    setSendToClientFor(null);
+    await load();
+  }
+
+  async function reversePayClientApproval(row: any) {
+    if (!row.clientApproval) return;
+    const confirmed = window.confirm(
+      "Reverse this client approval request?\n\nIt will be removed from the client portal. You can send it again later if needed."
+    );
+    if (!confirmed) return;
+    setReversingClientApproval(row.id);
+    const res = await fetch(`/api/admin/pay-adjustments/${row.id}/send-to-client`, {
+      method: "DELETE",
+    });
+    const json = await res.json().catch(() => ({}));
+    setReversingClientApproval(null);
+    if (!res.ok) {
+      toast({ title: "Failed to reverse", description: json.error ?? "Action failed", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Client approval reversed", description: "The request was removed from the client portal." });
     await load();
   }
 
@@ -380,10 +433,21 @@ export default function AdminApprovalsPage() {
                         size="sm"
                         variant="outline"
                         disabled={isSendingThis || !!acting || clientApproval?.status === "PENDING"}
-                        onClick={() => sendPayToClient(row)}
+                        onClick={() => openSendPayToClient(row)}
                       >
                         {isSendingThis ? "Sending…" : clientApproval?.status === "PENDING" ? "Client pending" : "Send to client"}
                       </Button>
+                      {clientApproval ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={reversingClientApproval === row.id || !!acting}
+                          onClick={() => reversePayClientApproval(row)}
+                          className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                        >
+                          {reversingClientApproval === row.id ? "Reversing..." : "Reverse client send"}
+                        </Button>
+                      ) : null}
                       {row.jobId && (
                         <Button asChild size="sm" variant="ghost">
                           <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
@@ -621,6 +685,66 @@ export default function AdminApprovalsPage() {
           )}
         </div>
       )}
+
+      <Dialog
+        open={Boolean(sendToClientFor)}
+        onOpenChange={(open) => {
+          if (!open) setSendToClientFor(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Send pay request to client</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="client-request-title">Client title</Label>
+              <Input
+                id="client-request-title"
+                value={sendClientTitle}
+                onChange={(event) => setSendClientTitle(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="client-request-amount">Client request amount</Label>
+              <Input
+                id="client-request-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={sendClientAmount}
+                onChange={(event) => setSendClientAmount(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="client-request-description">Client description</Label>
+              <Textarea
+                id="client-request-description"
+                rows={4}
+                value={sendClientDescription}
+                onChange={(event) => setSendClientDescription(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSendToClientFor(null)}
+                disabled={Boolean(sendingClientApproval)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={sendPayToClientFromDialog}
+                disabled={Boolean(sendingClientApproval)}
+              >
+                {sendingClientApproval ? "Sending..." : "Send to Client"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
