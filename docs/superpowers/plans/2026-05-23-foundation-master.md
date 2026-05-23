@@ -78,7 +78,9 @@ Plans D, E, F may run in parallel by different engineers; B and C are strictly s
 
 ## Sub-plan B — Component primitives restyle
 
-**Status:** to-be-written when Plan A merges.
+**Detailed plan:** `docs/superpowers/plans/2026-05-24-foundation-b-primitives.md` (written, ready to execute after Plan A merges).
+
+**Status:** draft. Speculative — written before Plan A merged. Will be re-validated against any in-flight Plan A discoveries before execution.
 
 **Summary:**
 - Restyle `components/ui/button.tsx`, `input.tsx`, `card.tsx`, `dialog.tsx`, `dropdown-menu.tsx`, `tabs.tsx`, `tooltip.tsx`, `toast.tsx`, `select.tsx`, `popover.tsx`, `checkbox.tsx`, `label.tsx` (existing shadcn).
