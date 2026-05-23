@@ -9,8 +9,10 @@ export default async function PublicLayout({ children }: { children: React.React
   const content = settings.websiteContent;
 
   return (
-    <PublicSiteShell companyName={companyName} logoUrl={settings.logoUrl} content={content}>
-      {isWebsiteInMaintenance(content) ? <MaintenancePage content={content} /> : children}
-    </PublicSiteShell>
+    <div className="marketing-only" data-portal-theme="public">
+      <PublicSiteShell companyName={companyName} logoUrl={settings.logoUrl} content={content}>
+        {isWebsiteInMaintenance(content) ? <MaintenancePage content={content} /> : children}
+      </PublicSiteShell>
+    </div>
   );
 }

@@ -234,7 +234,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
         </div>
       ) : null}
 
-      <header className={cn("sticky top-0 z-50 border-b transition-all duration-300", scrolled ? "border-white/80 bg-white/92 shadow-[0_4px_24px_-8px_rgba(23,73,78,0.15)] backdrop-blur-xl" : "border-white/50 bg-white/80 backdrop-blur-lg")}>
+      <header className={cn("sticky top-0 z-50 border-b transition-all duration-300", scrolled ? "border-border bg-surface-raised/92 shadow-[0_4px_24px_-8px_rgba(23,73,78,0.15)] backdrop-blur-xl" : "border-border/60 bg-surface-raised/80 backdrop-blur-lg")}>
         <div className={cn(PUBLIC_PAGE_CONTAINER, "flex items-center justify-between gap-3 py-3 sm:gap-4 sm:py-3.5")}>
           <div className="flex min-w-0 items-center gap-4 lg:gap-6 xl:gap-8">
             <Link href="/" className="flex min-w-0 items-center gap-3">
