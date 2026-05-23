@@ -40,6 +40,11 @@
     "node_modules",
     "backups",
     "mobile-app",
-    "sneek-nextgen"
+    "sneek-nextgen",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "playwright.config.ts",
+    "tests/**",
+    "e2e/**"
   ]
 }
