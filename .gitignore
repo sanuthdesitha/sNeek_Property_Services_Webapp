@@ -38,9 +38,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# playwright
-/playwright-report/
+# Playwright
 /test-results/
+/playwright-report/
+/playwright/.cache/
 
 # prisma
 prisma/migrations/*.sql.bak
