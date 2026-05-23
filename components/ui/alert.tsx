@@ -1,14 +1,16 @@
-﻿import * as React from "react"
+// Alert is being kept for compatibility. New code should use ErrorState / EmptyState / inline StatusPill instead.
+// Will be fully consolidated in a follow-up sweep.
+import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative w-full rounded-xl border border-input/90 bg-white/80 p-4 shadow-sm [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
+  "relative w-full rounded-lg border p-4 shadow-sm [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
   {
     variants: {
       variant: {
-        default: "text-foreground",
-        destructive: "border-destructive/50 bg-destructive/10 text-destructive dark:border-destructive [&>svg]:text-destructive",
+        default: "bg-surface text-foreground border-border",
+        destructive: "border-destructive/30 bg-destructive/10 text-destructive [&>svg]:text-destructive",
       },
     },
     defaultVariants: { variant: "default" },

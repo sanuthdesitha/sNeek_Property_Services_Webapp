@@ -33,6 +33,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { FAB } from "@/components/ui/fab";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 // Note: dev/layout.tsx already gates this route (admin + non-prod) and is
 // dynamic via getServerSession, so this client page doesn't need its own
@@ -196,6 +197,18 @@ export default function PrimitivesDemoPage() {
           or virtual keyboard appears.
         </p>
         <FAB aria-label="Create" icon={<span className="text-xl">+</span>} onClick={() => {}} />
+      </section>
+
+      <section id="alert" className="space-y-4">
+        <h2 className="text-lg font-semibold">Alert</h2>
+        <Alert>
+          <AlertTitle>Heads up!</AlertTitle>
+          <AlertDescription>This is a neutral alert.</AlertDescription>
+        </Alert>
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>Something went wrong.</AlertDescription>
+        </Alert>
       </section>
     </div>
   );
