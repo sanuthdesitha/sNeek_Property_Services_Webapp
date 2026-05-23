@@ -70,11 +70,34 @@ const config: Config = {
           800: "#075985",
           900: "#0c4a6e",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          raised: "hsl(var(--surface-raised))",
+        },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        sm: "var(--radius-sm)",
+        DEFAULT: "var(--radius)",
+        md: "var(--radius)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-xl)",
+        full: "9999px",
+      },
+      boxShadow: {
+        xs: "0 1px 2px 0 hsl(var(--shadow-color, 220 13% 30%) / 0.05)",
+        fab: "0 8px 24px -8px hsl(var(--primary) / 0.35), 0 2px 8px hsl(var(--primary) / 0.18)",
       },
       keyframes: {
         "accordion-down": {
