@@ -12,6 +12,7 @@ import {
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
+import { StatusPill } from "@/components/ui/status-pill";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,22 @@ export default function PrimitivesDemoPage() {
           <CardContent>Card content body.</CardContent>
           <CardFooter><Button size="sm">Action</Button></CardFooter>
         </Card>
+      </section>
+
+      <section id="status-pill" className="space-y-4">
+        <h2 className="text-lg font-semibold">StatusPill</h2>
+        <div className="flex flex-wrap gap-2">
+          {(["neutral", "info", "success", "warning", "danger", "primary", "accent", "purple"] as const).map(
+            (v) => (
+              <StatusPill key={v} variant={v}>{v}</StatusPill>
+            )
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusPill variant="success" withDot>Completed</StatusPill>
+          <StatusPill variant="warning" withDot>At risk</StatusPill>
+          <StatusPill variant="danger" withDot>Breached</StatusPill>
+        </div>
       </section>
     </div>
   );
