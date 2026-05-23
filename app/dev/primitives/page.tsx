@@ -32,6 +32,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { FAB } from "@/components/ui/fab";
 
 // Note: dev/layout.tsx already gates this route (admin + non-prod) and is
 // dynamic via getServerSession, so this client page doesn't need its own
@@ -186,6 +187,15 @@ export default function PrimitivesDemoPage() {
           <LoadingState variant="card" />
           <ErrorState message="Couldn't reach the server — check your connection." onRetry={() => {}} />
         </div>
+      </section>
+
+      <section id="fab" className="space-y-4">
+        <h2 className="text-lg font-semibold">FAB</h2>
+        <p className="text-xs text-muted-foreground">
+          Floating Action Button. Rendered fixed bottom-right of the page. Hides when modal opens
+          or virtual keyboard appears.
+        </p>
+        <FAB aria-label="Create" icon={<span className="text-xl">+</span>} onClick={() => {}} />
       </section>
     </div>
   );
