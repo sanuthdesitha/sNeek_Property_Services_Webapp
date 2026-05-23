@@ -24,7 +24,11 @@
     "db:generate": "prisma generate",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "playwright:install": "playwright install chromium",
-    "workers:dev": "tsx watch workers/boss.ts"
+    "workers:dev": "tsx watch workers/boss.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
