@@ -16,9 +16,14 @@ export default async function AdminEmailCampaignsPage() {
           <h1 className="text-2xl font-bold">Email Campaigns</h1>
           <p className="text-sm text-muted-foreground">Send broadcast campaigns to active or segmented clients and schedule them for later dispatch.</p>
         </div>
-        <Button variant="outline" asChild>
-          <Link href="/admin/marketing">Back to marketing</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild>
+            <Link href="/admin/marketing/campaigns/new">New campaign</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/admin/marketing">Back to marketing</Link>
+          </Button>
+        </div>
       </div>
       <EmailCampaignsWorkspace initialCampaigns={campaigns as any} />
     </div>
