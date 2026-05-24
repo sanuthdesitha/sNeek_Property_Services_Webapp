@@ -236,7 +236,7 @@ export function StockRunWorkspace({
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1.3fr_1fr_1fr_auto]">
           <select
-            className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm"
+            className="h-10 rounded-xl border border-input/80 bg-surface/80 px-3 text-sm"
             value={newPropertyId}
             onChange={(event) => setNewPropertyId(event.target.value)}
           >

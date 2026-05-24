@@ -518,7 +518,7 @@ export function ShoppingRunWorkspace({
         <CardHeader><CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" />Payment and receipts</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={run.payment?.method ?? (run.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD")} onChange={(event) => updatePayment({ method: event.target.value as PaymentMethod })}>
+            <select className="h-10 rounded-xl border border-input/80 bg-surface/80 px-3 text-sm" value={run.payment?.method ?? (run.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD")} onChange={(event) => updatePayment({ method: event.target.value as PaymentMethod })}>
               <option value="COMPANY_CARD">Company card</option>
               <option value="CLIENT_CARD">Client card</option>
               <option value="CLEANER_PERSONAL_CARD">Cleaner personal card</option>
@@ -650,7 +650,7 @@ export function ShoppingRunWorkspace({
         <CardContent className="space-y-4">
           <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_110px_110px]">
             <select
-              className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm"
+              className="h-10 rounded-xl border border-input/80 bg-surface/80 px-3 text-sm"
               value={customDraft.propertyId}
               onChange={(event) =>
                 setCustomDraft((prev) => ({ ...prev, propertyId: event.target.value }))
