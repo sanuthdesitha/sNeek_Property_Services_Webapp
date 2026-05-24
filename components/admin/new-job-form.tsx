@@ -40,6 +40,7 @@ type FormState = {
   guestAdults: string; guestChildren: string; guestInfants: string; guestCheckinAtLocal: string; guestCheckoutAtLocal: string;
   guestLocationText: string;
   siteName: string; siteAddress: string; siteSuburb: string; siteState: string; sitePostcode: string;
+  siteLat: number | null; siteLng: number | null; sitePlaceId: string | null;
   siteContactName: string; siteContactPhone: string; serviceAreaSqm: string; floorCount: string;
   siteBedrooms: string; siteBathrooms: string; siteHasBalcony: boolean;
   scopeOfWork: string; accessInstructions: string; parkingInstructions: string; hazardNotes: string; equipmentNotes: string;
@@ -69,6 +70,7 @@ const initialForm = (propertyId = ""): FormState => ({
   guestName: "", reservationCode: "", guestPhone: "", guestEmail: "", guestProfileUrl: "",
   guestAdults: "", guestChildren: "", guestInfants: "", guestCheckinAtLocal: "", guestCheckoutAtLocal: "", guestLocationText: "",
   siteName: "", siteAddress: "", siteSuburb: "", siteState: "NSW", sitePostcode: "",
+  siteLat: null, siteLng: null, sitePlaceId: null,
   siteContactName: "", siteContactPhone: "", serviceAreaSqm: "", floorCount: "",
   siteBedrooms: "", siteBathrooms: "", siteHasBalcony: false,
   scopeOfWork: "", accessInstructions: "", parkingInstructions: "", hazardNotes: "", equipmentNotes: "",
@@ -411,6 +413,9 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 bedrooms: form.siteBedrooms ? Number(form.siteBedrooms) : undefined,
                 bathrooms: form.siteBathrooms ? Number(form.siteBathrooms) : undefined,
                 hasBalcony: form.siteHasBalcony,
+                latitude: form.siteLat ?? undefined,
+                longitude: form.siteLng ?? undefined,
+                placeId: form.sitePlaceId ?? undefined,
               }
             : undefined,
           serviceContext:
@@ -568,6 +573,9 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                               siteSuburb: parts.suburb || prev.siteSuburb,
                               siteState: parts.state || prev.siteState,
                               sitePostcode: parts.postcode || prev.sitePostcode,
+                              siteLat: typeof parts.lat === "number" ? parts.lat : prev.siteLat,
+                              siteLng: typeof parts.lng === "number" ? parts.lng : prev.siteLng,
+                              sitePlaceId: parts.placeId || prev.sitePlaceId,
                             }))
                           }
                           placeholder="Start typing the address"

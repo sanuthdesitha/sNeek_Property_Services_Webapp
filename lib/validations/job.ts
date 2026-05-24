@@ -71,6 +71,9 @@ const serviceSiteSchema = z.object({
   bedrooms: z.number().int().min(0).max(200).optional(),
   bathrooms: z.number().int().min(0).max(200).optional(),
   hasBalcony: z.boolean().optional(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
+  placeId: z.string().max(200).optional().nullable(),
 });
 
 const baseCreateJobSchema = z.object({
