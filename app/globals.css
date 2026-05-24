@@ -722,3 +722,59 @@ body:has([data-portal-theme="dark"]) {
 .fc-event {
   cursor: pointer;
 }
+
+/* -----------------------------------------------------------------------
+ * Google Maps PlaceAutocompleteElement (Places API New) — match our
+ * design tokens. The element is a custom element with a shadow DOM that
+ * exposes a few CSS variables and shadow parts.
+ * --------------------------------------------------------------------- */
+gmp-place-autocomplete {
+  display: block;
+  width: 100%;
+  --gmpx-color-surface: hsl(var(--surface));
+  --gmpx-color-on-surface: hsl(var(--foreground));
+  --gmpx-color-on-surface-variant: hsl(var(--muted-foreground));
+  --gmpx-color-primary: hsl(var(--primary));
+  --gmpx-color-outline: hsl(var(--border-strong));
+  --gmpx-font-family-base: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --gmpx-font-family-headings: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --gmpx-font-size-base: 0.875rem;
+}
+
+gmp-place-autocomplete::part(input) {
+  background: hsl(var(--surface));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  height: 2.5rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+gmp-place-autocomplete::part(input):focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-color: hsl(var(--ring));
+}
+
+gmp-place-autocomplete::part(input)::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+gmp-place-autocomplete::part(prediction-item) {
+  background: hsl(var(--surface));
+  color: hsl(var(--foreground));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+gmp-place-autocomplete::part(prediction-item):hover,
+gmp-place-autocomplete::part(prediction-item-selected) {
+  background: hsl(var(--muted));
+}
+
+/* The wrapper div we mount the element into */
+.address-autocomplete-wrapper {
+  width: 100%;
+}
