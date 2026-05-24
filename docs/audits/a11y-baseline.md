@@ -1,5 +1,40 @@
 # Accessibility baseline — `/` (home)
 
+> **See also: [`a11y-full-report.md`](./a11y-full-report.md)** — auto-generated
+> by `e2e/audit/a11y-all-routes.spec.ts` across all 10 audit routes. The
+> per-rule, per-route breakdown of every axe violation lives there.
+
+## Update — 2026-05-24 (Plan G fix-loop)
+
+- **Pinch-zoom enabled.** Removed `maximumScale: 1` from
+  `app/layout.tsx` (`Viewport`) — this fixed 6 of the 7 moderate-impact
+  `meta-viewport` findings (`/admin/jobs`, `/admin/calendar`,
+  `/admin/quotes`, `/admin/settings`, `/admin/system/uploads`,
+  `/admin/system/email`).
+- **Email-system heading order fixed.** `app/admin/system/email/page.tsx`
+  was rendering `<h1>` then `<CardTitle>` (default `<h3>`), skipping h2.
+  Replaced two `CardTitle` calls with explicit `<h2>` to satisfy axe
+  `heading-order`.
+
+**Open backlog (Plan G follow-up, not single-line fixes):**
+
+- `button-name` cluster on `/admin/settings` (103 nodes) and
+  `/admin/jobs` (3 nodes) — likely icon-only buttons that need
+  `aria-label`. Needs design + per-button review.
+- `label` cluster on `/admin/settings` (37 nodes) — form controls
+  without associated `<label>`. Needs the Settings form components
+  audited individually.
+- Global `button-name` finding (1 node) appearing on most admin routes —
+  almost certainly the Radix Toast `Close` button at the document root.
+  Patch `components/ui/toast.tsx` to add an `sr-only` "Close" label
+  inside the Close button (mirrors Plan A baseline guidance).
+- Global pattern: `CardTitle` defaults to `<h3>` in `components/ui/card.tsx`.
+  Pages using `<h1>` then `CardTitle` skip `<h2>`. Either add an `as` prop
+  to `CardTitle` or change the default to `<h2>`. Then audit
+  pages that may now render multiple h2's.
+
+
+
 Captured 2026-05-24 via `e2e/foundation/home-a11y.spec.ts` (axe-core 4.11, chromium-desktop, viewport 1440x900).
 
 The test runs as a `expect.soft` baseline in Plan A. **Plan G owns driving these to zero** and flipping the assertion to a hard `expect`.

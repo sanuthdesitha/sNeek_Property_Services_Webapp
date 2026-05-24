@@ -20,6 +20,12 @@ export function NewClientForm() {
     email: "",
     phone: "",
     address: "",
+    suburb: "",
+    state: "",
+    postcode: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
     notes: "",
     sendPortalInvite: false,
     welcomeNote: "",
@@ -124,6 +130,18 @@ export function NewClientForm() {
                 id="address"
                 value={form.address}
                 onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
+                onResolved={(parts) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    address: parts.address || prev.address,
+                    suburb: parts.suburb || prev.suburb,
+                    state: parts.state || prev.state,
+                    postcode: parts.postcode || prev.postcode,
+                    latitude: typeof parts.lat === "number" ? parts.lat : prev.latitude,
+                    longitude: typeof parts.lng === "number" ? parts.lng : prev.longitude,
+                    placeId: parts.placeId || prev.placeId,
+                  }))
+                }
                 placeholder="1 Example St, Sydney NSW"
               />
             </div>

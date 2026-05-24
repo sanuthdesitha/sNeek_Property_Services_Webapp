@@ -242,9 +242,13 @@ export default function OnboardingPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Address</Label>
+              {/* TODO(Plan D follow-up): wire lat/lng/placeId into onboarding profile once extendedProfile shape is finalised */}
               <GoogleAddressInput
                 value={form.address}
                 onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
+                onResolved={(parts) =>
+                  setForm((prev) => ({ ...prev, address: parts.formattedAddress || parts.address || prev.address }))
+                }
               />
             </div>
           </div>

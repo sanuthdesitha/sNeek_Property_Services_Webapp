@@ -638,9 +638,13 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Address (optional)</Label>
+                    {/* TODO(Plan D follow-up): wire lat/lng/placeId into User profile once extendedProfile JSON shape is reviewed */}
                     <GoogleAddressInput
                       value={form.address}
                       onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
+                      onResolved={(parts) =>
+                        setForm((prev) => ({ ...prev, address: parts.address || prev.address }))
+                      }
                     />
                   </div>
                 </div>
@@ -870,9 +874,13 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Address (optional)</Label>
+                  {/* TODO(Plan D follow-up): wire lat/lng/placeId into User profile once extendedProfile JSON shape is reviewed */}
                   <GoogleAddressInput
                     value={accountForm.address}
                     onChange={(value) => setAccountForm((prev) => ({ ...prev, address: value }))}
+                    onResolved={(parts) =>
+                      setAccountForm((prev) => ({ ...prev, address: parts.address || prev.address }))
+                    }
                   />
                 </div>
               </div>

@@ -70,6 +70,22 @@ const JOB_FILTER_DEFAULTS = {
   dateTo: "",
   invoiced: "all",
 };
+
+type SavedView = "today" | "week" | "unassigned" | "at-risk" | "all";
+
+const SAVED_VIEW_LABELS: Record<SavedView, string> = {
+  today: "Today",
+  week: "This week",
+  unassigned: "Unassigned",
+  "at-risk": "At risk",
+  all: "All",
+};
+
+function todayIso(offset = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
 const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
 const JOBS_PAGE_SIZE = 50;
 const KANBAN_COLUMN_PREVIEW = 12;
@@ -108,6 +124,8 @@ export default function JobsPage() {
   const [deleting, setDeleting] = useState(false);
   const [jobToDelete, setJobToDelete] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState("active");
+  const initialSavedView = (searchParams.get("view") as SavedView | null) ?? "all";
+  const [savedFilterView, setSavedFilterView] = useState<SavedView>(initialSavedView);
 
   const [qaScoreByJob, setQaScoreByJob] = useState<Record<string, string>>({});
   const [qaNotesByJob, setQaNotesByJob] = useState<Record<string, string>>({});
@@ -282,11 +300,45 @@ export default function JobsPage() {
       }).length,
     [filters]
   );
+  function matchesSavedView(job: any, view: SavedView): boolean {
+    if (view === "all") return true;
+    const scheduled = job?.scheduledDate ? new Date(job.scheduledDate) : null;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(startOfToday);
+    endOfToday.setDate(endOfToday.getDate() + 1);
+    if (view === "today") {
+      if (!scheduled) return false;
+      return scheduled >= startOfToday && scheduled < endOfToday;
+    }
+    if (view === "week") {
+      if (!scheduled) return false;
+      const endOfWeek = new Date(startOfToday);
+      endOfWeek.setDate(endOfWeek.getDate() + 7);
+      return scheduled >= startOfToday && scheduled < endOfWeek;
+    }
+    if (view === "unassigned") {
+      return job?.status === "UNASSIGNED";
+    }
+    if (view === "at-risk") {
+      const sla = getSlaStatus(job);
+      if (sla === "overdue" || sla === "due-soon") return true;
+      // Unassigned within next hour also counts as at-risk
+      if (job?.status === "UNASSIGNED" && scheduled) {
+        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+        return scheduled <= oneHourFromNow;
+      }
+      return false;
+    }
+    return true;
+  }
+
   const filteredJobs = useMemo(() => {
     const searchNeedle = filters.search.trim().toLowerCase();
     const cleanerNeedle = filters.cleanerName.trim().toLowerCase();
 
     return jobs.filter((job) => {
+      if (!matchesSavedView(job, savedFilterView)) return false;
       if (filters.status !== "all" && job.status !== filters.status) return false;
       if (filters.jobType !== "all" && String(job.jobType ?? "") !== filters.jobType) return false;
 
@@ -326,7 +378,7 @@ export default function JobsPage() {
 
       return true;
     });
-  }, [filters, jobs]);
+  }, [filters, jobs, savedFilterView]);
   const qaQueueJobs = useMemo(
     () => filteredJobs.filter((job) => job.status === "SUBMITTED" || job.status === "QA_REVIEW"),
     [filteredJobs]
@@ -662,6 +714,30 @@ export default function JobsPage() {
 
   const jobUrgentTotal = pendingContinuationRows.length + pendingTimingCount;
 
+  const savedViewCounts = useMemo<Record<SavedView, number>>(() => {
+    const counts: Record<SavedView, number> = { today: 0, week: 0, unassigned: 0, "at-risk": 0, all: jobs.length };
+    for (const job of jobs) {
+      if (matchesSavedView(job, "today")) counts.today += 1;
+      if (matchesSavedView(job, "week")) counts.week += 1;
+      if (matchesSavedView(job, "unassigned")) counts.unassigned += 1;
+      if (matchesSavedView(job, "at-risk")) counts["at-risk"] += 1;
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs]);
+
+  function applySavedView(view: SavedView) {
+    setSavedFilterView(view);
+    const next = new URLSearchParams(searchParams.toString());
+    if (view === "all") {
+      next.delete("view");
+    } else {
+      next.set("view", view);
+    }
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
   return (
     <div className="space-y-6">
       {jobUrgentTotal > 0 && (
@@ -790,6 +866,36 @@ export default function JobsPage() {
             </Link>
           </Button>
         </div>
+      </div>
+
+      {/* Saved filter views */}
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1">
+        {(["today", "week", "unassigned", "at-risk", "all"] as SavedView[]).map((view) => {
+          const isActive = savedFilterView === view;
+          return (
+            <button
+              key={view}
+              type="button"
+              onClick={() => applySavedView(view)}
+              className={
+                "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+                (isActive
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground")
+              }
+            >
+              {SAVED_VIEW_LABELS[view]}
+              <span
+                className={
+                  "rounded-full px-1.5 text-[10px] font-semibold " +
+                  (isActive ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground")
+                }
+              >
+                {savedViewCounts[view]}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -969,7 +1075,7 @@ export default function JobsPage() {
       ) : view === "list" ? (
         <div className="space-y-4">
           {pendingContinuationRows.length > 0 ? (
-            <Card className="border-amber-300 bg-amber-50/60">
+            <Card className="border-warning/40 bg-warning/10">
               <CardContent className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -984,7 +1090,7 @@ export default function JobsPage() {
                   {pendingContinuationRows.map((row) => (
                     <div
                       key={row.id}
-                      className="flex flex-col gap-3 rounded-md border border-amber-300 bg-white/80 p-3 md:flex-row md:items-start md:justify-between"
+                      className="flex flex-col gap-3 rounded-md border border-warning/40 bg-surface p-3 md:flex-row md:items-start md:justify-between"
                     >
                       <div className="min-w-0">
                         <p className="text-sm font-medium">
@@ -1215,7 +1321,7 @@ export default function JobsPage() {
                   <div
                     key={job.id}
                     className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${
-                      pendingContinuationJobIds.has(job.id) ? "bg-amber-50/50" : ""
+                      pendingContinuationJobIds.has(job.id) ? "bg-warning/10" : ""
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -1339,7 +1445,7 @@ export default function JobsPage() {
                   <Card
                     key={job.id}
                     className={`transition-colors hover:border-primary/50 ${
-                      pendingContinuationJobIds.has(job.id) ? "border-amber-300 bg-amber-50/60" : ""
+                      pendingContinuationJobIds.has(job.id) ? "border-warning/40 bg-warning/10" : ""
                     }`}
                   >
                     <CardContent className="p-3">

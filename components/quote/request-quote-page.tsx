@@ -222,7 +222,18 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
     preferredTime: "any",
     scopeNotes: "",
   });
-  const [lead, setLead] = useState({ name: "", email: "", phone: "", address: "", suburb: "" });
+  const [lead, setLead] = useState<{
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    suburb: string;
+    state: string;
+    postcode: string;
+    latitude: number | null;
+    longitude: number | null;
+    placeId: string | null;
+  }>({ name: "", email: "", phone: "", address: "", suburb: "", state: "", postcode: "", latitude: null, longitude: null, placeId: null });
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState<Set<string>>(new Set());
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -390,6 +401,11 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
           phone: lead.phone,
           address: lead.address,
           suburb: lead.suburb,
+          state: lead.state || undefined,
+          postcode: lead.postcode || undefined,
+          latitude: lead.latitude ?? undefined,
+          longitude: lead.longitude ?? undefined,
+          placeId: lead.placeId ?? undefined,
           bedrooms: roomBasedServices.has(serviceType) ? Number(form.bedrooms || 0) : undefined,
           bathrooms: roomBasedServices.has(serviceType) ? Number(form.bathrooms || 0) : undefined,
           hasBalcony: form.hasBalcony,
@@ -927,6 +943,11 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                         ...current,
                         address: parts.address || current.address,
                         suburb: parts.suburb || current.suburb,
+                        state: parts.state || current.state,
+                        postcode: parts.postcode || current.postcode,
+                        latitude: typeof parts.lat === "number" ? parts.lat : current.latitude,
+                        longitude: typeof parts.lng === "number" ? parts.lng : current.longitude,
+                        placeId: parts.placeId || current.placeId,
                       }))
                     }
                   />

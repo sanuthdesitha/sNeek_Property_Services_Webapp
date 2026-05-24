@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { Role, JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusPill } from "@/components/ui/status-pill";
 import { Briefcase, AlertTriangle, Package, Shirt, Calendar, CheckCircle2 } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -14,6 +15,30 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { AdminDashboardGraphs } from "@/components/admin/admin-dashboard-graphs";
+
+function statusToPillVariant(
+  status: JobStatus,
+): "primary" | "info" | "success" | "warning" | "danger" | "neutral" {
+  switch (status) {
+    case JobStatus.UNASSIGNED:
+    case JobStatus.OFFERED:
+      return "warning";
+    case JobStatus.ASSIGNED:
+      return "primary";
+    case JobStatus.IN_PROGRESS:
+    case JobStatus.PAUSED:
+    case JobStatus.WAITING_CONTINUATION_APPROVAL:
+      return "info";
+    case JobStatus.SUBMITTED:
+    case JobStatus.QA_REVIEW:
+      return "warning";
+    case JobStatus.COMPLETED:
+    case JobStatus.INVOICED:
+      return "success";
+    default:
+      return "neutral";
+  }
+}
 
 const TZ = "Australia/Sydney";
 
@@ -238,7 +263,29 @@ const STATUS_COLORS: Record<JobStatus, string> = {
 
 export default async function AdminDashboard() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const [stats, urgentItems, pendingContinuations, pendingTimingRequests, pendingPayAdj, pendingClientApprovals, pendingFlaggedLaundry] = await Promise.all([
+  const nowForAttention = new Date();
+  const next24h = new Date(nowForAttention.getTime() + 24 * 60 * 60 * 1000);
+  const cutoff24h = new Date(nowForAttention.getTime() - 24 * 60 * 60 * 1000);
+  const cutoff12h = new Date(nowForAttention.getTime() - 12 * 60 * 60 * 1000);
+
+  // Today bounds for the strip (Australia/Sydney)
+  const nowSyd = toZonedTime(nowForAttention, TZ);
+  const todayStripStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
+  const todayStripEnd = new Date(todayStripStart.getTime() + 86400_000);
+
+  const [
+    stats,
+    urgentItems,
+    pendingContinuations,
+    pendingTimingRequests,
+    pendingPayAdj,
+    pendingClientApprovals,
+    pendingFlaggedLaundry,
+    todaysJobsStrip,
+    openCasesOver24h,
+    qaPendingOver12h,
+    unassignedSoon,
+  ] = await Promise.all([
     getDashboardStats(),
     getAdminImmediateAttention(),
     listContinuationRequests({ status: "PENDING" }),
@@ -246,6 +293,36 @@ export default async function AdminDashboard() {
     db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING } }),
     listClientApprovals({ status: "PENDING" }),
     db.laundryTask.count({ where: { status: "FLAGGED" } }),
+    db.job.findMany({
+      where: { scheduledDate: { gte: todayStripStart, lt: todayStripEnd } },
+      orderBy: [{ startTime: "asc" }, { scheduledDate: "asc" }],
+      take: 20,
+      select: {
+        id: true,
+        jobNumber: true,
+        jobType: true,
+        status: true,
+        scheduledDate: true,
+        startTime: true,
+        property: { select: { name: true, suburb: true } },
+        assignments: {
+          select: { user: { select: { name: true } } },
+          take: 1,
+        },
+      },
+    }),
+    db.issueTicket.count({
+      where: { status: { in: ["OPEN", "IN_PROGRESS"] }, createdAt: { lt: cutoff24h } },
+    }),
+    db.qaAssignment.count({
+      where: { status: "OPEN", createdAt: { lt: cutoff12h } },
+    }),
+    db.job.count({
+      where: {
+        status: JobStatus.UNASSIGNED,
+        scheduledDate: { gte: nowForAttention, lt: next24h },
+      },
+    }),
   ]);
   const continuationJobIds = Array.from(new Set(pendingContinuations.map((row) => row.jobId)));
 
@@ -269,19 +346,21 @@ export default async function AdminDashboard() {
   const continuationJobById = new Map(continuationJobs.map((job) => [job.id, job]));
 
   const statCards = [
-    { label: "Today's Jobs", value: stats.todayJobs, icon: Calendar, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Unassigned", value: stats.unassignedJobs, icon: Briefcase, color: "text-orange-600", bg: "bg-orange-50", alert: stats.unassignedJobs > 0 },
-    { label: "Laundry Flags", value: stats.flaggedLaundry, icon: Shirt, color: "text-red-600", bg: "bg-red-50", alert: stats.flaggedLaundry > 0 },
-    { label: "Low Stock Items", value: stats.lowStockCount, icon: Package, color: "text-yellow-600", bg: "bg-yellow-50", alert: stats.lowStockCount > 0 },
-    { label: "SLA Due Soon", value: stats.slaDueSoon, icon: AlertTriangle, color: "text-amber-600", bg: "bg-amber-50", alert: stats.slaDueSoon > 0 },
-    { label: "SLA Overdue", value: stats.slaOverdue, icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-50", alert: stats.slaOverdue > 0 },
+    { label: "Today's Jobs", value: stats.todayJobs, icon: Calendar, color: "text-primary", bg: "bg-primary/10" },
+    { label: "Unassigned", value: stats.unassignedJobs, icon: Briefcase, color: "text-warning", bg: "bg-warning/10", alert: stats.unassignedJobs > 0 },
+    { label: "Laundry Flags", value: stats.flaggedLaundry, icon: Shirt, color: "text-destructive", bg: "bg-destructive/10", alert: stats.flaggedLaundry > 0 },
+    { label: "Low Stock Items", value: stats.lowStockCount, icon: Package, color: "text-warning", bg: "bg-warning/10", alert: stats.lowStockCount > 0 },
+    { label: "SLA Due Soon", value: stats.slaDueSoon, icon: AlertTriangle, color: "text-warning", bg: "bg-warning/10", alert: stats.slaDueSoon > 0 },
+    { label: "SLA Overdue", value: stats.slaOverdue, icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10", alert: stats.slaOverdue > 0 },
   ];
+
+  const attentionTotal = openCasesOver24h + qaPendingOver12h + unassignedSoon + stats.lowStockCount;
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-cyan-50/70 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)]">
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Operations Dashboard</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <div className="rounded-2xl border border-border bg-gradient-to-r from-surface-raised via-surface to-primary/5 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)] dark:shadow-none dark:from-surface-raised dark:via-surface-raised dark:to-primary/10">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">Operations Dashboard</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           {format(toZonedTime(new Date(), TZ), "EEEE, d MMMM yyyy")} | Live operations, dispatch risk, and approval workload.
         </p>
       </div>
@@ -331,12 +410,92 @@ export default async function AdminDashboard() {
         </Link>
       )}
 
+      {/* Needs attention banner */}
+      {attentionTotal > 0 ? (
+        <Card className="border-warning/40 bg-warning/10">
+          <CardContent className="space-y-1 p-4">
+            <p className="text-sm font-semibold text-warning">Needs attention</p>
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {openCasesOver24h > 0 ? (
+                <li>
+                  <Link href="/admin/cases" className="hover:underline">
+                    {openCasesOver24h} open case{openCasesOver24h !== 1 ? "s" : ""} &gt; 24h
+                  </Link>
+                </li>
+              ) : null}
+              {qaPendingOver12h > 0 ? (
+                <li>
+                  <Link href="/admin/qa" className="hover:underline">
+                    {qaPendingOver12h} QA assignment{qaPendingOver12h !== 1 ? "s" : ""} waiting &gt; 12h
+                  </Link>
+                </li>
+              ) : null}
+              {unassignedSoon > 0 ? (
+                <li>
+                  <Link href="/admin/jobs?status=UNASSIGNED" className="hover:underline">
+                    {unassignedSoon} job{unassignedSoon !== 1 ? "s" : ""} unassigned in next 24h
+                  </Link>
+                </li>
+              ) : null}
+              {stats.lowStockCount > 0 ? (
+                <li>
+                  <Link href="/admin/inventory" className="hover:underline">
+                    {stats.lowStockCount} low-stock item{stats.lowStockCount !== 1 ? "s" : ""}
+                  </Link>
+                </li>
+              ) : null}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Today's jobs strip */}
+      {todaysJobsStrip.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground">Today's jobs</h2>
+            <Link
+              href="/admin/jobs"
+              className="text-xs text-primary hover:underline"
+            >
+              View all jobs →
+            </Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {todaysJobsStrip.map((job) => (
+              <Link
+                key={job.id}
+                href={`/admin/jobs/${job.id}`}
+                className="block min-w-[240px] flex-shrink-0 rounded-lg border border-border bg-surface p-4 transition-colors hover:bg-surface-raised"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {job.property?.name ?? "Job"}
+                  </p>
+                  <StatusPill variant={statusToPillVariant(job.status)} size="sm">
+                    {job.status.replace(/_/g, " ")}
+                  </StatusPill>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {job.startTime ? `${job.startTime} · ` : ""}
+                  {job.property?.suburb ?? ""}
+                </p>
+                <p className="mt-2 text-xs text-foreground">
+                  {job.assignments[0]?.user?.name ?? "Unassigned"}
+                  {job.jobNumber ? <span className="text-muted-foreground"> · #{job.jobNumber}</span> : null}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
         {statCards.map((card) => (
           <Card
             key={card.label}
-            className={`overflow-hidden border-slate-200/80 bg-white/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] ${card.alert ? "border-amber-300 bg-amber-50/50" : ""}`}
+            className={`overflow-hidden border-border/80 bg-surface/95 shadow-sm ${card.alert ? "border-warning/40 bg-warning/10" : ""}`}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
@@ -345,9 +504,9 @@ export default async function AdminDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold tracking-tight text-slate-900">{card.value}</div>
+              <div className="text-3xl font-bold tracking-tight text-foreground">{card.value}</div>
               {card.alert && card.value > 0 && (
-                <p className="text-xs text-amber-700 mt-1 flex items-center gap-1">
+                <p className="mt-1 flex items-center gap-1 text-xs text-warning">
                   <AlertTriangle className="h-3 w-3" /> Needs attention
                 </p>
               )}
@@ -369,7 +528,7 @@ export default async function AdminDashboard() {
       />
 
       {pendingContinuations.length > 0 ? (
-        <Card className="border-amber-300 bg-amber-50/60">
+        <Card className="border-warning/40 bg-warning/10">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Pause / Continuation Approvals</CardTitle>
             <div className="flex items-center gap-2">
@@ -384,7 +543,7 @@ export default async function AdminDashboard() {
                 <Link
                   key={row.id}
                   href={`/admin/jobs/${row.jobId}`}
-                  className="flex items-center justify-between rounded-md border border-amber-300 bg-white/80 px-4 py-3 transition hover:bg-white"
+                  className="flex items-center justify-between rounded-md border border-warning/40 bg-surface/80 px-4 py-3 transition hover:bg-surface"
                 >
                   <div>
                     <p className="text-sm font-medium">{job?.property?.name ?? `Job ${row.jobId}`}</p>

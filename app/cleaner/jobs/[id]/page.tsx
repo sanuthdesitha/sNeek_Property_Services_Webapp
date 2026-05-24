@@ -4098,6 +4098,34 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             <CardTitle className="text-base">Job Briefing</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {briefing?.priorQaWarning ? (
+              <div
+                className={`rounded-md border p-3 ${
+                  briefing.priorQaWarning.band === "FAIL"
+                    ? "border-destructive/40 bg-destructive/10"
+                    : "border-warning/40 bg-warning/10"
+                }`}
+                data-testid="prior-qa-warning"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      Previous QA at this property: {briefing.priorQaWarning.percent}% ({briefing.priorQaWarning.band})
+                    </p>
+                    {briefing.priorQaWarning.cleanerFeedback ? (
+                      <p className="text-xs">{briefing.priorQaWarning.cleanerFeedback}</p>
+                    ) : briefing.priorQaWarning.inspectorNotes ? (
+                      <p className="text-xs text-muted-foreground">{briefing.priorQaWarning.inspectorNotes}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Take extra care today — review the cleaner checklist carefully.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {briefing?.lastPhotos?.length ? (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Recent property photos</p>

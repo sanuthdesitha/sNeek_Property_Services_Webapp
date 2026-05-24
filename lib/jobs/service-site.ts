@@ -15,6 +15,9 @@ export type ServiceSiteInput = {
     bedrooms?: number;
     bathrooms?: number;
     hasBalcony?: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
+    placeId?: string | null;
   };
   serviceContext?: {
     accessInstructions?: string;
@@ -116,6 +119,9 @@ export async function ensureServiceSiteProperty(db: PrismaClient, input: Service
       hasBalcony: input.serviceSite.hasBalcony === true,
       bedrooms: input.serviceSite.bedrooms ?? 0,
       bathrooms: input.serviceSite.bathrooms ?? 0,
+      latitude: input.serviceSite.latitude ?? undefined,
+      longitude: input.serviceSite.longitude ?? undefined,
+      placeId: input.serviceSite.placeId ?? undefined,
       integration: { create: { isEnabled: false } },
     },
   });

@@ -114,6 +114,9 @@ export default function PropertyDetailPage() {
     bedrooms: "1",
     bathrooms: "1",
     showCleanerContactToClient: false,
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
   });
 
   // Feature 4 — Next Job Checklist
@@ -182,6 +185,9 @@ export default function PropertyDetailPage() {
       bedrooms: String(data.bedrooms ?? 1),
       bathrooms: String(data.bathrooms ?? 1),
       showCleanerContactToClient: Boolean(data.showCleanerContactToClient),
+      latitude: typeof data.latitude === "number" ? data.latitude : null,
+      longitude: typeof data.longitude === "number" ? data.longitude : null,
+      placeId: typeof data.placeId === "string" ? data.placeId : null,
     });
     const draft: Record<string, { onHand: string; parLevel: string; reorderThreshold: string }> = {};
     for (const row of data.propertyStock ?? []) {
@@ -357,6 +363,9 @@ export default function PropertyDetailPage() {
       state: form.state,
       postcode: form.postcode || undefined,
       notes: form.notes || undefined,
+      latitude: form.latitude ?? undefined,
+      longitude: form.longitude ?? undefined,
+      placeId: form.placeId ?? undefined,
       accessInfo:
         Number(form.defaultCleanDurationHours) > 0 ||
         Number(form.maxGuestCount) > 0 ||
@@ -862,6 +871,9 @@ export default function PropertyDetailPage() {
                         suburb: parts.suburb || prev.suburb,
                         state: parts.state || prev.state,
                         postcode: parts.postcode || prev.postcode,
+                        latitude: typeof parts.lat === "number" ? parts.lat : prev.latitude,
+                        longitude: typeof parts.lng === "number" ? parts.lng : prev.longitude,
+                        placeId: parts.placeId || prev.placeId,
                       }))
                     }
                   />

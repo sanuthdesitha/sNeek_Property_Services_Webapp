@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
         ...propertyData,
         latitude: propertyData.latitude ?? undefined,
         longitude: propertyData.longitude ?? undefined,
+        placeId: propertyData.placeId ?? undefined,
         accessCode: encryptSecret(propertyData.accessCode ?? normalizedAccessInfo.codes ?? ""),
         alarmCode: encryptSecret(propertyData.alarmCode ?? ""),
         keyLocation:

@@ -30,6 +30,17 @@ export default function ReportsPage() {
   const [deletingReport, setDeletingReport] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<any | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [themes, setThemes] = useState<Array<{ id: string; name: string; kind: string; isDefault: boolean }>>([]);
+  const [exportThemeId, setExportThemeId] = useState<string>("__default__");
+
+  useEffect(() => {
+    fetch("/api/admin/report-themes")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data?.themes)) setThemes(data.themes);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -78,7 +89,8 @@ export default function ReportsPage() {
 
   async function regenerateReport(jobId: string) {
     setGeneratingJobId(jobId);
-    const res = await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" });
+    const qs = exportThemeId && exportThemeId !== "__default__" ? `?themeId=${encodeURIComponent(exportThemeId)}` : "";
+    const res = await fetch(`/api/admin/reports/${jobId}/generate${qs}`, { method: "POST" });
     const body = await res.json().catch(() => ({}));
     setGeneratingJobId(null);
     if (!res.ok) {
@@ -140,15 +152,36 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Reports</h2>
           <p className="text-sm text-muted-foreground">{pagination.totalCount} generated reports</p>
         </div>
-        <Button variant="outline" onClick={loadReports}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="hidden md:block w-[220px]">
+            <Select value={exportThemeId} onValueChange={setExportThemeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Use default theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Use default theme</SelectItem>
+                {themes.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                    {t.isDefault ? " (default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="outline" asChild>
+            <Link href="/admin/reports/themes">Themes</Link>
+          </Button>
+          <Button variant="outline" onClick={loadReports}>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>

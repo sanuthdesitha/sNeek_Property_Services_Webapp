@@ -6,7 +6,7 @@ import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { jobId: string } }
 ) {
   try {
@@ -30,7 +30,18 @@ export async function POST(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    await generateJobReport(params.jobId);
+    const url = new URL(req.url);
+    let themeId: string | null = url.searchParams.get("themeId");
+    if (!themeId) {
+      try {
+        const body = await req.json();
+        if (body && typeof body.themeId === "string") themeId = body.themeId;
+      } catch {
+        // no body — that's fine
+      }
+    }
+
+    await generateJobReport(params.jobId, themeId || undefined);
     const settings = await getAppSettings();
     const requiresAdminInitiation = settings.strictClientAdminOnly;
 

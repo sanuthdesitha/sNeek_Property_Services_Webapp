@@ -84,6 +84,9 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
     hasBalcony: false,
     bedrooms: "1",
     bathrooms: "1",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
   });
 
   useEffect(() => {
@@ -241,6 +244,9 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
       hasBalcony: form.hasBalcony,
       bedrooms: Number(form.bedrooms) || 0,
       bathrooms: Number(form.bathrooms) || 0,
+      latitude: form.latitude ?? undefined,
+      longitude: form.longitude ?? undefined,
+      placeId: form.placeId ?? undefined,
       defaultInventoryItemIds: form.inventoryEnabled ? selectedDefaultItemIds : [],
       customInventoryItems: form.inventoryEnabled
         ? customItems
@@ -350,6 +356,9 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
                   suburb: parts.suburb || prev.suburb,
                   state: parts.state || prev.state,
                   postcode: parts.postcode || prev.postcode,
+                  latitude: typeof parts.lat === "number" ? parts.lat : prev.latitude,
+                  longitude: typeof parts.lng === "number" ? parts.lng : prev.longitude,
+                  placeId: parts.placeId || prev.placeId,
                 }))
               }
             />

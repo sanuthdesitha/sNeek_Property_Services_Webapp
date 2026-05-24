@@ -280,6 +280,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   profileEditPolicy: {
     [Role.ADMIN]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.OPS_MANAGER]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    [Role.QA_INSPECTOR]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.CLEANER]: { canEditName: true, canEditPhone: true, canEditEmail: false },
     [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: false },
     [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: false },
