@@ -37,7 +37,11 @@ export const createUserByAdminSchema = z
   .object({
     name: requiredNameSchema,
     email: requiredEmailSchema,
-    password: z.string().min(8, "Password must be at least 8 characters"),
+    // When `invite` is true (default), no password is required — the
+    // recipient sets one via the invitation link. When `invite` is false,
+    // an admin-chosen password is required.
+    invite: z.boolean().optional().default(true),
+    password: z.string().min(8, "Password must be at least 8 characters").optional(),
     role: adminCreateRoleSchema,
     phone: optionalAustralianMobileSchema,
     clientId: z.string().trim().optional(),
@@ -52,6 +56,15 @@ export const createUserByAdminSchema = z
     department: optionalProfileLabelSchema,
     baseLocation: optionalProfileLabelSchema,
     bankDetails: bankDetailsSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.invite === false && !value.password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password is required when not sending an invitation.",
+        path: ["password"],
+      });
+    }
   });
 
 export const registerSchema = z

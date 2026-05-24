@@ -10,6 +10,12 @@ import { getUserExtendedProfiles, upsertUserExtendedProfile } from "@/lib/accoun
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { autoAssignCleanerLearning, ensureDefaultLearningPaths } from "@/lib/workforce/service";
+import {
+  buildInvitationUrl,
+  createUserInvitation,
+  sendInvitationEmail,
+} from "@/lib/auth/invitations";
+import { randomBytes } from "node:crypto";
 
 const overrideSchema = z.object({
   userId: z.string().cuid(),
@@ -125,7 +131,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const passwordHash = await bcrypt.hash(payload.password, 10);
+    const inviteMode = payload.invite !== false;
+
+    // When inviting, store an unusable placeholder hash so the column stays
+    // non-null and the user cannot log in until they accept the invite. When
+    // setting a password manually, hash the admin-supplied value.
+    let passwordHash: string;
+    if (inviteMode) {
+      passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+    } else {
+      passwordHash = await bcrypt.hash(payload.password!, 10);
+    }
 
     const created = await db.user.create({
       data: {
@@ -135,7 +151,7 @@ export async function POST(req: NextRequest) {
         role: payload.role,
         phone: payload.phone || payload.contactNumber || undefined,
         isActive: true,
-        emailVerified: new Date(),
+        emailVerified: inviteMode ? null : new Date(),
         clientId,
       },
       select: {
@@ -169,11 +185,31 @@ export async function POST(req: NextRequest) {
       requiresOnboarding: true,
       tutorialSeen: false,
       requiresPasswordReset: false,
-      welcomeEmailSent: true,
+      welcomeEmailSent: !inviteMode,
     });
     if (created.role === "CLEANER") {
       await ensureDefaultLearningPaths(session.user.id);
       await autoAssignCleanerLearning(created.id, session.user.id);
+    }
+
+    let invitationLink: string | undefined;
+    let invitationEmailSent = false;
+    let invitationEmailError: string | undefined;
+    if (inviteMode) {
+      const invite = await createUserInvitation({
+        userId: created.id,
+        createdById: session.user.id,
+      });
+      invitationLink = buildInvitationUrl(invite.token);
+      const emailResult = await sendInvitationEmail({
+        to: created.email,
+        name: created.name,
+        role: created.role,
+        url: invitationLink,
+        expiresAt: invite.expiresAt,
+      });
+      invitationEmailSent = emailResult.ok;
+      invitationEmailError = emailResult.ok ? undefined : emailResult.error;
     }
 
     await db.auditLog.create({
@@ -186,7 +222,8 @@ export async function POST(req: NextRequest) {
           email: created.email,
           role: created.role,
           clientId: created.clientId,
-          activationMode: "ADMIN_CREATED_ACTIVE",
+          activationMode: inviteMode ? "ADMIN_CREATED_INVITE" : "ADMIN_CREATED_ACTIVE",
+          invitationEmailSent,
         } as any,
       },
     });
@@ -196,7 +233,12 @@ export async function POST(req: NextRequest) {
         ...created,
         requiresVerification: false,
         otpSent: false,
-        warning: undefined,
+        invitationLink,
+        invitationEmailSent,
+        warning: inviteMode && !invitationEmailSent
+          ? "Account created, but invitation email failed to send. Share the link manually."
+          : undefined,
+        invitationEmailError,
       },
       { status: 201 }
     );
