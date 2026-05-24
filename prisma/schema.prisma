@@ -272,6 +272,14 @@ enum ThemePreference {
   SYSTEM
 }
 
+enum InvoicingCadence {
+  ON_COMPLETION
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+  CUSTOM
+}
+
 enum CaseState {
   OPEN
   TRIAGE
@@ -419,6 +427,12 @@ model User {
   themePreference ThemePreference @default(SYSTEM)
   emailStatus  EmailStatus @default(OK)
   lastSeenAt   DateTime?
+
+  invoicingCadence       InvoicingCadence @default(ON_COMPLETION)
+  invoiceDayOfWeek       Int?
+  invoiceDayOfMonth      Int?
+  preferredPayoutMethod  PayoutMethod     @default(MANUAL_BANK_TRANSFER)
+  lastInvoiceGeneratedAt DateTime?
 
   @@index([emailStatus])
   @@index([lastSeenAt])
@@ -2134,6 +2148,7 @@ enum PayoutMethod {
   STRIPE_CONNECT
   ABA_FILE
   MANUAL_BANK_TRANSFER
+  PAYPAL
 }
 
 enum GatewayProvider {
