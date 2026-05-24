@@ -109,6 +109,22 @@ async function main() {
     }
   });
 
+  // Marketing engine v1 — multi-channel campaign dispatcher
+  // Picks up campaigns with campaignStatus=SCHEDULED whose scheduledFor has arrived.
+  // Covers EMAIL, SMS, and BOTH channels in a single tick.
+  await boss.schedule("marketing-campaign-dispatch", "*/5 * * * *", {});
+  await boss.work("marketing-campaign-dispatch", async () => {
+    try {
+      const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
+      const result = await dispatchDueCampaigns(new Date());
+      if (result.dispatched > 0) {
+        logger.info({ ...result }, "Marketing campaigns dispatched");
+      }
+    } catch (err) {
+      logger.error({ err }, "marketing-campaign-dispatch failed");
+    }
+  });
+
   await boss.schedule("sla-escalation", "*/15 * * * *", {});
   await boss.work("sla-escalation", async () => {
     const result = await runSlaEscalation(new Date());
