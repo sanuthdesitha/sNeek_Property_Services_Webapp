@@ -345,6 +345,21 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model UserInvitation {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdById String?
+  createdBy   User?     @relation("UserInvitationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -356,6 +371,7 @@ model User {
   phone         String?
   hourlyRate    Float?
   isActive      Boolean   @default(true)
+  profileEditingEnabled Boolean @default(true)
   bankBsb           String?
   bankAccountNumber   String?
   bankAccountName     String?
@@ -433,6 +449,8 @@ model User {
   uploadFailures               UploadFailure[]
   reportThemes                 ReportTheme[]               @relation("ReportThemeCreatedBy")
   caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
+  invitation                   UserInvitation?
+  invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
 
   latitude     Float?
   longitude    Float?

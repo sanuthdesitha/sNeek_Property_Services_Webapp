@@ -17,7 +17,7 @@ import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
-type AccountRole = "ADMIN" | "OPS_MANAGER" | "CLEANER" | "CLIENT" | "LAUNDRY";
+type AccountRole = "ADMIN" | "OPS_MANAGER" | "QA_INSPECTOR" | "CLEANER" | "CLIENT" | "LAUNDRY";
 
 interface BankDetails {
   accountName?: string;
@@ -33,6 +33,7 @@ interface UserItem {
   role: AccountRole;
   phone: string | null;
   isActive: boolean;
+  profileEditingEnabled?: boolean;
   emailVerified?: string | null;
   clientId?: string | null;
   client?: { id: string; name: string } | null;
@@ -58,7 +59,14 @@ interface ClientItem {
   name: string;
 }
 
-const MANAGED_ROLES: AccountRole[] = ["ADMIN", "OPS_MANAGER", "CLEANER", "CLIENT", "LAUNDRY"];
+const MANAGED_ROLES: AccountRole[] = [
+  "ADMIN",
+  "OPS_MANAGER",
+  "QA_INSPECTOR",
+  "CLEANER",
+  "CLIENT",
+  "LAUNDRY",
+];
 
 export function UsersManager({ canManage }: { canManage: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -82,6 +90,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     role: "CLEANER" as AccountRole,
     clientId: "",
     isActive: true,
+    profileEditingEnabled: true,
     businessName: "",
     abn: "",
     address: "",
@@ -281,6 +290,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       role: user.role,
       clientId: user.clientId ?? "",
       isActive: !!user.isActive,
+      profileEditingEnabled: user.profileEditingEnabled !== false,
       businessName: user.extendedProfile?.businessName ?? "",
       abn: user.extendedProfile?.abn ?? "",
       address: user.extendedProfile?.address ?? "",
@@ -324,6 +334,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           phone: accountForm.phone.trim() || null,
           role: accountForm.role,
           isActive: accountForm.isActive,
+          profileEditingEnabled: accountForm.profileEditingEnabled,
           clientId: accountForm.role === "CLIENT" ? accountForm.clientId : null,
           businessName: accountForm.businessName.trim() || null,
           abn: accountForm.abn.trim() || null,
@@ -846,6 +857,20 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   </div>
                   <Switch checked={accountForm.isActive} onCheckedChange={(value) => setAccountForm((prev) => ({ ...prev, isActive: value }))} />
                 </div>
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Profile editing enabled</p>
+                  <p className="text-xs text-muted-foreground">
+                    Allow this user to edit their own profile from their portal.
+                  </p>
+                </div>
+                <Switch
+                  checked={accountForm.profileEditingEnabled}
+                  onCheckedChange={(value) =>
+                    setAccountForm((prev) => ({ ...prev, profileEditingEnabled: value }))
+                  }
+                />
               </div>
               {accountForm.role === "CLIENT" ? (
                 <div className="space-y-1.5">

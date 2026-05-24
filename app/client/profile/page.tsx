@@ -35,10 +35,13 @@ export default async function ClientProfilePage() {
       latitude: true,
       longitude: true,
       placeId: true,
+      profileEditingEnabled: true,
     } as any,
   })) as any;
 
   if (!user) redirect("/login");
+
+  const editingEnabled = user.profileEditingEnabled !== false;
 
   const [pref, properties] = await Promise.all([
     user.clientId
@@ -71,6 +74,7 @@ export default async function ClientProfilePage() {
       </header>
 
       <ClientProfileForm
+        editingEnabled={editingEnabled}
         user={{
           id: user.id,
           name: user.name,

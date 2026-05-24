@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
         isActive: true,
         emailVerified: true,
         clientId: true,
+        profileEditingEnabled: true,
         notificationPreference: {
           select: {
             updatedAt: true,
