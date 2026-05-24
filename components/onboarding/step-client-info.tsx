@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 
 interface ClientOption {
   id: string;
@@ -85,10 +86,27 @@ export function StepClientInfo({ data, onChange }: StepClientInfoProps) {
           </div>
           <div>
             <Label>Address</Label>
-            <Input
-              value={String(clientData.address ?? "")}
-              onChange={(e) => onChange({ ...data, clientData: { ...clientData, address: e.target.value } })}
+            <AddressAutocomplete
+              defaultValue={String(clientData.address ?? "")}
               placeholder="Client address"
+              onSelect={(r) =>
+                onChange({
+                  ...data,
+                  clientData: {
+                    ...clientData,
+                    address: r.formattedAddress,
+                    suburb: r.suburb ?? clientData.suburb,
+                    state: r.state ?? clientData.state,
+                    postcode: r.postcode ?? clientData.postcode,
+                    latitude: r.lat,
+                    longitude: r.lng,
+                    placeId: r.placeId,
+                  },
+                })
+              }
+              onChange={(text) =>
+                onChange({ ...data, clientData: { ...clientData, address: text } })
+              }
             />
           </div>
           <div className="md:col-span-2">
