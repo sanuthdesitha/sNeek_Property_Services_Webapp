@@ -202,7 +202,7 @@ export default function AdminIcalIntegrationsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">iCal Sync Ops</h2>
+          <h2 className="text-2xl font-bold text-foreground">iCal Sync Ops</h2>
           <p className="text-sm text-muted-foreground">
             Monitor every iCal sync run across all properties, verify issues, and re-sync selected properties in bulk.
           </p>

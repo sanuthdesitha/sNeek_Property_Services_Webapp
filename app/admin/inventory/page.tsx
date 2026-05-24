@@ -504,7 +504,7 @@ export default function InventoryPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Inventory</h2>
+        <h2 className="text-2xl font-bold text-foreground">Inventory</h2>
         <Select value={selectedProp} onValueChange={setSelectedProp}>
           <SelectTrigger className="w-56">
             <SelectValue placeholder="Select property" />

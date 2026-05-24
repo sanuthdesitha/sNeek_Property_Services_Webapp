@@ -170,7 +170,7 @@ export default async function CleanerPerformanceDetailPage({
               )}
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 {user.name ?? "Unnamed cleaner"}
               </h1>
               <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">

@@ -33,7 +33,7 @@ export default async function IntelligencePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Intelligence</h1>
+        <h1 className="text-2xl font-bold text-foreground">Intelligence</h1>
         <p className="text-sm text-muted-foreground">
           The old intelligence workspace has been retired. The features that remain live now sit in
           the core operational pages below.

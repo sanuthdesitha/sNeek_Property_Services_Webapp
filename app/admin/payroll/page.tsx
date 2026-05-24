@@ -8,7 +8,7 @@ export default async function PayrollPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Payroll</h2>
+        <h2 className="text-2xl font-bold text-foreground">Payroll</h2>
         <p className="text-sm text-muted-foreground">Manage payroll runs and payouts.</p>
       </div>
       <PayrollRunsList />

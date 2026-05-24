@@ -27,7 +27,7 @@ export default async function EmailSystemPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold">Email Operations</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Email Operations</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Suppression list and 30-day delivery funnel.
         </p>
@@ -36,7 +36,7 @@ export default async function EmailSystemPage() {
       <Card>
         <CardHeader>
           {/* Use h2 directly to maintain heading order under the page h1. */}
-          <h2 className="text-lg font-semibold leading-tight tracking-tight">30-day funnel</h2>
+          <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">30-day funnel</h2>
         </CardHeader>
         <CardContent>
           {funnelData.length === 0 ? (
@@ -63,7 +63,7 @@ export default async function EmailSystemPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-semibold leading-tight tracking-tight">
+          <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">
             Suppressed addresses ({suppressed.length})
           </h2>
         </CardHeader>

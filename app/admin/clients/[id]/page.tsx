@@ -89,7 +89,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </Link>
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">Client Detail</h1>
+          <h1 className="text-2xl font-bold text-foreground">Client Detail</h1>
           <p className="text-sm text-muted-foreground">Review contact info, leads, quotes, jobs, cases, and properties in one place.</p>
         </div>
         <Button variant="outline" asChild>

@@ -64,7 +64,7 @@ export default async function FormsV1ListPage() {
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Form Templates (V1)</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Form Templates (V1)</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {templates.length} templates across {Object.keys(byKind).length} job kinds.
           </p>

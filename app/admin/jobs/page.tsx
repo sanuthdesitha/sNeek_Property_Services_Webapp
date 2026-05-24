@@ -762,7 +762,7 @@ export default function JobsPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Jobs</h2>
+          <h2 className="text-2xl font-bold text-foreground">Jobs</h2>
           <p className="text-sm text-muted-foreground">
             {pagination.totalCount} {activeTab === "completed" ? "completed" : "active"} jobs
             {pagination.totalPages > 1 && (
@@ -1559,7 +1559,7 @@ export default function JobsPage() {
       </Tabs>
 
       {selectedIds.length > 0 ? (
-        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border bg-background/95 px-4 py-3 shadow-xl backdrop-blur">
+        <div className="sticky bottom-4 z-30 mx-auto flex w-fit max-w-3xl flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-xl backdrop-blur">
           <div className="flex items-center gap-2">
             <Checkbox checked={allFilteredSelected} onCheckedChange={toggleAllSelectedJobs} />
             <span className="text-sm font-medium">{selectedIds.length} selected</span>

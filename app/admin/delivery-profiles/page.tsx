@@ -101,7 +101,7 @@ export default function DeliveryProfilesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Client Delivery Profiles</h2>
+        <h2 className="text-2xl font-bold text-foreground">Client Delivery Profiles</h2>
         <p className="text-sm text-muted-foreground">
           Configure default recipients and auto-send behavior for reports and invoices.
         </p>

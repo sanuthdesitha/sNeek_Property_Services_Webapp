@@ -223,7 +223,7 @@ export default async function OpsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Operations</h1>
+          <h1 className="text-2xl font-bold text-foreground">Operations</h1>
           <p className="text-sm text-muted-foreground">
             One inbox for dispatch, QA, cases, laundry follow-up, and compliance blockers.
           </p>

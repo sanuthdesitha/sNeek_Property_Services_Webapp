@@ -45,7 +45,7 @@ export default async function AdminRouteMapPage({
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Cleaner Route Map</h1>
+          <h1 className="text-2xl font-bold text-foreground">Cleaner Route Map</h1>
           <p className="text-sm text-muted-foreground">
             Daily route ordering, travel estimates, and one-click Google Maps links.
           </p>

@@ -50,7 +50,7 @@ export default function CalendarPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Calendar
               </p>
-              <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">Dispatch Calendar</h2>
+              <h2 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">Dispatch Calendar</h2>
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
                 Review all scheduled jobs and laundry pickups in one place, spot clashes early, and jump straight into a job from the calendar card.
               </p>

@@ -201,7 +201,7 @@ export default function AdminApprovalsPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Approvals Centre</h1>
+          <h1 className="text-2xl font-bold text-foreground">Approvals Centre</h1>
           <p className="text-sm text-muted-foreground">
             All pending requests across jobs, pay, laundry, and client approvals in one place.
           </p>

@@ -34,7 +34,7 @@ export default async function AdminPayrollPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Payroll</h1>
+          <h1 className="text-2xl font-bold text-foreground">Payroll</h1>
           <p className="text-sm text-muted-foreground">
             Cleaner paid hours, approved adjustments, and payslip exports for a selected period.
           </p>

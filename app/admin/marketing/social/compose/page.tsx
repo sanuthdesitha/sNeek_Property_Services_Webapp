@@ -107,7 +107,7 @@ export default function ComposeSocialPostPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Compose social post</h1>
+          <h1 className="text-2xl font-bold text-foreground">Compose social post</h1>
           <p className="text-sm text-muted-foreground">
             Generate a caption with AI, refine it, attach assets, and save as draft.
           </p>

@@ -292,7 +292,7 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-2xl font-bold">Notifications</h2>
+          <h2 className="text-2xl font-bold text-foreground">Notifications</h2>
           <p className="text-sm text-muted-foreground">Defaults, timed automation, profile overrides, and delivery history.</p>
         </div>
         <div className="flex gap-2">

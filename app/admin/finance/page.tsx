@@ -70,7 +70,7 @@ export default function FinancePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Cost and Margin Dashboard</h2>
+        <h2 className="text-2xl font-bold text-foreground">Cost and Margin Dashboard</h2>
         <p className="text-sm text-muted-foreground">
           Revenue, operational costs, and gross margin by client.
         </p>
