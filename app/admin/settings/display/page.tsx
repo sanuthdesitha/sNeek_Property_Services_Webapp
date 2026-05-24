@@ -12,7 +12,7 @@ export default async function DisplaySettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Display Preferences</h2>
+        <h2 className="text-2xl font-bold text-foreground">Display Preferences</h2>
         <p className="text-sm text-muted-foreground">
           Choose how the dashboard looks for you. Changes save instantly.
         </p>

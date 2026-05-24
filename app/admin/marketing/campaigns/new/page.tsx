@@ -18,7 +18,7 @@ export default async function NewCampaignPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">New campaign</h1>
+          <h1 className="text-2xl font-bold text-foreground">New campaign</h1>
           <p className="text-sm text-muted-foreground">
             Pick a template, choose a channel, segment recipients, and save as draft or schedule.
           </p>

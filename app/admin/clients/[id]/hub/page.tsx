@@ -107,7 +107,7 @@ export default async function ClientHubPage({ params }: { params: { id: string }
           </Link>
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold">Client hub</h1>
+          <h1 className="text-2xl font-bold text-foreground">Client hub</h1>
           <p className="text-sm text-muted-foreground">
             Operations view for {client.name} — jobs, notifications, automations, and feedback in one place.
           </p>

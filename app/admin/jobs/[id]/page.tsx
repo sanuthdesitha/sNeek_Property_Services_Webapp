@@ -1007,7 +1007,7 @@ export default function JobDetailPage() {
           </Link>
         </Button>
         <div className="flex-1">
-          <h2 className="text-xl font-bold">{job.property.name}</h2>
+          <h2 className="text-xl font-bold text-foreground">{job.property.name}</h2>
           <p className="text-sm text-muted-foreground">
             {job.property.address}, {job.property.suburb} - {job.jobType.replace(/_/g, " ")} - {" "}
             {scheduledDateLabel}

@@ -75,7 +75,7 @@ export default async function ClientsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Clients</h2>
+          <h2 className="text-2xl font-bold text-foreground">Clients</h2>
           <p className="text-sm text-muted-foreground">{clients.length} active clients</p>
         </div>
         <Button asChild>

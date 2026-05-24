@@ -220,7 +220,7 @@ export default function SurveyDetailPage({ params }: { params: { id: string } })
       </div>
 
       <div>
-        <h2 className="text-2xl font-bold">{survey.surveyNumber}</h2>
+        <h2 className="text-2xl font-bold text-foreground">{survey.surveyNumber}</h2>
         <p className="text-sm text-muted-foreground">
           {survey.propertyName ?? survey.propertyAddress ?? "No property name"}
           {survey.propertySuburb ? ` — ${survey.propertySuburb}` : ""}

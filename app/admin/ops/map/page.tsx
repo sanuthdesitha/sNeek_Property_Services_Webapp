@@ -97,7 +97,7 @@ export default async function OpsMapPage({
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Live Operations Map</h1>
+          <h1 className="text-2xl font-bold text-foreground">Live Operations Map</h1>
           <p className="text-sm text-muted-foreground">
             Field-ready view of today&apos;s active jobs, GPS proximity, and safety check-in status.
           </p>

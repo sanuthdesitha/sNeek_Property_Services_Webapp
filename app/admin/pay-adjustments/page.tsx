@@ -293,7 +293,7 @@ export default function AdminPayAdjustmentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Extra Payment Requests</h2>
+          <h2 className="text-2xl font-bold text-foreground">Extra Payment Requests</h2>
           <p className="text-sm text-muted-foreground">Review cleaner hourly/fixed extra payment requests.</p>
         </div>
         <Button variant="outline" onClick={load}>Refresh</Button>

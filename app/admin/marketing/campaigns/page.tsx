@@ -13,7 +13,7 @@ export default async function AdminEmailCampaignsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Email Campaigns</h1>
+          <h1 className="text-2xl font-bold text-foreground">Email Campaigns</h1>
           <p className="text-sm text-muted-foreground">Send broadcast campaigns to active or segmented clients and schedule them for later dispatch.</p>
         </div>
         <div className="flex gap-2">

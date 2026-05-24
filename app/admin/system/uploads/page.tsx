@@ -19,7 +19,7 @@ export default async function UploadFailuresPage() {
   return (
     <div className="mx-auto max-w-6xl p-6">
       <header className="mb-6 flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Upload Failures</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Upload Failures</h1>
         <span className="text-sm text-muted-foreground">{failures.length} unresolved</span>
       </header>
       {failures.length === 0 ? (

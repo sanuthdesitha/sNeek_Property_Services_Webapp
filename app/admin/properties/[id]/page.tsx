@@ -675,7 +675,7 @@ export default function PropertyDetailPage() {
           <Link href="/admin/properties" aria-label="Back to properties"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         <div className="flex-1">
-          <h2 className="text-2xl font-bold">{property.name}</h2>
+          <h2 className="text-2xl font-bold text-foreground">{property.name}</h2>
           <p className="text-sm text-muted-foreground">
             {property.address}, {property.suburb} - Client: {property.client?.name}
           </p>

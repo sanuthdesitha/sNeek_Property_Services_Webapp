@@ -45,7 +45,7 @@ export default async function EditThemePage({ params }: { params: { id: string }
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div>
-            <h2 className="text-2xl font-bold">Edit theme</h2>
+            <h2 className="text-2xl font-bold text-foreground">Edit theme</h2>
             <p className="text-sm text-muted-foreground">{safe.name}</p>
           </div>
           {safe.isDefault && (

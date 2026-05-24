@@ -40,7 +40,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Settings</h2>
+        <h2 className="text-2xl font-bold text-foreground">Settings</h2>
         <p className="text-sm text-muted-foreground">
           Grouped operational settings with integrations and API credentials.
         </p>

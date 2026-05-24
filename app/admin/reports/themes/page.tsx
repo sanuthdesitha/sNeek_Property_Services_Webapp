@@ -66,7 +66,7 @@ export default function ReportThemesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Report themes</h2>
+          <h2 className="text-2xl font-bold text-foreground">Report themes</h2>
           <p className="text-sm text-muted-foreground">
             Customize report layout, photo size, and branding.
           </p>

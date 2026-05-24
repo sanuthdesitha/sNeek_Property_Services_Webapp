@@ -274,7 +274,7 @@ export function ComposeWorkspace() {
     <div className="container max-w-7xl py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Compose Message</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Compose Message</h1>
           <p className="text-sm text-muted-foreground">
             Pick a template, fill the variables from a client or job, and send via email or SMS.
           </p>

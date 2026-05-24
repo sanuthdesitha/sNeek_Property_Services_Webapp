@@ -33,7 +33,7 @@ export default async function ScalePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Scale</h1>
+        <h1 className="text-2xl font-bold text-foreground">Scale</h1>
         <p className="text-sm text-muted-foreground">
           Phase 3 scale features have been folded into the live operational pages. Use the links
           below instead of a separate experimental workspace.

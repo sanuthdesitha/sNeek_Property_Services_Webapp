@@ -43,7 +43,7 @@ export default async function AdminSocialPostsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Social posts</h1>
+          <h1 className="text-2xl font-bold text-foreground">Social posts</h1>
           <p className="text-sm text-muted-foreground">
             Draft, schedule, and track social posts across channels. Full OAuth publishing is rolled out per channel — drafts can be manually published and the URL pasted back.
           </p>

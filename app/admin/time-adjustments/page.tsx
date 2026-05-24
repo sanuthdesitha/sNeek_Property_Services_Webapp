@@ -139,7 +139,7 @@ export default function AdminTimeAdjustmentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Clock Adjustments</h2>
+          <h2 className="text-2xl font-bold text-foreground">Clock Adjustments</h2>
           <p className="text-sm text-muted-foreground">
             Review cleaner requests to change the final clock time captured at submission.
           </p>

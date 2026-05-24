@@ -8,7 +8,7 @@ export default async function PayrollRunPage({ params }: { params: { id: string 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Payroll Run</h2>
+        <h2 className="text-2xl font-bold text-foreground">Payroll Run</h2>
         <p className="text-sm text-muted-foreground">Review and process payouts.</p>
       </div>
       <PayrollRunDetail runId={params.id} />

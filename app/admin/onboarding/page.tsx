@@ -83,7 +83,7 @@ export default function OnboardingPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Property Onboarding</h2>
+          <h2 className="text-2xl font-bold text-foreground">Property Onboarding</h2>
           <p className="text-sm text-muted-foreground">
             Survey new properties and onboard cleaning contracts.
           </p>

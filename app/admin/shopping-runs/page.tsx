@@ -292,7 +292,7 @@ export default function AdminShoppingRunsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Shopping Runs</h2>
+        <h2 className="text-2xl font-bold text-foreground">Shopping Runs</h2>
         <p className="text-sm text-muted-foreground">
           Review active shopping runs, receipts, who paid, and what needs to be reimbursed to
           cleaners or clients.
