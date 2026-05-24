@@ -395,6 +395,7 @@ model User {
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
   uploadFailures               UploadFailure[]
+  reportThemes                 ReportTheme[]               @relation("ReportThemeCreatedBy")
 
   latitude     Float?
   longitude    Float?
@@ -1152,9 +1153,43 @@ model Report {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  themeId String?
+  theme   ReportTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
+
   job                 Job           @relation(fields: [jobId], references: [id])
   issueTickets        IssueTicket[]
   visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+
+  @@index([themeId])
+}
+
+enum ReportThemeKind {
+  COMPACT
+  MAGAZINE
+  DETAILED
+  CUSTOM
+}
+
+model ReportTheme {
+  id              String          @id @default(cuid())
+  name            String
+  kind            ReportThemeKind @default(CUSTOM)
+  isDefault       Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  layout          Json
+  logoUrl         String?
+  primaryColorHsl String?
+  accentColorHsl  String?
+  titleTemplate   String?
+  footerHtml      String?         @db.Text
+  createdById     String?
+  createdBy       User?           @relation("ReportThemeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  reports         Report[]
+
+  @@index([isActive])
+  @@index([isDefault])
 }
 
 model CaseComment {
