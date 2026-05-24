@@ -63,11 +63,11 @@ function getTripState(loc: LiveLocation) {
 }
 
 function getTripBadgeClasses(loc: LiveLocation) {
-  if (loc.arrivedAt) return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (loc.jobStatus === "IN_PROGRESS") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (loc.drivingPausedAt) return "border-slate-200 bg-slate-50 text-slate-700";
-  if (loc.drivingDelayedAt) return "border-amber-200 bg-amber-50 text-amber-800";
-  return "border-blue-200 bg-blue-50 text-blue-800";
+  if (loc.arrivedAt) return "border-success/30 bg-success/10 text-success";
+  if (loc.jobStatus === "IN_PROGRESS") return "border-success/30 bg-success/10 text-success";
+  if (loc.drivingPausedAt) return "border-border bg-muted text-muted-foreground";
+  if (loc.drivingDelayedAt) return "border-warning/30 bg-warning/10 text-warning";
+  return "border-info/30 bg-info/10 text-info";
 }
 
 const POLL_INTERVAL_MS = 15_000;
@@ -111,7 +111,7 @@ export function LiveCleanerLayer() {
             </p>
           )}
         </div>
-        <Badge variant="secondary" className="border-green-200 bg-green-50 text-green-800">
+        <Badge variant="secondary" className="border-success/30 bg-success/10 text-success">
           {locations.length} live
         </Badge>
       </CardHeader>
@@ -135,7 +135,7 @@ export function LiveCleanerLayer() {
                       <Badge variant="outline" className={getTripBadgeClasses(loc)}>
                         {tripState}
                       </Badge>
-                      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800 text-[11px]">
+                      <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning text-[11px]">
                         {formatEta(loc.etaMinutes)}
                       </Badge>
                       {loc.etaUpdatedAt && (
@@ -149,10 +149,10 @@ export function LiveCleanerLayer() {
                       {loc.jobType.replaceAll("_", " ")} · Last ping {formatLastPing(loc.lastPingAt)}
                     </p>
                     {loc.drivingPauseReason && (
-                      <p className="text-[11px] text-slate-600">Pause: {loc.drivingPauseReason}</p>
+                      <p className="text-[11px] text-muted-foreground">Pause: {loc.drivingPauseReason}</p>
                     )}
                     {loc.drivingDelayedReason && (
-                      <p className="text-[11px] text-amber-700">Delay: {loc.drivingDelayedReason.replaceAll("_", " ")}</p>
+                      <p className="text-[11px] text-warning">Delay: {loc.drivingDelayedReason.replaceAll("_", " ")}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">

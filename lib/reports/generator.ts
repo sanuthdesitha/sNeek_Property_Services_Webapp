@@ -6,7 +6,67 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 
 const TZ = "Australia/Sydney";
-export const REPORT_TEMPLATE_VERSION = "v3-inline-evidence-branding";
+export const REPORT_TEMPLATE_VERSION = "v4-themeable-evidence-branding";
+
+type ReportThemeRecord = {
+  id: string;
+  name: string;
+  kind: string;
+  isDefault: boolean;
+  layout: any;
+  logoUrl: string | null;
+  primaryColorHsl: string | null;
+  accentColorHsl: string | null;
+  titleTemplate: string | null;
+  footerHtml: string | null;
+};
+
+async function loadTheme(themeId?: string | null): Promise<ReportThemeRecord | null> {
+  try {
+    if (themeId) {
+      const t = await (db as any).reportTheme.findUnique({ where: { id: themeId } });
+      if (t) return t as ReportThemeRecord;
+    }
+    const def = await (db as any).reportTheme.findFirst({ where: { isDefault: true, isActive: true } });
+    if (def) return def as ReportThemeRecord;
+    return await (db as any).reportTheme.findFirst({ where: { isActive: true } });
+  } catch {
+    return null;
+  }
+}
+
+function isSectionVisible(theme: ReportThemeRecord | null, sectionId: string): boolean {
+  if (!theme?.layout?.sections) return true;
+  const sections = Array.isArray(theme.layout.sections) ? theme.layout.sections : [];
+  const found = sections.find((s: any) => s?.id === sectionId);
+  if (!found) return true;
+  return found.visible !== false;
+}
+
+function photoSizePx(theme: ReportThemeRecord | null): { w: number; h: number } {
+  const size = theme?.layout?.photoSize ?? "medium";
+  switch (size) {
+    case "small":
+      return { w: 120, h: 90 };
+    case "medium":
+      return { w: 200, h: 150 };
+    case "large":
+      return { w: 320, h: 240 };
+    case "hero":
+      return { w: 480, h: 360 };
+    default:
+      return { w: 200, h: 150 };
+  }
+}
+
+function renderTitle(theme: ReportThemeRecord | null, ctx: { job: any; property: any }): string | null {
+  const tpl = theme?.titleTemplate;
+  if (!tpl) return null;
+  return tpl
+    .replace(/\{\{\s*job\.jobNumber\s*\}\}/g, String(ctx.job?.jobNumber ?? ctx.job?.id ?? ""))
+    .replace(/\{\{\s*property\.name\s*\}\}/g, String(ctx.property?.name ?? ""))
+    .replace(/\{\{\s*job\.scheduledFor\s*\|\s*date short\s*\}\}/g, String(ctx.job?.scheduledDate ? new Date(ctx.job.scheduledDate).toLocaleDateString("en-AU") : ""));
+}
 const s3Enabled = Boolean(
   process.env.S3_BUCKET_NAME &&
     process.env.S3_PUBLIC_BASE_URL &&
@@ -365,7 +425,7 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
 }
 
 /** Generate and store a job report HTML + PDF. */
-export async function generateJobReport(jobId: string): Promise<void> {
+export async function generateJobReport(jobId: string, themeId?: string | null): Promise<void> {
   const job = await db.job.findUnique({
     where: { id: jobId },
     include: {
@@ -397,8 +457,9 @@ export async function generateJobReport(jobId: string): Promise<void> {
   const qa = job.qaReviews[0];
   const localDate = format(toZonedTime(job.scheduledDate, TZ), "dd MMMM yyyy");
   const settings = await getAppSettings();
+  const theme = await loadTheme(themeId);
 
-  const html = buildReportHtml({ job, submission, qa, localDate, settings });
+  const html = buildReportHtml({ job, submission, qa, localDate, settings, theme });
 
   const htmlKey = `reports/${jobId}/report.html`;
   let storedHtmlKey: string | null = null;
@@ -448,11 +509,13 @@ export async function generateJobReport(jobId: string): Promise<void> {
       htmlContent: html,
       pdfUrl,
       s3Key: storedHtmlKey,
+      themeId: theme?.id ?? null,
     },
     update: {
       htmlContent: html,
       pdfUrl,
       s3Key: storedHtmlKey,
+      themeId: theme?.id ?? null,
       updatedAt: new Date(),
     },
   });
@@ -460,7 +523,7 @@ export async function generateJobReport(jobId: string): Promise<void> {
   logger.info({ jobId, pdfUrl }, "Job report generated");
 }
 
-function buildReportHtml({ job, submission, qa, localDate, settings }: any): string {
+function buildReportHtml({ job, submission, qa, localDate, settings, theme }: any): string {
   const checklist = submission ? buildChecklistHtml(job, submission) : { html: "", usedMediaIds: new Set<string>() };
   const adminRequestedTasks = submission
     ? buildAdminRequestedTasksHtml(submission)
@@ -475,39 +538,67 @@ function buildReportHtml({ job, submission, qa, localDate, settings }: any): str
       !adminRequestedTasks.usedMediaIds.has(String(m.id)) &&
       !unifiedJobTasks.usedMediaIds.has(String(m.id))
   );
+  const themeRec: ReportThemeRecord | null = theme ?? null;
+  const photoDims = photoSizePx(themeRec);
   const remainingMediaHtml = renderFieldMediaHtml(remainingMedia);
   const companyName = settings?.companyName || "sNeek Property Services";
-  const logoUrl = settings?.logoUrl?.trim() || "";
+  const themedLogo = themeRec?.logoUrl?.trim() || "";
+  const logoUrl = themedLogo || settings?.logoUrl?.trim() || "";
+  const primaryHsl = themeRec?.primaryColorHsl || "200 98% 39%"; // sky-600-ish
+  const accentHsl = themeRec?.accentColorHsl || primaryHsl;
+  const density = themeRec?.layout?.density ?? "default";
+  const photoSize = themeRec?.layout?.photoSize ?? "medium";
+  const showHeader = isSectionVisible(themeRec, "header");
+  const showSummary = isSectionVisible(themeRec, "summary");
+  const showTaskChecklist = isSectionVisible(themeRec, "task-checklist");
+  const showGallery = isSectionVisible(themeRec, "before-after-gallery");
+  const showSignature = isSectionVisible(themeRec, "signature");
+  const showFooter = isSectionVisible(themeRec, "footer");
+  const renderedTitle = renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`;
+  const customFooter = themeRec?.footerHtml?.trim() || "";
+
+  const densityPad = density === "compact" ? "24px" : density === "comfortable" ? "56px" : "40px";
+  const sectionMargin = density === "compact" ? "14px" : density === "comfortable" ? "32px" : "24px";
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <!-- report-template:${REPORT_TEMPLATE_VERSION} -->
+<!-- report-theme:${escapeHtml(themeRec?.kind ?? "DEFAULT")}:${escapeHtml(themeRec?.id ?? "none")} -->
 <style>
-  body { font-family: Arial, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: 40px; }
+  :root {
+    --primary: hsl(${primaryHsl});
+    --accent: hsl(${accentHsl});
+  }
+  body { font-family: Arial, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: ${densityPad}; }
   .brand { display:flex; align-items:center; gap:12px; margin-bottom: 10px; }
   .brand img { width:52px; height:52px; object-fit:contain; border-radius:10px; border:1px solid #e5e7eb; padding:4px; background:#fff; }
-  .brand h1 { margin:0; color: #0284c7; }
-  h1 { color: #0284c7; }
-  .section { margin: 24px 0; }
+  .brand h1 { margin:0; color: var(--primary); }
+  h1, h3 { color: var(--primary); }
+  .section { margin: ${sectionMargin} 0; }
   .label { font-size: 12px; color: #666; text-transform: uppercase; }
   .value { font-size: 16px; margin-top: 4px; }
   .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 12px; }
   .pass { background: #dcfce7; color: #16a34a; }
   .fail { background: #fee2e2; color: #dc2626; }
   .media-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
-  .media-item img { width: 180px; height: 135px; object-fit: cover; border-radius: 8px; }
+  .media-item img { width: ${photoDims.w}px; height: ${photoDims.h}px; object-fit: cover; border-radius: 8px; }
   .media-item a { display: inline-block; padding: 8px; background: #f3f4f6; border-radius: 8px; font-size: 12px; }
+  /* theme-driven photo sizing inside field-media renders */
+  div[style*="display:flex"] img { width: ${photoDims.w}px !important; height: ${photoDims.h}px !important; }
+  .photo-${photoSize} img { width: ${photoDims.w}px; height: ${photoDims.h}px; }
+  .hero-banner { width: 100%; border-radius: 12px; overflow: hidden; margin: 0 0 ${sectionMargin}; border: 1px solid #e5e7eb; }
+  .hero-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
   footer { margin-top: 40px; font-size: 12px; color: #999; }
 </style>
 </head>
 <body>
-<div class="brand">
+${showHeader ? `<div class="brand">
   ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(companyName)} logo" />` : ""}
-  <h1>${escapeHtml(companyName)} Cleaning Report</h1>
-</div>
-<p><strong>${escapeHtml(job.property.name)}</strong> - ${escapeHtml(job.property.address)}, ${escapeHtml(job.property.suburb)}</p>
+  <h1>${escapeHtml(renderedTitle)}</h1>
+</div>` : ""}
+${showSummary ? `<p><strong>${escapeHtml(job.property.name)}</strong> - ${escapeHtml(job.property.address)}, ${escapeHtml(job.property.suburb)}</p>
 <p>Job Number: ${escapeHtml(job.jobNumber ?? job.id)}</p>
 <p>Date: ${escapeHtml(localDate)} | Type: ${escapeHtml(job.jobType.replace(/_/g, " "))}</p>
 <p>Cleaners: ${escapeHtml(job.assignments.map((a: any) => a.user.name).join(", ") || "N/A")}</p>
@@ -528,19 +619,19 @@ ${
   ${submission.bagLocation ? `<div class="value">Bag location: ${escapeHtml(submission.bagLocation)}</div>` : ""}
 </div>`
     : ""
-}
-${adminRequestedTasks.html}
-${unifiedJobTasks.html}
-${checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>"}
+}` : ""}
+${showTaskChecklist ? `${adminRequestedTasks.html}
+${unifiedJobTasks.html}` : ""}
+${showTaskChecklist ? (checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>") : ""}
 ${
-  remainingMedia.length > 0
+  showGallery && remainingMedia.length > 0
     ? `<div class="section">
   <div class="label">Additional Evidence</div>
-  <div class="media-grid">${remainingMediaHtml}</div>
+  <div class="media-grid photo-${photoSize}">${remainingMediaHtml}</div>
 </div>`
     : ""
 }
-<footer>Generated by ${escapeHtml(companyName)} Dashboard - ${new Date().toISOString()}</footer>
+${showFooter ? `<footer>${customFooter || `Generated by ${escapeHtml(companyName)} Dashboard - ${new Date().toISOString()}`}</footer>` : ""}
 </body>
 </html>`;
 }

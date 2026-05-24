@@ -31,7 +31,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN]);
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateTemplateSchema.parse(await req.json());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const template = await db.formTemplate.update({ where: { id: params.id }, data: body as any });

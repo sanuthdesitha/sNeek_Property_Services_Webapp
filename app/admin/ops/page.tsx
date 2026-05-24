@@ -264,7 +264,7 @@ export default async function OpsPage() {
             {continuationRequests.slice(0, 6).map((request) => {
               const job = continuationJobMap.get(request.jobId);
               return (
-                <Link key={request.id} href={`/admin/jobs/${request.jobId}`} className="flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50/50 px-3 py-3 hover:bg-amber-50">
+                <Link key={request.id} href={`/admin/jobs/${request.jobId}`} className="flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-3 py-3 hover:bg-warning/15">
                   <div>
                     <p className="text-sm font-semibold">{job?.property.name ?? "Continuation request"}</p>
                     <p className="text-xs text-muted-foreground">
@@ -380,7 +380,7 @@ export default async function OpsPage() {
                     {doc.user.name ?? doc.user.email}  -  {doc.category}  -  Expires {doc.expiresAt ? format(new Date(doc.expiresAt), "dd MMM yyyy") : "-"}
                   </p>
                 </div>
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertTriangle className="h-4 w-4 text-warning" />
               </Link>
             ))}
             {expiringDocs.length === 0 ? <p className="text-sm text-muted-foreground">No document expiries in the next 14 days.</p> : null}

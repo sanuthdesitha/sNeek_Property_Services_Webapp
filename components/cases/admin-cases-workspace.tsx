@@ -16,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
 import { CASE_STATUSES, CASE_STATUS_LABELS, type UnifiedCaseStatus } from "@/lib/cases/status";
+import { CaseLifecyclePanel, type CaseTransitionRow } from "@/components/cases/case-lifecycle-panel";
+import type { CaseState } from "@/lib/cases/lifecycle-fsm";
 
 type CaseStatus = UnifiedCaseStatus;
 type CaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OPS" | "SLA" | "OTHER";
@@ -52,6 +54,9 @@ type CaseItem = {
   severity: Severity;
   priority: Severity;
   status: CaseStatus;
+  state: CaseState;
+  transitions: CaseTransitionRow[];
+  slaBreachAt: string | null;
   caseType: CaseType;
   clientVisible: boolean;
   clientCanReply: boolean;
@@ -83,6 +88,48 @@ type CasesResponse = {
 
 const CASE_TYPES: CaseType[] = ["DAMAGE", "CLIENT_DISPUTE", "LOST_FOUND", "OPS", "SLA", "OTHER"];
 const SEVERITIES: Severity[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+type CaseView = "open" | "mine" | "awaitingClient" | "slaRisk" | "all";
+const CASE_VIEWS: { key: CaseView; label: string }[] = [
+  { key: "open", label: "All open" },
+  { key: "mine", label: "Awaiting me" },
+  { key: "awaitingClient", label: "Awaiting client" },
+  { key: "slaRisk", label: "SLA at risk" },
+  { key: "all", label: "All" },
+];
+
+function isCaseView(value: string | null | undefined): value is CaseView {
+  return value === "open" || value === "mine" || value === "awaitingClient" || value === "slaRisk" || value === "all";
+}
+
+function applyCaseView(view: CaseView, list: CaseItem[], viewerId: string | null | undefined): CaseItem[] {
+  const nowMs = Date.now();
+  return list.filter((c) => {
+    const state = (c.state ?? "OPEN") as CaseState;
+    switch (view) {
+      case "open":
+        return state !== "RESOLVED" && state !== "CLOSED" && state !== "CANCELLED";
+      case "mine":
+        return (
+          !!viewerId &&
+          c.assignedTo?.id === viewerId &&
+          (state === "ASSIGNED" || state === "IN_PROGRESS")
+        );
+      case "awaitingClient":
+        return state === "AWAITING_CLIENT";
+      case "slaRisk":
+        if (!c.slaBreachAt) return false;
+        if (state === "RESOLVED" || state === "CLOSED" || state === "CANCELLED") return false;
+        const breachMs = new Date(c.slaBreachAt).getTime();
+        if (Number.isNaN(breachMs)) return false;
+        return breachMs - nowMs < 4 * 60 * 60 * 1000;
+      case "all":
+      default:
+        return true;
+    }
+  });
+}
+
 const CASE_FILTER_DEFAULTS = {
   q: "",
   status: "ALL",
@@ -153,6 +200,10 @@ export function AdminCasesWorkspace() {
   const [selected, setSelected] = useState<CaseItem | null>(null);
   const [selectedPersistedStatus, setSelectedPersistedStatus] = useState<CaseStatus | null>(null);
   const [filters, setFilters] = useState(() => parseFilters(searchParams));
+  const [view, setView] = useState<CaseView>(() => {
+    const raw = searchParams.get("view");
+    return isCaseView(raw) ? raw : "open";
+  });
   const [createDraft, setCreateDraft] = useState({ title: "", description: "", caseType: "OPS" as CaseType, severity: "MEDIUM" as Severity, clientVisible: false, clientCanReply: true });
   const [commentDraft, setCommentDraft] = useState({ body: "", isInternal: false });
   const [statusChangeDialog, setStatusChangeDialog] = useState<{
@@ -228,9 +279,10 @@ export function AdminCasesWorkspace() {
     if (filters.caseType !== CASE_FILTER_DEFAULTS.caseType) params.set("caseType", filters.caseType);
     if (filters.assigneeUserId !== CASE_FILTER_DEFAULTS.assigneeUserId) params.set("assigneeUserId", filters.assigneeUserId);
     if (filters.jobId.trim()) params.set("jobId", filters.jobId.trim());
+    if (view !== "open") params.set("view", view);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-  }, [filters, pathname, router]);
+  }, [filters, view, pathname, router]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -243,6 +295,17 @@ export function AdminCasesWorkspace() {
     if (!selectedId) return;
     void loadCase(selectedId);
   }, [selectedId]);
+
+  const viewCounts = useMemo(() => {
+    const counts: Record<CaseView, number> = { open: 0, mine: 0, awaitingClient: 0, slaRisk: 0, all: items.length };
+    counts.open = applyCaseView("open", items, viewer?.id).length;
+    counts.mine = applyCaseView("mine", items, viewer?.id).length;
+    counts.awaitingClient = applyCaseView("awaitingClient", items, viewer?.id).length;
+    counts.slaRisk = applyCaseView("slaRisk", items, viewer?.id).length;
+    return counts;
+  }, [items, viewer?.id]);
+
+  const visibleItems = useMemo(() => applyCaseView(view, items, viewer?.id), [view, items, viewer?.id]);
 
   const selectedPropertyLabel = useMemo(() => {
     if (!selected) return "-";
@@ -484,6 +547,34 @@ export function AdminCasesWorkspace() {
         </CardContent>
       </Card>
 
+      <div className="flex flex-wrap gap-1.5 rounded-2xl border border-border/60 bg-muted/40 p-1.5">
+        {CASE_VIEWS.map(({ key, label }) => {
+          const count = viewCounts[key];
+          const isActive = view === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
+                isActive
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+              <span
+                className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
+                  isActive ? "bg-primary text-primary-foreground" : "bg-muted-foreground/15 text-muted-foreground"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
           <CardHeader><CardTitle className="text-base">Case queue</CardTitle></CardHeader>
@@ -495,9 +586,9 @@ export function AdminCasesWorkspace() {
               <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.assigneeUserId} onChange={(event) => setFilters((prev) => ({ ...prev, assigneeUserId: event.target.value }))}><option value="ALL">All owners</option><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select>
             </div>
             <Input placeholder="Filter by job id" value={filters.jobId} onChange={(event) => setFilters((prev) => ({ ...prev, jobId: event.target.value }))} />
-            {loadingList ? <p className="py-10 text-center text-sm text-muted-foreground">Loading cases...</p> : items.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No cases found.</p> : (
+            {loadingList ? <p className="py-10 text-center text-sm text-muted-foreground">Loading cases...</p> : visibleItems.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No cases in this view.</p> : (
               <div className="space-y-2">
-                {items.map((item) => (
+                {visibleItems.map((item) => (
                   <div key={item.id} className={`rounded-xl border px-3 py-3 transition ${selectedId === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}>
                     <button type="button" className="w-full text-left" onClick={() => setSelectedId(item.id)}>
                       <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{CASE_STATUS_LABELS[item.status]}</Badge></div></div>
@@ -562,6 +653,19 @@ export function AdminCasesWorkspace() {
                   <div className="space-y-1.5"><Label>Title</Label><Input value={selected.title} onChange={(event) => setSelected((prev) => prev ? { ...prev, title: event.target.value } : prev)} /></div>
                   <div className="space-y-1.5"><Label>Property</Label><Input value={selectedPropertyLabel} disabled /></div>
                 </div>
+                <CaseLifecyclePanel
+                  caseId={selected.id}
+                  state={(selected.state ?? "OPEN") as CaseState}
+                  transitions={selected.transitions ?? []}
+                  onTransitioned={(updated) => {
+                    if (updated && typeof updated === "object") {
+                      setSelected(updated as CaseItem);
+                      setItems((current) =>
+                        current.map((row) => (row.id === (updated as CaseItem).id ? (updated as CaseItem) : row))
+                      );
+                    }
+                  }}
+                />
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>Created {formatDateTime(selected.createdAt)}</span><span>Updated {formatDateTime(selected.updatedAt)}</span><span>Job {selected.job?.jobNumber || selected.job?.id || "Not linked"}</span><span>Client {selected.client?.name || "Not linked"}</span></div>
                 <div className="flex flex-wrap gap-2">{selected.job?.id ? <Button asChild variant="outline" size="sm"><Link href={`/admin/jobs/${selected.job.id}`}>Open job</Link></Button> : null}{selected.reportId ? <Button asChild variant="outline" size="sm"><Link href={`/admin/reports?reportId=${selected.reportId}`}>Open report</Link></Button> : null}</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

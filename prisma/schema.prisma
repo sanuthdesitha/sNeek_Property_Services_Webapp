@@ -17,6 +17,7 @@ datasource db {
 enum Role {
   ADMIN
   OPS_MANAGER
+  QA_INSPECTOR
   CLEANER
   CLIENT
   LAUNDRY
@@ -39,6 +40,20 @@ enum JobType {
   TILE_GROUT_CLEANING
   GUTTER_CLEANING
   SPRING_CLEANING
+}
+
+enum FormKind {
+  AIRBNB_TURNOVER
+  END_OF_LEASE
+  DEEP_CLEAN
+  REGULAR_MAINTENANCE
+  POST_CONSTRUCTION
+  WINDOW
+  CARPET
+  COMMERCIAL
+  MOVE_IN
+  OVEN
+  CUSTOM
 }
 
 enum JobStatus {
@@ -80,6 +95,21 @@ enum LaundryFlag {
 enum MediaType {
   PHOTO
   VIDEO
+}
+
+enum QaAssignmentStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MediaOverrideStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  RESOLVED
 }
 
 enum StockTxType {
@@ -242,6 +272,17 @@ enum ThemePreference {
   SYSTEM
 }
 
+enum CaseState {
+  OPEN
+  TRIAGE
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_CLIENT
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -304,6 +345,13 @@ model User {
   jobAssignments               JobAssignment[]
   timeLogs                     TimeLog[]
   formSubmissions              FormSubmission[]
+  qaAssignmentsAssigned        QaAssignment[]              @relation("QaAssignmentAssignedTo")
+  qaAssignmentsCreated         QaAssignment[]              @relation("QaAssignmentCreatedBy")
+  qaAssignmentsPickedUp        QaAssignment[]              @relation("QaAssignmentPickedUpBy")
+  qaFormSubmissions            QaFormSubmission[]          @relation("QaFormSubmissionSubmittedBy")
+  qaReviews                    QAReview[]                  @relation("QAReviewReviewedBy")
+  mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
+  mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")
   notifications                Notification[]
   notificationPreference       UserNotificationPreference?
@@ -358,6 +406,8 @@ model User {
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
   uploadFailures               UploadFailure[]
+  reportThemes                 ReportTheme[]               @relation("ReportThemeCreatedBy")
+  caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
 
   latitude     Float?
   longitude    Float?
@@ -465,6 +515,7 @@ model Property {
   clientRates      PropertyClientRate[]
   payAdjustments   CleanerPayAdjustment[]
   jobTasks         JobTask[]
+  qaFormTemplates  QaFormTemplate[]
 
   @@index([placeId])
   @@index([suburb])
@@ -600,6 +651,9 @@ model Job {
   timeLogs               TimeLog[]
   formSubmissions        FormSubmission[]
   qaReviews              QAReview[]
+  qaAssignments           QaAssignment[]
+  qaFormSubmissions       QaFormSubmission[]
+  mediaOverrideRequests   MediaOverrideRequest[]
   laundryTask            LaundryTask?
   report                 Report?
   issueTickets           IssueTicket[]
@@ -713,16 +767,24 @@ model TimeLogAdjustmentRequest {
 // ─────────────────────────────────────────────
 
 model FormTemplate {
-  id          String   @id @default(cuid())
-  name        String
-  serviceType JobType
-  version     Int      @default(1)
-  isActive    Boolean  @default(true)
-  schema      Json // full template JSON (sections → fields → logic)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String    @id @default(cuid())
+  name             String
+  serviceType      JobType
+  kind             FormKind  @default(CUSTOM)
+  version          Int       @default(1)
+  isActive         Boolean   @default(true)
+  schema           Json // full template JSON (sections → fields → logic)
+  parentTemplateId String?
+  parentTemplate   FormTemplate?  @relation("FormTemplateLineage", fields: [parentTemplateId], references: [id], onDelete: SetNull)
+  children         FormTemplate[] @relation("FormTemplateLineage")
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   submissions FormSubmission[]
+
+  @@index([kind, isActive])
 }
 
 model FormSubmission {
@@ -748,6 +810,7 @@ model FormSubmission {
   submittedBy User              @relation(fields: [submittedById], references: [id])
   media       SubmissionMedia[]
   stockTxs    StockTx[]
+  mediaOverrideRequests MediaOverrideRequest[]
 }
 
 model SubmissionMedia {
@@ -757,6 +820,11 @@ model SubmissionMedia {
   mediaType    MediaType
   url          String    @db.Text
   s3Key        String
+  originalUrl   String?   @db.Text
+  originalS3Key String?
+  annotatedUrl  String?   @db.Text
+  annotatedS3Key String?
+  annotationData Json?
   sizeBytes    Int?
   mimeType     String?
   label        String?
@@ -775,7 +843,103 @@ model QAReview {
   flags        Json? // array of field ids that failed
   createdAt    DateTime @default(now())
 
-  job Job @relation(fields: [jobId], references: [id])
+  job        Job   @relation(fields: [jobId], references: [id])
+  reviewedBy User? @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
+  qaFormSubmissions QaFormSubmission[]
+}
+
+model QaFormTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  serviceType JobType
+  propertyId  String?
+  version     Int      @default(1)
+  isActive    Boolean  @default(true)
+  schema      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property    Property? @relation(fields: [propertyId], references: [id])
+  submissions QaFormSubmission[]
+
+  @@index([serviceType, isActive, version])
+  @@index([propertyId, serviceType, isActive])
+}
+
+model QaAssignment {
+  id           String             @id @default(cuid())
+  jobId        String
+  assignedToId String?
+  createdById  String?
+  pickedUpById String?
+  status       QaAssignmentStatus @default(OPEN)
+  dueAt        DateTime?
+  pickedUpAt   DateTime?
+  completedAt  DateTime?
+  notes        String?            @db.Text
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  job          Job   @relation(fields: [jobId], references: [id])
+  assignedTo   User? @relation("QaAssignmentAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User? @relation("QaAssignmentCreatedBy", fields: [createdById], references: [id])
+  pickedUpBy   User? @relation("QaAssignmentPickedUpBy", fields: [pickedUpById], references: [id])
+  submissions  QaFormSubmission[]
+
+  @@index([status, dueAt])
+  @@index([assignedToId, status])
+  @@index([jobId, status])
+}
+
+model QaFormSubmission {
+  id             String   @id @default(cuid())
+  jobId          String
+  templateId     String
+  assignmentId   String?
+  qaReviewId     String?
+  submittedById  String
+  data           Json
+  categoryScores Json?
+  media          Json?
+  score          Float
+  passed         Boolean
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job          Job            @relation(fields: [jobId], references: [id])
+  template     QaFormTemplate @relation(fields: [templateId], references: [id])
+  assignment   QaAssignment?  @relation(fields: [assignmentId], references: [id])
+  qaReview     QAReview?      @relation(fields: [qaReviewId], references: [id])
+  submittedBy  User           @relation("QaFormSubmissionSubmittedBy", fields: [submittedById], references: [id])
+
+  @@index([jobId, createdAt])
+  @@index([submittedById, createdAt])
+}
+
+model MediaOverrideRequest {
+  id                String              @id @default(cuid())
+  jobId             String
+  submissionId      String?
+  requestedById     String
+  decidedById       String?
+  fieldId           String
+  fieldLabel        String?
+  reason            String?             @db.Text
+  status            MediaOverrideStatus @default(PENDING)
+  decisionNote      String?             @db.Text
+  decidedAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  job          Job             @relation(fields: [jobId], references: [id])
+  submission   FormSubmission? @relation(fields: [submissionId], references: [id])
+  requestedBy  User            @relation("MediaOverrideRequestedBy", fields: [requestedById], references: [id])
+  decidedBy    User?           @relation("MediaOverrideDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([jobId, status])
+  @@index([requestedById, status])
+  @@unique([jobId, requestedById, fieldId, status])
 }
 
 model IssueTicket {
@@ -789,7 +953,9 @@ model IssueTicket {
   caseType         String   @default("OPS")
   source           String?
   severity         String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
-  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED
+  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED (legacy, kept for backward compat)
+  state            CaseState @default(OPEN)
+  slaBreachAt      DateTime?
   assignedToUserId String?
   clientVisible    Boolean  @default(false)
   clientCanReply   Boolean  @default(true)
@@ -805,6 +971,22 @@ model IssueTicket {
   assignedTo  User?            @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
   comments    CaseComment[]
   attachments CaseAttachment[]
+  transitions CaseTransition[]
+}
+
+model CaseTransition {
+  id         String      @id @default(cuid())
+  caseId     String
+  case       IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromState  CaseState?
+  toState    CaseState
+  actorId    String?
+  actor      User?       @relation("CaseTransitionActor", fields: [actorId], references: [id], onDelete: SetNull)
+  reason     String?     @db.Text
+  occurredAt DateTime    @default(now())
+
+  @@index([caseId, occurredAt])
+  @@index([toState])
 }
 
 model JobTask {
@@ -1001,9 +1183,43 @@ model Report {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  themeId String?
+  theme   ReportTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
+
   job                 Job           @relation(fields: [jobId], references: [id])
   issueTickets        IssueTicket[]
   visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+
+  @@index([themeId])
+}
+
+enum ReportThemeKind {
+  COMPACT
+  MAGAZINE
+  DETAILED
+  CUSTOM
+}
+
+model ReportTheme {
+  id              String          @id @default(cuid())
+  name            String
+  kind            ReportThemeKind @default(CUSTOM)
+  isDefault       Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  layout          Json
+  logoUrl         String?
+  primaryColorHsl String?
+  accentColorHsl  String?
+  titleTemplate   String?
+  footerHtml      String?         @db.Text
+  createdById     String?
+  createdBy       User?           @relation("ReportThemeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  reports         Report[]
+
+  @@index([isActive])
+  @@index([isDefault])
 }
 
 model CaseComment {
@@ -1558,11 +1774,11 @@ model WorkforcePost {
   pinned                    Boolean   @default(false)
   publishAt                 DateTime?
   notificationsDispatchedAt DateTime?
-  createdById               String
+  createdById               String?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
-  createdBy User                @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id])
+  createdBy User?               @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   reads     WorkforcePostRead[]
 }
 
@@ -1585,12 +1801,12 @@ model ChatChannel {
   kind          String   @default("GROUP")
   groupId       String?
   memberUserIds Json?
-  createdById   String
+  createdById   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   group     TeamGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  createdBy User              @relation("ChatChannelCreatedBy", fields: [createdById], references: [id])
+  createdBy User?             @relation("ChatChannelCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   messages  ChatMessage[]
   reads     ChatChannelRead[]
 }

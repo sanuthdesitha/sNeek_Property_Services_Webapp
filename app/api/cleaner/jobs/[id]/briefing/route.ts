@@ -3,6 +3,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
+import { getNegativeQaWarning } from "@/lib/qa/feedback-history";
 
 function pickLegacyAccessNote(accessInfo: unknown) {
   if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
@@ -106,6 +107,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       ? latestFlagsRaw.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [];
 
+    // Surface prior sub-pass QA feedback (<80%) for this cleaner at this
+    // property — best-effort; never block the briefing if it fails.
+    let priorQaWarning: Awaited<ReturnType<typeof getNegativeQaWarning>> | null = null;
+    try {
+      priorQaWarning = await getNegativeQaWarning(session.user.id, job.propertyId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[briefing] prior QA warning lookup failed", err);
+    }
+
     return NextResponse.json({
       lastPhotos,
       accessCode: decryptSecret(job.property.accessCode) ?? pickLegacyAccessCode(job.property.accessInfo),
@@ -114,6 +125,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       accessNotes: job.property.accessNotes?.trim() || pickLegacyAccessNote(job.property.accessInfo),
       jobNotes: job.notes?.trim() || null,
       previousFlags,
+      priorQaWarning,
       laundryInstructions: job.laundryTask
         ? {
             status: job.laundryTask.status,
