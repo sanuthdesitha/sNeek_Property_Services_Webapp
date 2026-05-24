@@ -5,12 +5,19 @@ import { getAppSettings } from "@/lib/settings";
 import { Role } from "@prisma/client";
 import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/portal-calendar";
 
+// Use theme tokens so events stay readable in both light and dark mode.
+function tokenColor(variant: string, alpha?: number) {
+  return alpha === undefined
+    ? `hsl(var(--${variant}))`
+    : `hsl(var(--${variant}) / ${alpha})`;
+}
+
 const LAUNDRY_COLORS: Record<string, { border: string; bg: string; label: string }> = {
-  PENDING: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "PENDING" },
-  CONFIRMED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "CONFIRMED" },
-  PICKED_UP: { border: "#7c3aed", bg: "rgba(124,58,237,0.14)", label: "PICKED UP" },
-  DROPPED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)", label: "DROPPED" },
-  FLAGGED: { border: "#dc2626", bg: "rgba(220,38,38,0.14)", label: "FLAGGED" },
+  PENDING: { border: tokenColor("warning"), bg: tokenColor("warning", 0.18), label: "PENDING" },
+  CONFIRMED: { border: tokenColor("primary"), bg: tokenColor("primary", 0.18), label: "CONFIRMED" },
+  PICKED_UP: { border: tokenColor("info"), bg: tokenColor("info", 0.18), label: "PICKED UP" },
+  DROPPED: { border: tokenColor("success"), bg: tokenColor("success", 0.18), label: "DROPPED" },
+  FLAGGED: { border: tokenColor("danger"), bg: tokenColor("danger", 0.18), label: "FLAGGED" },
 };
 
 export default async function LaundryCalendarPage() {
@@ -43,7 +50,7 @@ export default async function LaundryCalendarPage() {
         start: `${pickupDate}T${pickupTime}:00`,
         backgroundColor: colors.bg,
         borderColor: colors.border,
-        textColor: "#0f172a",
+        textColor: "hsl(var(--foreground))",
         extendedProps: {
           badgeLabel: task.status.replace(/_/g, " "),
           subtitle: `Pickup | ${jobType}`,
@@ -54,9 +61,9 @@ export default async function LaundryCalendarPage() {
         id: `${task.id}-dropoff`,
         title: `${propertyLabel} drop-off`,
         start: `${dropoffDate}T${dropoffTime}:00`,
-        backgroundColor: "rgba(14,165,233,0.12)",
-        borderColor: "#0ea5e9",
-        textColor: "#0f172a",
+        backgroundColor: tokenColor("info", 0.18),
+        borderColor: tokenColor("info"),
+        textColor: "hsl(var(--foreground))",
         extendedProps: {
           badgeLabel: task.status.replace(/_/g, " "),
           subtitle: `Return | ${jobType}`,

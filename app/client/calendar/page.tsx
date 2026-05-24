@@ -4,17 +4,24 @@ import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Role } from "@prisma/client";
 import { PortalCalendar, type PortalCalendarEvent } from "@/components/calendar/portal-calendar";
 
+// Use theme tokens so events stay readable in both light and dark mode.
+function tokenColor(variant: string, alpha?: number) {
+  return alpha === undefined
+    ? `hsl(var(--${variant}))`
+    : `hsl(var(--${variant}) / ${alpha})`;
+}
+
 const STATUS_COLORS: Record<string, { border: string; bg: string; label: string }> = {
-  UNASSIGNED: { border: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "UNASSIGNED" },
-  OFFERED: { border: "#d97706", bg: "rgba(217,119,6,0.14)", label: "AWAITING CONFIRMATION" },
-  ASSIGNED: { border: "#2563eb", bg: "rgba(37,99,235,0.14)", label: "ASSIGNED" },
-  IN_PROGRESS: { border: "#0f766e", bg: "rgba(15,118,110,0.14)", label: "IN PROGRESS" },
-  PAUSED: { border: "#d97706", bg: "rgba(217,119,6,0.16)", label: "PAUSED" },
-  WAITING_CONTINUATION_APPROVAL: { border: "#dc2626", bg: "rgba(220,38,38,0.14)", label: "WAITING CONTINUATION APPROVAL" },
-  SUBMITTED: { border: "#4f46e5", bg: "rgba(79,70,229,0.14)", label: "SUBMITTED" },
-  QA_REVIEW: { border: "#ea580c", bg: "rgba(234,88,12,0.14)", label: "QA REVIEW" },
-  COMPLETED: { border: "#16a34a", bg: "rgba(22,163,74,0.14)", label: "COMPLETED" },
-  INVOICED: { border: "#64748b", bg: "rgba(100,116,139,0.14)", label: "INVOICED" },
+  UNASSIGNED: { border: tokenColor("warning"), bg: tokenColor("warning", 0.18), label: "UNASSIGNED" },
+  OFFERED: { border: tokenColor("warning"), bg: tokenColor("warning", 0.18), label: "AWAITING CONFIRMATION" },
+  ASSIGNED: { border: tokenColor("primary"), bg: tokenColor("primary", 0.18), label: "ASSIGNED" },
+  IN_PROGRESS: { border: tokenColor("info"), bg: tokenColor("info", 0.18), label: "IN PROGRESS" },
+  PAUSED: { border: tokenColor("warning"), bg: tokenColor("warning", 0.18), label: "PAUSED" },
+  WAITING_CONTINUATION_APPROVAL: { border: tokenColor("danger"), bg: tokenColor("danger", 0.18), label: "WAITING CONTINUATION APPROVAL" },
+  SUBMITTED: { border: tokenColor("accent"), bg: tokenColor("accent", 0.18), label: "SUBMITTED" },
+  QA_REVIEW: { border: tokenColor("accent"), bg: tokenColor("accent", 0.18), label: "QA REVIEW" },
+  COMPLETED: { border: tokenColor("success"), bg: tokenColor("success", 0.18), label: "COMPLETED" },
+  INVOICED: { border: tokenColor("muted-foreground"), bg: tokenColor("muted"), label: "INVOICED" },
 };
 
 export default async function ClientCalendarPage() {
@@ -60,7 +67,7 @@ export default async function ClientCalendarPage() {
           : undefined,
       backgroundColor: colors.bg,
       borderColor: colors.border,
-      textColor: "#0f172a",
+      textColor: "hsl(var(--foreground))",
       extendedProps: {
         badgeLabel: job.status.replace(/_/g, " "),
         subtitle: job.jobType.replace(/_/g, " "),
