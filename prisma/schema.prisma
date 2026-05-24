@@ -2038,16 +2038,34 @@ model ClientNotificationPreference {
 model MessageTemplate {
   id          String   @id @default(cuid())
   name        String
-  triggerType String   // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
+  triggerType String   @default("MANUAL") // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
   jobType     String?  // null = all job types; specific JobType string for targeted
-  channel     String   // "EMAIL" | "SMS"
+  channel     String   // "EMAIL" | "SMS" | "BOTH"
+  category    MessageCategory @default(CUSTOM)
   subject     String?  // email subject — supports {{variables}}
   body        String   @db.Text // body with {{client_name}}, {{property_address}}, {{cleaner_name}}, {{next_clean_date}}, {{job_type}}, {{feedback_url}}
+  variables   Json?    // declared template variables (for autocomplete)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   automationRules ClientAutomationRule[]
+
+  @@index([category, isActive])
+}
+
+enum MessageCategory {
+  CHASE
+  MARKETING
+  OPERATIONAL
+  SERVICE_RECOVERY
+  FEEDBACK
+  COMPLAINT
+  ONBOARDING
+  CLEANER_FACING
+  LAUNDRY_FACING
+  INTERNAL
+  CUSTOM
 }
 
 model ClientAutomationRule {
