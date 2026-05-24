@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { ProfileSettings } from "@/components/profile/profile-settings";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
+import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
 import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
@@ -12,9 +13,16 @@ export default async function AdminProfilePage() {
   const userPrefs = session?.user?.id
     ? await db.user.findUnique({
         where: { id: session.user.id },
-        select: { uiDensity: true, themePreference: true },
+        select: {
+          uiDensity: true,
+          themePreference: true,
+          invoicingCadence: true,
+          invoiceDayOfWeek: true,
+          invoiceDayOfMonth: true,
+        } as any,
       })
     : null;
+  const prefsAny = userPrefs as any;
 
   return (
     <div className="space-y-6">
@@ -22,6 +30,11 @@ export default async function AdminProfilePage() {
       <DisplayPreferencesSection
         initialDensity={userPrefs?.uiDensity ?? undefined}
         initialTheme={userPrefs?.themePreference ?? undefined}
+      />
+      <BillingPreferencesSection
+        initialCadence={prefsAny?.invoicingCadence ?? undefined}
+        initialDayOfWeek={prefsAny?.invoiceDayOfWeek ?? null}
+        initialDayOfMonth={prefsAny?.invoiceDayOfMonth ?? null}
       />
     </div>
   );
