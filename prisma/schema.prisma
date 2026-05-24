@@ -41,6 +41,20 @@ enum JobType {
   SPRING_CLEANING
 }
 
+enum FormKind {
+  AIRBNB_TURNOVER
+  END_OF_LEASE
+  DEEP_CLEAN
+  REGULAR_MAINTENANCE
+  POST_CONSTRUCTION
+  WINDOW
+  CARPET
+  COMMERCIAL
+  MOVE_IN
+  OVEN
+  CUSTOM
+}
+
 enum JobStatus {
   UNASSIGNED
   OFFERED
@@ -713,16 +727,24 @@ model TimeLogAdjustmentRequest {
 // ─────────────────────────────────────────────
 
 model FormTemplate {
-  id          String   @id @default(cuid())
-  name        String
-  serviceType JobType
-  version     Int      @default(1)
-  isActive    Boolean  @default(true)
-  schema      Json // full template JSON (sections → fields → logic)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String    @id @default(cuid())
+  name             String
+  serviceType      JobType
+  kind             FormKind  @default(CUSTOM)
+  version          Int       @default(1)
+  isActive         Boolean   @default(true)
+  schema           Json // full template JSON (sections → fields → logic)
+  parentTemplateId String?
+  parentTemplate   FormTemplate?  @relation("FormTemplateLineage", fields: [parentTemplateId], references: [id], onDelete: SetNull)
+  children         FormTemplate[] @relation("FormTemplateLineage")
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   submissions FormSubmission[]
+
+  @@index([kind, isActive])
 }
 
 model FormSubmission {
