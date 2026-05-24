@@ -25,10 +25,10 @@ export default async function PropertiesPage() {
   // Compute last-clean date per property in one query.
   const lastJobs = await db.job.groupBy({
     by: ["propertyId"],
-    _max: { scheduledStart: true },
+    _max: { scheduledDate: true },
     where: { propertyId: { in: properties.map((p) => p.id) } },
   });
-  const lastJobMap = new Map(lastJobs.map((j) => [j.propertyId, j._max.scheduledStart]));
+  const lastJobMap = new Map(lastJobs.map((j) => [j.propertyId, j._max.scheduledDate]));
 
   const markers: PropertyMarker[] = properties
     .filter((p) => p.latitude !== null && p.longitude !== null)
