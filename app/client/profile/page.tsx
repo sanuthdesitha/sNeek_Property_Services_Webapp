@@ -1,53 +1,103 @@
-import Link from "next/link";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
+import { redirect } from "next/navigation";
+import { ClientProfileForm } from "@/components/client/client-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
-import { Button } from "@/components/ui/button";
+
+export const dynamic = "force-dynamic";
 
 export default async function ClientProfilePage() {
   await requireRole([Role.CLIENT]);
   const session = await getServerSession(authOptions);
-  const userPrefs = session?.user?.id
-    ? await db.user.findUnique({
-        where: { id: session.user.id },
-        select: { uiDensity: true, themePreference: true },
-      })
-    : null;
-  const billingPrefs = session?.user?.id
-    ? ((await db.user.findUnique({
-        where: { id: session.user.id },
-        select: {
-          invoicingCadence: true,
-          invoiceDayOfWeek: true,
-          invoiceDayOfMonth: true,
-        } as any,
-      })) as any)
-    : null;
+  if (!session?.user?.id) redirect("/login");
+
+  const user = (await db.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      clientId: true,
+      uiDensity: true,
+      themePreference: true,
+      invoicingCadence: true,
+      invoiceDayOfWeek: true,
+      invoiceDayOfMonth: true,
+      address: true,
+      suburb: true,
+      state: true,
+      postcode: true,
+      latitude: true,
+      longitude: true,
+      placeId: true,
+    } as any,
+  })) as any;
+
+  if (!user) redirect("/login");
+
+  const [pref, properties] = await Promise.all([
+    user.clientId
+      ? db.clientNotificationPreference.findUnique({ where: { clientId: user.clientId } })
+      : null,
+    user.clientId
+      ? db.property.findMany({
+          where: { clientId: user.clientId, isActive: true },
+          select: { id: true, name: true, address: true, suburb: true },
+          orderBy: { name: "asc" },
+        })
+      : [],
+  ]);
+
+  const comms = {
+    notificationsEnabled: pref?.notificationsEnabled ?? true,
+    notifyOnEnRoute: pref?.notifyOnEnRoute ?? true,
+    notifyOnJobStart: pref?.notifyOnJobStart ?? true,
+    notifyOnJobComplete: pref?.notifyOnJobComplete ?? true,
+    preferredChannel: (pref?.preferredChannel ?? "EMAIL") as "EMAIL" | "SMS" | "BOTH",
+  };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
-        <p className="text-sm text-muted-foreground">Manage your display preferences and account settings.</p>
-      </div>
-      <DisplayPreferencesSection
-        initialDensity={userPrefs?.uiDensity ?? undefined}
-        initialTheme={userPrefs?.themePreference ?? undefined}
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Your profile</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your contact details, billing, and how we reach you.
+        </p>
+      </header>
+
+      <ClientProfileForm
+        user={{
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          address: user.address,
+          suburb: user.suburb,
+          state: user.state,
+          postcode: user.postcode,
+          latitude: user.latitude,
+          longitude: user.longitude,
+          placeId: user.placeId,
+        }}
+        comms={comms}
+        properties={properties}
       />
+
       <BillingPreferencesSection
-        initialCadence={billingPrefs?.invoicingCadence ?? undefined}
-        initialDayOfWeek={billingPrefs?.invoiceDayOfWeek ?? null}
-        initialDayOfMonth={billingPrefs?.invoiceDayOfMonth ?? null}
+        initialCadence={user.invoicingCadence ?? undefined}
+        initialDayOfWeek={user.invoiceDayOfWeek ?? null}
+        initialDayOfMonth={user.invoiceDayOfMonth ?? null}
       />
-      <div>
-        <Button asChild variant="outline">
-          <Link href="/client/settings">Edit account details</Link>
-        </Button>
-      </div>
+
+      <DisplayPreferencesSection
+        initialDensity={user.uiDensity ?? undefined}
+        initialTheme={user.themePreference ?? undefined}
+      />
     </div>
   );
 }

@@ -1,11 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
+import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getProfilePolicyForUser } from "@/lib/settings";
 import { getUserNotificationPreferences } from "@/lib/notifications/preferences";
 import { profileUpdateSchema } from "@/lib/validations/user";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+
+// V9 extended profile schema — allowlist of self-updateable fields beyond
+// the legacy name/email/phone/image set already governed by profileUpdateSchema.
+const extendedProfileSchema = z.object({
+  dateOfBirth: z.string().nullable().optional(),
+  emergencyContactName: z.string().max(100).optional(),
+  emergencyContactPhone: z.string().max(30).optional(),
+  emergencyContactRelation: z.string().max(50).optional(),
+  // address fields (cleaner home address / client billing address)
+  address: z.string().max(255).optional(),
+  suburb: z.string().max(100).optional(),
+  state: z.string().max(50).optional(),
+  postcode: z.string().max(20).optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  placeId: z.string().nullable().optional(),
+  // cleaner-specific
+  visaStatus: z
+    .enum(["CITIZEN", "PERMANENT_RESIDENT", "WORK_VISA", "STUDENT_VISA", "OTHER"])
+    .nullable()
+    .optional(),
+  employmentType: z
+    .enum(["CONTRACTOR", "CASUAL", "PART_TIME", "FULL_TIME"])
+    .nullable()
+    .optional(),
+  abn: z.string().max(20).optional(),
+  bankBsb: z.string().max(10).optional(),
+  bankAccountNumber: z.string().max(30).optional(),
+  bankAccountName: z.string().max(100).optional(),
+  languages: z.array(z.string()).optional(),
+  hasVehicle: z.boolean().optional(),
+  vehicleRegoExpiry: z.string().nullable().optional(),
+  driverLicenseExpiry: z.string().nullable().optional(),
+  taxFileNumberOnFile: z.boolean().optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+// Fields the legacy profileUpdateSchema handles; anything else in the body
+// is treated as an extended-field payload.
+const LEGACY_FIELDS = new Set(["name", "phone", "email", "image"]);
 
 export async function GET() {
   try {
@@ -39,7 +80,20 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await requireSession();
-    const body = profileUpdateSchema.parse(await req.json());
+    const rawBody = await req.json();
+
+    // Split incoming payload into legacy (name/email/phone/image) + extended.
+    const legacyInput: Record<string, unknown> = {};
+    const extendedInput: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rawBody ?? {})) {
+      if (LEGACY_FIELDS.has(k)) legacyInput[k] = v;
+      else extendedInput[k] = v;
+    }
+    const body = profileUpdateSchema.parse(legacyInput);
+    const extendedBody = Object.keys(extendedInput).length
+      ? extendedProfileSchema.parse(extendedInput)
+      : null;
+
     const current = await db.user.findUnique({
       where: { id: session.user.id },
       select: { id: true, role: true, email: true, name: true, phone: true, image: true },
@@ -49,7 +103,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const policy = await getProfilePolicyForUser(current.id, current.role as Role);
-    const data: { name?: string; phone?: string | null; email?: string; image?: string | null } = {};
+    const data: Record<string, unknown> = {};
     const currentName = (current.name ?? "").trim();
     const currentPhone = (current.phone ?? "").trim();
     const currentEmail = current.email.trim().toLowerCase();
@@ -95,13 +149,25 @@ export async function PATCH(req: NextRequest) {
       data.image = body.image || null;
     }
 
+    if (extendedBody) {
+      const dateKeys = ["dateOfBirth", "vehicleRegoExpiry", "driverLicenseExpiry"] as const;
+      for (const [k, v] of Object.entries(extendedBody)) {
+        if (v === undefined) continue;
+        if ((dateKeys as readonly string[]).includes(k)) {
+          data[k] = v === null ? null : new Date(v as string);
+        } else {
+          data[k] = v;
+        }
+      }
+    }
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: "No changes submitted." }, { status: 400 });
     }
 
     const updated = await db.user.update({
       where: { id: current.id },
-      data,
+      data: data as any,
       select: { id: true, name: true, email: true, phone: true, role: true, image: true },
     });
 
