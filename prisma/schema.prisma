@@ -2266,3 +2266,16 @@ model UploadFailure {
   @@index([jobId])
   @@index([resolvedAt])
 }
+
+// Geocode failures (Plan D backfill)
+model GeocodeFailure {
+  id          String   @id @default(cuid())
+  modelType   String   // "Property" | "User" | "Client"
+  modelId     String
+  query       String
+  reason      String
+  occurredAt  DateTime @default(now())
+  resolvedAt  DateTime?
+  @@index([modelType, modelId])
+  @@index([resolvedAt])
+}
