@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
+import { OpsLiveMap } from "@/components/admin/ops-live-map";
 
 const TZ = "Australia/Sydney";
 
@@ -152,6 +153,25 @@ export default async function OpsPage() {
       },
     }),
   ]);
+
+  // Geocoded properties for the visual ops map. Plan D backfilled lat/lng on
+  // Property; properties without coords just won't appear as markers.
+  const geocodedProperties = await db.property.findMany({
+    where: {
+      isActive: true,
+      latitude: { not: null },
+      longitude: { not: null },
+    },
+    select: { id: true, name: true, latitude: true, longitude: true },
+  });
+  const opsMapProperties = geocodedProperties
+    .filter((p) => p.latitude != null && p.longitude != null)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      lat: p.latitude as number,
+      lng: p.longitude as number,
+    }));
 
   const continuationJobIds = Array.from(new Set(continuationRequests.map((row) => row.jobId)));
   const continuationJobs = continuationJobIds.length
@@ -389,6 +409,20 @@ export default async function OpsPage() {
       </div>
 
       <LiveCleanerLayer />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Live ops map</CardTitle>
+          <CardDescription>
+            Real-time positions for every active cleaner overlaid on every geocoded property.
+            Properties without a geocoded address won&apos;t appear — run the geocode backfill
+            script to populate them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OpsLiveMap initialProperties={opsMapProperties} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
