@@ -139,39 +139,16 @@ export function PortalCalendar({
     }
   }, [viewPreferenceKey]);
 
-  function getEventTextPalette(backgroundColor?: string | null, borderColor?: string | null) {
-    if (!backgroundColor) {
-      return {
-        primary: "text-slate-900",
-        secondary: "text-slate-600",
-        tertiary: "text-slate-500",
-        dot: "bg-slate-500",
-        dotStyle: undefined as CSSProperties | undefined,
-        pill: "bg-slate-100 text-slate-700",
-      };
-    }
-
-    const value = backgroundColor.replace(/\s+/g, "").toLowerCase();
-    const isLightRgba = value.startsWith("rgba(") || value.startsWith("hsla(");
-
-    if (isLightRgba) {
-      return {
-        primary: "text-slate-900",
-        secondary: "text-slate-600",
-        tertiary: "text-slate-500",
-        dot: "bg-current",
-        dotStyle: { backgroundColor: borderColor ?? "#64748b" } as CSSProperties,
-        pill: "bg-white/90 text-slate-700",
-      };
-    }
-
+  // Event tiles always use a translucent token background, so the foreground
+  // text and a borderColor-driven dot work in both light and dark mode.
+  function getEventTextPalette(borderColor?: string | null) {
     return {
-      primary: "text-white",
-      secondary: "text-white/80",
-      tertiary: "text-white/70",
-      dot: "bg-white/85",
-      dotStyle: undefined as CSSProperties | undefined,
-      pill: "bg-white/20 text-white",
+      primary: "text-foreground",
+      secondary: "text-muted-foreground",
+      tertiary: "text-muted-foreground/80",
+      dot: "bg-current",
+      dotStyle: { backgroundColor: borderColor ?? "hsl(var(--primary))" } as CSSProperties,
+      pill: "bg-foreground/10 text-foreground",
     };
   }
 
@@ -180,7 +157,7 @@ export function PortalCalendar({
     const isMonthView = arg.view.type === "dayGridMonth";
     const isDayView = arg.view.type === "timeGridDay";
     const isTimeGridView = arg.view.type.startsWith("timeGrid");
-    const palette = getEventTextPalette(arg.event.backgroundColor, arg.event.borderColor);
+    const palette = getEventTextPalette(arg.event.borderColor);
 
     if (isMonthView) {
       return (
@@ -330,20 +307,20 @@ export function PortalCalendar({
             ) : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+            <div className="rounded-2xl border border-border bg-surface-raised p-3">
               <p className="text-xs text-muted-foreground">Calendar items</p>
               <p className="text-2xl font-semibold">{summary.total}</p>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+            <div className="rounded-2xl border border-border bg-surface-raised p-3">
               <p className="text-xs text-muted-foreground">Active days</p>
               <p className="text-2xl font-semibold">{summary.activeDays}</p>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+            <div className="rounded-2xl border border-border bg-surface-raised p-3">
               <p className="text-xs text-muted-foreground">Awaiting confirmation</p>
               <p className="text-2xl font-semibold">{summary.awaitingConfirmation}</p>
             </div>
             {viewPreferenceKey ? (
-              <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+              <div className="rounded-2xl border border-border bg-surface-raised p-3">
                 <p className="text-xs text-muted-foreground">Saved default view</p>
                 <p className="text-base font-semibold">
                   {CALENDAR_VIEW_OPTIONS.find((option) => option.value === savedView)?.label ?? "Month"}
@@ -352,11 +329,11 @@ export function PortalCalendar({
             ) : null}
           </div>
           {legendItems.length > 0 ? (
-            <div className="rounded-2xl border border-border/70 bg-white/70 p-3">
+            <div className="rounded-2xl border border-border bg-surface-raised p-3">
               <p className="text-xs text-muted-foreground">Legend</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {legendItems.map((item) => (
-                  <Badge key={item.label} variant="outline" className="gap-1.5 bg-white/85">
+                  <Badge key={item.label} variant="outline" className="gap-1.5 bg-surface">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
                     {item.label} ({legendCounts[item.label] ?? 0})
                   </Badge>
@@ -372,7 +349,7 @@ export function PortalCalendar({
           <CardContent className="p-8 text-center text-sm text-muted-foreground">{emptyMessage}</CardContent>
         </Card>
       ) : (
-        <div className="relative overflow-visible rounded-[calc(var(--radius)+6px)] border border-white/70 bg-white/80 shadow-sm">
+        <div className="relative overflow-visible rounded-[calc(var(--radius)+6px)] border border-border bg-surface shadow-sm">
           <FullCalendar
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -441,7 +418,7 @@ export function PortalCalendar({
           </DialogHeader>
           {selectedEvent ? (
             <div className="space-y-3 text-sm">
-              <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+              <div className="rounded-2xl border border-border bg-muted/20 p-3">
                 <p className="font-medium">
                   {selectedEvent.start
                     ? format(new Date(selectedEvent.start), "EEE dd MMM yyyy, h:mm a")
@@ -501,7 +478,7 @@ export function PortalCalendar({
                 ))}
               </select>
             </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
               Current calendar view:{" "}
               <span className="font-medium text-foreground">
                 {CALENDAR_VIEW_OPTIONS.find((option) => option.value === currentView)?.label ?? "Month"}
@@ -520,43 +497,21 @@ export function PortalCalendar({
       </Dialog>
 
       <style jsx global>{`
-        .fc {
-          position: relative;
-          z-index: 0;
-          --fc-border-color: rgba(148, 163, 184, 0.22);
-          --fc-page-bg-color: transparent;
-          --fc-neutral-bg-color: rgba(248, 250, 252, 0.72);
-          --fc-today-bg-color: rgba(37, 99, 235, 0.06);
-          --fc-button-bg-color: #0f766e;
-          --fc-button-border-color: #0f766e;
-          --fc-button-text-color: #f8fafc;
-          --fc-button-hover-bg-color: #115e59;
-          --fc-button-hover-border-color: #115e59;
-          --fc-button-active-bg-color: #134e4a;
-          --fc-button-active-border-color: #134e4a;
-          --fc-button-active-text-color: #ffffff;
-        }
+        /* Most theme-aware FullCalendar rules live in app/globals.css. This
+           block only carries layout-specific overrides shared across portals. */
         .fc .fc-toolbar.fc-header-toolbar {
           margin-bottom: 1rem;
           padding: 1rem 1rem 0;
           gap: 0.75rem;
           flex-wrap: wrap;
         }
-        .fc .fc-toolbar-title {
-          font-size: 1rem;
-          font-weight: 700;
-          color: #0f172a;
-        }
         .fc .fc-button {
           border-radius: 9999px;
-          box-shadow: none;
           font-weight: 600;
           padding: 0.45rem 0.85rem;
-          color: #f8fafc;
         }
         .fc .fc-col-header-cell-cushion,
         .fc .fc-daygrid-day-number {
-          color: #334155;
           font-weight: 600;
           padding: 0.55rem 0.35rem;
         }
@@ -564,7 +519,6 @@ export function PortalCalendar({
           border-width: 1px;
           border-radius: 14px;
           padding: 0.2rem 0.35rem;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
           cursor: pointer;
         }
         .fc .fc-daygrid-event {
@@ -577,27 +531,17 @@ export function PortalCalendar({
           margin: 0.18rem 0.3rem 0.25rem;
           font-size: 0.72rem;
           font-weight: 600;
-          color: #2563eb;
         }
         .fc .fc-popover {
           z-index: 40;
-          background: #ffffff;
           border-radius: 16px;
-          border: 1px solid rgba(148, 163, 184, 0.24);
           opacity: 1;
           overflow: hidden;
-          box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
         }
         .fc .fc-popover-header {
           padding: 0.7rem 0.9rem;
-          background: #f8fafc;
-        }
-        .fc .fc-popover-title,
-        .fc .fc-popover-close {
-          color: #0f172a;
         }
         .fc .fc-more-popover .fc-popover-body {
-          background: #ffffff;
           padding: 0.45rem 0.55rem 0.65rem;
         }
         .fc .fc-more-popover .fc-daygrid-event-harness,
@@ -625,7 +569,6 @@ export function PortalCalendar({
         .fc .fc-timegrid-axis-cushion {
           font-size: 0.8rem;
           font-weight: 600;
-          color: #64748b;
           display: block;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -651,7 +594,6 @@ export function PortalCalendar({
           min-height: 76px;
           border-radius: 16px;
           padding: 0.24rem;
-          box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.5);
         }
         .fc .fc-timegrid-event .fc-event-main {
           display: flex;
@@ -670,13 +612,6 @@ export function PortalCalendar({
         }
         .fc .fc-timegrid-event-harness {
           margin-inline: 0.1rem;
-        }
-        .fc .fc-timegrid-now-indicator-line {
-          border-color: #ef4444;
-        }
-        .fc .fc-timegrid-now-indicator-arrow {
-          border-top-color: #ef4444;
-          border-bottom-color: #ef4444;
         }
         @media (max-width: 768px) {
           .fc .fc-toolbar.fc-header-toolbar {

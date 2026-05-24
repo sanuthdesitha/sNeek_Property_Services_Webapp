@@ -3,7 +3,7 @@
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/core";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -24,16 +24,17 @@ import {
 
 const SYDNEY_TZ = "Australia/Sydney";
 
+// Token-based per-status palette so events read clean in both light and dark mode.
 const STATUS_META: Record<
   string,
-  { color: string; soft: string; badge: "default" | "secondary" | "destructive" | "outline" | "success" | "warning"; label: string }
+  { variant: "muted" | "primary" | "info" | "success" | "danger" | "warning"; badge: "default" | "secondary" | "destructive" | "outline" | "success" | "warning"; label: string }
 > = {
-  PENDING: { color: "#64748b", soft: "rgba(100,116,139,0.14)", badge: "outline", label: "Pending" },
-  CONFIRMED: { color: "#2563eb", soft: "rgba(37,99,235,0.14)", badge: "secondary", label: "Confirmed" },
-  PICKED_UP: { color: "#0f766e", soft: "rgba(15,118,110,0.14)", badge: "default", label: "Picked up" },
-  DROPPED: { color: "#16a34a", soft: "rgba(22,163,74,0.14)", badge: "success", label: "Completed" },
-  FLAGGED: { color: "#dc2626", soft: "rgba(220,38,38,0.14)", badge: "destructive", label: "Flagged" },
-  SKIPPED_PICKUP: { color: "#d97706", soft: "rgba(217,119,6,0.16)", badge: "warning", label: "Skipped pickup" },
+  PENDING: { variant: "muted", badge: "outline", label: "Pending" },
+  CONFIRMED: { variant: "primary", badge: "secondary", label: "Confirmed" },
+  PICKED_UP: { variant: "info", badge: "default", label: "Picked up" },
+  DROPPED: { variant: "success", badge: "success", label: "Completed" },
+  FLAGGED: { variant: "danger", badge: "destructive", label: "Flagged" },
+  SKIPPED_PICKUP: { variant: "warning", badge: "warning", label: "Skipped pickup" },
 };
 
 type LaundryCalendarEvent = {
@@ -90,30 +91,15 @@ function formatDateLabel(value?: string | null) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function getEventTextPalette(backgroundColor?: string | null) {
-  const value = (backgroundColor ?? "").replace(/\s+/g, "").toLowerCase();
-  const isLightRgba = value.startsWith("rgba(") || value.startsWith("hsla(");
-
-  if (isLightRgba || !value) {
-    return {
-      primary: "text-slate-900",
-      secondary: "text-slate-600",
-      tertiary: "text-slate-500",
-      dotClass: "bg-current",
-      dotStyle: undefined as CSSProperties | undefined,
-      pillClass: "bg-white/90 text-slate-700",
-    };
-  }
-
-  return {
-    primary: "text-white",
-    secondary: "text-white/80",
-    tertiary: "text-white/70",
-    dotClass: "bg-white/85",
-    dotStyle: undefined as CSSProperties | undefined,
-    pillClass: "bg-white/20 text-white",
-  };
-}
+// Event tiles use a low-opacity token background, so text is always foreground
+// in either theme — no readability problems in dark mode.
+const EVENT_TEXT_PALETTE = {
+  primary: "text-foreground",
+  secondary: "text-muted-foreground",
+  tertiary: "text-muted-foreground/80",
+  dotClass: "bg-current",
+  pillClass: "bg-foreground/10 text-foreground",
+} as const;
 
 export default function LaundryCalendarView() {
   const router = useRouter();
@@ -138,9 +124,9 @@ export default function LaundryCalendarView() {
             start: isoDate(task.pickupDate),
             end: addOneDayIso(task.dropoffDate),
             allDay: true,
-            backgroundColor: meta.soft,
-            borderColor: meta.color,
-            textColor: "#0f172a",
+            backgroundColor: `hsl(var(--${meta.variant}) / 0.18)`,
+            borderColor: `hsl(var(--${meta.variant}) / 0.55)`,
+            textColor: "hsl(var(--foreground))",
             classNames: ["sneek-calendar-event", `status-${String(task.status).toLowerCase()}`],
             extendedProps: {
               status: String(task.status),
@@ -257,7 +243,7 @@ export default function LaundryCalendarView() {
     const pickupDate = String(arg.event.extendedProps.pickupDate ?? "");
     const dropoffDate = String(arg.event.extendedProps.dropoffDate ?? "");
     const flagReason = String(arg.event.extendedProps.flagReason ?? "");
-    const palette = getEventTextPalette(arg.event.backgroundColor);
+    const palette = EVENT_TEXT_PALETTE;
     const isMonthView = arg.view.type === "dayGridMonth";
 
     if (isMonthView) {
@@ -266,7 +252,7 @@ export default function LaundryCalendarView() {
           <div className="flex items-center gap-1.5">
             <span
               className={`h-2 w-2 shrink-0 rounded-full ${palette.dotClass}`}
-              style={palette.dotClass === "bg-current" ? { backgroundColor: meta.color } : palette.dotStyle}
+              style={{ backgroundColor: `hsl(var(--${meta.variant}))` }}
             />
             <span className={`truncate text-[10px] font-semibold uppercase tracking-[0.08em] ${palette.secondary}`}>
               {meta.label}
@@ -310,7 +296,7 @@ export default function LaundryCalendarView() {
 
   return (
     <div className="laundry-admin-calendar space-y-5 p-4 sm:p-5">
-      <Card className="overflow-hidden border-primary/20 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]">
+      <Card className="overflow-hidden border-primary/20 bg-surface">
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
             <div className="min-w-0">
@@ -319,7 +305,7 @@ export default function LaundryCalendarView() {
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
                   Laundry command view
                 </Badge>
-                <Badge variant="outline" className="border-border/70 bg-white/75">
+                <Badge variant="outline" className="border-border bg-surface-raised">
                   {boardExpanded ? "Expanded" : "Collapsed"}
                 </Badge>
               </div>
@@ -339,10 +325,10 @@ export default function LaundryCalendarView() {
             </Button>
           </div>
           {boardExpanded ? (
-          <div className="grid gap-0 border-t border-border/60 xl:grid-cols-[1.08fr_0.92fr]">
+          <div className="grid gap-0 border-t border-border xl:grid-cols-[1.08fr_0.92fr]">
             <div className="p-5 sm:p-6">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-border/70 bg-white/75">
+                <Badge variant="outline" className="border-border bg-surface-raised">
                   {view === "dayGridMonth" ? "Month view" : view === "dayGridWeek" ? "Week view" : "Day view"}
                 </Badge>
               </div>
@@ -369,7 +355,7 @@ export default function LaundryCalendarView() {
                   <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                   Refresh range
                 </Button>
-                <div className="inline-flex items-center rounded-full border border-border/70 bg-white/80 px-4 py-2 text-sm text-muted-foreground">
+                <div className="inline-flex items-center rounded-full border border-border bg-surface-raised px-4 py-2 text-sm text-muted-foreground">
                   <CalendarRange className="mr-2 h-4 w-4 text-primary" />
                   Click any task to open the full laundry detail
                 </div>
@@ -379,10 +365,10 @@ export default function LaundryCalendarView() {
                 {summary.map((item) => (
                   <div
                     key={item.label}
-                    className={`rounded-2xl border border-white/70 bg-gradient-to-br ${item.accent} p-3 shadow-sm backdrop-blur`}
+                    className={`rounded-2xl border border-border bg-gradient-to-br ${item.accent} p-3 shadow-sm backdrop-blur`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/80 shadow-sm">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface shadow-sm">
                         <item.icon className="h-4 w-4 text-primary" />
                       </div>
                       <div className="min-w-0">
@@ -396,8 +382,8 @@ export default function LaundryCalendarView() {
               </div>
             </div>
 
-            <div className="border-t border-border/60 bg-muted/40 p-5 sm:p-6 xl:border-l xl:border-t-0">
-              <div className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-sm">
+            <div className="border-t border-border bg-muted/40 p-5 sm:p-6 xl:border-l xl:border-t-0">
+              <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -414,24 +400,24 @@ export default function LaundryCalendarView() {
                 </div>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
+                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active today</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.activeToday.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
+                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Pickup today</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.pickupToday.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
+                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Exceptions today</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.exceptionsToday.length}</p>
                   </div>
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-border/60 bg-white p-4">
+                  <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-xl bg-sky-100 p-2 text-sky-700">
+                      <div className="mt-0.5 rounded-xl bg-info/15 p-2 text-info">
                         <CalendarClock className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
@@ -448,9 +434,9 @@ export default function LaundryCalendarView() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border/60 bg-white p-4">
+                  <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-xl bg-emerald-100 p-2 text-emerald-700">
+                      <div className="mt-0.5 rounded-xl bg-success/15 p-2 text-success">
                         <CheckCircle2 className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
@@ -468,7 +454,7 @@ export default function LaundryCalendarView() {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-surface-raised/80 p-4">
+                <div className="mt-5 rounded-2xl border border-dashed border-border bg-surface-raised/80 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Status legend
                   </p>
@@ -488,8 +474,8 @@ export default function LaundryCalendarView() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_0.3fr]">
-        <div className="relative overflow-visible rounded-[calc(var(--radius)+10px)] border border-white/70 bg-white/80 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur">
-          <div className="border-b border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.78))] px-4 py-3 sm:px-5">
+        <div className="relative overflow-visible rounded-[calc(var(--radius)+10px)] border border-border bg-surface shadow-sm">
+          <div className="border-b border-border bg-surface-raised px-4 py-3 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Calendar canvas</p>
@@ -497,7 +483,7 @@ export default function LaundryCalendarView() {
                   Month, week, and day views share the same theme as dispatch and keep laundry exceptions visible.
                 </p>
               </div>
-              <Badge variant="outline" className="border-border/70 bg-white/80">
+              <Badge variant="outline" className="border-border bg-surface">
                 {events.length} tasks loaded
               </Badge>
             </div>
@@ -547,11 +533,11 @@ export default function LaundryCalendarView() {
           </div>
         </div>
 
-        <Card className="border-primary/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.9))]">
+        <Card className="border-primary/15 bg-surface">
           <CardContent className="p-4 sm:p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Quick context</p>
             <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+              <div className="rounded-2xl border border-border bg-surface-raised p-4">
                 <div className="flex items-start gap-3">
                   <div className="rounded-xl bg-primary/10 p-2 text-primary">
                     <MapPin className="h-4 w-4" />
@@ -565,9 +551,9 @@ export default function LaundryCalendarView() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+              <div className="rounded-2xl border border-border bg-surface-raised p-4">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                  <div className="rounded-xl bg-warning/15 p-2 text-warning">
                     <AlertTriangle className="h-4 w-4" />
                   </div>
                   <div>
@@ -579,9 +565,9 @@ export default function LaundryCalendarView() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-border/60 bg-white/80 p-4">
+              <div className="rounded-2xl border border-border bg-surface-raised p-4">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-emerald-100 p-2 text-emerald-700">
+                  <div className="rounded-xl bg-success/15 p-2 text-success">
                     <CheckCircle2 className="h-4 w-4" />
                   </div>
                   <div>
@@ -602,18 +588,6 @@ export default function LaundryCalendarView() {
         .laundry-admin-calendar .fc {
           position: relative;
           z-index: 0;
-          --fc-border-color: rgba(148, 163, 184, 0.22);
-          --fc-page-bg-color: transparent;
-          --fc-neutral-bg-color: rgba(248, 250, 252, 0.72);
-          --fc-today-bg-color: rgba(37, 99, 235, 0.06);
-          --fc-button-bg-color: #0f766e;
-          --fc-button-border-color: #0f766e;
-          --fc-button-text-color: #f8fafc;
-          --fc-button-hover-bg-color: #115e59;
-          --fc-button-hover-border-color: #115e59;
-          --fc-button-active-bg-color: #134e4a;
-          --fc-button-active-border-color: #134e4a;
-          --fc-button-active-text-color: #ffffff;
         }
 
         .laundry-admin-calendar .fc .fc-toolbar.fc-header-toolbar {
@@ -623,44 +597,16 @@ export default function LaundryCalendarView() {
           flex-wrap: wrap;
         }
 
-        .laundry-admin-calendar .fc .fc-toolbar-title {
-          font-size: 1.1rem;
-          font-weight: 700;
-          color: #0f172a;
-        }
-
         .laundry-admin-calendar .fc .fc-button {
           border-radius: 9999px;
-          box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.55);
           font-weight: 600;
           padding: 0.45rem 0.85rem;
-          color: #f8fafc;
-        }
-
-        .laundry-admin-calendar .fc .fc-scrollgrid,
-        .laundry-admin-calendar .fc .fc-col-header-cell,
-        .laundry-admin-calendar .fc .fc-daygrid-day {
-          border-color: rgba(148, 163, 184, 0.22);
         }
 
         .laundry-admin-calendar .fc .fc-col-header-cell-cushion,
         .laundry-admin-calendar .fc .fc-daygrid-day-number {
-          color: #334155;
           font-weight: 600;
           padding: 0.55rem 0.35rem;
-        }
-
-        .laundry-admin-calendar .fc .fc-day-today .fc-daygrid-day-number {
-          color: #2563eb;
-        }
-
-        .laundry-admin-calendar .fc .fc-day-today {
-          box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
-          background: linear-gradient(180deg, rgba(37, 99, 235, 0.04), rgba(255, 255, 255, 0));
-        }
-
-        .laundry-admin-calendar .fc .fc-day-other {
-          background: rgba(248, 250, 252, 0.65);
         }
 
         .laundry-admin-calendar .fc .fc-week-number {
@@ -670,8 +616,6 @@ export default function LaundryCalendarView() {
           align-items: center;
           justify-content: center;
           border-radius: 9999px;
-          background: rgba(15, 118, 110, 0.08);
-          color: #0f766e;
           font-size: 0.7rem;
           font-weight: 700;
         }
@@ -680,17 +624,11 @@ export default function LaundryCalendarView() {
           border-width: 1px;
           border-radius: 16px;
           padding: 0.38rem 0.45rem;
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.35),
-            0 14px 30px -26px rgba(15, 23, 42, 0.65);
           transition: transform 160ms ease, box-shadow 160ms ease;
         }
 
         .laundry-admin-calendar .fc .sneek-calendar-event:hover {
           transform: translateY(-1px);
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.4),
-            0 20px 36px -26px rgba(15, 23, 42, 0.75);
         }
 
         .laundry-admin-calendar .fc .fc-daygrid-event-harness {
@@ -709,11 +647,6 @@ export default function LaundryCalendarView() {
           margin: 0.18rem 0.3rem 0.25rem;
           font-size: 0.72rem;
           font-weight: 600;
-          color: #2563eb;
-        }
-
-        .laundry-admin-calendar .fc .fc-daygrid-more-link:hover {
-          color: #1d4ed8;
         }
 
         .laundry-admin-calendar .fc .fc-event-main {
@@ -722,26 +655,16 @@ export default function LaundryCalendarView() {
 
         .laundry-admin-calendar .fc .fc-popover {
           z-index: 40;
-          background: #ffffff;
           border-radius: 16px;
-          border: 1px solid rgba(148, 163, 184, 0.24);
           opacity: 1;
           overflow: hidden;
-          box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
         }
 
         .laundry-admin-calendar .fc .fc-popover-header {
           padding: 0.7rem 0.9rem;
-          background: #f8fafc;
-        }
-
-        .laundry-admin-calendar .fc .fc-popover-title,
-        .laundry-admin-calendar .fc .fc-popover-close {
-          color: #0f172a;
         }
 
         .laundry-admin-calendar .fc .fc-more-popover .fc-popover-body {
-          background: #ffffff;
           padding: 0.45rem 0.55rem 0.65rem;
         }
 
@@ -765,7 +688,6 @@ export default function LaundryCalendarView() {
         .laundry-admin-calendar .fc .fc-scrollgrid {
           border-radius: calc(var(--radius) + 6px);
           overflow: hidden;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
         }
 
         .laundry-admin-calendar .fc .fc-daygrid-day-frame {

@@ -491,15 +491,232 @@ body:has([data-portal-theme="dark"]) {
   animation: sidebarSlideIn 200ms ease both;
 }
 
-/* FullCalendar overrides */
+/* FullCalendar overrides — work in both light and dark via tokens */
+.fc {
+  --fc-border-color: hsl(var(--border));
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: hsl(var(--surface-raised));
+  --fc-neutral-text-color: hsl(var(--muted-foreground));
+  --fc-today-bg-color: hsl(var(--primary) / 0.08);
+  --fc-button-bg-color: hsl(var(--primary));
+  --fc-button-border-color: hsl(var(--primary));
+  --fc-button-text-color: hsl(var(--primary-foreground));
+  --fc-button-hover-bg-color: hsl(var(--primary) / 0.9);
+  --fc-button-hover-border-color: hsl(var(--primary) / 0.9);
+  --fc-button-active-bg-color: hsl(var(--primary) / 0.85);
+  --fc-button-active-border-color: hsl(var(--primary) / 0.85);
+  --fc-event-bg-color: hsl(var(--primary));
+  --fc-event-border-color: hsl(var(--primary));
+  --fc-event-text-color: hsl(var(--primary-foreground));
+  --fc-list-event-hover-bg-color: hsl(var(--surface-raised));
+  --fc-now-indicator-color: hsl(var(--danger));
+  color: hsl(var(--foreground));
+}
+
 .fc .fc-toolbar-title {
   font-size: 1.08rem;
   font-weight: 700;
+  color: hsl(var(--foreground));
 }
 
 .fc .fc-button-primary {
   background-color: hsl(var(--primary)) !important;
   border-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+.fc .fc-button-primary:hover {
+  background-color: hsl(var(--primary) / 0.9) !important;
+  border-color: hsl(var(--primary) / 0.9) !important;
+}
+
+.fc .fc-button-primary:disabled,
+.fc .fc-button-primary.fc-button-active {
+  background-color: hsl(var(--primary) / 0.85) !important;
+  border-color: hsl(var(--primary) / 0.85) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Grid surface */
+.fc .fc-scrollgrid,
+.fc .fc-scrollgrid table,
+.fc .fc-scrollgrid-section,
+.fc .fc-col-header-cell,
+.fc .fc-timegrid-slot,
+.fc .fc-daygrid-day,
+.fc .fc-timegrid-axis,
+.fc .fc-list-table,
+.fc .fc-scrollgrid-section > * {
+  border-color: hsl(var(--border)) !important;
+}
+
+.fc .fc-col-header-cell {
+  background-color: hsl(var(--surface-raised));
+}
+
+.fc .fc-col-header-cell-cushion {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.fc .fc-daygrid-day-number,
+.fc .fc-timegrid-axis-cushion,
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-list-day-cushion,
+.fc .fc-list-event-time,
+.fc .fc-list-event-title {
+  color: hsl(var(--foreground));
+}
+
+.fc .fc-day-other .fc-daygrid-day-number {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.6;
+}
+
+.fc .fc-day-other {
+  background-color: hsl(var(--surface-raised) / 0.4);
+}
+
+/* Today highlight */
+.fc .fc-day-today {
+  background-color: hsl(var(--primary) / 0.08) !important;
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+  color: hsl(var(--primary));
+  font-weight: 700;
+}
+
+/* Time-grid current-time indicator */
+.fc .fc-timegrid-now-indicator-line {
+  border-color: hsl(var(--danger)) !important;
+}
+
+.fc .fc-timegrid-now-indicator-arrow {
+  border-color: hsl(var(--danger)) !important;
+  border-top-color: hsl(var(--danger)) !important;
+  border-bottom-color: hsl(var(--danger)) !important;
+}
+
+/* List view */
+.fc .fc-list,
+.fc .fc-list-empty {
+  background-color: hsl(var(--surface));
+  color: hsl(var(--muted-foreground));
+}
+
+.fc .fc-list-day-cushion {
+  background-color: hsl(var(--surface-raised));
+  color: hsl(var(--foreground));
+}
+
+/* Cell hover (subtle) */
+.fc .fc-daygrid-day:hover {
+  background-color: hsl(var(--surface-raised) / 0.5);
+}
+
+/* Selection */
+.fc .fc-highlight {
+  background-color: hsl(var(--primary) / 0.15) !important;
+}
+
+/* More-link */
+.fc .fc-daygrid-more-link {
+  color: hsl(var(--primary)) !important;
+  font-weight: 600;
+}
+
+.fc .fc-daygrid-more-link:hover {
+  color: hsl(var(--primary) / 0.8) !important;
+}
+
+/* Popover (used by "+N more" expansion) */
+.fc .fc-popover {
+  background-color: hsl(var(--popover)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--popover-foreground));
+}
+
+.fc .fc-popover-header {
+  background-color: hsl(var(--surface-raised)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc .fc-popover-title,
+.fc .fc-popover-close {
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc .fc-more-popover .fc-popover-body {
+  background-color: hsl(var(--popover)) !important;
+}
+
+/* Week-number pill */
+.fc .fc-week-number {
+  background-color: hsl(var(--primary) / 0.1) !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* Timegrid slot labels */
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Per-status event tile classes (work in both themes via token opacity) */
+.fc-event.status-unassigned,
+.fc-event.status-offered,
+.fc-event.status-paused,
+.fc-event.status-skipped_pickup {
+  background-color: hsl(var(--warning) / 0.18) !important;
+  border-color: hsl(var(--warning) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-assigned,
+.fc-event.status-confirmed,
+.fc-event.status-scheduled {
+  background-color: hsl(var(--primary) / 0.18) !important;
+  border-color: hsl(var(--primary) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-in_progress,
+.fc-event.status-picked_up {
+  background-color: hsl(var(--info) / 0.18) !important;
+  border-color: hsl(var(--info) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-submitted,
+.fc-event.status-qa_review {
+  background-color: hsl(var(--accent) / 0.18) !important;
+  border-color: hsl(var(--accent) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-completed,
+.fc-event.status-dropped {
+  background-color: hsl(var(--success) / 0.18) !important;
+  border-color: hsl(var(--success) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-waiting_continuation_approval,
+.fc-event.status-flagged,
+.fc-event.status-cancelled,
+.fc-event.status-failed {
+  background-color: hsl(var(--danger) / 0.18) !important;
+  border-color: hsl(var(--danger) / 0.55) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.fc-event.status-invoiced,
+.fc-event.status-pending {
+  background-color: hsl(var(--muted)) !important;
+  border-color: hsl(var(--border-strong)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .fc-event {
