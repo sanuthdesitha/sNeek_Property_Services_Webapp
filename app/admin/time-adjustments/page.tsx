@@ -161,55 +161,124 @@ export default function AdminTimeAdjustmentsPage() {
                 <p className="py-10 text-center text-sm text-muted-foreground">No clock adjustment requests found.</p>
               ) : (
                 <div className="divide-y">
-                  {list.map((row) => (
-                    <div key={row.id} className="flex flex-wrap items-start justify-between gap-4 px-4 py-3">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">
-                          <Link href={`/admin/jobs/${row.job.id}`} className="hover:underline">
-                            {row.job.property.name}
-                          </Link>
-                          <span className="ml-2 rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                            {row.job.jobNumber}
-                          </span>
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Cleaner: {row.cleaner.name ?? row.cleaner.email} ({row.cleaner.email})
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.job.property.suburb} · {row.job.jobType.replace(/_/g, " ")} · {format(new Date(row.job.scheduledDate), "dd MMM yyyy")}
-                        </p>
-                        <p className="text-xs">
-                          Original final time: <strong>{formatMinutes(row.originalTotalDurationM)}</strong>
-                          {" · "}
-                          Requested final time: <strong>{formatMinutes(row.requestedTotalDurationM)}</strong>
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Requested {format(new Date(row.createdAt), "dd MMM yyyy HH:mm")}
-                        </p>
-                        {row.reason ? <p className="text-xs">Reason: {row.reason}</p> : null}
-                        {row.adminNote ? <p className="text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant={
-                            row.status === "PENDING"
-                              ? ("warning" as any)
-                              : row.status === "APPROVED"
-                                ? "success"
-                                : "destructive"
-                          }
-                        >
-                          {row.status}
-                        </Badge>
-                        {row.status === "PENDING" ? (
-                          <>
-                            <Button size="sm" onClick={() => openApprove(row)}>Approve</Button>
-                            <Button size="sm" variant="outline" onClick={() => openReject(row)}>Reject</Button>
-                          </>
+                  {list.map((row) => {
+                    const delta = row.requestedTotalDurationM - row.originalTotalDurationM;
+                    const deltaSign = delta > 0 ? "+" : delta < 0 ? "-" : "";
+                    const fmtAt = (v: string | null) =>
+                      v ? format(new Date(v), "dd MMM yyyy HH:mm") : "—";
+                    return (
+                      <div key={row.id} className="space-y-3 px-4 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold">
+                              <Link href={`/admin/jobs/${row.job.id}`} className="hover:underline">
+                                {row.job.property.name}
+                              </Link>
+                              <span className="ml-2 rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                {row.job.jobNumber}
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Cleaner: {row.cleaner.name ?? row.cleaner.email}
+                              {row.cleaner.name ? ` (${row.cleaner.email})` : ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.job.property.suburb} · {row.job.jobType.replace(/_/g, " ")} ·{" "}
+                              {format(new Date(row.job.scheduledDate), "dd MMM yyyy")}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Requested {format(new Date(row.createdAt), "dd MMM yyyy HH:mm")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                row.status === "PENDING"
+                                  ? ("warning" as any)
+                                  : row.status === "APPROVED"
+                                    ? "success"
+                                    : "destructive"
+                              }
+                            >
+                              {row.status}
+                            </Badge>
+                            {row.status === "PENDING" ? (
+                              <>
+                                <Button size="sm" onClick={() => openApprove(row)}>Approve</Button>
+                                <Button size="sm" variant="outline" onClick={() => openReject(row)}>Reject</Button>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Side-by-side before/after */}
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Original
+                            </p>
+                            <dl className="mt-2 space-y-1 text-sm">
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Clock-in</dt>
+                                <dd className="font-medium">{fmtAt(row.timeLog.startedAt)}</dd>
+                              </div>
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Clock-out</dt>
+                                <dd className="font-medium">{fmtAt(row.originalStoppedAt)}</dd>
+                              </div>
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Total time</dt>
+                                <dd className="font-medium">{formatMinutes(row.originalTotalDurationM)}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Requested
+                            </p>
+                            <dl className="mt-2 space-y-1 text-sm">
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Clock-in</dt>
+                                <dd className="font-medium">{fmtAt(row.timeLog.startedAt)}</dd>
+                              </div>
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Clock-out</dt>
+                                <dd className="font-medium">{fmtAt(row.requestedStoppedAt)}</dd>
+                              </div>
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-muted-foreground">Total time</dt>
+                                <dd className="font-medium">
+                                  {formatMinutes(row.requestedTotalDurationM)}
+                                  {delta !== 0 ? (
+                                    <span
+                                      className={`ml-2 text-xs font-semibold ${
+                                        delta > 0 ? "text-green-700" : "text-red-700"
+                                      }`}
+                                    >
+                                      {deltaSign}
+                                      {formatMinutes(Math.abs(delta))}
+                                    </span>
+                                  ) : null}
+                                </dd>
+                              </div>
+                            </dl>
+                          </div>
+                        </div>
+
+                        {row.reason ? (
+                          <div className="rounded-xl border border-border/60 bg-background p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Reason from cleaner
+                            </p>
+                            <p className="mt-1 text-sm">{row.reason}</p>
+                          </div>
+                        ) : null}
+                        {row.adminNote ? (
+                          <p className="text-xs text-muted-foreground">Admin note: {row.adminNote}</p>
                         ) : null}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

@@ -18,8 +18,16 @@ export async function GET() {
         db.cleanerPayAdjustment.findMany({
           where: { status: PayAdjustmentStatus.PENDING },
           include: {
-            cleaner: { select: { id: true, name: true } },
-            job: { select: { id: true, jobNumber: true, property: { select: { name: true, suburb: true } } } },
+            cleaner: { select: { id: true, name: true, email: true, image: true, role: true } },
+            job: {
+              select: {
+                id: true,
+                jobNumber: true,
+                scheduledDate: true,
+                startTime: true,
+                property: { select: { name: true, suburb: true } },
+              },
+            },
             property: { select: { id: true, name: true, suburb: true } },
           },
           orderBy: { requestedAt: "desc" },
@@ -28,8 +36,24 @@ export async function GET() {
         db.timeLogAdjustmentRequest.findMany({
           where: { status: "PENDING" },
           include: {
-            cleaner: { select: { id: true, name: true } },
-            job: { select: { id: true, jobNumber: true, property: { select: { name: true, suburb: true } } } },
+            cleaner: { select: { id: true, name: true, email: true, image: true, role: true } },
+            job: {
+              select: {
+                id: true,
+                jobNumber: true,
+                scheduledDate: true,
+                startTime: true,
+                property: { select: { name: true, suburb: true } },
+              },
+            },
+            timeLog: {
+              select: {
+                id: true,
+                startedAt: true,
+                stoppedAt: true,
+                durationM: true,
+              },
+            },
           },
           orderBy: { createdAt: "desc" },
           take: 50,
