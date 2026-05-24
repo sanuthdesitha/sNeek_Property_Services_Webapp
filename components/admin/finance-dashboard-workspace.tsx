@@ -3,7 +3,16 @@
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#16a34a", "#dc2626", "#0891b2", "#f59e0b"];
+const COLORS = [
+  "hsl(var(--primary))",
+  "hsl(var(--info))",
+  "hsl(var(--warning))",
+  "hsl(var(--accent))",
+  "hsl(var(--success))",
+  "hsl(var(--destructive))",
+  "hsl(var(--secondary))",
+  "hsl(var(--muted-foreground))",
+];
 
 function money(value: number) {
   return `$${Number(value ?? 0).toFixed(2)}`;
@@ -35,11 +44,11 @@ export function FinanceDashboardWorkspace({ data }: { data: any }) {
         <ChartCard title="Revenue by Month">
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={data.revenueByMonth} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis tickFormatter={(value) => `$${Math.round(value)}`} />
-              <Tooltip formatter={tooltipMoney} />
-              <Bar dataKey="revenue" fill="#0f766e" radius={[10, 10, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
+              <YAxis tickFormatter={(value) => `$${Math.round(value)}`} stroke="hsl(var(--muted-foreground))" />
+              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
+              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[10, 10, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -52,7 +61,7 @@ export function FinanceDashboardWorkspace({ data }: { data: any }) {
                   <Cell key={entry.label} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={tooltipMoney} />
+              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -63,11 +72,11 @@ export function FinanceDashboardWorkspace({ data }: { data: any }) {
         <ChartCard title="Revenue by Cleaner">
           <ResponsiveContainer width="100%" height={340}>
             <BarChart data={data.revenueByCleaner} layout="vertical" margin={{ top: 12, right: 24, left: 24, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" tickFormatter={(value) => `$${Math.round(value)}`} />
-              <YAxis type="category" dataKey="label" width={120} />
-              <Tooltip formatter={tooltipMoney} />
-              <Bar dataKey="revenue" fill="#2563eb" radius={[0, 10, 10, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis type="number" tickFormatter={(value) => `$${Math.round(value)}`} stroke="hsl(var(--muted-foreground))" />
+              <YAxis type="category" dataKey="label" width={120} stroke="hsl(var(--muted-foreground))" />
+              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
+              <Bar dataKey="revenue" fill="hsl(var(--info))" radius={[0, 10, 10, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -75,11 +84,11 @@ export function FinanceDashboardWorkspace({ data }: { data: any }) {
         <ChartCard title="Jobs Completed per Week">
           <ResponsiveContainer width="100%" height={340}>
             <LineChart data={data.jobsCompletedPerWeek} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis allowDecimals={false} />
-              <Tooltip />
-              <Line type="monotone" dataKey="jobs" stroke="#ea580c" strokeWidth={3} dot={{ r: 4 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
+              <YAxis allowDecimals={false} stroke="hsl(var(--muted-foreground))" />
+              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
+              <Line type="monotone" dataKey="jobs" stroke="hsl(var(--warning))" strokeWidth={3} dot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -88,11 +97,11 @@ export function FinanceDashboardWorkspace({ data }: { data: any }) {
       <ChartCard title="Average QA Score Trend">
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={data.qaTrend} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" />
-            <YAxis domain={[0, 100]} />
-            <Tooltip formatter={tooltipPercent} />
-            <Line type="monotone" dataKey="score" stroke="#16a34a" strokeWidth={3} dot={{ r: 4 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
+            <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" />
+            <Tooltip formatter={tooltipPercent} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
+            <Line type="monotone" dataKey="score" stroke="hsl(var(--success))" strokeWidth={3} dot={{ r: 4 }} />
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>

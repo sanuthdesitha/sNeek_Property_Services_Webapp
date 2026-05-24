@@ -17,7 +17,14 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const PIE_COLORS = ["#1f7a8c", "#f59e0b", "#ef4444", "#10b981", "#6366f1", "#ec4899"];
+const PIE_COLORS = [
+  "hsl(var(--primary))",
+  "hsl(var(--warning))",
+  "hsl(var(--destructive))",
+  "hsl(var(--success))",
+  "hsl(var(--info))",
+  "hsl(var(--accent))",
+];
 
 type MetricRow = {
   label: string;
@@ -51,8 +58,8 @@ export function AdminDashboardGraphs({
           <BarChart data={jobsByStatus} margin={{ top: 6, right: 8, left: -14, bottom: 34 }}>
             <defs>
               <linearGradient id="statusBar" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0ea5b7" stopOpacity={0.96} />
-                <stop offset="100%" stopColor="#155e75" stopOpacity={0.82} />
+                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.96} />
+                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.6} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -73,15 +80,15 @@ export function AdminDashboardGraphs({
           <AreaChart data={upcomingSevenDayLoad} margin={{ top: 6, right: 8, left: -14, bottom: 8 }}>
             <defs>
               <linearGradient id="loadArea" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.42} />
-                <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="hsl(var(--warning))" stopOpacity={0.42} />
+                <stop offset="100%" stopColor="hsl(var(--warning))" stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
             <Tooltip />
-            <Area type="monotone" dataKey="jobs" stroke="#f59e0b" strokeWidth={3} fill="url(#loadArea)" />
+            <Area type="monotone" dataKey="jobs" stroke="hsl(var(--warning))" strokeWidth={3} fill="url(#loadArea)" />
           </AreaChart>
         </ResponsiveContainer>
       </ChartCard>

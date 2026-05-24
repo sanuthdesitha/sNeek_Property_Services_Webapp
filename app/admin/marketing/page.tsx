@@ -13,7 +13,13 @@ export default async function AdminMarketingPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" asChild>
-          <Link href="/admin/marketing/campaigns">Open email campaigns</Link>
+          <Link href="/admin/marketing/campaigns">Campaigns</Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link href="/admin/marketing/social">Social posts</Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link href="/admin/marketing/assets">Asset library</Link>
         </Button>
       </div>
       <MarketingConsole

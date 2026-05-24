@@ -491,7 +491,7 @@ export default function CalendarView() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
-                        <p className="mt-1 text-2xl font-semibold text-slate-900">{item.value}</p>
+                        <p className="mt-1 text-2xl font-semibold text-foreground">{item.value}</p>
                         <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.note}</p>
                       </div>
                     </div>
@@ -500,7 +500,7 @@ export default function CalendarView() {
               </div>
             </div>
 
-            <div className="border-t border-border/60 bg-slate-950/[0.03] p-5 sm:p-6 xl:border-l xl:border-t-0">
+            <div className="border-t border-border/60 bg-muted/40 p-5 sm:p-6 xl:border-l xl:border-t-0">
               <div className="rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -518,15 +518,15 @@ export default function CalendarView() {
                 </div>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Jobs today</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.todayJobs.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Awaiting action</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.awaitingToday.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-slate-50 p-3">
+                  <div className="rounded-2xl border border-border/60 bg-surface-raised p-3">
                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Exceptions</p>
                     <p className="mt-1 text-xl font-semibold">{todaySpotlight.exceptionsToday.length}</p>
                   </div>
@@ -540,7 +540,7 @@ export default function CalendarView() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Next scheduled job</p>
-                        <p className="truncate text-sm font-semibold text-slate-900">
+                        <p className="truncate text-sm font-semibold text-foreground">
                           {todaySpotlight.nextJob?.extendedProps.propertyName ?? "No upcoming job in this range"}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
@@ -559,7 +559,7 @@ export default function CalendarView() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Currently active</p>
-                        <p className="truncate text-sm font-semibold text-slate-900">
+                        <p className="truncate text-sm font-semibold text-foreground">
                           {todaySpotlight.inProgressToday.length
                             ? `${todaySpotlight.inProgressToday.length} job${todaySpotlight.inProgressToday.length === 1 ? "" : "s"} in progress`
                             : "No active jobs right now"}
@@ -572,7 +572,7 @@ export default function CalendarView() {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-slate-50/80 p-4">
+                <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-surface-raised/80 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Status legend
                   </p>

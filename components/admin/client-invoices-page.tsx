@@ -73,7 +73,7 @@ const STATUS_CONFIG = {
   APPROVED: { label: "Approved", color: "bg-blue-100 text-blue-800 border-blue-200" },
   SENT:     { label: "Sent",     color: "bg-sky-100 text-sky-800 border-sky-200" },
   PAID:     { label: "Paid",     color: "bg-green-100 text-green-800 border-green-200" },
-  VOID:     { label: "Void",     color: "bg-gray-100 text-gray-500 border-gray-200" },
+  VOID:     { label: "Void",     color: "bg-muted text-muted-foreground border-border" },
 } as const;
 
 function money(v: number | null | undefined) {
@@ -647,7 +647,7 @@ export function ClientInvoicesPage() {
                 id="gen-gst"
                 checked={genGstEnabled}
                 onChange={(e) => setGenGstEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
+                className="h-4 w-4 rounded border-border-strong"
               />
               <label htmlFor="gen-gst" className="text-sm font-medium">Include GST (10%)</label>
             </div>

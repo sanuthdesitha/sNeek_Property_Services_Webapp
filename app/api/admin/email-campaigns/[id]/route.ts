@@ -21,10 +21,41 @@ const campaignSchema = z.object({
   scheduledAt: z.string().datetime().optional().nullable(),
 });
 
+// Marketing engine v1 — partial-update path for the new multi-channel columns.
+// Accepted only when the request body looks like a marketing-engine patch
+// (presence of channel/campaignStatus/scheduledFor/templateId).
+const marketingPatchSchema = z.object({
+  channel: z.enum(["EMAIL", "SMS", "BOTH"]).optional(),
+  campaignStatus: z
+    .enum(["DRAFT", "SCHEDULED", "SENDING", "SENT", "FAILED", "PAUSED", "CANCELLED"])
+    .optional(),
+  scheduledFor: z.string().datetime().nullable().optional(),
+  templateId: z.string().nullable().optional(),
+});
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = campaignSchema.parse(await req.json());
+    const raw = await req.json();
+
+    // If the body looks like a marketing-engine partial patch, route to that path
+    const isMarketingPatch =
+      raw && typeof raw === "object" &&
+      ("channel" in raw || "campaignStatus" in raw || "scheduledFor" in raw || "templateId" in raw) &&
+      !("name" in raw && "subject" in raw && "htmlBody" in raw && "audience" in raw);
+
+    if (isMarketingPatch) {
+      const patch = marketingPatchSchema.parse(raw);
+      const data: any = {};
+      if (patch.channel !== undefined) data.channel = patch.channel;
+      if (patch.campaignStatus !== undefined) data.campaignStatus = patch.campaignStatus;
+      if (patch.scheduledFor !== undefined) data.scheduledFor = patch.scheduledFor ? new Date(patch.scheduledFor) : null;
+      if (patch.templateId !== undefined) data.templateId = patch.templateId;
+      const campaign = await (db as any).emailCampaign.update({ where: { id: params.id }, data });
+      return NextResponse.json({ campaign });
+    }
+
+    const body = campaignSchema.parse(raw);
     const campaign = await db.emailCampaign.update({
       where: { id: params.id },
       data: {

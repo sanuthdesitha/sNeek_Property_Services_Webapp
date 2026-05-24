@@ -69,7 +69,7 @@ export function PerformanceTrendChart({ data }: Props) {
           type="monotone"
           dataKey="reliability"
           name="Reliability"
-          stroke="#10b981"
+          stroke="hsl(var(--success))"
           strokeWidth={2}
           dot={{ r: 4 }}
         />
@@ -77,7 +77,7 @@ export function PerformanceTrendChart({ data }: Props) {
           type="monotone"
           dataKey="attendance"
           name="Attendance"
-          stroke="#f59e0b"
+          stroke="hsl(var(--warning))"
           strokeWidth={2}
           dot={{ r: 4 }}
         />
@@ -85,7 +85,7 @@ export function PerformanceTrendChart({ data }: Props) {
           type="monotone"
           dataKey="docCompliance"
           name="Docs"
-          stroke="#8b5cf6"
+          stroke="hsl(var(--info))"
           strokeWidth={2}
           dot={{ r: 4 }}
         />
@@ -93,7 +93,7 @@ export function PerformanceTrendChart({ data }: Props) {
           type="monotone"
           dataKey="training"
           name="Training"
-          stroke="#ec4899"
+          stroke="hsl(var(--destructive))"
           strokeWidth={2}
           dot={{ r: 4 }}
         />
