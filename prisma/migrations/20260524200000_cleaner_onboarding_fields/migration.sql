@@ -1,0 +1,26 @@
+-- V9 cleaner onboarding fields
+-- Adds identity, employment, skills, and emergency contact fields to User
+
+DO $$ BEGIN
+  CREATE TYPE "EmploymentType" AS ENUM ('CONTRACTOR', 'CASUAL', 'PART_TIME', 'FULL_TIME');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "VisaStatus" AS ENUM ('CITIZEN', 'PERMANENT_RESIDENT', 'WORK_VISA', 'STUDENT_VISA', 'OTHER');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "dateOfBirth" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emergencyContactName" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emergencyContactPhone" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emergencyContactRelation" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "visaStatus" "VisaStatus";
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "taxFileNumberOnFile" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "employmentType" "EmploymentType";
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "abn" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "hireDate" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "languages" TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "hasVehicle" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "vehicleRegoExpiry" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "driverLicenseExpiry" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "notes" TEXT;

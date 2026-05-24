@@ -280,6 +280,21 @@ enum InvoicingCadence {
   CUSTOM
 }
 
+enum EmploymentType {
+  CONTRACTOR
+  CASUAL
+  PART_TIME
+  FULL_TIME
+}
+
+enum VisaStatus {
+  CITIZEN
+  PERMANENT_RESIDENT
+  WORK_VISA
+  STUDENT_VISA
+  OTHER
+}
+
 enum CaseState {
   OPEN
   TRIAGE
@@ -435,6 +450,30 @@ model User {
   invoiceDayOfMonth      Int?
   preferredPayoutMethod  PayoutMethod     @default(MANUAL_BANK_TRANSFER)
   lastInvoiceGeneratedAt DateTime?
+
+  // V9 cleaner onboarding fields
+  address                  String?
+  dateOfBirth              DateTime?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+
+  // Identity (cleaner-specific)
+  visaStatus               VisaStatus?
+  // TODO: encrypt at rest if we ever store the actual TFN
+  taxFileNumberOnFile      Boolean    @default(false)
+
+  // Employment
+  employmentType           EmploymentType?
+  abn                      String?
+  hireDate                 DateTime?
+
+  // Skills
+  languages                String[]   @default([])
+  hasVehicle               Boolean    @default(false)
+  vehicleRegoExpiry        DateTime?
+  driverLicenseExpiry      DateTime?
+  notes                    String?    @db.Text
 
   @@index([emailStatus])
   @@index([lastSeenAt])
