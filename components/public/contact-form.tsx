@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { toast } from "@/hooks/use-toast";
 
 const inquiryTypes = [
@@ -118,15 +119,25 @@ export function ContactForm() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="contact-suburb">Suburb</Label>
-              <Input id="contact-suburb" className="h-11 rounded-2xl" value={form.suburb} onChange={(event) => setForm((current) => ({ ...current, suburb: event.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contact-address">Address</Label>
-              <Input id="contact-address" className="h-11 rounded-2xl" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="contact-address">Address</Label>
+            <AddressAutocomplete
+              id="contact-address"
+              defaultValue={form.address}
+              placeholder="Start typing the property address…"
+              onSelect={(r) =>
+                setForm((current) => ({
+                  ...current,
+                  address: r.formattedAddress,
+                  suburb: r.suburb ?? current.suburb,
+                }))
+              }
+              onChange={(text) => setForm((current) => ({ ...current, address: text }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="contact-suburb">Suburb</Label>
+            <Input id="contact-suburb" className="h-11 rounded-2xl" value={form.suburb} onChange={(event) => setForm((current) => ({ ...current, suburb: event.target.value }))} />
           </div>
 
           <div className="space-y-2">

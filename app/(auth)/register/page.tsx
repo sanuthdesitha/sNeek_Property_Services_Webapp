@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 
 type RegisterRole = "CLEANER" | "CLIENT";
 
@@ -273,9 +274,15 @@ export default function RegisterPage() {
                   </div>
                   <div className="space-y-1">
                     <Label>Client Address (optional)</Label>
-                    <Input
-                      value={form.clientAddress}
-                      onChange={(e) => setForm((prev) => ({ ...prev, clientAddress: e.target.value }))}
+                    <AddressAutocomplete
+                      defaultValue={form.clientAddress}
+                      placeholder="Start typing your address…"
+                      onSelect={(r) =>
+                        setForm((prev) => ({ ...prev, clientAddress: r.formattedAddress }))
+                      }
+                      onChange={(text) =>
+                        setForm((prev) => ({ ...prev, clientAddress: text }))
+                      }
                     />
                   </div>
                 </div>
