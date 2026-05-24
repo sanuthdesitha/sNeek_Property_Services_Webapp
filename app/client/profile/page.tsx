@@ -14,16 +14,19 @@ export default async function ClientProfilePage() {
   const userPrefs = session?.user?.id
     ? await db.user.findUnique({
         where: { id: session.user.id },
+        select: { uiDensity: true, themePreference: true },
+      })
+    : null;
+  const billingPrefs = session?.user?.id
+    ? ((await db.user.findUnique({
+        where: { id: session.user.id },
         select: {
-          uiDensity: true,
-          themePreference: true,
           invoicingCadence: true,
           invoiceDayOfWeek: true,
           invoiceDayOfMonth: true,
         } as any,
-      })
+      })) as any)
     : null;
-  const prefsAny = userPrefs as any;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-4">
@@ -36,9 +39,9 @@ export default async function ClientProfilePage() {
         initialTheme={userPrefs?.themePreference ?? undefined}
       />
       <BillingPreferencesSection
-        initialCadence={prefsAny?.invoicingCadence ?? undefined}
-        initialDayOfWeek={prefsAny?.invoiceDayOfWeek ?? null}
-        initialDayOfMonth={prefsAny?.invoiceDayOfMonth ?? null}
+        initialCadence={billingPrefs?.invoicingCadence ?? undefined}
+        initialDayOfWeek={billingPrefs?.invoiceDayOfWeek ?? null}
+        initialDayOfMonth={billingPrefs?.invoiceDayOfMonth ?? null}
       />
       <div>
         <Button asChild variant="outline">
