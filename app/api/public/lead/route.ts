@@ -36,6 +36,12 @@ export async function POST(req: NextRequest) {
           requestedServiceType,
           requestedServiceLabel,
           source: body.structuredContext?.source ?? "website-quote",
+          // Address geo (Plan D) — stored in JSON until QuoteLead schema gains columns
+          ...(body.state ? { addressState: body.state } : {}),
+          ...(body.postcode ? { addressPostcode: body.postcode } : {}),
+          ...(typeof body.latitude === "number" ? { addressLat: body.latitude } : {}),
+          ...(typeof body.longitude === "number" ? { addressLng: body.longitude } : {}),
+          ...(body.placeId ? { addressPlaceId: body.placeId } : {}),
         },
     });
 
