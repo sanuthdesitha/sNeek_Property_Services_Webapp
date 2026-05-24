@@ -47,6 +47,12 @@ interface EditClientFormProps {
     email: string | null;
     phone: string | null;
     address: string | null;
+    suburb?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    placeId?: string | null;
     notes: string | null;
     portalVisibilityOverrides: Partial<ClientPortalVisibility> | null;
   };
@@ -65,6 +71,12 @@ export function EditClientForm({ client, defaultPortalVisibility }: EditClientFo
     email: client.email ?? "",
     phone: client.phone ?? "",
     address: client.address ?? "",
+    suburb: client.suburb ?? "",
+    state: client.state ?? "",
+    postcode: client.postcode ?? "",
+    latitude: client.latitude ?? null,
+    longitude: client.longitude ?? null,
+    placeId: client.placeId ?? null,
     notes: client.notes ?? "",
     portalVisibilityOverrides: { ...(client.portalVisibilityOverrides ?? {}) },
   });
@@ -217,6 +229,18 @@ export function EditClientForm({ client, defaultPortalVisibility }: EditClientFo
                 id="address"
                 value={form.address}
                 onChange={(value) => setForm((prev) => ({ ...prev, address: value }))}
+                onResolved={(parts) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    address: parts.address || prev.address,
+                    suburb: parts.suburb || prev.suburb,
+                    state: parts.state || prev.state,
+                    postcode: parts.postcode || prev.postcode,
+                    latitude: typeof parts.lat === "number" ? parts.lat : prev.latitude,
+                    longitude: typeof parts.lng === "number" ? parts.lng : prev.longitude,
+                    placeId: parts.placeId || prev.placeId,
+                  }))
+                }
               />
             </div>
           </div>

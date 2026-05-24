@@ -71,6 +71,12 @@ export async function POST(req: NextRequest) {
           email: email || undefined,
           phone: body.phone || undefined,
           address: body.address || undefined,
+          suburb: body.suburb || undefined,
+          state: body.state || undefined,
+          postcode: body.postcode || undefined,
+          latitude: body.latitude ?? undefined,
+          longitude: body.longitude ?? undefined,
+          placeId: body.placeId ?? undefined,
           notes: body.notes || undefined,
         },
       });
