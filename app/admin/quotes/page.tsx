@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { addDays, format } from "date-fns";
 import { Plus, Pencil, Trash2, Copy, Mail, Phone, Send, UserRoundPlus, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -32,6 +32,58 @@ const LEAD_STATUS_COLORS: Record<string, "secondary" | "default" | "success" | "
   CONVERTED: "success",
   LOST: "destructive",
 };
+
+const QUOTE_LIFECYCLE_STAGES = ["DRAFT", "SENT", "VIEWED", "ACCEPTED", "CONVERTED"] as const;
+const QUOTE_TERMINAL_STATUSES = new Set(["DECLINED"]);
+
+function deriveLifecycleStage(quote: { status: string; viewedAt?: string | null; acceptedAt?: string | null }) {
+  // The Quote.status enum doesn't include a VIEWED state, so synthesize it
+  // when we have a viewedAt timestamp but no further progress.
+  if (quote.status === "SENT" && quote.viewedAt) return "VIEWED";
+  return quote.status;
+}
+
+function QuoteStatusRibbon({
+  current,
+  viewedAt,
+  acceptedAt,
+  declinedAt,
+}: {
+  current: string;
+  viewedAt?: string | null;
+  acceptedAt?: string | null;
+  declinedAt?: string | null;
+}) {
+  const stage = deriveLifecycleStage({ status: current, viewedAt, acceptedAt });
+  if (QUOTE_TERMINAL_STATUSES.has(current)) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <span className="rounded bg-destructive px-2 py-1 font-semibold text-destructive-foreground">DECLINED</span>
+        {declinedAt ? (
+          <span className="text-muted-foreground">on {format(new Date(declinedAt), "dd MMM yyyy HH:mm")}</span>
+        ) : null}
+      </div>
+    );
+  }
+  const idx = QUOTE_LIFECYCLE_STAGES.indexOf(stage as (typeof QUOTE_LIFECYCLE_STAGES)[number]);
+  return (
+    <ol className="flex items-center gap-1 overflow-x-auto pb-1 text-xs">
+      {QUOTE_LIFECYCLE_STAGES.map((s, i) => (
+        <li
+          key={s}
+          className={cn(
+            "whitespace-nowrap rounded px-2 py-1",
+            i < idx && "bg-success/10 text-success",
+            i === idx && "bg-primary px-2 py-1 font-semibold text-primary-foreground",
+            i > idx && "bg-muted text-muted-foreground",
+          )}
+        >
+          {s}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 function prettify(value?: string | null) {
   return String(value ?? "").replace(/_/g, " ").trim();
@@ -757,6 +809,24 @@ export default function QuotesPage() {
             <DialogTitle>Edit quote</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {editQuote ? (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Lifecycle</Label>
+                <QuoteStatusRibbon
+                  current={editQuote.status}
+                  viewedAt={editQuote.viewedAt}
+                  acceptedAt={editQuote.acceptedAt}
+                  declinedAt={editQuote.declinedAt}
+                />
+                {(editQuote.viewedAt || editQuote.acceptedAt || editQuote.declinedAt) ? (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    {editQuote.viewedAt ? <span>Viewed {format(new Date(editQuote.viewedAt), "dd MMM HH:mm")}</span> : null}
+                    {editQuote.acceptedAt ? <span>Accepted {format(new Date(editQuote.acceptedAt), "dd MMM HH:mm")}</span> : null}
+                    {editQuote.declinedAt ? <span>Declined {format(new Date(editQuote.declinedAt), "dd MMM HH:mm")}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label>Status</Label>
               <Select value={editForm.status} onValueChange={(value) => setEditForm((prev) => ({ ...prev, status: value }))}>
