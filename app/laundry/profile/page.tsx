@@ -1,53 +1,63 @@
-import Link from "next/link";
-import { requireRole } from "@/lib/auth/session";
-import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
+import { redirect } from "next/navigation";
+import { requireRole } from "@/lib/auth/session";
+import { Role } from "@prisma/client";
+import { AdminProfileForm } from "@/components/admin/admin-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
-import { Button } from "@/components/ui/button";
+
+export const dynamic = "force-dynamic";
 
 export default async function LaundryProfilePage() {
   await requireRole([Role.LAUNDRY]);
   const session = await getServerSession(authOptions);
-  const userPrefs = session?.user?.id
-    ? await db.user.findUnique({
-        where: { id: session.user.id },
-        select: { uiDensity: true, themePreference: true },
-      })
-    : null;
-  const billingPrefs = session?.user?.id
-    ? ((await db.user.findUnique({
-        where: { id: session.user.id },
-        select: {
-          invoicingCadence: true,
-          invoiceDayOfWeek: true,
-          invoiceDayOfMonth: true,
-        } as any,
-      })) as any)
-    : null;
+  if (!session?.user?.id) redirect("/login");
+
+  const user = await db.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      image: true,
+      phone: true,
+      address: true,
+      suburb: true,
+      state: true,
+      postcode: true,
+      latitude: true,
+      longitude: true,
+      placeId: true,
+      uiDensity: true,
+      themePreference: true,
+      invoicingCadence: true,
+      invoiceDayOfWeek: true,
+      invoiceDayOfMonth: true,
+    } as any,
+  });
+  if (!user) redirect("/login");
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
-        <p className="text-sm text-muted-foreground">Manage your display preferences and account settings.</p>
-      </div>
-      <DisplayPreferencesSection
-        initialDensity={userPrefs?.uiDensity ?? undefined}
-        initialTheme={userPrefs?.themePreference ?? undefined}
-      />
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Your Profile</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Your contact info and preferences.</p>
+      </header>
+
+      <AdminProfileForm user={user as any} />
+
       <BillingPreferencesSection
-        initialCadence={billingPrefs?.invoicingCadence ?? undefined}
-        initialDayOfWeek={billingPrefs?.invoiceDayOfWeek ?? null}
-        initialDayOfMonth={billingPrefs?.invoiceDayOfMonth ?? null}
+        initialCadence={(user as any).invoicingCadence ?? undefined}
+        initialDayOfWeek={(user as any).invoiceDayOfWeek ?? null}
+        initialDayOfMonth={(user as any).invoiceDayOfMonth ?? null}
       />
-      <div>
-        <Button asChild variant="outline">
-          <Link href="/laundry/settings">Edit account details</Link>
-        </Button>
-      </div>
+
+      <DisplayPreferencesSection
+        initialDensity={(user as any).uiDensity ?? undefined}
+        initialTheme={(user as any).themePreference ?? undefined}
+      />
     </div>
   );
 }

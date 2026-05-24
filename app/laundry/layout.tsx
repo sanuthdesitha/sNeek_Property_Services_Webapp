@@ -34,6 +34,7 @@ export default async function LaundryLayout({ children }: { children: React.Reac
         { href: "/laundry/hub", label: "Team Hub" },
         ...(visibility.showCalendar ? [{ href: "/laundry/calendar", label: "Calendar" }] : []),
         ...(visibility.showInvoices ? [{ href: "/laundry/invoices", label: "Invoices" }] : []),
+        { href: "/laundry/profile", label: "Profile" },
       ]}
         >
           {children}
