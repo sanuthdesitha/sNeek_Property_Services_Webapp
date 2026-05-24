@@ -269,19 +269,19 @@ export default async function AdminDashboard() {
   const continuationJobById = new Map(continuationJobs.map((job) => [job.id, job]));
 
   const statCards = [
-    { label: "Today's Jobs", value: stats.todayJobs, icon: Calendar, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Unassigned", value: stats.unassignedJobs, icon: Briefcase, color: "text-orange-600", bg: "bg-orange-50", alert: stats.unassignedJobs > 0 },
-    { label: "Laundry Flags", value: stats.flaggedLaundry, icon: Shirt, color: "text-red-600", bg: "bg-red-50", alert: stats.flaggedLaundry > 0 },
-    { label: "Low Stock Items", value: stats.lowStockCount, icon: Package, color: "text-yellow-600", bg: "bg-yellow-50", alert: stats.lowStockCount > 0 },
-    { label: "SLA Due Soon", value: stats.slaDueSoon, icon: AlertTriangle, color: "text-amber-600", bg: "bg-amber-50", alert: stats.slaDueSoon > 0 },
-    { label: "SLA Overdue", value: stats.slaOverdue, icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-50", alert: stats.slaOverdue > 0 },
+    { label: "Today's Jobs", value: stats.todayJobs, icon: Calendar, color: "text-blue-600 dark:text-blue-300", bg: "bg-blue-50 dark:bg-blue-500/15" },
+    { label: "Unassigned", value: stats.unassignedJobs, icon: Briefcase, color: "text-orange-600 dark:text-orange-300", bg: "bg-orange-50 dark:bg-orange-500/15", alert: stats.unassignedJobs > 0 },
+    { label: "Laundry Flags", value: stats.flaggedLaundry, icon: Shirt, color: "text-red-600 dark:text-red-300", bg: "bg-red-50 dark:bg-red-500/15", alert: stats.flaggedLaundry > 0 },
+    { label: "Low Stock Items", value: stats.lowStockCount, icon: Package, color: "text-yellow-600 dark:text-yellow-300", bg: "bg-yellow-50 dark:bg-yellow-500/15", alert: stats.lowStockCount > 0 },
+    { label: "SLA Due Soon", value: stats.slaDueSoon, icon: AlertTriangle, color: "text-amber-600 dark:text-amber-300", bg: "bg-amber-50 dark:bg-amber-500/15", alert: stats.slaDueSoon > 0 },
+    { label: "SLA Overdue", value: stats.slaOverdue, icon: AlertTriangle, color: "text-rose-600 dark:text-rose-300", bg: "bg-rose-50 dark:bg-rose-500/15", alert: stats.slaOverdue > 0 },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-cyan-50/70 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)]">
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Operations Dashboard</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <div className="rounded-2xl border border-border bg-gradient-to-r from-surface-raised via-surface to-primary/5 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)] dark:shadow-none dark:from-surface-raised dark:via-surface-raised dark:to-primary/10">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">Operations Dashboard</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           {format(toZonedTime(new Date(), TZ), "EEEE, d MMMM yyyy")} | Live operations, dispatch risk, and approval workload.
         </p>
       </div>
@@ -336,7 +336,7 @@ export default async function AdminDashboard() {
         {statCards.map((card) => (
           <Card
             key={card.label}
-            className={`overflow-hidden border-slate-200/80 bg-white/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] ${card.alert ? "border-amber-300 bg-amber-50/50" : ""}`}
+            className={`overflow-hidden border-border/80 bg-surface/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] dark:shadow-none ${card.alert ? "border-amber-300 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/10" : ""}`}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
@@ -345,9 +345,9 @@ export default async function AdminDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold tracking-tight text-slate-900">{card.value}</div>
+              <div className="text-3xl font-bold tracking-tight text-foreground">{card.value}</div>
               {card.alert && card.value > 0 && (
-                <p className="text-xs text-amber-700 mt-1 flex items-center gap-1">
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> Needs attention
                 </p>
               )}
@@ -369,7 +369,7 @@ export default async function AdminDashboard() {
       />
 
       {pendingContinuations.length > 0 ? (
-        <Card className="border-amber-300 bg-amber-50/60">
+        <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/10">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Pause / Continuation Approvals</CardTitle>
             <div className="flex items-center gap-2">
@@ -384,7 +384,7 @@ export default async function AdminDashboard() {
                 <Link
                   key={row.id}
                   href={`/admin/jobs/${row.jobId}`}
-                  className="flex items-center justify-between rounded-md border border-amber-300 bg-white/80 px-4 py-3 transition hover:bg-white"
+                  className="flex items-center justify-between rounded-md border border-amber-300 bg-surface/80 px-4 py-3 transition hover:bg-surface dark:border-amber-500/30 dark:bg-surface-raised/60 dark:hover:bg-surface-raised"
                 >
                   <div>
                     <p className="text-sm font-medium">{job?.property?.name ?? `Job ${row.jobId}`}</p>
