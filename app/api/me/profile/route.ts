@@ -60,6 +60,7 @@ export async function GET() {
         phone: true,
         role: true,
         image: true,
+        profileEditingEnabled: true,
       },
     });
     if (!user) {
@@ -70,7 +71,12 @@ export async function GET() {
       getProfilePolicyForUser(user.id, user.role),
       getUserNotificationPreferences(user.id),
     ]);
-    return NextResponse.json({ user, editPolicy, notificationPreferences });
+    return NextResponse.json({
+      user,
+      editPolicy,
+      notificationPreferences,
+      profileEditingEnabled: user.profileEditingEnabled,
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -96,10 +102,27 @@ export async function PATCH(req: NextRequest) {
 
     const current = await db.user.findUnique({
       where: { id: session.user.id },
-      select: { id: true, role: true, email: true, name: true, phone: true, image: true },
+      select: {
+        id: true,
+        role: true,
+        email: true,
+        name: true,
+        phone: true,
+        image: true,
+        profileEditingEnabled: true,
+      },
     });
     if (!current) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Admins always retain the ability to edit their own profile, even if a
+    // misconfigured override flips the flag off on their account.
+    if (current.profileEditingEnabled === false && current.role !== Role.ADMIN) {
+      return NextResponse.json(
+        { error: "Profile editing has been disabled by an administrator." },
+        { status: 403 }
+      );
     }
 
     const policy = await getProfilePolicyForUser(current.id, current.role as Role);

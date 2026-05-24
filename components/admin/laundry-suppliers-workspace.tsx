@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { toast } from "@/hooks/use-toast";
 import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
 
@@ -149,7 +150,14 @@ export function LaundrySuppliersWorkspace({ initialSuppliers }: { initialSupplie
           </div>
           <div className="space-y-2">
             <Label>Address</Label>
-            <Input value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Optional" />
+            <AddressAutocomplete
+              defaultValue={form.address}
+              placeholder="Optional"
+              onSelect={(r) =>
+                setForm((current) => ({ ...current, address: r.formattedAddress }))
+              }
+              onChange={(text) => setForm((current) => ({ ...current, address: text }))}
+            />
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">

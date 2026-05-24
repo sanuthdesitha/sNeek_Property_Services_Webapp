@@ -35,9 +35,12 @@ export default async function LaundryProfilePage() {
       invoicingCadence: true,
       invoiceDayOfWeek: true,
       invoiceDayOfMonth: true,
+      profileEditingEnabled: true,
     } as any,
   });
   if (!user) redirect("/login");
+
+  const editingEnabled = (user as any).profileEditingEnabled !== false;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -46,7 +49,7 @@ export default async function LaundryProfilePage() {
         <p className="mt-1 text-sm text-muted-foreground">Your contact info and preferences.</p>
       </header>
 
-      <AdminProfileForm user={user as any} />
+      <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}

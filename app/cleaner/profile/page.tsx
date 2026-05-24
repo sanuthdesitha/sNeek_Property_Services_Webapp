@@ -56,10 +56,13 @@ export default async function CleanerProfilePage() {
       vehicleRegoExpiry: true,
       driverLicenseExpiry: true,
       notes: true,
+      profileEditingEnabled: true,
     } as any,
   })) as any;
 
   if (!user) redirect("/login");
+
+  const editingEnabled = user.profileEditingEnabled !== false;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
@@ -71,6 +74,7 @@ export default async function CleanerProfilePage() {
       </header>
 
       <CleanerProfileForm
+        editingEnabled={editingEnabled}
         user={{
           id: user.id,
           name: user.name,

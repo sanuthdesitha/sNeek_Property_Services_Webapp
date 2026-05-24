@@ -15,6 +15,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { ProfileEditingLockedBanner } from "@/components/profile/profile-editing-locked-banner";
 import type { AddressResult } from "@/lib/google-maps/types";
 
 type VisaStatus = "CITIZEN" | "PERMANENT_RESIDENT" | "WORK_VISA" | "STUDENT_VISA" | "OTHER";
@@ -58,7 +59,13 @@ function toDateInputValue(value: Date | string | null | undefined): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function CleanerProfileForm({ user }: { user: CleanerProfileFormUser }) {
+export function CleanerProfileForm({
+  user,
+  editingEnabled = true,
+}: {
+  user: CleanerProfileFormUser;
+  editingEnabled?: boolean;
+}) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
@@ -139,8 +146,11 @@ export function CleanerProfileForm({ user }: { user: CleanerProfileFormUser }) {
     });
   }
 
+  const locked = !editingEnabled;
+
   return (
     <div className="space-y-6">
+      {locked && <ProfileEditingLockedBanner />}
       {error && (
         <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
@@ -152,6 +162,7 @@ export function CleanerProfileForm({ user }: { user: CleanerProfileFormUser }) {
         </p>
       )}
 
+      <fieldset disabled={locked} className="space-y-6">
       {/* 1. Identity & contact */}
       <Card>
         <CardHeader>
@@ -480,6 +491,7 @@ export function CleanerProfileForm({ user }: { user: CleanerProfileFormUser }) {
           />
         </CardContent>
       </Card>
+      </fieldset>
     </div>
   );
 }

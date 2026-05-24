@@ -281,9 +281,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     [Role.ADMIN]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.OPS_MANAGER]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.QA_INSPECTOR]: { canEditName: true, canEditPhone: true, canEditEmail: true },
-    [Role.CLEANER]: { canEditName: true, canEditPhone: true, canEditEmail: false },
-    [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: false },
-    [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: false },
+    [Role.CLEANER]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: true },
   },
   profileEditOverrides: {},
   clientPortalVisibility: {
@@ -821,7 +821,7 @@ function sanitizeSettings(input: unknown): AppSettings {
       profileEditOverrides[userId] = {
         canEditName: typeof row.canEditName === "boolean" ? row.canEditName : true,
         canEditPhone: typeof row.canEditPhone === "boolean" ? row.canEditPhone : true,
-        canEditEmail: typeof row.canEditEmail === "boolean" ? row.canEditEmail : false,
+        canEditEmail: typeof row.canEditEmail === "boolean" ? row.canEditEmail : true,
       };
     }
   }

@@ -23,6 +23,7 @@ export default async function AdminProfilePage() {
       email: true,
       image: true,
       phone: true,
+      role: true,
       address: true,
       suburb: true,
       state: true,
@@ -35,9 +36,14 @@ export default async function AdminProfilePage() {
       invoicingCadence: true,
       invoiceDayOfWeek: true,
       invoiceDayOfMonth: true,
+      profileEditingEnabled: true,
     } as any,
   });
   if (!user) redirect("/login");
+
+  // Admins bypass the lockout for themselves.
+  const editingEnabled =
+    (user as any).role === Role.ADMIN ? true : (user as any).profileEditingEnabled !== false;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -46,7 +52,7 @@ export default async function AdminProfilePage() {
         <p className="mt-1 text-sm text-muted-foreground">Your contact info and preferences.</p>
       </header>
 
-      <AdminProfileForm user={user as any} />
+      <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}

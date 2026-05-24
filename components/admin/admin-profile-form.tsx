@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { ProfileEditingLockedBanner } from "@/components/profile/profile-editing-locked-banner";
 import type { AddressResult } from "@/lib/google-maps/types";
 
 export interface AdminProfileFormUser {
@@ -23,7 +24,13 @@ export interface AdminProfileFormUser {
   placeId: string | null;
 }
 
-export function AdminProfileForm({ user }: { user: AdminProfileFormUser }) {
+export function AdminProfileForm({
+  user,
+  editingEnabled = true,
+}: {
+  user: AdminProfileFormUser;
+  editingEnabled?: boolean;
+}) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
@@ -79,8 +86,11 @@ export function AdminProfileForm({ user }: { user: AdminProfileFormUser }) {
     });
   }
 
+  const locked = !editingEnabled;
+
   return (
     <div className="space-y-6">
+      {locked && <ProfileEditingLockedBanner />}
       {error && (
         <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
@@ -92,6 +102,7 @@ export function AdminProfileForm({ user }: { user: AdminProfileFormUser }) {
         </p>
       )}
 
+      <fieldset disabled={locked} className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Identity</CardTitle>
@@ -170,6 +181,7 @@ export function AdminProfileForm({ user }: { user: AdminProfileFormUser }) {
           )}
         </CardContent>
       </Card>
+      </fieldset>
     </div>
   );
 }

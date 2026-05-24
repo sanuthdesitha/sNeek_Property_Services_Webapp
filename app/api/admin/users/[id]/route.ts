@@ -102,6 +102,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (body.phone !== undefined) data.phone = body.phone?.trim() || null;
     if (body.role !== undefined) data.role = body.role;
     if (body.isActive !== undefined) data.isActive = body.isActive;
+    if (body.profileEditingEnabled !== undefined) {
+      data.profileEditingEnabled = body.profileEditingEnabled;
+    }
     if (nextClientId !== undefined) data.clientId = nextClientId;
 
     const updated = await db.$transaction(async (tx) => {

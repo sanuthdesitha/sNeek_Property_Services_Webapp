@@ -108,6 +108,7 @@ export default withAuth(
           pathname === "/privacy" ||
           pathname === "/airbnb-hosting" ||
           pathname.startsWith("/apply/") ||
+          pathname.startsWith("/accept-invite/") ||
           pathname === "/icon" ||
           pathname === "/manifest.json"
         ) {

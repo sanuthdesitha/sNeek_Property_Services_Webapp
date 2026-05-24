@@ -17,7 +17,7 @@ import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { toast } from "@/hooks/use-toast";
 
-type AccountRole = "ADMIN" | "OPS_MANAGER" | "CLEANER" | "CLIENT" | "LAUNDRY";
+type AccountRole = "ADMIN" | "OPS_MANAGER" | "QA_INSPECTOR" | "CLEANER" | "CLIENT" | "LAUNDRY";
 
 interface BankDetails {
   accountName?: string;
@@ -33,6 +33,7 @@ interface UserItem {
   role: AccountRole;
   phone: string | null;
   isActive: boolean;
+  profileEditingEnabled?: boolean;
   emailVerified?: string | null;
   clientId?: string | null;
   client?: { id: string; name: string } | null;
@@ -58,7 +59,14 @@ interface ClientItem {
   name: string;
 }
 
-const MANAGED_ROLES: AccountRole[] = ["ADMIN", "OPS_MANAGER", "CLEANER", "CLIENT", "LAUNDRY"];
+const MANAGED_ROLES: AccountRole[] = [
+  "ADMIN",
+  "OPS_MANAGER",
+  "QA_INSPECTOR",
+  "CLEANER",
+  "CLIENT",
+  "LAUNDRY",
+];
 
 export function UsersManager({ canManage }: { canManage: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -82,6 +90,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     role: "CLEANER" as AccountRole,
     clientId: "",
     isActive: true,
+    profileEditingEnabled: true,
     businessName: "",
     abn: "",
     address: "",
@@ -102,11 +111,17 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
   const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
   const [resettingPassword, setResettingPassword] = useState(false);
 
+  const [createMode, setCreateMode] = useState<"invite" | "password">("invite");
+  const [createdInvitation, setCreatedInvitation] = useState<{
+    email: string;
+    link: string;
+    emailSent: boolean;
+  } | null>(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
-    role: "CLEANER" as Extract<AccountRole, "CLEANER" | "CLIENT" | "LAUNDRY">,
+    role: "CLEANER" as AccountRole,
     phone: "",
     clientId: "new",
     clientName: "",
@@ -173,17 +188,21 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
   }, []);
 
   async function createUser() {
-    if (!form.name.trim() || !form.email.trim() || !form.password) {
-      toast({ title: "Name, email, and password are required.", variant: "destructive" });
+    if (!form.name.trim() || !form.email.trim()) {
+      toast({ title: "Name and email are required.", variant: "destructive" });
+      return;
+    }
+    if (createMode === "password" && !form.password) {
+      toast({ title: "Password is required in manual-password mode.", variant: "destructive" });
       return;
     }
 
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: form.name.trim(),
         email: form.email.trim(),
-        password: form.password,
+        invite: createMode === "invite",
         role: form.role,
         phone: form.phone.trim() || undefined,
         clientId: form.role === "CLIENT" && form.clientId !== "new" ? form.clientId : undefined,
@@ -207,6 +226,10 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
             : undefined,
       };
 
+      if (createMode === "password") {
+        payload.password = form.password;
+      }
+
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -215,11 +238,31 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Failed to create account.");
 
-      toast({
-        title: "Account created",
-        description: "The account is active immediately and can sign in now.",
-        variant: "default",
-      });
+      if (createMode === "invite" && body.invitationLink) {
+        setCreatedInvitation({
+          email: body.email ?? form.email.trim(),
+          link: body.invitationLink,
+          emailSent: !!body.invitationEmailSent,
+        });
+        try {
+          await navigator.clipboard.writeText(body.invitationLink);
+        } catch {
+          /* clipboard not granted — that's fine, the link is shown on screen */
+        }
+        toast({
+          title: body.invitationEmailSent ? "Invitation sent" : "Account created",
+          description: body.invitationEmailSent
+            ? "Invitation email sent and link copied to clipboard."
+            : "Invitation email failed — share the link manually (copied to clipboard).",
+          variant: body.invitationEmailSent ? "default" : "destructive",
+        });
+      } else {
+        toast({
+          title: "Account created",
+          description: "The account is active immediately and can sign in now.",
+          variant: "default",
+        });
+      }
       setForm({
         name: "",
         email: "",
@@ -281,6 +324,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
       role: user.role,
       clientId: user.clientId ?? "",
       isActive: !!user.isActive,
+      profileEditingEnabled: user.profileEditingEnabled !== false,
       businessName: user.extendedProfile?.businessName ?? "",
       abn: user.extendedProfile?.abn ?? "",
       address: user.extendedProfile?.address ?? "",
@@ -324,6 +368,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           phone: accountForm.phone.trim() || null,
           role: accountForm.role,
           isActive: accountForm.isActive,
+          profileEditingEnabled: accountForm.profileEditingEnabled,
           clientId: accountForm.role === "CLIENT" ? accountForm.clientId : null,
           businessName: accountForm.businessName.trim() || null,
           abn: accountForm.abn.trim() || null,
@@ -577,9 +622,55 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           <TabsContent value="create">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Create Cleaner / Client / Laundry Account</CardTitle>
+                <CardTitle className="text-base">Create Account</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {createdInvitation ? (
+                  <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-4">
+                    <p className="text-sm font-medium">
+                      Invitation created for {createdInvitation.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {createdInvitation.emailSent
+                        ? "We emailed the link to them. You can also copy it below in case delivery is delayed."
+                        : "Email delivery failed — share this link manually. It's already on your clipboard."}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input value={createdInvitation.link} readOnly className="font-mono text-xs" />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(createdInvitation.link);
+                            toast({ title: "Link copied" });
+                          } catch {
+                            toast({ title: "Copy failed", variant: "destructive" });
+                          }
+                        }}
+                      >
+                        Copy link
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setCreatedInvitation(null)}>
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Send invitation by email</p>
+                    <p className="text-xs text-muted-foreground">
+                      Recommended. The user receives a link and sets their own password.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={createMode === "invite"}
+                    onCheckedChange={(value) => setCreateMode(value ? "invite" : "password")}
+                  />
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label>Name</Label>
@@ -592,20 +683,26 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <Label>Password</Label>
-                    <Input type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} />
-                  </div>
+                  {createMode === "password" ? (
+                    <div className="space-y-1.5">
+                      <Label>Password</Label>
+                      <Input type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} />
+                      <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+                    </div>
+                  ) : null}
                   <div className="space-y-1.5">
                     <Label>Role</Label>
                     <Select
                       value={form.role}
-                      onValueChange={(value: "CLEANER" | "CLIENT" | "LAUNDRY") =>
+                      onValueChange={(value: AccountRole) =>
                         setForm((prev) => ({ ...prev, role: value }))
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="ADMIN">Admin</SelectItem>
+                        <SelectItem value="OPS_MANAGER">Ops Manager</SelectItem>
+                        <SelectItem value="QA_INSPECTOR">QA Inspector</SelectItem>
                         <SelectItem value="CLEANER">Cleaner</SelectItem>
                         <SelectItem value="CLIENT">Client</SelectItem>
                         <SelectItem value="LAUNDRY">Laundry</SelectItem>
@@ -846,6 +943,20 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                   </div>
                   <Switch checked={accountForm.isActive} onCheckedChange={(value) => setAccountForm((prev) => ({ ...prev, isActive: value }))} />
                 </div>
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Profile editing enabled</p>
+                  <p className="text-xs text-muted-foreground">
+                    Allow this user to edit their own profile from their portal.
+                  </p>
+                </div>
+                <Switch
+                  checked={accountForm.profileEditingEnabled}
+                  onCheckedChange={(value) =>
+                    setAccountForm((prev) => ({ ...prev, profileEditingEnabled: value }))
+                  }
+                />
               </div>
               {accountForm.role === "CLIENT" ? (
                 <div className="space-y-1.5">

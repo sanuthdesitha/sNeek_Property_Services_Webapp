@@ -15,6 +15,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { ProfileEditingLockedBanner } from "@/components/profile/profile-editing-locked-banner";
 import type { AddressResult } from "@/lib/google-maps/types";
 import { Building2 } from "lucide-react";
 
@@ -51,10 +52,12 @@ export function ClientProfileForm({
   user,
   comms,
   properties,
+  editingEnabled = true,
 }: {
   user: ClientProfileFormUser;
   comms: ClientCommsPref;
   properties: PropertySummary[];
+  editingEnabled?: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = React.useState<string | null>(null);
@@ -118,8 +121,11 @@ export function ClientProfileForm({
     });
   }
 
+  const locked = !editingEnabled;
+
   return (
     <div className="space-y-6">
+      {locked && <ProfileEditingLockedBanner />}
       {error && (
         <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
@@ -129,6 +135,7 @@ export function ClientProfileForm({
         <p className="text-xs text-muted-foreground" aria-live="polite">Saved.</p>
       )}
 
+      <fieldset disabled={locked} className="space-y-6">
       {/* Account */}
       <Card>
         <CardHeader>
@@ -277,6 +284,7 @@ export function ClientProfileForm({
           </div>
         </CardContent>
       </Card>
+      </fieldset>
     </div>
   );
 }

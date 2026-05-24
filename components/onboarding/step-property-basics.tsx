@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 
 interface StepPropertyBasicsProps {
   data: Record<string, unknown>;
@@ -34,10 +35,22 @@ export function StepPropertyBasics({ data, onChange }: StepPropertyBasicsProps) 
       </div>
       <div className="md:col-span-2">
         <Label>Address *</Label>
-        <Input
-          value={String(data.propertyAddress ?? "")}
-          onChange={(e) => update("propertyAddress", e.target.value)}
+        <AddressAutocomplete
+          defaultValue={String(data.propertyAddress ?? "")}
           placeholder="Full street address"
+          onSelect={(r) =>
+            onChange({
+              ...data,
+              propertyAddress: r.formattedAddress,
+              propertySuburb: r.suburb ?? data.propertySuburb ?? "",
+              propertyState: r.state ?? data.propertyState ?? "NSW",
+              propertyPostcode: r.postcode ?? data.propertyPostcode ?? "",
+              propertyLatitude: r.lat,
+              propertyLongitude: r.lng,
+              propertyPlaceId: r.placeId,
+            })
+          }
+          onChange={(text) => update("propertyAddress", text)}
         />
       </div>
       <div>
