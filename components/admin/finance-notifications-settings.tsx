@@ -355,7 +355,7 @@ export function FinanceNotificationsSettings() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Badge className={CATEGORY_COLORS[category] || "bg-gray-100 text-gray-800"}>
+                  <Badge className={CATEGORY_COLORS[category] || "bg-surface-raised text-foreground"}>
                     {CATEGORY_LABELS[category] || category}
                   </Badge>
                   <span className="text-sm text-muted-foreground">

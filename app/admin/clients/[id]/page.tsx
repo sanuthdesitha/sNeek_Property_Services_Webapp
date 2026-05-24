@@ -7,6 +7,8 @@ import { ArrowLeft, RadioTower } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientDetailWorkspace } from "@/components/admin/client-detail-workspace";
 import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
+import { getClientStats } from "@/lib/accounts/client-stats";
+import { ClientStatsPanel } from "@/components/accounts/client-stats-panel";
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -76,6 +78,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   if (!client) notFound();
 
   const jobs = client.properties.flatMap((property) => property.jobs);
+  const stats = await getClientStats(params.id);
 
   return (
     <div className="space-y-6">
@@ -96,6 +99,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </Link>
         </Button>
       </div>
+
+      <ClientStatsPanel stats={stats} />
 
       <ClientDetailWorkspace
         client={{

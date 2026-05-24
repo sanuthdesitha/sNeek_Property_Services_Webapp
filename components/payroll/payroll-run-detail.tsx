@@ -43,7 +43,7 @@ type PayrollRun = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
+  DRAFT: "bg-surface-raised text-muted-foreground",
   CONFIRMED: "bg-blue-100 text-blue-800",
   PROCESSING: "bg-amber-100 text-amber-800",
   COMPLETED: "bg-green-100 text-green-800",
@@ -51,7 +51,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const PAYOUT_STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-gray-100 text-gray-700",
+  PENDING: "bg-surface-raised text-muted-foreground",
   PAID: "bg-green-100 text-green-800",
   FAILED: "bg-red-100 text-red-800",
   PROCESSING: "bg-amber-100 text-amber-800",
@@ -167,7 +167,7 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                 {run.cleanerCount} cleaner{run.cleanerCount !== 1 ? "s" : ""} &middot; Created {new Date(run.createdAt).toLocaleDateString()}
               </CardDescription>
             </div>
-            <Badge className={STATUS_COLORS[run.status] || "bg-gray-100 text-gray-700"}>{run.status}</Badge>
+            <Badge className={STATUS_COLORS[run.status] || "bg-surface-raised text-muted-foreground"}>{run.status}</Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -236,7 +236,7 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{payout.cleanerName || payout.cleanerEmail}</span>
-                    <Badge className={PAYOUT_STATUS_COLORS[payout.status] || "bg-gray-100 text-gray-700"}>
+                    <Badge className={PAYOUT_STATUS_COLORS[payout.status] || "bg-surface-raised text-muted-foreground"}>
                       {payout.status}
                     </Badge>
                     <Badge variant="outline" className="text-xs">

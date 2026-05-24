@@ -1,13 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Role } from "@prisma/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { AppSettings } from "@/lib/settings";
+
+type SettingCategory =
+  | "branding"
+  | "operations"
+  | "communications"
+  | "finance"
+  | "integrations"
+  | "roles"
+  | "display"
+  | "system";
+
+const CATEGORY_LABELS: Record<SettingCategory | "all", string> = {
+  all: "All",
+  branding: "Branding",
+  operations: "Operations",
+  communications: "Communications",
+  finance: "Finance",
+  integrations: "Integrations",
+  roles: "Roles & Permissions",
+  display: "Display",
+  system: "System",
+};
+
+type SettingsSectionMeta = {
+  value: string;
+  label: string;
+  category: SettingCategory;
+  adminOnly?: boolean;
+  keywords: string;
+};
+
+const SECTION_REGISTRY: SettingsSectionMeta[] = [
+  { value: "editor", label: "Core settings", category: "operations", keywords: "company branding logo timezone gst pricing core" },
+  { value: "overview", label: "Overview", category: "system", keywords: "overview project name app url timezone" },
+  { value: "integrations", label: "Integrations", category: "integrations", adminOnly: true, keywords: "stripe resend google maps hospitable api credentials" },
+  { value: "payment-gateways", label: "Payment Gateways", category: "finance", adminOnly: true, keywords: "stripe square paypal payments gateway" },
+  { value: "xero", label: "Xero", category: "finance", adminOnly: true, keywords: "xero accounting invoice sync" },
+  { value: "finance-notifications", label: "Finance Notifications", category: "communications", adminOnly: true, keywords: "finance invoice payment notification" },
+  { value: "notifications", label: "Notification tools", category: "communications", keywords: "email sms twilio cellcast test notifications resend" },
+  { value: "pricebook", label: "Price book", category: "finance", adminOnly: true, keywords: "price book pricing rate" },
+  { value: "audit", label: "Audit log", category: "system", adminOnly: true, keywords: "audit history changes log" },
+  { value: "roles", label: "Roles", category: "roles", keywords: "roles permissions rbac access matrix" },
+];
 
 const SettingsEditor = dynamic(
   () => import("@/components/admin/settings-editor").then((mod) => mod.SettingsEditor),
@@ -85,6 +131,42 @@ export function SettingsWorkspace({
   const [tab, setTab] = useState(defaultTab ?? "editor");
   const [pricebookRows, setPricebookRows] = useState<any[] | null>(null);
   const [auditEntries, setAuditEntries] = useState<any[] | null>(null);
+  const [category, setCategory] = useState<SettingCategory | "all">("all");
+  const [query, setQuery] = useState("");
+
+  const visibleSections = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return SECTION_REGISTRY.filter((section) => {
+      if (section.adminOnly && !isAdmin) return false;
+      if (category !== "all" && section.category !== category) return false;
+      if (q) {
+        const haystack = `${section.label} ${section.keywords}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [category, query, isAdmin]);
+
+  const visibleValues = useMemo(() => new Set(visibleSections.map((s) => s.value)), [visibleSections]);
+
+  // Keep active tab valid relative to filter.
+  useEffect(() => {
+    if (!visibleValues.has(tab) && visibleSections[0]) {
+      setTab(visibleSections[0].value);
+    }
+  }, [tab, visibleValues, visibleSections]);
+
+  const categories: Array<SettingCategory | "all"> = [
+    "all",
+    "branding",
+    "operations",
+    "communications",
+    "finance",
+    "integrations",
+    "roles",
+    "display",
+    "system",
+  ];
 
   useEffect(() => {
     if (!isAdmin || tab !== "pricebook" || pricebookRows !== null) return;
@@ -103,18 +185,64 @@ export function SettingsWorkspace({
   }, [isAdmin, tab, auditEntries]);
 
   return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategory(cat)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                category === cat
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70",
+              )}
+            >
+              {CATEGORY_LABELS[cat]}
+            </button>
+          ))}
+          {category === "display" ? (
+            <Link
+              href="/admin/settings/display"
+              className="rounded-md border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+            >
+              Open display settings ↗
+            </Link>
+          ) : null}
+        </div>
+        <div className="relative w-full md:w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search settings..."
+            className="pl-8"
+          />
+        </div>
+      </div>
+
+      {visibleSections.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No settings match this filter.
+          </CardContent>
+        </Card>
+      ) : null}
+
     <Tabs value={tab} onValueChange={setTab} className="space-y-6">
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-        <TabsTrigger value="editor">Core settings</TabsTrigger>
-        <TabsTrigger value="overview">Overview</TabsTrigger>
-        {isAdmin ? <TabsTrigger value="integrations">Integrations</TabsTrigger> : null}
-        {isAdmin ? <TabsTrigger value="payment-gateways">Payment Gateways</TabsTrigger> : null}
-        {isAdmin ? <TabsTrigger value="xero">Xero</TabsTrigger> : null}
-        {isAdmin ? <TabsTrigger value="finance-notifications">Finance Notifications</TabsTrigger> : null}
-        <TabsTrigger value="notifications">Notification tools</TabsTrigger>
-        {isAdmin ? <TabsTrigger value="pricebook">Price book</TabsTrigger> : null}
-        {isAdmin ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
-        <TabsTrigger value="roles">Roles</TabsTrigger>
+        {visibleValues.has("editor") ? <TabsTrigger value="editor">Core settings</TabsTrigger> : null}
+        {visibleValues.has("overview") ? <TabsTrigger value="overview">Overview</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("integrations") ? <TabsTrigger value="integrations">Integrations</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("payment-gateways") ? <TabsTrigger value="payment-gateways">Payment Gateways</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("xero") ? <TabsTrigger value="xero">Xero</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("finance-notifications") ? <TabsTrigger value="finance-notifications">Finance Notifications</TabsTrigger> : null}
+        {visibleValues.has("notifications") ? <TabsTrigger value="notifications">Notification tools</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("pricebook") ? <TabsTrigger value="pricebook">Price book</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("audit") ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
+        {visibleValues.has("roles") ? <TabsTrigger value="roles">Roles</TabsTrigger> : null}
       </TabsList>
 
       <TabsContent value="editor">
@@ -328,5 +456,6 @@ export function SettingsWorkspace({
         </TabsContent>
       ) : null}
     </Tabs>
+    </div>
   );
 }

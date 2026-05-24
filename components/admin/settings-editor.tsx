@@ -1238,7 +1238,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                   Add
                 </Button>
               </div>
-              <div className="flex min-h-12 flex-wrap gap-2 rounded-xl border border-input/70 bg-white/60 p-3">
+              <div className="flex min-h-12 flex-wrap gap-2 rounded-xl border border-input/70 bg-card p-3">
                 {settings.laundryBagLocationOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No options yet.</p>
                 ) : (
@@ -1283,7 +1283,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                   Add
                 </Button>
               </div>
-              <div className="flex min-h-12 flex-wrap gap-2 rounded-xl border border-input/70 bg-white/60 p-3">
+              <div className="flex min-h-12 flex-wrap gap-2 rounded-xl border border-input/70 bg-card p-3">
                 {settings.laundryDropoffLocationOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No options yet.</p>
                 ) : (
@@ -1331,7 +1331,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               Add
             </Button>
           </div>
-          <div className="space-y-2 rounded-xl border border-input/70 bg-white/60 p-3">
+          <div className="space-y-2 rounded-xl border border-input/70 bg-card p-3">
             {settings.selectAllAllowedCleanerIds.length === 0 ? (
               <p className="text-xs text-muted-foreground">No cleaners selected.</p>
             ) : (
@@ -1441,7 +1441,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
 
                 <div className="space-y-1.5">
                   <Label>Available variables</Label>
-                  <div className="flex flex-wrap gap-2 rounded-xl border border-input/70 bg-white/60 p-3">
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-input/70 bg-card p-3">
                     {activeEmailTemplateDefinition.variables.map((variable) => (
                       <button
                         key={variable}
@@ -1716,7 +1716,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
 
                 <div className="space-y-1.5">
                   <Label>Available variables</Label>
-                  <div className="flex flex-wrap gap-2 rounded-xl border border-input/70 bg-white/60 p-3">
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-input/70 bg-card p-3">
                     {activeNotificationTemplateDefinition.variables.map((variable) => (
                       <span key={variable} className="rounded bg-muted px-2 py-1 text-xs">
                         {`{${variable}}`}

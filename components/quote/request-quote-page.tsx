@@ -528,14 +528,14 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className={mode === "public" ? "page-fade bg-slate-50 py-12 sm:py-16 lg:py-20" : "space-y-6"}>
+    <div className={mode === "public" ? "page-fade bg-muted/40 py-12 sm:py-16 lg:py-20" : "space-y-6"}>
       {mode === "public" && (
         <div className="mx-auto mb-10 max-w-3xl px-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.34em] text-primary">Free Quote</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Tell us about your property
           </h1>
-          <p className="mt-3 text-sm text-slate-600 sm:text-base">
+          <p className="mt-3 text-sm text-muted-foreground sm:text-base">
             Takes 2 minutes. No commitment. We'll confirm availability within 4 hours.
           </p>
         </div>
@@ -590,8 +590,8 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
           </Card>
         </div>
 
-        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 bg-white shadow-[0_18px_34px_rgba(15,23,42,0.12)]">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-border bg-white shadow-[0_18px_34px_rgba(15,23,42,0.12)]">
+          <div className="flex items-center justify-between border-b border-border/50 px-5 py-4 sm:px-6">
             <div className="-mx-1 min-w-0 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="flex min-w-max items-center gap-2 sm:gap-3">
                 {wizardSteps.map((step, index) => (
@@ -602,7 +602,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                           ? "border-primary bg-primary text-white"
                           : index === stepIndex
                             ? "border-primary bg-white text-primary"
-                            : "border-slate-200 bg-white text-slate-400"
+                            : "border-border bg-white text-muted-foreground"
                       }`}
                       title={step}
                       aria-label={`Step ${index + 1}: ${step}`}
@@ -616,11 +616,11 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                 ))}
               </div>
             </div>
-            <p className="shrink-0 pl-3 text-sm text-slate-500">Step {stepIndex + 1} of {wizardSteps.length}</p>
+            <p className="shrink-0 pl-3 text-sm text-muted-foreground">Step {stepIndex + 1} of {wizardSteps.length}</p>
           </div>
           <CardHeader className="px-5 pb-4 pt-7 sm:px-6">
-            <CardTitle className="text-xl font-semibold tracking-tight text-slate-950">{wizardSteps[stepIndex]}</CardTitle>
-            <CardDescription className="text-sm leading-6 text-slate-600">
+            <CardTitle className="text-xl font-semibold tracking-tight text-foreground">{wizardSteps[stepIndex]}</CardTitle>
+            <CardDescription className="text-sm leading-6 text-muted-foreground">
               {stepIndex < 6 ? "Answer each section so the estimate reflects the actual property, access, and condition." : "Review the estimate and send the request with the full scope context attached."}
             </CardDescription>
           </CardHeader>
@@ -636,25 +636,25 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                         setSelectedFamily(family);
                         setServiceType(defaultServiceForFamily(family));
                       }}
-                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${selectedFamily === family ? "border-primary bg-primary/5" : "border-slate-200 bg-white"}`}
+                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${selectedFamily === family ? "border-primary bg-primary/5" : "border-border bg-white"}`}
                     >
-                      <p className="font-semibold text-slate-950">{SERVICE_FAMILY_META[family].label}</p>
-                      <p className="mt-1 text-sm leading-5 text-slate-500">{SERVICE_FAMILY_META[family].description}</p>
+                      <p className="font-semibold text-foreground">{SERVICE_FAMILY_META[family].label}</p>
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">{SERVICE_FAMILY_META[family].description}</p>
                     </button>
                   ))}
                 </div>
 
-                <div className="rounded-[28px] bg-slate-50 p-4 sm:p-5">
+                <div className="rounded-[28px] bg-muted/40 p-4 sm:p-5">
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Services in this category</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {familyServices.map((service) => (
-                      <div key={service.jobType} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                        <p className="font-medium text-slate-950">{service.label}</p>
-                        <p className="mt-1 text-sm text-slate-500">{service.tagline}</p>
+                      <div key={service.jobType} className="rounded-2xl border border-border bg-white px-4 py-3">
+                        <p className="font-medium text-foreground">{service.label}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{service.tagline}</p>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-3 text-sm text-slate-500">
+                  <p className="mt-3 text-sm text-muted-foreground">
                     Next, choose the exact service you want quoted from this category.
                   </p>
                 </div>
@@ -668,12 +668,12 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                       type="button"
                       key={service.jobType}
                       onClick={() => setServiceType(service.jobType)}
-                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${serviceType === service.jobType ? "border-primary bg-primary/5" : "border-slate-200 bg-white"}`}
+                      className={`min-h-[76px] min-w-0 rounded-[28px] border-2 px-5 py-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${serviceType === service.jobType ? "border-primary bg-primary/5" : "border-border bg-white"}`}
                     >
-                      <p className="font-semibold text-slate-950">{service.label}</p>
+                      <p className="font-semibold text-foreground">{service.label}</p>
                       <p className="mt-1 text-sm font-medium text-primary">{service.tagline}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">{service.summary}</p>
-                    <p className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-400">{service.autoPricingMode === "estimate" ? "Instant estimate path" : "Manual review path"}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{service.summary}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">{service.autoPricingMode === "estimate" ? "Instant estimate path" : "Manual review path"}</p>
                   </button>
                 ))}
               </div>
@@ -718,7 +718,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                 {photoUrls.length > 0 && (
                   <div className="flex flex-wrap gap-3">
                     {photoUrls.map((url) => (
-                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-2xl border border-slate-200 bg-muted shadow-sm">
+                      <div key={url} className="group relative h-24 w-24 overflow-hidden rounded-2xl border border-border bg-muted shadow-sm">
                         <img src={url} alt="Uploaded property photo" className="h-full w-full object-cover" />
                         <button
                           type="button"
@@ -801,17 +801,17 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                     <SelectContent>{WINDOW_ACCESS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <label className="flex items-center gap-3 rounded-[28px] border border-slate-200 bg-white px-4 py-3 text-sm">
+                <label className="flex items-center gap-3 rounded-[28px] border border-border bg-white px-4 py-3 text-sm">
                   <Checkbox checked={form.exteriorAccess} onCheckedChange={(checked) => setForm((current) => ({ ...current, exteriorAccess: checked === true }))} />
                   <span>Exterior / ladder-style access required</span>
                 </label>
                 <div className="space-y-4">
                   {EXTRA_GROUPS.map((group) => (
-                    <div key={group.title} className="rounded-[28px] border border-slate-200 bg-white p-4">
-                      <p className="text-sm font-semibold text-slate-950">{group.title}</p>
+                    <div key={group.title} className="rounded-[28px] border border-border bg-white p-4">
+                      <p className="text-sm font-semibold text-foreground">{group.title}</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {group.items.map(([key, label]) => (
-                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 text-sm">
+                          <label key={key} className="flex min-h-12 items-center gap-3 rounded-2xl border border-border px-3 py-2 text-sm">
                             <Checkbox
                               checked={(form as Record<string, boolean | string>)[key] === true}
                               onCheckedChange={(checked) => setForm((current) => ({ ...current, [key]: checked === true }))}
@@ -836,7 +836,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                       <SelectContent>{FREQUENCIES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                  <label className="flex items-center gap-3 rounded-[28px] border border-slate-200 px-4 py-3 text-sm">
+                  <label className="flex items-center gap-3 rounded-[28px] border border-border px-4 py-3 text-sm">
                     <Checkbox checked={form.sameDay} onCheckedChange={(checked) => setForm((current) => ({ ...current, sameDay: checked === true }))} />
                     <span>Priority or same-day turnaround</span>
                   </label>
@@ -883,7 +883,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
 
             {stepIndex === 6 ? (
               <div className="space-y-4">
-                <div className="rounded-[28px] bg-slate-50 px-5 py-5">
+                <div className="rounded-[28px] bg-muted/40 px-5 py-5">
                   {loadingEstimate ? (
                     <p className="text-sm text-muted-foreground">Building estimate...</p>
                   ) : manualQuoteRequired ? (
@@ -955,7 +955,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-between">
+            <div className="flex flex-col gap-3 border-t border-border/50 pt-5 sm:flex-row sm:justify-between">
               <Button type="button" variant="outline" onClick={previousStep} disabled={stepIndex === 0} className="w-full rounded-full px-6 sm:w-auto">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back

@@ -141,11 +141,20 @@ export function AdminMessagesWorkspace() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Client Messages</h1>
-        <p className="text-sm text-muted-foreground">
-          Review every client thread in one place and reply without leaving the admin portal.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Client Messages</h1>
+          <p className="text-sm text-muted-foreground">
+            Review every client thread in one place and reply without leaving the admin portal.
+          </p>
+        </div>
+        <a
+          href="/admin/messages/compose"
+          className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent"
+        >
+          <Send className="h-4 w-4" />
+          Compose email or SMS
+        </a>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[320px_1fr]">

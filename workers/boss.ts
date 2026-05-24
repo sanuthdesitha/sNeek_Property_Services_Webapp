@@ -147,6 +147,27 @@ async function main() {
     }
   });
 
+  // Daily auto-invoice generation: scans for users whose cadence falls on today
+  // and generates a ClientInvoice + emails the client.
+  await boss.schedule("daily-invoice-generation", "0 8 * * *", {});
+  await boss.work("daily-invoice-generation", async () => {
+    const { listUsersDueForInvoicing } = await import("@/lib/finance/cadence");
+    const { generateInvoiceForUser } = await import("@/lib/finance/auto-invoice");
+    const due = await listUsersDueForInvoicing();
+    if (due.length === 0) return;
+    logger.info({ count: due.length }, "[daily-invoice-generation] users due");
+    let generated = 0;
+    for (const u of due) {
+      try {
+        const result = await generateInvoiceForUser(u.userId);
+        if (result.invoiceId) generated++;
+      } catch (err) {
+        logger.error({ err, userId: u.userId }, "[daily-invoice-generation] failed");
+      }
+    }
+    logger.info({ due: due.length, generated }, "[daily-invoice-generation] complete");
+  });
+
   await boss.schedule("recognition-check", "0 9 * * 0", {});
   await boss.work("recognition-check", async () => {
     const result = await runRecognitionCheck(new Date());

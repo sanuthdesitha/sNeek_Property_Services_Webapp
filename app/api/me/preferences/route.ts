@@ -6,6 +6,14 @@ import { db } from "@/lib/db";
 const schema = z.object({
   uiDensity: z.enum(["COMPACT", "DEFAULT", "COMFORTABLE"]).optional(),
   themePreference: z.enum(["LIGHT", "DARK", "SYSTEM"]).optional(),
+  invoicingCadence: z
+    .enum(["ON_COMPLETION", "WEEKLY", "FORTNIGHTLY", "MONTHLY", "CUSTOM"])
+    .optional(),
+  invoiceDayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+  invoiceDayOfMonth: z.number().int().min(1).max(28).nullable().optional(),
+  preferredPayoutMethod: z
+    .enum(["STRIPE_CONNECT", "ABA_FILE", "MANUAL_BANK_TRANSFER", "PAYPAL"])
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,8 +29,15 @@ export async function POST(req: NextRequest) {
     }
     const user = await db.user.update({
       where: { id: session.user.id },
-      data: parsed.data,
-      select: { uiDensity: true, themePreference: true },
+      data: parsed.data as any,
+      select: {
+        uiDensity: true,
+        themePreference: true,
+        invoicingCadence: true,
+        invoiceDayOfWeek: true,
+        invoiceDayOfMonth: true,
+        preferredPayoutMethod: true,
+      } as any,
     });
     return NextResponse.json(user);
   } catch (err: any) {
