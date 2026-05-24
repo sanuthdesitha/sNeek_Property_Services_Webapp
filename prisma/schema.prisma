@@ -1346,6 +1346,9 @@ model Quote {
   validUntil     DateTime?
   status         QuoteStatus @default(DRAFT)
   convertedJobId String?
+  viewedAt       DateTime?
+  acceptedAt     DateTime?
+  declinedAt     DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

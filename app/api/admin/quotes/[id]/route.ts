@@ -39,7 +39,23 @@ export async function PATCH(
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateQuoteSchema.parse(await req.json());
     const data: Record<string, unknown> = {};
-    if (body.status !== undefined) data.status = body.status;
+    if (body.status !== undefined) {
+      data.status = body.status;
+      // Backfill lifecycle timestamps on status transition (set once, idempotent).
+      const now = new Date();
+      const existing = await db.quote.findUnique({
+        where: { id: params.id },
+        select: { viewedAt: true, acceptedAt: true, declinedAt: true },
+      });
+      if (body.status === QuoteStatus.ACCEPTED && !existing?.acceptedAt) {
+        data.acceptedAt = now;
+        if (!existing?.viewedAt) data.viewedAt = now;
+      }
+      if (body.status === QuoteStatus.DECLINED && !existing?.declinedAt) {
+        data.declinedAt = now;
+        if (!existing?.viewedAt) data.viewedAt = now;
+      }
+    }
     if (body.notes !== undefined) data.notes = body.notes || null;
     if (body.validUntil !== undefined) data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
 
