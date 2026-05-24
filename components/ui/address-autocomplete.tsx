@@ -85,9 +85,14 @@ export function AddressAutocomplete({
         autoComplete="off"
       />
       {loadError && (
-        <p className="text-xs text-warning">
-          Address lookup unavailable — type the address manually.
-        </p>
+        <div className="space-y-0.5">
+          <p className="text-xs text-warning">
+            Address lookup unavailable — type the address manually.
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Reason: <span className="font-mono">{loadError}</span>
+          </p>
+        </div>
       )}
     </div>
   );

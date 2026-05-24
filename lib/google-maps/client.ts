@@ -7,12 +7,29 @@ import type { AddressResult } from "./types";
 // shaped with the small `any` surface area we need below.
 
 let loaderPromise: Promise<any> | null = null;
+let runtimeAuthError: string | null = null;
+
+// Google Maps surfaces auth/quota/referrer failures via a global callback,
+// NOT via the loader.load() promise. We capture it here so loadPlacesLibrary()
+// can fail loudly even when load() itself "succeeded".
+if (typeof window !== "undefined") {
+  (window as any).gm_authFailure = () => {
+    runtimeAuthError =
+      "Google Maps auth failed (gm_authFailure). Check API key validity, " +
+      "HTTP-referrer restrictions, billing, and that Places API + Maps JavaScript API are enabled.";
+  };
+}
 
 function getLoader(): Promise<any> {
   if (loaderPromise) return loaderPromise;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
-    return Promise.reject(new Error("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not configured"));
+    return Promise.reject(
+      new Error(
+        "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set in the browser environment. " +
+          "Confirm the key is in .env and that the dev server was restarted after adding it."
+      )
+    );
   }
   const loader = new Loader({
     apiKey,
@@ -25,6 +42,14 @@ function getLoader(): Promise<any> {
 
 export async function loadPlacesLibrary(): Promise<any> {
   const g = await getLoader();
+  // Give Google a tick to fire gm_authFailure if the key is bad
+  await new Promise((r) => setTimeout(r, 50));
+  if (runtimeAuthError) throw new Error(runtimeAuthError);
+  if (!g?.maps?.places) {
+    throw new Error(
+      "Places library missing from Google Maps SDK. Enable the Places API (legacy) in the Google Cloud Console."
+    );
+  }
   return g.maps.places;
 }
 
