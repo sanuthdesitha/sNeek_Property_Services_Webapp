@@ -610,7 +610,7 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
                       {index < stepIndex ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
                     </div>
                     {index < wizardSteps.length - 1 ? (
-                      <div className={`h-0.5 w-7 ${index < stepIndex ? "bg-primary" : "bg-slate-200"}`} />
+                      <div className={`h-0.5 w-7 ${index < stepIndex ? "bg-primary" : "bg-border"}`} />
                     ) : null}
                   </div>
                 ))}
