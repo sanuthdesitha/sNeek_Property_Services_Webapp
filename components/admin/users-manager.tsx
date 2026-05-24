@@ -115,7 +115,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
     name: "",
     email: "",
     password: "",
-    role: "CLEANER" as Extract<AccountRole, "CLEANER" | "CLIENT" | "LAUNDRY">,
+    role: "CLEANER" as AccountRole,
     phone: "",
     clientId: "new",
     clientName: "",
@@ -588,7 +588,7 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
           <TabsContent value="create">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Create Cleaner / Client / Laundry Account</CardTitle>
+                <CardTitle className="text-base">Create Account</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -611,12 +611,15 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                     <Label>Role</Label>
                     <Select
                       value={form.role}
-                      onValueChange={(value: "CLEANER" | "CLIENT" | "LAUNDRY") =>
+                      onValueChange={(value: AccountRole) =>
                         setForm((prev) => ({ ...prev, role: value }))
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="ADMIN">Admin</SelectItem>
+                        <SelectItem value="OPS_MANAGER">Ops Manager</SelectItem>
+                        <SelectItem value="QA_INSPECTOR">QA Inspector</SelectItem>
                         <SelectItem value="CLEANER">Cleaner</SelectItem>
                         <SelectItem value="CLIENT">Client</SelectItem>
                         <SelectItem value="LAUNDRY">Laundry</SelectItem>

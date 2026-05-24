@@ -12,7 +12,14 @@ import {
   requiredNameSchema,
 } from "@/lib/validations/common";
 
-const adminCreateRoleSchema = z.enum(["CLEANER", "CLIENT", "LAUNDRY"]);
+const adminCreateRoleSchema = z.enum([
+  "ADMIN",
+  "OPS_MANAGER",
+  "QA_INSPECTOR",
+  "CLEANER",
+  "CLIENT",
+  "LAUNDRY",
+]);
 const registerRoleSchema = z.enum(["CLEANER", "CLIENT"]);
 
 const bankDetailsSchema = z
