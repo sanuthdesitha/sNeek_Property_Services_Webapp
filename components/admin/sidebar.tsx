@@ -38,6 +38,7 @@ import {
   Rocket,
   Zap,
   ClipboardCheck,
+  Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -72,6 +73,7 @@ export const ADMIN_NAV_GROUPS = [
     label: "People",
     items: [
       { label: "Workforce", href: "/admin/workforce", icon: Users },
+      { label: "Performance", href: "/admin/workforce/performance", icon: Trophy },
       { label: "Accounts", href: "/admin/users", icon: Users },
       { label: "Clients", href: "/admin/clients", icon: Users },
       { label: "Properties", href: "/admin/properties", icon: Building2 },
