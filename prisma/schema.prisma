@@ -272,6 +272,17 @@ enum ThemePreference {
   SYSTEM
 }
 
+enum CaseState {
+  OPEN
+  TRIAGE
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_CLIENT
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
 // ─────────────────────────────────────────────
 // Auth (NextAuth v4 compatible)
 // ─────────────────────────────────────────────
@@ -395,6 +406,8 @@ model User {
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
   uploadFailures               UploadFailure[]
+  reportThemes                 ReportTheme[]               @relation("ReportThemeCreatedBy")
+  caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
 
   latitude     Float?
   longitude    Float?
@@ -940,7 +953,9 @@ model IssueTicket {
   caseType         String   @default("OPS")
   source           String?
   severity         String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
-  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED
+  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED (legacy, kept for backward compat)
+  state            CaseState @default(OPEN)
+  slaBreachAt      DateTime?
   assignedToUserId String?
   clientVisible    Boolean  @default(false)
   clientCanReply   Boolean  @default(true)
@@ -956,6 +971,22 @@ model IssueTicket {
   assignedTo  User?            @relation("IssueTicketAssignedTo", fields: [assignedToUserId], references: [id])
   comments    CaseComment[]
   attachments CaseAttachment[]
+  transitions CaseTransition[]
+}
+
+model CaseTransition {
+  id         String      @id @default(cuid())
+  caseId     String
+  case       IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromState  CaseState?
+  toState    CaseState
+  actorId    String?
+  actor      User?       @relation("CaseTransitionActor", fields: [actorId], references: [id], onDelete: SetNull)
+  reason     String?     @db.Text
+  occurredAt DateTime    @default(now())
+
+  @@index([caseId, occurredAt])
+  @@index([toState])
 }
 
 model JobTask {
@@ -1152,9 +1183,43 @@ model Report {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  themeId String?
+  theme   ReportTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
+
   job                 Job           @relation(fields: [jobId], references: [id])
   issueTickets        IssueTicket[]
   visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
+
+  @@index([themeId])
+}
+
+enum ReportThemeKind {
+  COMPACT
+  MAGAZINE
+  DETAILED
+  CUSTOM
+}
+
+model ReportTheme {
+  id              String          @id @default(cuid())
+  name            String
+  kind            ReportThemeKind @default(CUSTOM)
+  isDefault       Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  layout          Json
+  logoUrl         String?
+  primaryColorHsl String?
+  accentColorHsl  String?
+  titleTemplate   String?
+  footerHtml      String?         @db.Text
+  createdById     String?
+  createdBy       User?           @relation("ReportThemeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  reports         Report[]
+
+  @@index([isActive])
+  @@index([isDefault])
 }
 
 model CaseComment {

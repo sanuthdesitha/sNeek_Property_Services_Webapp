@@ -357,18 +357,24 @@ export default function AdminApprovalsPage() {
               return (
                 <Card key={row.id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold">
-                          {row.title || "Pay request"} — {row.cleaner?.name ?? "Cleaner"}
-                        </p>
-                        <StatusBadge status={row.status} />
-                        <span className="text-xs text-muted-foreground">{row.scope} / {row.type}</span>
-                      </div>
+                    <div className="flex items-start gap-3">
+                      <Avatar name={row.cleaner?.name} image={row.cleaner?.image} size={40} />
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold">{row.cleaner?.name ?? "Cleaner"}</p>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {row.cleaner?.role ?? "Cleaner"}
+                          </span>
+                          <StatusBadge status={row.status} />
+                          <span className="text-xs text-muted-foreground">{row.scope} / {row.type}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{row.title || "Pay request"}</p>
                       {propertyName && (
                         <p className="text-sm text-muted-foreground">
                           {propertyName}{propertySuburb ? ` · ${propertySuburb}` : ""}
                           {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+                          {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+                          {row.job?.startTime ? ` ${row.job.startTime}` : ""}
                         </p>
                       )}
                       {!propertyName && row.scope === "STANDALONE" && (
@@ -394,6 +400,7 @@ export default function AdminApprovalsPage() {
                         <p className="text-xs text-muted-foreground">Client approval: not sent</p>
                       )}
                       <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Input
@@ -466,48 +473,13 @@ export default function AdminApprovalsPage() {
           {/* ── Time Adjustments ── */}
           {activeTab === "timeAdjustments" && (
             data.timeAdjustments.length === 0 ? <Empty /> : data.timeAdjustments.map((row) => (
-              <Card key={row.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold">
-                        Clock adjustment — {row.cleaner?.name ?? "Cleaner"}
-                      </p>
-                      <StatusBadge status={row.status} />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {row.job?.property?.name} · {row.job?.property?.suburb} ·{" "}
-                      Job #{row.job?.jobNumber ?? "—"}
-                    </p>
-                    {(row.reason || row.cleanerNote) && <p className="text-sm text-muted-foreground">{row.reason || row.cleanerNote}</p>}
-                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt ?? row.createdAt)}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!!acting}
-                      onClick={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
-                    >
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!!acting}
-                      onClick={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
-                    >
-                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                      Reject
-                    </Button>
-                    {row.jobId && (
-                      <Button asChild size="sm" variant="ghost">
-                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </Card>
+              <ClockAdjustmentCard
+                key={row.id}
+                row={row}
+                acting={acting}
+                onApprove={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
+                onReject={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
+              />
             ))
           )}
 
@@ -761,6 +733,199 @@ function Empty() {
   return (
     <div className="rounded-2xl border border-dashed border-border py-14 text-center text-sm text-muted-foreground">
       No pending items in this category.
+    </div>
+  );
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
+function Avatar({
+  name,
+  image,
+  size = 32,
+}: {
+  name?: string | null;
+  image?: string | null;
+  size?: number;
+}) {
+  const initials = (name ?? "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+  if (image) {
+    /* eslint-disable-next-line @next/next/no-img-element */
+    return (
+      <img
+        src={image}
+        alt={name ?? "user"}
+        width={size}
+        height={size}
+        className="rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <div
+      className="flex items-center justify-center rounded-full bg-primary-soft text-primary text-xs font-semibold"
+      style={{ width: size, height: size }}
+      aria-label={name ?? "user"}
+    >
+      {initials}
+    </div>
+  );
+}
+
+// ── Clock adjustment card with before/after diff ─────────────────────────────
+function formatMinutes(mins?: number | null) {
+  if (mins == null || Number.isNaN(mins)) return "—";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h <= 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function ClockAdjustmentCard({
+  row,
+  acting,
+  onApprove,
+  onReject,
+}: {
+  row: any;
+  acting: string | null;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const cleanerName = row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner";
+  const propertyName = row.job?.property?.name ?? "—";
+  const propertySuburb = row.job?.property?.suburb ?? null;
+  const jobScheduled = row.job?.scheduledDate
+    ? format(new Date(row.job.scheduledDate), "dd MMM yyyy")
+    : null;
+  const jobStart = row.job?.startTime ?? null;
+  const originalStarted = row.timeLog?.startedAt ?? null;
+  const originalStopped = row.originalStoppedAt ?? row.timeLog?.stoppedAt ?? null;
+  const requestedStopped = row.requestedStoppedAt ?? null;
+  const originalMins = row.originalDurationM ?? row.timeLog?.durationM ?? null;
+  const requestedMins = row.requestedDurationM ?? null;
+  const delta =
+    typeof requestedMins === "number" && typeof originalMins === "number"
+      ? requestedMins - originalMins
+      : null;
+  const deltaSign = delta != null && delta > 0 ? "+" : "";
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-white/80 p-4 shadow-sm sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        {/* Requestor + context */}
+        <div className="flex items-start gap-3">
+          <Avatar name={cleanerName} image={row.cleaner?.image} size={40} />
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold">{cleanerName}</p>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {row.cleaner?.role ?? "Cleaner"}
+              </span>
+              <StatusBadge status={row.status} />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Clock adjustment request
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {propertyName}
+              {propertySuburb ? ` · ${propertySuburb}` : ""}
+              {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+              {jobScheduled ? ` · ${jobScheduled}` : ""}
+              {jobStart ? ` ${jobStart}` : ""}
+            </p>
+          </div>
+        </div>
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={!!acting} onClick={onApprove}>
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+            Approve
+          </Button>
+          <Button size="sm" variant="outline" disabled={!!acting} onClick={onReject}>
+            <XCircle className="mr-1.5 h-3.5 w-3.5" />
+            Reject
+          </Button>
+          {row.jobId && (
+            <Button asChild size="sm" variant="ghost">
+              <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Before / after diff */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Original
+          </p>
+          <dl className="mt-2 space-y-1 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Clock-in</dt>
+              <dd className="font-medium">{fmt(originalStarted)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Clock-out</dt>
+              <dd className="font-medium">{fmt(originalStopped)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Duration</dt>
+              <dd className="font-medium">{formatMinutes(originalMins)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-xl border border-primary/30 bg-primary-soft/40 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+            Requested
+          </p>
+          <dl className="mt-2 space-y-1 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Clock-in</dt>
+              <dd className="font-medium">{fmt(originalStarted)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Clock-out</dt>
+              <dd className="font-medium">{fmt(requestedStopped)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Duration</dt>
+              <dd className="font-medium">
+                {formatMinutes(requestedMins)}
+                {delta != null && delta !== 0 ? (
+                  <span
+                    className={cn(
+                      "ml-2 text-xs font-semibold",
+                      delta > 0 ? "text-success" : "text-destructive"
+                    )}
+                  >
+                    {deltaSign}
+                    {formatMinutes(Math.abs(delta))}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {row.reason ? (
+        <div className="mt-3 rounded-xl border border-border/60 bg-background p-3 text-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Reason from cleaner
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-sm">{row.reason}</p>
+        </div>
+      ) : null}
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Requested {fmt(row.requestedAt ?? row.createdAt)}
+      </p>
     </div>
   );
 }

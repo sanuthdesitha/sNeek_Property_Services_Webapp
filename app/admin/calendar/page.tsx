@@ -56,7 +56,7 @@ export default function CalendarPage() {
               </p>
             </div>
             <div className="grid gap-3 border-t border-border/60 bg-muted/20 p-5 sm:grid-cols-2 sm:p-6 lg:border-l lg:border-t-0">
-              <div className="rounded-2xl border border-border/70 bg-white/70 p-4">
+              <div className="rounded-2xl border border-border bg-surface p-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
                     <CalendarDays className="h-5 w-5 text-primary" />
@@ -67,7 +67,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-white/70 p-4">
+              <div className="rounded-2xl border border-border bg-surface p-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
                     <LayoutGrid className="h-5 w-5 text-primary" />
@@ -78,7 +78,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-border/70 bg-white/70 p-4 sm:col-span-2">
+              <div className="rounded-2xl border border-border bg-surface p-4 sm:col-span-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground">Default open view</p>
