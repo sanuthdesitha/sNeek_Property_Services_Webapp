@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { listSuppressed } from "@/lib/email/suppression";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { EmailUnsuppressButton } from "./unsuppress-button";
 
@@ -35,7 +35,8 @@ export default async function EmailSystemPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>30-day funnel</CardTitle>
+          {/* Use h2 directly to maintain heading order under the page h1. */}
+          <h2 className="text-lg font-semibold leading-tight tracking-tight">30-day funnel</h2>
         </CardHeader>
         <CardContent>
           {funnelData.length === 0 ? (
@@ -62,7 +63,9 @@ export default async function EmailSystemPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Suppressed addresses ({suppressed.length})</CardTitle>
+          <h2 className="text-lg font-semibold leading-tight tracking-tight">
+            Suppressed addresses ({suppressed.length})
+          </h2>
         </CardHeader>
         <CardContent className="p-0">
           {suppressed.length === 0 ? (

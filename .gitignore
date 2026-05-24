@@ -43,6 +43,9 @@ next-env.d.ts
 /playwright-report/
 /playwright/.cache/
 
+# Audit run scratch (a11y findings JSONs aggregated by afterAll into docs/)
+/.audit-tmp/
+
 # prisma
 prisma/migrations/*.sql.bak
 
