@@ -30,6 +30,7 @@ export default async function LaundryLayout({ children }: { children: React.Reac
       portalTheme={settings.portalTheme}
       navItems={[
         { href: "/laundry", label: "Dashboard", exact: true },
+        { href: "/laundry/today", label: "Today" },
         { href: "/laundry/hub", label: "Team Hub" },
         ...(visibility.showCalendar ? [{ href: "/laundry/calendar", label: "Calendar" }] : []),
         ...(visibility.showInvoices ? [{ href: "/laundry/invoices", label: "Invoices" }] : []),
