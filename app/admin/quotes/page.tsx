@@ -564,7 +564,7 @@ export default function QuotesPage() {
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{prettify(selectedLead.serviceType)} · {selectedLead.suburb || "Suburb pending"}</p>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => setSelectedLeadId("")}>
+              <Button size="icon" variant="ghost" onClick={() => setSelectedLeadId("")} aria-label="Close lead detail">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -582,11 +582,11 @@ export default function QuotesPage() {
                       <p className="truncate">{selectedLead.email}</p>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => void copyText(selectedLead.email, "Email")}>
+                      <Button size="icon" variant="ghost" onClick={() => void copyText(selectedLead.email, "Email")} aria-label="Copy email">
                         <Copy className="h-4 w-4" />
                       </Button>
                       <Button size="icon" variant="ghost" asChild>
-                        <a href={`mailto:${selectedLead.email}`}>
+                        <a href={`mailto:${selectedLead.email}`} aria-label="Email lead">
                           <Mail className="h-4 w-4" />
                         </a>
                       </Button>
@@ -599,11 +599,11 @@ export default function QuotesPage() {
                         <p>{selectedLead.phone}</p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => void copyText(selectedLead.phone || "", "Phone")}>
+                        <Button size="icon" variant="ghost" onClick={() => void copyText(selectedLead.phone || "", "Phone")} aria-label="Copy phone">
                           <Copy className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="ghost" asChild>
-                          <a href={`tel:${selectedLead.phone}`}>
+                          <a href={`tel:${selectedLead.phone}`} aria-label="Call lead">
                             <Phone className="h-4 w-4" />
                           </a>
                         </Button>
@@ -761,7 +761,7 @@ export default function QuotesPage() {
                     <Input type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateCounterLine(index, { unitPrice: event.target.value })} />
                     <Input type="number" step="0.1" value={line.qty} onChange={(event) => updateCounterLine(index, { qty: event.target.value })} />
                     <Input type="number" step="0.01" value={line.total} onChange={(event) => updateCounterLine(index, { total: event.target.value })} />
-                    <Button variant="ghost" size="icon" onClick={() => setCounterOfferLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>
+                    <Button variant="ghost" size="icon" onClick={() => setCounterOfferLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remove line">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

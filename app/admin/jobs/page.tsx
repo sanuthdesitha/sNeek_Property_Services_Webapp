@@ -833,6 +833,7 @@ export default function JobsPage() {
               size="icon"
               className="rounded-r-none"
               onClick={() => setView("list")}
+              aria-label="Switch to list view"
             >
               <List className="h-4 w-4" />
             </Button>
@@ -841,6 +842,7 @@ export default function JobsPage() {
               size="icon"
               className="rounded-l-none"
               onClick={() => setView("kanban")}
+              aria-label="Switch to kanban view"
               >
                 <Kanban className="h-4 w-4" />
               </Button>

@@ -102,7 +102,7 @@ export default async function ClientHubPage({ params }: { params: { id: string }
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href={`/admin/clients/${client.id}`}>
+          <Link href={`/admin/clients/${client.id}`} aria-label="Back to client">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>

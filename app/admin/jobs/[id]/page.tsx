@@ -970,7 +970,7 @@ export default function JobDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/jobs">
+          <Link href="/admin/jobs" aria-label="Back to jobs">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>

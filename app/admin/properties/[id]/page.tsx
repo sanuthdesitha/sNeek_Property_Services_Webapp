@@ -672,7 +672,7 @@ export default function PropertyDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/properties"><ArrowLeft className="h-4 w-4" /></Link>
+          <Link href="/admin/properties" aria-label="Back to properties"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         <div className="flex-1">
           <h2 className="text-2xl font-bold">{property.name}</h2>
@@ -1538,6 +1538,7 @@ export default function PropertyDetailPage() {
                         disabled={cancellingTaskId === task.id}
                         onClick={() => cancelTask(task.id)}
                         title="Cancel task"
+                        aria-label="Cancel task"
                       >
                         <X className="h-4 w-4" />
                       </Button>
