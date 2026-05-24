@@ -26,7 +26,7 @@ type PayrollRun = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
+  DRAFT: "bg-surface-raised text-muted-foreground",
   CONFIRMED: "bg-blue-100 text-blue-800",
   PROCESSING: "bg-amber-100 text-amber-800",
   PAID: "bg-green-100 text-green-800",
@@ -128,7 +128,7 @@ export function PayrollRunsList() {
                       <span className="font-medium">
                         {new Date(run.periodStart).toLocaleDateString()} - {new Date(run.periodEnd).toLocaleDateString()}
                       </span>
-                      <Badge className={STATUS_COLORS[run.status] || "bg-gray-100 text-gray-700"}>
+                      <Badge className={STATUS_COLORS[run.status] || "bg-surface-raised text-muted-foreground"}>
                         {run.status}
                       </Badge>
                     </div>
