@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { toast } from "@/hooks/use-toast";
 
 type ClientDetail = {
@@ -217,7 +218,20 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
               </div>
               <div className="space-y-1.5">
                 <Label>Address</Label>
-                <Input value={form.address} disabled={!editing} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
+                {editing ? (
+                  <AddressAutocomplete
+                    defaultValue={form.address}
+                    placeholder="Start typing an address…"
+                    onSelect={(r) =>
+                      setForm((current) => ({ ...current, address: r.formattedAddress }))
+                    }
+                    onChange={(text) =>
+                      setForm((current) => ({ ...current, address: text }))
+                    }
+                  />
+                ) : (
+                  <Input value={form.address} disabled />
+                )}
               </div>
             </div>
             <div className="space-y-1.5">
