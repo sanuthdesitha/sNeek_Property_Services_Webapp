@@ -222,6 +222,27 @@ const BADGE_HREFS: Record<string, (counts: Record<string, number>) => number> = 
   "/admin/time-adjustments": (c) => c.timeAdjustments ?? 0,
 };
 
+/**
+ * Pick the single most-specific nav item that matches the current path.
+ *
+ * Why this exists: a naive `pathname.startsWith(item.href)` check highlights
+ * BOTH parent and child rows when you visit `/admin/workforce/performance` —
+ * both "Workforce" (`/admin/workforce`) and "Performance" match. We want only
+ * the longest (deepest) match to be active.
+ */
+function computeActiveHref(allHrefs: readonly string[], currentPath: string): string | null {
+  const matches = allHrefs.filter((href) => {
+    if (currentPath === href) return true;
+    // Treat "/admin" specially — every admin path starts with it, so only
+    // count it as active on an exact match.
+    if (href === "/admin") return false;
+    return currentPath.startsWith(href + "/");
+  });
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => b.length - a.length);
+  return matches[0];
+}
+
 export function AdminNavLinks({
   collapsed = false,
   onNavigate,
@@ -231,6 +252,9 @@ export function AdminNavLinks({
 }) {
   const pathname = usePathname();
   const [counts, setCounts] = useState<Record<string, number>>({});
+
+  const allHrefs = ADMIN_NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
+  const activeHref = computeActiveHref(allHrefs, pathname);
 
   useEffect(() => {
     let mounted = true;
@@ -257,7 +281,7 @@ export function AdminNavLinks({
             </p>
           )}
           {group.items.map((item) => {
-            const active = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+            const active = item.href === activeHref;
             const badgeCount = BADGE_HREFS[item.href]?.(counts) ?? 0;
             return (
               <Link

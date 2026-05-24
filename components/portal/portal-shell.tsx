@@ -137,8 +137,22 @@ export function PortalShell({
     window.location.assign(`/api/auth/local-signout?callbackUrl=${encodeURIComponent(window.location.origin + "/login")}`);
   }
 
+  // Compute the single most-specific matching nav item so a child route
+  // (e.g. /cleaner/jobs/123) doesn't also highlight its parent ("/cleaner").
+  const activeHref = (() => {
+    const candidates = navItems.filter((it) => {
+      if (it.exact) return pathname === it.href;
+      if (pathname === it.href) return true;
+      if (it.href === "/") return false;
+      return pathname.startsWith(it.href + "/");
+    });
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => b.href.length - a.href.length);
+    return candidates[0].href;
+  })();
+
   function isActive(item: PortalNavItem): boolean {
-    return item.exact ? pathname === item.href : pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+    return item.href === activeHref;
   }
 
   const primaryItems = navItems.slice(0, 5);
