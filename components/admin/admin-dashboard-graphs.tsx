@@ -55,7 +55,7 @@ export function AdminDashboardGraphs({
                 <stop offset="100%" stopColor="#155e75" stopOpacity={0.82} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#dbe6ec" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
             <XAxis dataKey="label" angle={-20} textAnchor="end" interval={0} height={64} tick={{ fontSize: 11 }} />
             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
             <Tooltip />
@@ -77,7 +77,7 @@ export function AdminDashboardGraphs({
                 <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe4c8" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
             <Tooltip />
@@ -124,10 +124,10 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className={`overflow-hidden border-slate-200/80 bg-white/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] ${className ?? ""}`}>
-      <CardHeader className="border-b border-slate-100/90 bg-gradient-to-r from-slate-50 to-white pb-3">
+    <Card className={`overflow-hidden border-border/80 bg-surface/95 shadow-[0_14px_34px_-24px_rgba(15,23,42,0.45)] dark:shadow-none ${className ?? ""}`}>
+      <CardHeader className="border-b border-border/60 bg-gradient-to-r from-surface-raised to-surface pb-3 dark:from-surface-raised dark:to-surface-raised">
         <CardTitle className="text-base">{title}</CardTitle>
-        {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
+        {subtitle ? <p className="text-xs text-muted-foreground">{subtitle}</p> : null}
       </CardHeader>
       <CardContent className="pt-4">{children}</CardContent>
     </Card>

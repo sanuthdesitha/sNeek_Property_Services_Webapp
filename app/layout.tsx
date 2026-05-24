@@ -51,7 +51,8 @@ export const viewport: Viewport = {
   themeColor: "#0284c7",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // Do NOT set maximumScale/userScalable=false — disabling pinch-zoom is a
+  // WCAG 1.4.4 violation (axe rule: meta-viewport). Let users zoom the page.
 };
 
 export const dynamic = "force-dynamic";

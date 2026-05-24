@@ -101,6 +101,7 @@ export async function PATCH(
         ...body,
         latitude: body.latitude ?? undefined,
         longitude: body.longitude ?? undefined,
+        placeId: body.placeId ?? undefined,
         accessCode:
           body.accessCode !== undefined
             ? encryptSecret(body.accessCode ?? "")

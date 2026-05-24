@@ -19,6 +19,7 @@ import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
+import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
 import {
   JobStatus,
   MediaType,
@@ -558,6 +559,11 @@ export async function POST(
       where: { id: params.id },
       data: { status: JobStatus.SUBMITTED },
     });
+
+    // QA: as soon as the cleaner submits, open a QA assignment so an
+    // inspector / ops / admin can claim it from the queue. Idempotent +
+    // best-effort (never block submission on QA scaffolding failures).
+    await tryEnsureQaAssignmentForCompletedJob(params.id);
 
     if (openLog) {
       const settings = await getAppSettings();

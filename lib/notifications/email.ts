@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { wrapEmailHtml } from "@/lib/email-templates";
+import { isSuppressed } from "@/lib/email/suppression";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -42,6 +43,13 @@ export interface EmailPayload {
   html: string;
   replyTo?: string;
   from?: string;
+  /**
+   * If true, bypass the suppression list (HARD_BOUNCE / COMPLAINT /
+   * UNSUBSCRIBED / SOFT_BOUNCE). Reserved for password reset, OTP,
+   * invoice delivery, and other categories that must always go through.
+   * Defaults to false.
+   */
+  transactional?: boolean;
   attachments?: Array<{
     filename: string;
     content: string | Buffer;
@@ -50,12 +58,38 @@ export interface EmailPayload {
 
 export async function sendEmailDetailed(
   payload: EmailPayload
-): Promise<{ ok: boolean; error?: string; externalId?: string | null }> {
+): Promise<{ ok: boolean; error?: string; externalId?: string | null; skipped?: boolean }> {
   try {
     const resend = getResendClient();
     if (!resend) {
       logger.warn({ to: payload.to, subject: payload.subject }, "Email skipped because RESEND_API_KEY is not configured");
       return { ok: false, error: "RESEND_API_KEY is not configured" };
+    }
+
+    // Gate non-transactional sends on the suppression list.
+    if (!payload.transactional) {
+      const recipients = Array.isArray(payload.to) ? payload.to : [payload.to];
+      const checks = await Promise.all(recipients.map((r) => isSuppressed(r)));
+      const blocked = recipients.filter((_, i) => checks[i]);
+      if (blocked.length === recipients.length) {
+        // All recipients suppressed — skip entirely.
+        logger.warn(
+          { to: payload.to, subject: payload.subject, blocked },
+          "Email skipped because all recipients are on the suppression list"
+        );
+        return { ok: false, skipped: true, error: "suppressed" };
+      }
+      if (blocked.length > 0) {
+        // Some suppressed — log and continue with only the allowed ones.
+        logger.warn(
+          { blocked, subject: payload.subject },
+          "Some recipients on suppression list; sending to remainder"
+        );
+        payload = {
+          ...payload,
+          to: recipients.filter((_, i) => !checks[i]),
+        };
+      }
     }
 
     const html = await prepareHtml(payload.html);
