@@ -49,6 +49,7 @@ const XeroTab = dynamic(
 const ROLE_SUMMARY: Record<Role, string> = {
   [Role.ADMIN]: "Full platform access including settings and pricing",
   [Role.OPS_MANAGER]: "Jobs, QA, reports, clients, properties, and quotes",
+  [Role.QA_INSPECTOR]: "Claimable QA queue, inspections, and feedback to cleaners",
   [Role.CLEANER]: "Assigned jobs, form submission, uploads, and time logs",
   [Role.CLIENT]: "Own properties and reports only",
   [Role.LAUNDRY]: "Laundry week schedule and ready queue",
