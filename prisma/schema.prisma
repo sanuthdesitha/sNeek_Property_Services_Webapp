@@ -410,6 +410,8 @@ model User {
   cleanerAvailabilityEntries   CleanerAvailability[]       @relation("CleanerAvailabilityUser")
   preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
   createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
+  marketingAssets              MarketingAsset[]            @relation("MarketingAssetUploadedBy")
+  socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
   cleanerLocationPings         CleanerLocationPing[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
@@ -1660,7 +1662,100 @@ model EmailCampaign {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  // Marketing engine v1 — multi-channel support
+  channel        CampaignChannel  @default(EMAIL)
+  campaignStatus CampaignStatus   @default(DRAFT)
+  scheduledFor   DateTime?
+  templateId     String?
+  template       MessageTemplate? @relation("MessageTemplateCampaigns", fields: [templateId], references: [id], onDelete: SetNull)
+
   createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([campaignStatus, scheduledFor])
+}
+
+enum CampaignChannel {
+  EMAIL
+  SMS
+  BOTH
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+  PAUSED
+  CANCELLED
+}
+
+enum SocialChannel {
+  FACEBOOK
+  INSTAGRAM
+  YOUTUBE
+  TIKTOK
+}
+
+enum SocialPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+model MarketingAsset {
+  id           String   @id @default(cuid())
+  name         String
+  url          String   @db.Text
+  s3Key        String?
+  mediaType    String   // "IMAGE" | "VIDEO" | "GIF"
+  width        Int?
+  height       Int?
+  durationSec  Int?
+  tags         String[] @default([])
+  description  String?  @db.Text
+  uploadedById String?
+  uploadedBy   User?    @relation("MarketingAssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  socialPostAssets SocialPostAsset[]
+
+  @@index([mediaType])
+  @@index([createdAt])
+}
+
+model SocialPost {
+  id            String           @id @default(cuid())
+  channel       SocialChannel
+  status        SocialPostStatus @default(DRAFT)
+  caption       String           @db.Text
+  scheduledFor  DateTime?
+  publishedAt   DateTime?
+  externalId    String?
+  externalUrl   String?
+  failureReason String?
+  createdById   String?
+  createdBy     User?            @relation("SocialPostCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  assets SocialPostAsset[]
+
+  @@index([channel, status])
+  @@index([scheduledFor])
+}
+
+model SocialPostAsset {
+  socialPostId String
+  socialPost   SocialPost     @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+  assetId      String
+  asset        MarketingAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  order        Int            @default(0)
+
+  @@id([socialPostId, assetId])
 }
 
 model LaundrySupplier {
@@ -2067,6 +2162,7 @@ model MessageTemplate {
   updatedAt   DateTime @updatedAt
 
   automationRules ClientAutomationRule[]
+  emailCampaigns  EmailCampaign[]        @relation("MessageTemplateCampaigns")
 
   @@index([category, isActive])
 }
