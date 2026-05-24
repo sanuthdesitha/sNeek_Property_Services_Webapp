@@ -10,6 +10,9 @@ type AddressParts = {
   state?: string;
   postcode?: string;
   formattedAddress?: string;
+  lat?: number;
+  lng?: number;
+  placeId?: string;
 };
 
 type GoogleAddressInputProps = {
@@ -39,12 +42,21 @@ function parsePlace(place: any): AddressParts {
   const postcode = getComponent(place, "postal_code");
   const streetAddress = [streetNumber, route].filter(Boolean).join(" ").trim();
 
+  // Optional geo coordinates + placeId (added Plan D)
+  const loc = place?.geometry?.location;
+  const lat = typeof loc?.lat === "function" ? loc.lat() : typeof loc?.lat === "number" ? loc.lat : undefined;
+  const lng = typeof loc?.lng === "function" ? loc.lng() : typeof loc?.lng === "number" ? loc.lng : undefined;
+  const placeId = typeof place?.place_id === "string" ? place.place_id : undefined;
+
   return {
     address: streetAddress || place?.name || place?.formatted_address || "",
     suburb,
     state,
     postcode,
     formattedAddress: place?.formatted_address || "",
+    lat,
+    lng,
+    placeId,
   };
 }
 
@@ -74,7 +86,7 @@ export function GoogleAddressInput({
 
       autocompleteRef.current = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
         types: ["address"],
-        fields: ["address_components", "formatted_address", "name"],
+        fields: ["address_components", "formatted_address", "name", "geometry.location", "place_id"],
         componentRestrictions: { country: "au" },
       });
 

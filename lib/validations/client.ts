@@ -90,6 +90,7 @@ export const createPropertySchema = z.object({
   bathrooms: z.number().int().min(0).default(1),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
+  placeId: z.string().max(200).optional().nullable(),
   accessCode: z.string().max(200).optional().nullable(),
   alarmCode: z.string().max(200).optional().nullable(),
   keyLocation: z.string().max(500).optional().nullable(),
