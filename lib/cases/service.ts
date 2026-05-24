@@ -122,6 +122,18 @@ function serializeCase(issue: any) {
     severity: normalizeSeverity(issue.severity),
     priority: normalizeSeverity(issue.severity),
     status: normalizeCaseStatus(issue.status),
+    state: typeof issue.state === "string" ? issue.state : "OPEN",
+    slaBreachAt: issue.slaBreachAt ?? null,
+    transitions: Array.isArray(issue.transitions)
+      ? issue.transitions.map((t: any) => ({
+          id: t.id,
+          fromState: t.fromState ?? null,
+          toState: t.toState,
+          reason: t.reason ?? null,
+          occurredAt: t.occurredAt,
+          actor: t.actor ?? null,
+        }))
+      : [],
     caseType: normalizeCaseType(issue.caseType || issue.source || issue.title),
     source: issue.source ?? null,
     clientVisible: issue.clientVisible === true,
@@ -328,6 +340,10 @@ export async function getCaseById(id: string) {
       attachments: {
         include: { uploadedBy: { select: { id: true, name: true, email: true, role: true } } },
         orderBy: { createdAt: "asc" },
+      },
+      transitions: {
+        include: { actor: { select: { id: true, name: true, email: true, role: true } } },
+        orderBy: { occurredAt: "asc" },
       },
     },
   });

@@ -16,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { toast } from "@/hooks/use-toast";
 import { CASE_STATUSES, CASE_STATUS_LABELS, type UnifiedCaseStatus } from "@/lib/cases/status";
+import { CaseLifecyclePanel, type CaseTransitionRow } from "@/components/cases/case-lifecycle-panel";
+import type { CaseState } from "@/lib/cases/lifecycle-fsm";
 
 type CaseStatus = UnifiedCaseStatus;
 type CaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OPS" | "SLA" | "OTHER";
@@ -52,6 +54,9 @@ type CaseItem = {
   severity: Severity;
   priority: Severity;
   status: CaseStatus;
+  state: CaseState;
+  transitions: CaseTransitionRow[];
+  slaBreachAt: string | null;
   caseType: CaseType;
   clientVisible: boolean;
   clientCanReply: boolean;
@@ -562,6 +567,19 @@ export function AdminCasesWorkspace() {
                   <div className="space-y-1.5"><Label>Title</Label><Input value={selected.title} onChange={(event) => setSelected((prev) => prev ? { ...prev, title: event.target.value } : prev)} /></div>
                   <div className="space-y-1.5"><Label>Property</Label><Input value={selectedPropertyLabel} disabled /></div>
                 </div>
+                <CaseLifecyclePanel
+                  caseId={selected.id}
+                  state={(selected.state ?? "OPEN") as CaseState}
+                  transitions={selected.transitions ?? []}
+                  onTransitioned={(updated) => {
+                    if (updated && typeof updated === "object") {
+                      setSelected(updated as CaseItem);
+                      setItems((current) =>
+                        current.map((row) => (row.id === (updated as CaseItem).id ? (updated as CaseItem) : row))
+                      );
+                    }
+                  }}
+                />
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>Created {formatDateTime(selected.createdAt)}</span><span>Updated {formatDateTime(selected.updatedAt)}</span><span>Job {selected.job?.jobNumber || selected.job?.id || "Not linked"}</span><span>Client {selected.client?.name || "Not linked"}</span></div>
                 <div className="flex flex-wrap gap-2">{selected.job?.id ? <Button asChild variant="outline" size="sm"><Link href={`/admin/jobs/${selected.job.id}`}>Open job</Link></Button> : null}{selected.reportId ? <Button asChild variant="outline" size="sm"><Link href={`/admin/reports?reportId=${selected.reportId}`}>Open report</Link></Button> : null}</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
