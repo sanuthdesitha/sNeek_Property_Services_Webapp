@@ -789,7 +789,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                   }}
                 />
                 {postForm.coverImageUrl ? (
-                  <div className="overflow-hidden rounded-2xl border bg-slate-100">
+                  <div className="overflow-hidden rounded-2xl border border-border bg-muted">
                     <img src={postForm.coverImageUrl} alt="Post preview" className="aspect-[16/10] w-full object-cover" />
                   </div>
                 ) : null}
@@ -945,7 +945,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                         {channel.pinnedCount > 0 ? <Badge variant="outline"><Pin className="mr-1 h-3 w-3" />{channel.pinnedCount}</Badge> : null}
                       </div>
                       <p className="text-xs text-muted-foreground">{channel.description || prettifyLabel(channel.kind)}</p>
-                      {channel.lastMessage ? <p className="mt-2 line-clamp-2 text-xs text-slate-500">{channel.lastMessage.senderName || "Team"} · {channel.lastMessage.body}</p> : null}
+                      {channel.lastMessage ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{channel.lastMessage.senderName || "Team"} · {channel.lastMessage.body}</p> : null}
                     </button>
                   ))}
                 </div>
@@ -1028,9 +1028,9 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                           {message.attachments.map((attachment: any) => {
                             const isImage = String(attachment.mimeType ?? "").startsWith("image/");
                             return (
-                              <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border bg-slate-50">
+                              <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-border bg-surface-raised">
                                 {isImage ? <img src={attachment.url} alt={attachment.fileName || "Attachment"} className="aspect-[4/3] w-full object-cover" /> : null}
-                                <div className="p-3 text-xs text-slate-600">{attachment.fileName || attachment.label || "Attachment"}</div>
+                                <div className="p-3 text-xs text-muted-foreground">{attachment.fileName || attachment.label || "Attachment"}</div>
                               </a>
                             );
                           })}

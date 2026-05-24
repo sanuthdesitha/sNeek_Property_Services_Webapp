@@ -478,6 +478,38 @@ export default function JobDetailPage() {
     load();
   }
 
+  async function inviteClientToReview() {
+    const res = await fetch("/api/admin/qa/invites", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jobId: params.id, expiresInHours: 72 }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast({
+        title: "Could not send invite",
+        description: body.error ?? "Try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (body.link && typeof navigator !== "undefined" && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(body.link);
+      } catch {
+        /* clipboard might be blocked — ignore */
+      }
+    }
+    toast({
+      title: body.emailed ? "Invite emailed + link copied" : "Invite link copied",
+      description: body.emailed
+        ? `Sent to the client. Expires in 72h.`
+        : body.emailError
+          ? `Email failed (${body.emailError}); share the copied link manually.`
+          : "Share this link with the client.",
+    });
+  }
+
   async function shareReport() {
     const defaultEmail = job?.property?.client?.email ?? "";
     const to = window.prompt("Share report to email:", defaultEmail) ?? "";
@@ -1007,6 +1039,11 @@ export default function JobDetailPage() {
         {job.status === "SUBMITTED" && (
           <Button size="sm" variant="outline" onClick={() => setQaOpen(true)}>
             <Star className="mr-2 h-4 w-4" /> QA Review
+          </Button>
+        )}
+        {(job.status === "SUBMITTED" || job.status === "QA_REVIEW" || job.status === "COMPLETED") && (
+          <Button size="sm" variant="outline" onClick={inviteClientToReview}>
+            <Send className="mr-2 h-4 w-4" /> Invite Client to Review
           </Button>
         )}
         <Button size="sm" variant="outline" onClick={downloadReport}>

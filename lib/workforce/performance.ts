@@ -1,6 +1,19 @@
 import { db } from "@/lib/db";
 
 /**
+ * Wrap a Prisma promise so a failure logs (instead of silently producing `null`
+ * metrics) and returns the fallback. Critical for diagnosing schema-mismatch
+ * bugs — previously all queries swallowed errors and the UI rendered "—" with
+ * no signal that anything was wrong.
+ */
+function safeQuery<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
+  return p.catch((err) => {
+    console.warn(`[performance:${label}] query failed`, err instanceof Error ? err.message : err);
+    return fallback;
+  });
+}
+
+/**
  * Cleaner Performance Metrics
  *
  * 11 industry-standard field-services KPIs (Jobber / Housecall Pro / ServiceTitan / ServiceM8).
@@ -84,18 +97,21 @@ export async function getPerformanceMetrics(
     documentRows,
     learningRows,
   ] = await Promise.all([
-    db.qaFormSubmission
-      .findMany({
+    safeQuery(
+      "qaFormSubmission",
+      db.qaFormSubmission.findMany({
         where: {
           createdAt: { gte: windowStart },
           job: { assignments: { some: { userId } } },
         },
         select: { score: true },
-      })
-      .catch(() => [] as Array<{ score: number | null }>),
+      }),
+      [] as Array<{ score: number | null }>,
+    ),
 
-    db.jobAssignment
-      .findMany({
+    safeQuery(
+      "jobAssignment",
+      db.jobAssignment.findMany({
         where: {
           userId,
           assignedAt: { gte: windowStart },
@@ -112,15 +128,19 @@ export async function getPerformanceMetrics(
               scheduledDate: true,
               startTime: true,
               arrivedAt: true,
-              completedAt: true,
-            } as any,
+              // Job has no `completedAt` column — we use the `updatedAt` of a
+              // job with status COMPLETED as the completion timestamp proxy.
+              updatedAt: true,
+            },
           },
-        } as any,
-      })
-      .catch(() => [] as any[]),
+        },
+      }),
+      [] as any[],
+    ),
 
-    db.timeLog
-      .findMany({
+    safeQuery(
+      "timeLog",
+      db.timeLog.findMany({
         where: { userId, startedAt: { gte: windowStart } },
         select: {
           startedAt: true,
@@ -128,11 +148,13 @@ export async function getPerformanceMetrics(
             select: { scheduledDate: true, startTime: true },
           },
         },
-      })
-      .catch(() => [] as any[]),
+      }),
+      [] as any[],
+    ),
 
-    db.formSubmission
-      .findMany({
+    safeQuery(
+      "formSubmission",
+      db.formSubmission.findMany({
         where: {
           submittedById: userId,
           createdAt: { gte: windowStart },
@@ -142,42 +164,51 @@ export async function getPerformanceMetrics(
           autoQaScore: true,
           media: { select: { id: true } },
         },
-      })
-      .catch(() => [] as any[]),
+      }),
+      [] as any[],
+    ),
 
-    db.jobFeedback
-      .findMany({
+    safeQuery(
+      "jobFeedback",
+      db.jobFeedback.findMany({
         where: {
           submittedAt: { gte: windowStart, not: null },
           job: { assignments: { some: { userId } } },
         },
         select: { rating: true },
-      })
-      .catch(() => [] as Array<{ rating: number | null }>),
+      }),
+      [] as Array<{ rating: number | null }>,
+    ),
 
-    db.clientSatisfactionRating
-      .findMany({
+    safeQuery(
+      "clientSatisfactionRating",
+      db.clientSatisfactionRating.findMany({
         where: {
           createdAt: { gte: windowStart },
           job: { assignments: { some: { userId } } },
         },
         select: { score: true },
-      })
-      .catch(() => [] as Array<{ score: number | null }>),
+      }),
+      [] as Array<{ score: number | null }>,
+    ),
 
-    db.staffDocument
-      .findMany({
+    safeQuery(
+      "staffDocument",
+      db.staffDocument.findMany({
         where: { userId },
         select: { expiresAt: true, status: true },
-      })
-      .catch(() => [] as any[]),
+      }),
+      [] as any[],
+    ),
 
-    db.learningAssignment
-      .findMany({
+    safeQuery(
+      "learningAssignment",
+      db.learningAssignment.findMany({
         where: { userId },
         select: { completedAt: true, createdAt: true, status: true },
-      })
-      .catch(() => [] as any[]),
+      }),
+      [] as any[],
+    ),
   ]);
 
   // 1. Quality score — average QA submission score for jobs cleaner was assigned to

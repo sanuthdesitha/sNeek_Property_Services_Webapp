@@ -3558,7 +3558,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </div>
 
             {job?.drivingPauseReason ? (
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-xs text-foreground/80">
                 Pause reason: {job.drivingPauseReason}
               </div>
             ) : null}
@@ -3875,9 +3875,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {hasJobNotes && showJobNotes ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Job Notes</p>
-          <p className="mt-2 text-sm text-slate-950">{job.notes}</p>
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-foreground/80">Job Notes</p>
+          <p className="mt-2 text-sm text-foreground">{job.notes}</p>
         </div>
       ) : null}
 

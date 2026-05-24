@@ -401,7 +401,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                     {channel.pinnedCount > 0 ? <Badge variant="outline"><Pin className="mr-1 h-3 w-3" />{channel.pinnedCount}</Badge> : null}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{channel.description || channel.kind}</p>
-                  {channel.lastMessage ? <p className="mt-2 line-clamp-1 text-xs text-slate-500">{channel.lastMessage.senderName || "Team"} · {channel.lastMessage.body}</p> : null}
+                  {channel.lastMessage ? <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">{channel.lastMessage.senderName || "Team"} · {channel.lastMessage.body}</p> : null}
                 </button>
               ))}
             </CardContent>
@@ -414,7 +414,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                   {groupedMessages.map((group) => (
                     <div key={group.label} className="space-y-3">
                       <div className="sticky top-0 z-10 flex justify-center">
-                        <span className="rounded-full border bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">{group.label}</span>
+                        <span className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{group.label}</span>
                       </div>
                       {group.items.map((message) => (
                         <div key={message.id} className={`rounded-2xl border bg-white p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
@@ -441,9 +441,9 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                               {message.attachments.map((attachment: any) => {
                                 const isImage = String(attachment.mimeType ?? "").startsWith("image/");
                                 return (
-                                  <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border bg-slate-50">
+                                  <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-border bg-surface-raised">
                                     {isImage ? <img src={attachment.url} alt={attachment.fileName || "Attachment"} className="aspect-[4/3] w-full object-cover" /> : null}
-                                    <div className="p-3 text-xs text-slate-600">{attachment.fileName || attachment.label || "Attachment"}</div>
+                                    <div className="p-3 text-xs text-muted-foreground">{attachment.fileName || attachment.label || "Attachment"}</div>
                                   </a>
                                 );
                               })}

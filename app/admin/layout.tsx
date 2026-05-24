@@ -15,11 +15,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const settings = await getAppSettings();
   const themePref = await getThemeForUser(session.user.id);
 
+  // For SSR, treat "system" as the same default as the root layout (light).
+  // The pre-hydration script in app/layout.tsx will swap to dark if the OS
+  // prefers dark; the ThemeProvider's effect picks it up after hydration.
+  const ssrTheme = themePref === "dark" ? "dark" : "light";
+
   return (
     <DensityShell>
       <ThemeProvider initial={themePref}>
         <GlobalShortcutListener />
-        <div className="relative flex h-screen overflow-hidden bg-background">
+        <div
+          data-portal-theme={ssrTheme}
+          className="relative flex h-screen overflow-hidden bg-background"
+        >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_76%_5%,rgba(31,158,170,0.18),transparent_24%),radial-gradient(circle_at_3%_34%,rgba(255,177,95,0.18),transparent_28%)]" />
           <AdminSidebar
             companyName={settings.companyName}

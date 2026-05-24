@@ -10,8 +10,8 @@ import { BillingPreferencesSection } from "@/components/profile/billing-preferen
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminProfilePage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+export default async function QaProfilePage() {
+  await requireRole([Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN]);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/login");
 

@@ -24,6 +24,7 @@ export default async function QaLayout({ children }: { children: React.ReactNode
       portalTheme={settings.portalTheme}
       navItems={[
         { href: "/qa", label: "Queue", exact: true },
+        { href: "/qa/profile", label: "Profile" },
         { href: "/admin", label: "Admin" },
       ]}
     >

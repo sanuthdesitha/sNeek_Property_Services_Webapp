@@ -1,4 +1,6 @@
-import { db } from "@/lib/db";
+import { PrismaClient } from "@prisma/client";
+
+const db = new PrismaClient();
 
 /**
  * Plan D backfill: geocode existing Property and Client addresses where
@@ -119,7 +121,9 @@ async function main() {
   await db.$disconnect();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .catch(async (err) => {
+    console.error(err);
+    await db.$disconnect();
+    process.exit(1);
+  });
