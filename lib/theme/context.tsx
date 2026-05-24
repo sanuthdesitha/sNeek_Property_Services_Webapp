@@ -48,6 +48,16 @@ export function ThemeProvider({
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", resolved === "dark");
+    // Keep all `data-portal-theme` wrappers in sync with the resolved theme so
+    // CSS selectors scoped to `[data-portal-theme="dark|light"]` pick up the
+    // current theme without a reload. We deliberately skip elements explicitly
+    // marked `data-portal-theme="public"` — the public marketing surface keeps
+    // its warm palette.
+    const wrappers = document.querySelectorAll<HTMLElement>("[data-portal-theme]");
+    wrappers.forEach((el) => {
+      if (el.getAttribute("data-portal-theme") === "public") return;
+      el.setAttribute("data-portal-theme", resolved);
+    });
   }, [resolved]);
 
   const setPreference = (p: ThemePreference) => {
