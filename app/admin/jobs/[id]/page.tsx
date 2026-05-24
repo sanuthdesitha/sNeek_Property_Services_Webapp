@@ -1086,8 +1086,8 @@ export default function JobDetailPage() {
 
       {/* Manually rescheduled notice */}
       {job.manuallyRescheduledAt && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-amber-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-warning">
             <CalendarClock className="h-4 w-4 shrink-0" />
             <span>
               Manually rescheduled on{" "}
@@ -1097,7 +1097,7 @@ export default function JobDetailPage() {
           <Button
             size="sm"
             variant="outline"
-            className="border-amber-300 text-amber-800 hover:bg-amber-100"
+            className="border-warning/40 text-warning hover:bg-warning/20"
             disabled={clearingReschedule}
             onClick={async () => {
               setClearingReschedule(true);
@@ -1869,13 +1869,15 @@ export default function JobDetailPage() {
           )}
 
           {job.property.accessInfo && (
-            <Card className="border-yellow-200 bg-yellow-50">
-              <CardContent className="space-y-1 pt-4 text-sm">
+            <Card className="border-warning/40 bg-warning/10">
+              <CardContent className="space-y-1 pt-4 text-sm text-foreground">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">Access details</p>
                 {Object.entries(job.property.accessInfo as Record<string, unknown>)
                   .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
                   .map(([k, v]) => (
-                    <p key={k}>
-                      <strong className="capitalize">{k.replace(/([A-Z])/g, " $1")}:</strong> {String(v)}
+                    <p key={k} className="text-foreground">
+                      <strong className="capitalize text-foreground">{k.replace(/([A-Z])/g, " $1")}:</strong>{" "}
+                      <span className="text-muted-foreground">{String(v)}</span>
                     </p>
                   ))}
               </CardContent>
@@ -2193,7 +2195,7 @@ export default function JobDetailPage() {
                   <div
                     className={`rounded-lg border p-3 ${
                       job.laundryTask.status === "SKIPPED_PICKUP"
-                        ? "border-amber-300 bg-amber-50"
+                        ? "border-warning/40 bg-warning/10"
                         : "border-destructive/30 bg-destructive/10"
                     }`}
                   >
@@ -2204,7 +2206,7 @@ export default function JobDetailPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{job.laundryTask.flagNotes}</p>
                     ) : null}
                     {job.laundryTask.status === "SKIPPED_PICKUP" ? (
-                      <div className="mt-2 space-y-1 text-xs text-amber-900">
+                      <div className="mt-2 space-y-1 text-xs text-warning">
                         <p>
                           Skip reason: {String(job.laundryTask.skipReasonCode || "Not set").replace(/_/g, " ")}
                         </p>
