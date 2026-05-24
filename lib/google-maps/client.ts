@@ -3,9 +3,12 @@
 import { Loader } from "@googlemaps/js-api-loader";
 import type { AddressResult } from "./types";
 
-let loaderPromise: Promise<typeof google> | null = null;
+// We do not depend on @types/google.maps; the SDK is loaded at runtime and
+// shaped with the small `any` surface area we need below.
 
-function getLoader(): Promise<typeof google> {
+let loaderPromise: Promise<any> | null = null;
+
+function getLoader(): Promise<any> {
   if (loaderPromise) return loaderPromise;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
@@ -20,7 +23,7 @@ function getLoader(): Promise<typeof google> {
   return loaderPromise;
 }
 
-export async function loadPlacesLibrary(): Promise<typeof google.maps.places> {
+export async function loadPlacesLibrary(): Promise<any> {
   const g = await getLoader();
   return g.maps.places;
 }
@@ -37,13 +40,16 @@ const COMPONENT_LOOKUPS: Record<string, keyof AddressResult> = {
   country: "country",
 };
 
-export function parsePlaceResult(place: google.maps.places.PlaceResult): AddressResult | null {
-  if (!place.place_id || !place.geometry?.location) return null;
+export function parsePlaceResult(place: any): AddressResult | null {
+  if (!place?.place_id || !place?.geometry?.location) return null;
+  const loc = place.geometry.location;
+  const lat = typeof loc.lat === "function" ? loc.lat() : loc.lat;
+  const lng = typeof loc.lng === "function" ? loc.lng() : loc.lng;
   const result: Partial<AddressResult> = {
     placeId: place.place_id,
     formattedAddress: place.formatted_address ?? "",
-    lat: place.geometry.location.lat(),
-    lng: place.geometry.location.lng(),
+    lat,
+    lng,
     country: "",
   };
   for (const component of place.address_components ?? []) {

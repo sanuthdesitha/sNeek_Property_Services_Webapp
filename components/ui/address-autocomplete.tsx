@@ -38,14 +38,14 @@ export function AddressAutocomplete({
 
   React.useEffect(() => {
     if (!inputRef.current) return;
-    let autocomplete: google.maps.places.Autocomplete | null = null;
-    let listener: google.maps.MapsEventListener | null = null;
+    let autocomplete: any = null;
+    let listener: any = null;
 
     (async () => {
       try {
         const places = await loadPlacesLibrary();
         if (!inputRef.current) return;
-        autocomplete = new places.Autocomplete(inputRef.current, {
+        autocomplete = new (places as any).Autocomplete(inputRef.current, {
           componentRestrictions: { country: "au" },
           fields: ["place_id", "formatted_address", "geometry", "address_components"],
           types: ["address"],
