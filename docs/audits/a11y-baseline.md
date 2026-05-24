@@ -4,6 +4,45 @@
 > by `e2e/audit/a11y-all-routes.spec.ts` across all 10 audit routes. The
 > per-rule, per-route breakdown of every axe violation lives there.
 
+## Update — 2026-05-24 (Polish pass)
+
+Mechanical fixes shipped on `feat/v1-form-builder`:
+
+- **Toast close button** now has `aria-label="Close notification"` plus
+  a visually-hidden `<span>`. This zeros out the global `button-name`
+  finding rendered on every admin route via the toast viewport — the
+  stray 1-node findings on `/admin/calendar`, `/admin/quotes`,
+  `/admin/system/uploads`, and `/admin/system/email` should now drop
+  to zero.
+- **Switch primitive** (`components/ui/switch.tsx`) now defaults to
+  `aria-label="Toggle setting"` when no `aria-labelledby` is supplied.
+  This is the mechanical lever for the 103-node `button-name` cluster
+  on `/admin/settings` — the 24 toggles in `settings-editor.tsx` and
+  similar Switch usages elsewhere were relying on sibling visual
+  labels rather than associated `aria-label`/`aria-labelledby`.
+  Consumers can still override with a more specific value.
+- **CardTitle escape hatch.** `components/ui/card.tsx` accepts an
+  `as` prop (`"h1" | "h2" | ... | "div"`, default `"h3"`) so consumers
+  whose page already renders an `<h1>` can switch to `<h2>` without
+  restructuring. Existing `<h3>` default preserved — no consumer
+  churn required for this pass.
+- Icon-only buttons on `/admin/jobs` (list/kanban toggle), `/admin/quotes`
+  (lead drawer close, copy email/phone, mail/call, remove counter-offer
+  line), `/admin/jobs/[id]`, `/admin/properties/[id]` (back arrow,
+  task cancel), and `/admin/clients/[id](/hub)` (back arrow) now all
+  carry `aria-label`.
+
+**Remaining (deferred):**
+
+- 37-node `label` violation on `/admin/settings` — these are
+  `<Input>`/`<Select>`/`<Textarea>` controls in `settings-editor.tsx`
+  (51 occurrences) using a sibling `<Label>` without `htmlFor`. The
+  mechanical fix would require per-control id wiring across all 51 —
+  too invasive for this pass. Tracked for a focused settings-form
+  refactor.
+- `color-contrast` on marketing surfaces (WhatsApp CTA, footer copy)
+  — deferred to a design pass, not a mechanical fix.
+
 ## Update — 2026-05-24 (Plan G fix-loop)
 
 - **Pinch-zoom enabled.** Removed `maximumScale: 1` from
