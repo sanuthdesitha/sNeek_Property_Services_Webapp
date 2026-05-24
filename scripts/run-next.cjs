@@ -8,11 +8,11 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function removePathSync(targetPath) {
+function removePathSync(targetPath, { soft = false } = {}) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       fs.rmSync(targetPath, { recursive: true, force: true });
-      return;
+      return true;
     } catch (error) {
       if (!error || !["ENOTEMPTY", "EPERM", "EBUSY"].includes(error.code)) {
         throw error;
@@ -21,9 +21,18 @@ function removePathSync(targetPath) {
     }
   }
 
-  if (fs.existsSync(targetPath)) {
-    throw new Error(`Could not remove path: ${targetPath}`);
+  if (!fs.existsSync(targetPath)) {
+    return true;
   }
+
+  // Windows holds file locks aggressively (a previous dev/workers process,
+  // VS Code, antivirus, etc.). Two recovery options:
+  //   - hard: throw; caller decides whether to abort
+  //   - soft: leave the dir in place; caller picks a fallback path
+  if (soft) {
+    return false;
+  }
+  throw new Error(`Could not remove path: ${targetPath}`);
 }
 
 function movePathSync(sourcePath, targetPath) {
@@ -62,8 +71,26 @@ if (mode === "build" || mode === "start" || mode === "dev") {
 }
 
 if (mode === "dev") {
-  const devDistDir = path.resolve(process.cwd(), requestedDistDir);
-  removePathSync(devDistDir);
+  // Don't auto-wipe the dev cache — Next.js manages it incrementally and a
+  // wipe on every start (a) costs 30+ seconds of recompilation and (b) blocks
+  // here whenever Windows holds a stale file lock on the directory.
+  //
+  // Opt-in cleanup with `CLEAN_DEV_CACHE=1 npm run dev`. On Windows, if the
+  // wipe can't get the lock we silently fall back to a fresh suffixed dir
+  // so the dev server still starts instead of crashing.
+  const wantClean = process.env.CLEAN_DEV_CACHE === "1";
+  if (wantClean) {
+    const devDistDir = path.resolve(process.cwd(), requestedDistDir);
+    const removed = removePathSync(devDistDir, { soft: true });
+    if (!removed) {
+      const fallback = `${requestedDistDir}-${Date.now().toString(36)}`;
+      console.warn(
+        `[run-next] Could not clear ${requestedDistDir} (locked by another process). ` +
+          `Using fallback dist dir: ${fallback}`
+      );
+      env.NEXT_DIST_DIR = fallback;
+    }
+  }
 }
 
 if (mode === "build") {
