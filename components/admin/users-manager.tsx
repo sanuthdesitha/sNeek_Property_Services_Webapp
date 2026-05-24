@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Shield, ShieldCheck, Trash2, UserCog, UserX, KeyRound, Mail } from "lucide-react";
+import Link from "next/link";
+import { Shield, ShieldCheck, Trash2, UserCog, UserX, KeyRound, Mail, BarChart2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1015,6 +1016,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
             ) : null}
 
             <div className="flex justify-end gap-2">
+              {editingUser?.role === "CLEANER" ? (
+                <Button variant="outline" asChild>
+                  <Link href={`/admin/workforce/performance/${editingUser.id}`}>
+                    <BarChart2 className="mr-2 h-4 w-4" />
+                    View performance
+                  </Link>
+                </Button>
+              ) : null}
               <Button variant="outline" onClick={closeEditor}>Cancel</Button>
               <Button disabled={busyUserId === editingUser?.id || savingOverride} onClick={saveUserChanges}>
                 {busyUserId === editingUser?.id ? "Saving..." : "Save account"}

@@ -31,6 +31,7 @@ import {
   type InventoryLocation,
 } from "@/lib/inventory/locations";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
+import { PropertyStatsPanelLoader } from "@/components/accounts/property-stats-panel-loader";
 
 type FormTemplateOption = {
   id: string;
@@ -722,6 +723,7 @@ export default function PropertyDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
+          <PropertyStatsPanelLoader propertyId={String(params.id)} />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
               ["Suburb", property.suburb || "-"],
