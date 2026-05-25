@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Page, BrowserContext } from "playwright";
 import { s3 } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 
@@ -108,8 +108,8 @@ async function renderPdfFromHtmlImpl(
   }
 
   const sharp = await loadSharp();
-  let context: Awaited<ReturnType<typeof browser.newContext>> | null = null;
-  let page: Awaited<ReturnType<NonNullable<typeof context>["newPage"]>> | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
   try {
     context = await browser.newContext();

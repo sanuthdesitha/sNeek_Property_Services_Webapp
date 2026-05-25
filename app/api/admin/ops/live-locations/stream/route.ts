@@ -16,14 +16,12 @@ const POLL_INTERVAL_MS = 15_000;            // was 5s — 3x less DB load
 const MAX_LIFETIME_MS = 10 * 60_000;        // force-close after 10 min; client auto-reconnects
 const MAX_CONNECTIONS = 50;                 // refuse beyond this per process
 
-// Per-process counter. Exported so the diagnostics page can read it.
+// Per-process counter, hung off globalThis so the diagnostics API
+// (a separate route) can read it without importing this file (Next.js
+// route modules can only export route handlers + a few config symbols).
 const globalRef = globalThis as unknown as { __sneekSseLiveLocations?: { active: number } };
 if (!globalRef.__sneekSseLiveLocations) globalRef.__sneekSseLiveLocations = { active: 0 };
 const sseState = globalRef.__sneekSseLiveLocations;
-
-export function getActiveLiveLocationsConnections(): number {
-  return sseState.active;
-}
 
 /**
  * Server-Sent Events stream of new cleaner location pings.

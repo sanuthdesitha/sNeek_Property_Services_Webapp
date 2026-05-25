@@ -35,9 +35,9 @@ const lastPingByUser = globalRef.__sneekPingRateLimit;
 // Opportunistic cleanup so the map can't grow unbounded.
 function pruneRateLimitMap(now: number) {
   if (lastPingByUser.size < 1000) return;
-  for (const [k, t] of lastPingByUser) {
+  lastPingByUser.forEach((t, k) => {
     if (now - t > 60_000) lastPingByUser.delete(k);
-  }
+  });
 }
 
 export async function POST(req: NextRequest) {
