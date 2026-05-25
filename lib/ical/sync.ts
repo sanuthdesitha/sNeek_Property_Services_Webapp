@@ -864,7 +864,20 @@ export async function syncPropertyIcal(
     if (integration.lastSyncEtag) headers["If-None-Match"] = integration.lastSyncEtag;
     if (integration.lastSyncModified) headers["If-Modified-Since"] = integration.lastSyncModified;
 
-    const res = await fetch(integration.icalUrl, { headers, cache: "no-store" });
+    // Hard timeout — a single dead/slow feed must not block the worker
+    // forever. 15s is well beyond a normal Hospitable response time.
+    const fetchController = new AbortController();
+    const fetchTimer = setTimeout(() => fetchController.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(integration.icalUrl, {
+        headers,
+        cache: "no-store",
+        signal: fetchController.signal,
+      });
+    } finally {
+      clearTimeout(fetchTimer);
+    }
 
     if (res.status === 304) {
       summary.warnings.push("Feed not modified since the last successful sync.");
