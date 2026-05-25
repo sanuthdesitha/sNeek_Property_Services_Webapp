@@ -16,6 +16,25 @@ const PDF_IMAGE_QUALITY = Number(process.env.PDF_IMAGE_QUALITY ?? 75);
 const PDF_FETCH_TIMEOUT_MS = Number(process.env.PDF_FETCH_TIMEOUT_MS ?? 12000);
 const PDF_RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS ?? 30000);
 const PDF_IMAGE_WAIT_TIMEOUT_MS = Number(process.env.PDF_IMAGE_WAIT_TIMEOUT_MS ?? 20000);
+const PDF_TOTAL_TIMEOUT_MS = Number(process.env.PDF_TOTAL_TIMEOUT_MS ?? 60_000);
+
+/**
+ * Single-flight semaphore — serializes ALL Chromium launches across the
+ * process. Without this, 10 concurrent report.generate jobs would spawn
+ * 10 Chromium processes that compete for CPU and combined easily pin a
+ * small VPS at 100%. Each PDF now waits its turn; throughput drops a
+ * little but CPU stays sane.
+ */
+let pdfLock: Promise<void> = Promise.resolve();
+function acquirePdfLock(): Promise<() => void> {
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = pdfLock;
+  pdfLock = next;
+  return prev.then(() => release);
+}
 
 type SharpModule = typeof import("sharp");
 
@@ -48,6 +67,29 @@ export async function renderPdfFromHtml(
   errorContext: string,
   pdfOptions?: PdfOptions
 ): Promise<Buffer> {
+  // Serialize PDF generation — see acquirePdfLock() comment.
+  const releaseLock = await acquirePdfLock();
+
+  try {
+    return await Promise.race([
+      renderPdfFromHtmlImpl(html, errorContext, pdfOptions),
+      new Promise<Buffer>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`PDF render exceeded ${PDF_TOTAL_TIMEOUT_MS}ms total budget`)),
+          PDF_TOTAL_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+  } finally {
+    releaseLock();
+  }
+}
+
+async function renderPdfFromHtmlImpl(
+  html: string,
+  errorContext: string,
+  pdfOptions?: PdfOptions
+): Promise<Buffer> {
   const { chromium } = await import("playwright");
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let launchError: unknown = null;
@@ -66,9 +108,11 @@ export async function renderPdfFromHtml(
   }
 
   const sharp = await loadSharp();
+  let context: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+  let page: Awaited<ReturnType<NonNullable<typeof context>["newPage"]>> | null = null;
 
   try {
-    const context = await browser.newContext();
+    context = await browser.newContext();
 
     if (sharp) {
       // Resize images on the wire before they're embedded in the PDF.
@@ -107,7 +151,7 @@ export async function renderPdfFromHtml(
       });
     }
 
-    const page = await context.newPage();
+    page = await context.newPage();
     await page.setContent(html, {
       waitUntil: "domcontentloaded",
       timeout: PDF_RENDER_TIMEOUT_MS,
@@ -140,7 +184,12 @@ export async function renderPdfFromHtml(
     });
     return Buffer.from(pdf);
   } finally {
-    await browser.close();
+    // Always close in reverse order. Each step is independently guarded —
+    // if context.close() throws (e.g. on a crashed page), we still try
+    // to close the browser so Chromium doesn't linger as a zombie process.
+    if (page) await page.close().catch(() => {});
+    if (context) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
