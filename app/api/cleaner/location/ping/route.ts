@@ -22,11 +22,43 @@ const bodySchema = z.union([
 
 export const dynamic = "force-dynamic";
 
+// Per-user rate limit — at most one ping batch every RATE_LIMIT_MS.
+// Client GPS interval is 30s; this gives lots of headroom but stops a
+// buggy / malicious client from flooding the endpoint.
+const RATE_LIMIT_MS = 10_000;
+const STALE_PING_MS = 5 * 60_000;
+
+const globalRef = globalThis as unknown as { __sneekPingRateLimit?: Map<string, number> };
+if (!globalRef.__sneekPingRateLimit) globalRef.__sneekPingRateLimit = new Map();
+const lastPingByUser = globalRef.__sneekPingRateLimit;
+
+// Opportunistic cleanup so the map can't grow unbounded.
+function pruneRateLimitMap(now: number) {
+  if (lastPingByUser.size < 1000) return;
+  for (const [k, t] of lastPingByUser) {
+    if (now - t > 60_000) lastPingByUser.delete(k);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const userId = session.user.id;
+  const now = new Date();
+  const nowMs = now.getTime();
+
+  const last = lastPingByUser.get(userId);
+  if (last && nowMs - last < RATE_LIMIT_MS) {
+    return NextResponse.json(
+      { error: "Rate limited", retryAfterMs: RATE_LIMIT_MS - (nowMs - last) },
+      { status: 429 },
+    );
+  }
+  lastPingByUser.set(userId, nowMs);
+  pruneRateLimitMap(nowMs);
 
   let body: unknown;
   try {
@@ -43,13 +75,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const pings = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
-  if (pings.length === 0) {
-    return NextResponse.json({ ok: true, received: 0 });
-  }
+  const rawPings = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
 
-  const userId = session.user.id;
-  const now = new Date();
+  // Drop any ping older than STALE_PING_MS — prevents a queue-flush from
+  // a previously-offline client from spamming us with ancient data.
+  const pings = rawPings.filter((p) => {
+    if (!p.timestamp) return true;
+    return nowMs - new Date(p.timestamp).getTime() < STALE_PING_MS;
+  });
+
+  if (pings.length === 0) {
+    return NextResponse.json({ ok: true, received: 0, dropped: rawPings.length });
+  }
 
   // Persist all pings
   await db.cleanerLocationPing.createMany({
@@ -85,6 +122,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     received: pings.length,
+    dropped: rawPings.length - pings.length,
     geofence: geofenceResult,
   });
 }
