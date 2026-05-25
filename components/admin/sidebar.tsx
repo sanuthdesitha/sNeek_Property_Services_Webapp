@@ -39,6 +39,7 @@ import {
   Zap,
   ClipboardCheck,
   Trophy,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -106,6 +107,12 @@ export const ADMIN_NAV_GROUPS = [
     items: [
       { label: "Settings", href: "/admin/settings", icon: Settings },
       { label: "Profile", href: "/admin/profile", icon: UserCircle2 },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { label: "Diagnostics", href: "/admin/system/diagnostics", icon: Activity },
     ],
   },
 ] as const;
