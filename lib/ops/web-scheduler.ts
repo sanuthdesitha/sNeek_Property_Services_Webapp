@@ -7,6 +7,7 @@ import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 
 const WEB_SCHEDULER_MIN_INTERVAL_MS = 5 * 60_000;
+const WEB_SCHEDULER_ENABLED = process.env.SNEEK_WEB_SCHEDULER_ENABLED === "true";
 
 type SchedulerState = {
   running: boolean;
@@ -37,6 +38,10 @@ async function runScheduledTick() {
 }
 
 export function kickWebScheduledOps() {
+  // Emergency production safety: scheduled jobs must not run inside the
+  // request-serving Next.js process unless explicitly enabled. The proper
+  // place for this work is the isolated pg-boss worker container.
+  if (!WEB_SCHEDULER_ENABLED) return;
   if (process.env.SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK === "1") return;
 
   const state = getState();
