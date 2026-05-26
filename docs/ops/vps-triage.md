@@ -183,10 +183,18 @@ this topology before chasing any other CPU optimization.
 
 ## 11. Kill switches — disable specific jobs without redeploying
 
-The worker entry point honours two env vars defined in `workers/boss.ts`:
+The worker entry point honours three env vars defined in `workers/boss.ts`:
 
-- `SNEEK_WORKERS_DISABLED=true` — `main()` exits immediately. Use on the
-  web container.
+- **`SNEEK_WORKERS_ENABLED=true`** — **required** to actually run workers.
+  This is the post-May-2026 inversion: workers are now OPT-IN. If this is
+  not set to literally `"true"`, `main()` logs a warning and exits with
+  status 0 immediately. The intent is that any new deploy / restart starts
+  with all scheduled jobs OFF until ops explicitly turns them on, which
+  guarantees no scheduled-job CPU draw can stack up unobserved.
+- `SNEEK_WORKERS_DISABLED=true` — explicit force-disable that wins even
+  when `SNEEK_WORKERS_ENABLED=true` is set. Use on the web container so a
+  single image can serve both roles without the web process ever
+  accidentally spawning pg-boss listeners.
 - `SNEEK_DISABLED_JOBS="ical-sync,reminder-dispatch,recurring-job-generate"`
   — comma-separated list of job names to skip when registering schedules
   and workers. Use on the worker container to **bisect** which job is
@@ -226,3 +234,43 @@ google-reviews-refresh, location-pings-cleanup
 | iCal fetch hangs on dead feed | 15s `AbortController` timeout | `lib/ical/sync.ts` |
 | Concurrent Chromium instances | Single-flight semaphore + 60s total timeout + explicit `page` / `context` close | `lib/reports/pdf.ts` |
 | GPS ping flood from buggy client | 10s per-user rate limit + reject pings older than 5 min | `app/api/cleaner/location/ping/route.ts` |
+
+## 13. Detecting CPU steal time (hypervisor throttling)
+
+If the VPS host node is oversold, the hypervisor takes CPU cycles away from your VM
+to give to other tenants. From inside the VM this LOOKS identical to "97% CPU used"
+but no amount of optimization fixes it — only migrating to a less-loaded host node
+or upgrading to a CPU-dedicated tier.
+
+### Detect
+
+```bash
+top -bn1 | head -3
+```
+
+Look at the third line:
+
+```
+%Cpu(s):  5.0 us,  5.0 sy,  0.0 ni,  0.0 id,  0.0 wa,  0.0 hi,  0.0 si, 90.0 st
+```
+
+The `st` value is steal time as a percent. Any value > 5% is concerning. > 25% is
+crippling. Combined with high load average and low userland CPU, it's diagnostic.
+
+Or visit `/admin/system/diagnostics` — the page surfaces this in a red panic banner
+when steal time exceeds 25%, and the `CPU steal` stat tile shows the live percent at
+all times. The page also surfaces the 1m/5m/15m Linux load averages and free RAM so
+you can sanity-check the hypervisor's story against the in-VM view.
+
+### Fix
+
+1. Contact your VPS provider — most will migrate the VM to a less-loaded host node
+   for free if you point out the steal time number.
+2. Upgrade to a CPU-dedicated tier:
+   - Hetzner Cloud CPX (dedicated vCPU)
+   - DigitalOcean CPU-Optimized droplets
+   - AWS EC2 c-series
+   - Linode Dedicated CPU
+   - Vultr High Frequency
+3. Do not waste time optimizing application code — steal time is not affected by
+   application changes.
