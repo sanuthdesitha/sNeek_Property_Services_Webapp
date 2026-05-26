@@ -17,6 +17,16 @@ import {
 
 type Snapshot = {
   capturedAt: string;
+  os?: {
+    platform: string;
+    cpuCount: number;
+    loadAvg1m: number;
+    loadAvg5m: number;
+    loadAvg15m: number;
+    totalMemMB: number;
+    freeMemMB: number;
+    cpuStealPercent: number | null;
+  };
   process: {
     pid: number;
     uptimeSeconds: number;
@@ -168,12 +178,91 @@ export function DiagnosticsClient() {
   const jobBand: "good" | "warn" | "bad" =
     failedJobs > 0 ? "bad" : retryJobs > 0 ? "warn" : "good";
 
+  const os = snap.os;
+  const stealCritical = os?.cpuStealPercent != null && os.cpuStealPercent > 25;
+  const loadSaturated = os ? os.loadAvg1m > os.cpuCount * 2 : false;
+
   return (
     <div className="space-y-6">
       {error ? (
         <Card className="border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
           Last poll failed: {error}. Still showing the previous snapshot.
         </Card>
+      ) : null}
+
+      {os ? (
+        <>
+          {/* RED panic banner: steal time > 25% — the VPS hypervisor is throttling us */}
+          {stealCritical ? (
+            <Card className="border-destructive/40 bg-destructive/10 p-4">
+              <p className="text-sm font-semibold text-destructive">
+                VPS hypervisor is stealing CPU — {os.cpuStealPercent!.toFixed(0)}% steal time
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your hosting provider&apos;s physical host is oversold. The VM is starved of CPU
+                cycles by other tenants. This is <strong>not</strong> a code problem — migrate
+                to a CPU-dedicated VPS tier (Hetzner CPX, DigitalOcean CPU-Optimized, Linode
+                Dedicated CPU, Vultr High Frequency) or open a support ticket with your current
+                provider asking them to migrate this VPS to a less-loaded host node.
+              </p>
+            </Card>
+          ) : null}
+
+          {/* AMBER warning: load avg > 2× CPU count — system saturated */}
+          {loadSaturated ? (
+            <Card className="border-amber-500/40 bg-amber-500/10 p-4">
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                System load saturated — {os.loadAvg1m.toFixed(2)} load on {os.cpuCount} CPUs
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Run queue is more than twice the CPU count. Processes are waiting for CPU.
+                Combined with the steal time figure, this confirms the host node is oversold —
+                see <code className="rounded bg-surface-raised px-1 py-0.5">docs/ops/vps-triage.md §12</code>.
+              </p>
+            </Card>
+          ) : null}
+
+          {/* Always-visible OS stat tiles */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Load (1m)"
+              value={os.loadAvg1m.toFixed(2)}
+              status={loadSaturated ? "bad" : os.loadAvg1m > os.cpuCount ? "warn" : "good"}
+              sub={`${os.cpuCount} CPU${os.cpuCount === 1 ? "" : "s"} · 5m ${os.loadAvg5m.toFixed(2)} · 15m ${os.loadAvg15m.toFixed(2)}`}
+            />
+            <StatCard
+              label="CPU steal"
+              value={os.cpuStealPercent != null ? `${os.cpuStealPercent.toFixed(0)}%` : "—"}
+              status={
+                os.cpuStealPercent == null
+                  ? undefined
+                  : os.cpuStealPercent > 25
+                    ? "bad"
+                    : os.cpuStealPercent > 5
+                      ? "warn"
+                      : "good"
+              }
+              sub={os.cpuStealPercent != null ? "hypervisor stolen cycles" : "Linux-only metric"}
+            />
+            <StatCard
+              label="Free RAM"
+              value={`${os.freeMemMB} MB`}
+              status={
+                os.freeMemMB < os.totalMemMB * 0.1
+                  ? "bad"
+                  : os.freeMemMB < os.totalMemMB * 0.2
+                    ? "warn"
+                    : "good"
+              }
+              sub={`of ${os.totalMemMB} MB total`}
+            />
+            <StatCard
+              label="OS"
+              value={os.platform}
+              sub={`${(os.totalMemMB / 1024).toFixed(1)} GB RAM · ${os.cpuCount} vCPU`}
+            />
+          </div>
+        </>
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

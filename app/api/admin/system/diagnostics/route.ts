@@ -1,11 +1,53 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Role } from "@prisma/client";
+import { loadavg, totalmem, freemem, cpus, platform } from "os";
+import { readFile } from "node:fs/promises";
 import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Read CPU steal-time as a percent of total CPU time over a 500ms window
+ * by sampling /proc/stat twice.
+ *
+ * Steal time is the percentage of CPU cycles the hypervisor took away from
+ * this VM to give to other tenants on the same host. From inside the VM
+ * this LOOKS identical to high CPU usage but no app-level fix will help —
+ * only migrating to a less-loaded host node or a CPU-dedicated tier.
+ *
+ * Returns `null` on non-Linux platforms (Windows dev boxes) or if /proc/stat
+ * is unreadable.
+ */
+async function getCpuStealPercent(): Promise<number | null> {
+  if (platform() !== "linux") return null;
+  try {
+    const sample = async () => {
+      const stat = await readFile("/proc/stat", "utf8");
+      const cpuLine = stat.split("\n")[0]; // aggregate "cpu" line
+      const fields = cpuLine
+        .trim()
+        .split(/\s+/)
+        .slice(1)
+        .map(Number);
+      // user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice
+      const steal = fields[7] ?? 0;
+      const total = fields.reduce((a, b) => a + b, 0);
+      return { steal, total };
+    };
+    const a = await sample();
+    await new Promise((r) => setTimeout(r, 500));
+    const b = await sample();
+    const totalDelta = b.total - a.total;
+    const stealDelta = b.steal - a.steal;
+    if (totalDelta <= 0) return null;
+    return (stealDelta / totalDelta) * 100;
+  } catch {
+    return null;
+  }
+}
 
 // Pull global state set by the SSE stream + workers.
 type SseState = { active: number };
@@ -40,6 +82,11 @@ export async function GET() {
   if (session?.user?.role !== Role.ADMIN) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  // --- OS / hypervisor signals -----------------------------------------
+  // Sampled in parallel with the CPU sample below so we don't add an
+  // extra 500ms of latency to the diagnostics endpoint.
+  const stealPromise = getCpuStealPercent();
 
   // --- Process ----------------------------------------------------------
   const mem = process.memoryUsage();
@@ -125,8 +172,23 @@ export async function GET() {
     )
     .catch(() => [] as PgSlowQueryRow[]);
 
+  const stealPercent = await stealPromise;
+  const cpuCount = cpus().length;
+  const load = loadavg();
+  const osInfo = {
+    platform: platform(),
+    cpuCount,
+    loadAvg1m: load[0],
+    loadAvg5m: load[1],
+    loadAvg15m: load[2],
+    totalMemMB: Math.round(totalmem() / 1024 / 1024),
+    freeMemMB: Math.round(freemem() / 1024 / 1024),
+    cpuStealPercent: stealPercent,
+  };
+
   return NextResponse.json({
     capturedAt: new Date().toISOString(),
+    os: osInfo,
     process: {
       pid: process.pid,
       uptimeSeconds: Math.round(uptime),
