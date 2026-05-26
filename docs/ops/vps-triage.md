@@ -274,3 +274,83 @@ you can sanity-check the hypervisor's story against the in-VM view.
    - Vultr High Frequency
 3. Do not waste time optimizing application code — steal time is not affected by
    application changes.
+
+## §14. Why migrations were moved OUT of container startup
+
+### Symptom
+
+VPS CPU sustained 97-100%. `top` shows multiple `node` + `npx prisma migrate deploy` processes. `docker ps` shows 5+ preview-* containers all in restart loops.
+
+### Root cause
+
+The Dockerfile previously had:
+
+```
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+```
+
+Combined with Dokploy auto-creating per-branch preview deployments, every preview replica + every container restart re-ran `prisma migrate deploy` against the same shared production DB. They fought for the migrate-lock row in `_prisma_migrations`, each waiting on the others, never finishing, container health-checks failing, Docker restart-policy looping the container → sustained 100% CPU.
+
+Confirmed by Hostinger support on 2026-05-27: also triggered Hostinger's weekly CPU-cap policy, throttling the VPS.
+
+### Fix (already applied)
+
+Dockerfile now starts the app with just `npm run start`. Migrations are a separate manual step.
+
+### How to apply migrations now (after the fix)
+
+Choose one path:
+
+**A. One-off run inside a temporary container (recommended)**
+
+```
+docker run --rm \
+  --env-file=/path/to/.env \
+  sneek-property-services-webapp:latest \
+  npx prisma migrate deploy
+```
+
+The container starts, runs migrate, exits. No restart loop. Run this BEFORE redeploying the app.
+
+**B. From inside a running container**
+
+```
+docker exec -it sneek-property-services-webapp-mbexyc.1.<hash> npx prisma migrate deploy
+```
+
+**C. Via the helper script**
+
+```
+docker exec -it <container> sh /app/scripts/migrate-once.sh
+```
+
+**D. From your local machine pointed at the prod DB (only if .env locally has prod DATABASE_URL)**
+
+```
+npm run db:deploy
+```
+
+### Dokploy UI changes after this fix
+
+1. Open each service in Dokploy → **Build/Start command** field
+2. Remove `npx prisma migrate deploy && ` from the front
+3. The field should read just `npm run start` (or whatever the post-`&&` portion was)
+4. Save → next deploy uses the new command
+
+For **preview deployments specifically**:
+- Either disable preview auto-deploy entirely (project settings)
+- Or set preview's start command to skip migrations: `npm run start` (the production deployment is the only one that should ever migrate)
+
+### How to know if you still have orphan previews
+
+```
+docker service ls | grep preview          # swarm-mode
+docker ps --filter "name=preview"          # standalone
+```
+
+Both lists should be empty for production VPS. If either shows entries, run:
+
+```
+docker service ls --format "{{.Name}}" | grep "^preview" | xargs -r docker service rm
+docker ps -aq --filter "name=preview"     | xargs -r docker rm -f
+```
