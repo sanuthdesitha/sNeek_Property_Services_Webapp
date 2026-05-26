@@ -1,3 +1,7 @@
+// SCHEDULE FREQUENCIES — reduced during the May 2026 CPU overload.
+// To restore tighter cadence after diagnosing the runaway, edit the cron
+// expressions below. See docs/ops/vps-triage.md for the bisect playbook.
+
 /**
  * pg-boss worker entry point.
  * Run with: tsx workers/boss.ts
@@ -182,7 +186,7 @@ async function main() {
   logger.info("pg-boss started");
 
   if (jobEnabled("ical-sync")) {
-    await boss.schedule("ical-sync", "*/40 * * * *", {});
+    await boss.schedule("ical-sync", "0 */4 * * *", {});
     await boss.work("ical-sync", safeHandler("ical-sync", async () => {
       logger.info("Running iCal sync");
       await syncAllIcal();
@@ -190,21 +194,21 @@ async function main() {
   }
 
   if (jobEnabled("reminder-dispatch")) {
-    await boss.schedule("reminder-dispatch", "*/5 * * * *", {});
+    await boss.schedule("reminder-dispatch", "*/30 * * * *", {});
     await boss.work<{ jobId?: string }>("reminder-dispatch", safeHandler("reminder-dispatch", async () => {
       await dispatchJobReminders({ reminderType: "ALL" });
     }));
   }
 
   if (jobEnabled("job-task-auto-approve")) {
-    await boss.schedule("job-task-auto-approve", "*/5 * * * *", {});
+    await boss.schedule("job-task-auto-approve", "0 * * * *", {});
     await boss.work("job-task-auto-approve", safeHandler("job-task-auto-approve", async () => {
       await autoApprovePendingClientJobTasks(new Date());
     }));
   }
 
   if (jobEnabled("case-follow-up")) {
-    await boss.schedule("case-follow-up", "0 * * * *", {});
+    await boss.schedule("case-follow-up", "0 */4 * * *", {});
     await boss.work("case-follow-up", safeHandler("case-follow-up", async () => {
       const result = await sendStaleCaseFollowUps(new Date());
       if (result.alertedCases > 0) {
@@ -228,14 +232,14 @@ async function main() {
   }
 
   if (jobEnabled("stock-alerts")) {
-    await boss.schedule("stock-alerts", "*/15 * * * *", {});
+    await boss.schedule("stock-alerts", "0 */2 * * *", {});
     await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
       await sendStockAlerts();
     }));
   }
 
   if (jobEnabled("admin-attention-summary")) {
-    await boss.schedule("admin-attention-summary", "*/15 * * * *", {});
+    await boss.schedule("admin-attention-summary", "0 * * * *", {});
     await boss.work("admin-attention-summary", safeHandler("admin-attention-summary", async () => {
       const result = await sendAdminAttentionSummary({ now: new Date() });
       if (result.skipped?.length) return;
@@ -244,7 +248,7 @@ async function main() {
   }
 
   if (jobEnabled("tomorrow-prep-dispatch")) {
-    await boss.schedule("tomorrow-prep-dispatch", "*/15 * * * *", {});
+    await boss.schedule("tomorrow-prep-dispatch", "0 */2 * * *", {});
     await boss.work("tomorrow-prep-dispatch", safeHandler("tomorrow-prep-dispatch", async () => {
       const result = await dispatchTomorrowPrepSummaries(new Date());
       if ("skipped" in result) return;
@@ -253,7 +257,7 @@ async function main() {
   }
 
   if (jobEnabled("workforce-post-dispatch")) {
-    await boss.schedule("workforce-post-dispatch", "*/5 * * * *", {});
+    await boss.schedule("workforce-post-dispatch", "0 * * * *", {});
     await boss.work("workforce-post-dispatch", safeHandler("workforce-post-dispatch", async () => {
       const result = await dispatchScheduledWorkforcePosts(new Date());
       if (result.dispatched > 0) {
@@ -263,7 +267,7 @@ async function main() {
   }
 
   if (jobEnabled("email-campaign-dispatch")) {
-    await boss.schedule("email-campaign-dispatch", "*/5 * * * *", {});
+    await boss.schedule("email-campaign-dispatch", "0 * * * *", {});
     await boss.work("email-campaign-dispatch", safeHandler("email-campaign-dispatch", async () => {
       const result = await dispatchScheduledEmailCampaigns(new Date());
       if (result.campaigns > 0) {
@@ -274,7 +278,7 @@ async function main() {
 
   // Marketing engine v1 — multi-channel campaign dispatcher
   if (jobEnabled("marketing-campaign-dispatch")) {
-    await boss.schedule("marketing-campaign-dispatch", "*/5 * * * *", {});
+    await boss.schedule("marketing-campaign-dispatch", "0 * * * *", {});
     await boss.work("marketing-campaign-dispatch", safeHandler("marketing-campaign-dispatch", async () => {
       const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
       const result = await dispatchDueCampaigns(new Date());
@@ -285,7 +289,7 @@ async function main() {
   }
 
   if (jobEnabled("sla-escalation")) {
-    await boss.schedule("sla-escalation", "*/15 * * * *", {});
+    await boss.schedule("sla-escalation", "0 * * * *", {});
     await boss.work("sla-escalation", safeHandler("sla-escalation", async () => {
       const result = await runSlaEscalation(new Date());
       if (result.warned > 0 || result.escalated > 0) {
@@ -295,7 +299,7 @@ async function main() {
   }
 
   if (jobEnabled("safety-checkin-alerts")) {
-    await boss.schedule("safety-checkin-alerts", "*/10 * * * *", {});
+    await boss.schedule("safety-checkin-alerts", "*/30 * * * *", {});
     await boss.work("safety-checkin-alerts", safeHandler("safety-checkin-alerts", async () => {
       const result = await runSafetyCheckinAlerts(new Date());
       if (result.alerted > 0) {
@@ -305,7 +309,7 @@ async function main() {
   }
 
   if (jobEnabled("recurring-job-generate")) {
-    await boss.schedule("recurring-job-generate", "5 0 * * *", {});
+    await boss.schedule("recurring-job-generate", "5 3 * * *", {});
     await boss.work("recurring-job-generate", safeHandler("recurring-job-generate", async () => {
       const settings = await getAppSettings();
       if (!settings.recurringJobs.enabled) return;
@@ -321,7 +325,7 @@ async function main() {
   }
 
   if (jobEnabled("document-expiry-check")) {
-    await boss.schedule("document-expiry-check", "0 8 * * *", {});
+    await boss.schedule("document-expiry-check", "0 8 * * 1", {});
     await boss.work("document-expiry-check", safeHandler("document-expiry-check", async () => {
       const result = await runDocumentExpiryCheck(new Date());
       if (result.warned > 0 || result.expired > 0) {
@@ -410,7 +414,7 @@ async function main() {
   }
 
   if (jobEnabled("google-reviews-refresh")) {
-    await boss.schedule("google-reviews-refresh", "0 3 * * *", {});
+    await boss.schedule("google-reviews-refresh", "0 3 * * 1", {});
     await boss.work("google-reviews-refresh", safeHandler("google-reviews-refresh", async () => {
       const payload = await refreshGoogleReviewsCache();
       if (payload) {
