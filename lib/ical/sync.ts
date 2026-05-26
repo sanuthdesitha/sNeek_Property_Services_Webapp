@@ -1244,13 +1244,49 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
   return result;
 }
 
+/**
+ * Bounded concurrency pool. Workers pull from a shared index so we
+ * never have more than `limit` in-flight at once. Errors in one item
+ * are swallowed (caller decides how to record them) so a single bad
+ * feed cannot poison the rest of the batch.
+ *
+ * Cap chosen at 4 so a property portfolio that grows past ~20 feeds
+ * doesn't accidentally fan out to dozens of parallel TCP fetches every
+ * 40 minutes. Each feed still has a 15s `AbortController` timeout in
+ * `syncPropertyIcal`, so the worst case for the whole batch is bounded.
+ */
+const ICAL_SYNC_CONCURRENCY = 4;
+
+async function withConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let cursor = 0;
+  const worker = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        await fn(items[i], i);
+      } catch (err) {
+        // Caller is responsible for per-item error recording. Swallow
+        // here so one bad feed cannot collapse the whole pool.
+        logger.error({ err, index: i }, "[ical] pool worker absorbed unexpected error");
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 export async function syncAllIcal(): Promise<void> {
   const integrations = await db.integration.findMany({
     where: { isEnabled: true, icalUrl: { not: null } },
     select: { id: true, propertyId: true },
   });
 
-  for (const intg of integrations) {
+  await withConcurrency(integrations, ICAL_SYNC_CONCURRENCY, async (intg) => {
     try {
       await syncPropertyIcal(intg.id, { mode: "AUTO" });
     } catch (err: any) {
@@ -1259,7 +1295,7 @@ export async function syncAllIcal(): Promise<void> {
         "Automatic iCal sync failed for one integration"
       );
     }
-  }
+  });
 }
 
 export async function syncAllIcalIfDue(now = new Date()) {
@@ -1279,7 +1315,7 @@ export async function syncAllIcalIfDue(now = new Date()) {
   let succeeded = 0;
   let failed = 0;
 
-  for (const integration of integrations) {
+  await withConcurrency(integrations, ICAL_SYNC_CONCURRENCY, async (integration) => {
     attempted += 1;
     try {
       await syncPropertyIcal(integration.id, { mode: "AUTO" });
@@ -1296,7 +1332,7 @@ export async function syncAllIcalIfDue(now = new Date()) {
         "Due automatic iCal sync failed"
       );
     }
-  }
+  });
 
   return {
     attempted,
