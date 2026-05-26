@@ -131,7 +131,93 @@ ssh -L 9229:localhost:9229 user@vps
 Take a CPU profile for 30-60 seconds during the high-CPU window. The top
 of the flame graph will name the function on hot CPU.
 
-## 10. Known fixes already shipped
+## 10. Worker / web isolation
+
+If workers and the web app share a Node process, a runaway worker job
+(e.g. iCal sync stuck on a dead feed, or a Playwright PDF render that
+won't release Chromium) directly steals CPU from web requests. The
+user-facing symptom: pages slow + 97% CPU.
+
+Recommended deployment topology:
+
+- **Web container**: runs `npm start`. Handles HTTP requests only. Set
+  `SNEEK_WORKERS_DISABLED=true` so even if the image accidentally ran
+  `workers/boss.ts`, it would exit immediately.
+- **Worker container**: runs `npx tsx workers/boss.ts` (or a
+  `workers:start` script). Imports the same codebase but only registers
+  pg-boss listeners.
+
+`docker-compose.yml` snippet:
+
+```yaml
+services:
+  web:
+    image: sneek-ops-dashboard
+    command: npm start
+    environment:
+      - SNEEK_WORKERS_DISABLED=true  # safety belt — guarantees web never spawns workers
+    cpus: 2.0
+    mem_limit: 1.5g
+    restart: unless-stopped
+
+  worker:
+    image: sneek-ops-dashboard
+    command: npx tsx workers/boss.ts
+    cpus: 1.0
+    mem_limit: 1g
+    restart: unless-stopped
+    depends_on:
+      - postgres
+```
+
+Why this is the single highest-leverage perf change:
+
+- Worker CPU spikes don't slow web requests.
+- Restarting the worker container clears a stuck job (orphaned Chromium,
+  hung iCal fetch, runaway loop) without dropping web traffic.
+- Each container gets its own `--cpus` / `--memory` cap so the runaway
+  cannot pin the entire host.
+
+If you're currently running everything in a single container, switch to
+this topology before chasing any other CPU optimization.
+
+## 11. Kill switches — disable specific jobs without redeploying
+
+The worker entry point honours two env vars defined in `workers/boss.ts`:
+
+- `SNEEK_WORKERS_DISABLED=true` — `main()` exits immediately. Use on the
+  web container.
+- `SNEEK_DISABLED_JOBS="ical-sync,reminder-dispatch,recurring-job-generate"`
+  — comma-separated list of job names to skip when registering schedules
+  and workers. Use on the worker container to **bisect** which job is
+  burning CPU:
+
+  1. Disable the most suspicious job (start with `ical-sync` — it does
+     network I/O across N feeds).
+  2. Restart the worker container.
+  3. Watch `top` / `/admin/system/diagnostics` for 10 minutes.
+  4. If CPU dropped, you have your culprit. If not, re-enable that job
+     and disable the next suspect.
+
+Combine with the "Worker job runtime — last hour" card on
+`/admin/system/diagnostics` for a faster diagnosis: any job at ≥25% of
+an hour is almost certainly the offender. Disable that one first.
+
+Job names match the strings passed to `boss.schedule()` and `boss.work()`
+in `workers/boss.ts`. Current list:
+
+```
+ical-sync, reminder-dispatch, job-task-auto-approve, case-follow-up,
+weekly-laundry-plan, stock-alerts, admin-attention-summary,
+tomorrow-prep-dispatch, workforce-post-dispatch, email-campaign-dispatch,
+marketing-campaign-dispatch, sla-escalation, safety-checkin-alerts,
+recurring-job-generate, document-expiry-check, daily-invoice-generation,
+recognition-check, report-generate, post-job-followup,
+daily-ops-briefing, follow-up-1d, follow-up-3d, follow-up-14d,
+google-reviews-refresh, location-pings-cleanup
+```
+
+## 12. Known fixes already shipped
 
 | Issue | Fix | File |
 | --- | --- | --- |
