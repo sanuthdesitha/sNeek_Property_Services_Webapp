@@ -26,7 +26,11 @@ type Snapshot = {
     platform: string;
   };
   sse: { liveLocationsActive: number };
-  workers: { recentFailures: { jobName: string; at: string; error: string }[] };
+  workers: {
+    recentFailures: { jobName: string; at: string; error: string }[];
+    jobStats: { name: string; count: number; totalMs: number; maxMs: number; failures: number; percentOfHour: number }[];
+    runsObserved: number;
+  };
   db: {
     activeQueries: { pid: number; user: string | null; state: string | null; seconds: number; query: string }[];
     jobsByState: { state: string; count: number }[];
@@ -87,6 +91,21 @@ function formatUptime(secs: number) {
   if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
   return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  return `${m}m ${remS}s`;
+}
+
+function jobLoadBand(percent: number): "good" | "warn" | "bad" {
+  if (percent >= 25) return "bad";
+  if (percent >= 10) return "warn";
+  return "good";
 }
 
 export function DiagnosticsClient() {
@@ -232,6 +251,60 @@ export function DiagnosticsClient() {
                 <span className="ml-2 tabular-nums text-muted-foreground">{row.count}</span>
               </span>
             ))}
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Worker job runtime — last hour</h2>
+          <span className="text-xs text-muted-foreground">
+            {snap.workers.runsObserved} run{snap.workers.runsObserved === 1 ? "" : "s"} observed in this process
+          </span>
+        </div>
+        {snap.workers.jobStats.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No worker job runs observed in this process. If workers run in a separate container from the web app
+            (recommended — see docs/ops/vps-triage.md §10), check the worker container&apos;s logs directly. Otherwise
+            no scheduled jobs have fired in the last hour yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-left text-muted-foreground">
+                  <th className="py-1.5 pr-2 font-medium">Job</th>
+                  <th className="py-1.5 pr-2 font-medium">Runs</th>
+                  <th className="py-1.5 pr-2 font-medium">Total time</th>
+                  <th className="py-1.5 pr-2 font-medium">Max run</th>
+                  <th className="py-1.5 pr-2 font-medium">% of hour</th>
+                  <th className="py-1.5 pr-2 font-medium">Failures</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snap.workers.jobStats.map((j) => {
+                  const b = jobLoadBand(j.percentOfHour);
+                  return (
+                    <tr key={j.name} className="border-b border-border/40">
+                      <td className="py-1.5 pr-2 font-mono text-[11px]">{j.name}</td>
+                      <td className="py-1.5 pr-2 tabular-nums">{j.count}</td>
+                      <td className="py-1.5 pr-2 tabular-nums">{formatDuration(j.totalMs)}</td>
+                      <td className="py-1.5 pr-2 tabular-nums">{formatDuration(j.maxMs)}</td>
+                      <td className="py-1.5 pr-2">
+                        <BandPill status={b}>{j.percentOfHour}%</BandPill>
+                      </td>
+                      <td className={cn("py-1.5 pr-2 tabular-nums", j.failures > 0 ? "text-destructive" : "")}>
+                        {j.failures}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Yellow ≥10%, red ≥25% of an hour of wall time. A red row is almost certainly the CPU offender — disable it with{" "}
+              <code className="rounded bg-surface-raised px-1 py-0.5">SNEEK_DISABLED_JOBS=&lt;name&gt;</code> and restart the worker.
+            </p>
           </div>
         )}
       </Card>

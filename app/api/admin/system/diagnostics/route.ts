@@ -10,9 +10,11 @@ export const dynamic = "force-dynamic";
 // Pull global state set by the SSE stream + workers.
 type SseState = { active: number };
 type WorkerFailure = { jobName: string; at: string; error: string };
+type JobRun = { name: string; ok: boolean; durationMs: number; error?: string; finishedAt: number };
 const globalRef = globalThis as unknown as {
   __sneekSseLiveLocations?: SseState;
   __sneekWorkerFailures?: WorkerFailure[];
+  __sneekJobRuns?: JobRun[];
 };
 
 type PgActivityRow = {
@@ -57,6 +59,36 @@ export async function GET() {
 
   // --- Worker failures --------------------------------------------------
   const recentFailures = (globalRef.__sneekWorkerFailures ?? []).slice(-20).reverse();
+
+  // --- Per-job runtime aggregation (last hour) --------------------------
+  // Heaviest jobs by total wall time in the last hour. >10% of an hour is
+  // suspicious, >25% is the CPU offender. This snapshot only sees runs
+  // from the CURRENT process — if workers run in a separate container
+  // from the web app (the recommended topology, see docs/ops/vps-triage.md
+  // §10), this list will be empty here and visible only on the worker
+  // container's stats. The UI calls this out so it's not misread as "no
+  // jobs running".
+  const allRuns = globalRef.__sneekJobRuns ?? [];
+  const oneHourAgo = Date.now() - 60 * 60_000;
+  const recentRuns = allRuns.filter((r) => r.finishedAt > oneHourAgo);
+  const byJob: Record<string, { count: number; totalMs: number; failures: number; maxMs: number }> = {};
+  for (const r of recentRuns) {
+    const entry = (byJob[r.name] ??= { count: 0, totalMs: 0, failures: 0, maxMs: 0 });
+    entry.count += 1;
+    entry.totalMs += r.durationMs;
+    if (!r.ok) entry.failures += 1;
+    if (r.durationMs > entry.maxMs) entry.maxMs = r.durationMs;
+  }
+  const jobStats = Object.entries(byJob)
+    .map(([name, s]) => ({
+      name,
+      count: s.count,
+      totalMs: s.totalMs,
+      maxMs: s.maxMs,
+      failures: s.failures,
+      percentOfHour: Math.round((s.totalMs / (60 * 60_000)) * 1000) / 10,
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
 
   // --- Postgres ---------------------------------------------------------
   const pgActivity = await db
@@ -113,6 +145,8 @@ export async function GET() {
     },
     workers: {
       recentFailures,
+      jobStats,
+      runsObserved: allRuns.length,
     },
     db: {
       activeQueries: pgActivity.map((r) => ({
