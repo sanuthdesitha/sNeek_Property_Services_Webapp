@@ -41,6 +41,32 @@ const DATABASE_URL = process.env.DATABASE_URL!;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10 * 60_000;
 
 /**
+ * Env-driven kill switches.
+ *
+ * `SNEEK_WORKERS_DISABLED=true` — bail out of `main()` immediately. Use
+ * this on the web container so the web process never accidentally spawns
+ * pg-boss listeners.
+ *
+ * `SNEEK_DISABLED_JOBS=ical-sync,reminder-dispatch,…` — comma-separated
+ * job names to skip when registering schedules. Lets ops disable a
+ * suspect job without redeploying code. See docs/ops/vps-triage.md.
+ */
+const DISABLED_JOBS = new Set(
+  (process.env.SNEEK_DISABLED_JOBS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+function jobEnabled(name: string): boolean {
+  if (DISABLED_JOBS.has(name)) {
+    logger.warn({ jobName: name }, `[boss] Skipping ${name} — disabled via SNEEK_DISABLED_JOBS`);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Recent worker failures — kept in-process so /admin/system/diagnostics can
  * surface them without a separate DB table. Capped at 50 entries.
  */
@@ -60,6 +86,34 @@ function recordFailure(jobName: string, err: unknown) {
 }
 
 /**
+ * Per-job runtime history — lets /admin/system/diagnostics surface which
+ * job is burning CPU.  Kept in-process (no DB write) so it has zero
+ * overhead. Capped at 200 entries; the diagnostics endpoint filters to
+ * the last hour and aggregates by job name.
+ *
+ * NOTE: this lives on `globalThis` so the same process can both run
+ * pg-boss and serve the diagnostics route. If workers run in a SEPARATE
+ * container from the web app (the recommended topology — see
+ * docs/ops/vps-triage.md §10), the diagnostics page on the web container
+ * will NOT see worker stats. In that case check the worker container's
+ * logs directly.
+ */
+type JobRun = { name: string; ok: boolean; durationMs: number; error?: string; finishedAt: number };
+const RUN_HISTORY_LIMIT = 200;
+const globalRunsRef = globalThis as unknown as { __sneekJobRuns?: JobRun[] };
+if (!globalRunsRef.__sneekJobRuns) globalRunsRef.__sneekJobRuns = [];
+const jobRuns = globalRunsRef.__sneekJobRuns;
+
+function recordJobRun(run: Omit<JobRun, "finishedAt">) {
+  jobRuns.push({ ...run, finishedAt: Date.now() });
+  if (jobRuns.length > RUN_HISTORY_LIMIT) jobRuns.splice(0, jobRuns.length - RUN_HISTORY_LIMIT);
+}
+
+export function getRecentJobRuns(): JobRun[] {
+  return jobRuns.slice();
+}
+
+/**
  * Wrap a pg-boss handler so:
  *  - it cannot crash the worker process (try/catch)
  *  - it cannot run longer than `timeoutMs` (Promise.race vs a timer)
@@ -72,6 +126,7 @@ function safeHandler<T>(
   timeoutMs = DEFAULT_HANDLER_TIMEOUT_MS,
 ) {
   return async (job?: { data: T }) => {
+    const start = Date.now();
     try {
       await Promise.race([
         handler(job),
@@ -79,9 +134,16 @@ function safeHandler<T>(
           setTimeout(() => reject(new Error(`Handler timeout after ${timeoutMs}ms`)), timeoutMs),
         ),
       ]);
+      recordJobRun({ name: jobName, ok: true, durationMs: Date.now() - start });
     } catch (err) {
       logger.error({ err, jobName }, `[worker] ${jobName} failed`);
       recordFailure(jobName, err);
+      recordJobRun({
+        name: jobName,
+        ok: false,
+        durationMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
       // Swallow — returning normally tells pg-boss the job is done.
       // This intentionally prevents pg-boss from spinning into a fast
       // retry loop, which is what was pinning CPU at 97%.
@@ -90,6 +152,15 @@ function safeHandler<T>(
 }
 
 async function main() {
+  // Master worker kill-switch. Set on the web container so a single
+  // image can serve both roles without the web process ever spawning
+  // pg-boss listeners by accident (which would defeat container
+  // isolation — see docs/ops/vps-triage.md §10).
+  if (process.env.SNEEK_WORKERS_DISABLED === "true") {
+    logger.warn("[boss] Workers disabled via SNEEK_WORKERS_DISABLED — exiting.");
+    process.exit(0);
+  }
+
   const boss = new PgBoss(DATABASE_URL);
 
   boss.on("error", (err) => logger.error({ err }, "pg-boss error"));
@@ -97,204 +168,257 @@ async function main() {
   await boss.start();
   logger.info("pg-boss started");
 
-  await boss.schedule("ical-sync", "*/40 * * * *", {});
-  await boss.work("ical-sync", safeHandler("ical-sync", async () => {
-    logger.info("Running iCal sync");
-    await syncAllIcal();
-  }));
+  if (jobEnabled("ical-sync")) {
+    await boss.schedule("ical-sync", "*/40 * * * *", {});
+    await boss.work("ical-sync", safeHandler("ical-sync", async () => {
+      logger.info("Running iCal sync");
+      await syncAllIcal();
+    }));
+  }
 
-  await boss.schedule("reminder-dispatch", "*/5 * * * *", {});
-  await boss.work<{ jobId?: string }>("reminder-dispatch", safeHandler("reminder-dispatch", async () => {
-    await dispatchJobReminders({ reminderType: "ALL" });
-  }));
+  if (jobEnabled("reminder-dispatch")) {
+    await boss.schedule("reminder-dispatch", "*/5 * * * *", {});
+    await boss.work<{ jobId?: string }>("reminder-dispatch", safeHandler("reminder-dispatch", async () => {
+      await dispatchJobReminders({ reminderType: "ALL" });
+    }));
+  }
 
-  await boss.schedule("job-task-auto-approve", "*/5 * * * *", {});
-  await boss.work("job-task-auto-approve", safeHandler("job-task-auto-approve", async () => {
-    await autoApprovePendingClientJobTasks(new Date());
-  }));
+  if (jobEnabled("job-task-auto-approve")) {
+    await boss.schedule("job-task-auto-approve", "*/5 * * * *", {});
+    await boss.work("job-task-auto-approve", safeHandler("job-task-auto-approve", async () => {
+      await autoApprovePendingClientJobTasks(new Date());
+    }));
+  }
 
-  await boss.schedule("case-follow-up", "0 * * * *", {});
-  await boss.work("case-follow-up", safeHandler("case-follow-up", async () => {
-    const result = await sendStaleCaseFollowUps(new Date());
-    if (result.alertedCases > 0) {
-      logger.warn({ ...result }, "Stale case follow-up alerts sent");
-    }
-  }));
+  if (jobEnabled("case-follow-up")) {
+    await boss.schedule("case-follow-up", "0 * * * *", {});
+    await boss.work("case-follow-up", safeHandler("case-follow-up", async () => {
+      const result = await sendStaleCaseFollowUps(new Date());
+      if (result.alertedCases > 0) {
+        logger.warn({ ...result }, "Stale case follow-up alerts sent");
+      }
+    }));
+  }
 
-  await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});
-  await boss.work("weekly-laundry-plan", safeHandler("weekly-laundry-plan", async () => {
-    logger.info("Preparing weekly laundry draft");
-    const now = toZonedTime(new Date(), TZ);
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const draft = await buildLaundryPlanDraft(monday);
-    logger.info(
-      { count: draft.length },
-      "Weekly laundry draft calculated. Manual approval in the admin laundry planner is required before tasks go live."
-    );
-  }));
+  if (jobEnabled("weekly-laundry-plan")) {
+    await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});
+    await boss.work("weekly-laundry-plan", safeHandler("weekly-laundry-plan", async () => {
+      logger.info("Preparing weekly laundry draft");
+      const now = toZonedTime(new Date(), TZ);
+      const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const draft = await buildLaundryPlanDraft(monday);
+      logger.info(
+        { count: draft.length },
+        "Weekly laundry draft calculated. Manual approval in the admin laundry planner is required before tasks go live."
+      );
+    }));
+  }
 
-  await boss.schedule("stock-alerts", "*/15 * * * *", {});
-  await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
-    await sendStockAlerts();
-  }));
+  if (jobEnabled("stock-alerts")) {
+    await boss.schedule("stock-alerts", "*/15 * * * *", {});
+    await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
+      await sendStockAlerts();
+    }));
+  }
 
-  await boss.schedule("admin-attention-summary", "*/15 * * * *", {});
-  await boss.work("admin-attention-summary", safeHandler("admin-attention-summary", async () => {
-    const result = await sendAdminAttentionSummary({ now: new Date() });
-    if (result.skipped?.length) return;
-    logger.info({ ...result }, "Admin attention summary sent");
-  }));
+  if (jobEnabled("admin-attention-summary")) {
+    await boss.schedule("admin-attention-summary", "*/15 * * * *", {});
+    await boss.work("admin-attention-summary", safeHandler("admin-attention-summary", async () => {
+      const result = await sendAdminAttentionSummary({ now: new Date() });
+      if (result.skipped?.length) return;
+      logger.info({ ...result }, "Admin attention summary sent");
+    }));
+  }
 
-  await boss.schedule("tomorrow-prep-dispatch", "*/15 * * * *", {});
-  await boss.work("tomorrow-prep-dispatch", safeHandler("tomorrow-prep-dispatch", async () => {
-    const result = await dispatchTomorrowPrepSummaries(new Date());
-    if ("skipped" in result) return;
-    logger.info({ ...result }, "Tomorrow prep summaries sent");
-  }));
+  if (jobEnabled("tomorrow-prep-dispatch")) {
+    await boss.schedule("tomorrow-prep-dispatch", "*/15 * * * *", {});
+    await boss.work("tomorrow-prep-dispatch", safeHandler("tomorrow-prep-dispatch", async () => {
+      const result = await dispatchTomorrowPrepSummaries(new Date());
+      if ("skipped" in result) return;
+      logger.info({ ...result }, "Tomorrow prep summaries sent");
+    }));
+  }
 
-  await boss.schedule("workforce-post-dispatch", "*/5 * * * *", {});
-  await boss.work("workforce-post-dispatch", safeHandler("workforce-post-dispatch", async () => {
-    const result = await dispatchScheduledWorkforcePosts(new Date());
-    if (result.dispatched > 0) {
-      logger.info({ ...result }, "Scheduled workforce posts dispatched");
-    }
-  }));
+  if (jobEnabled("workforce-post-dispatch")) {
+    await boss.schedule("workforce-post-dispatch", "*/5 * * * *", {});
+    await boss.work("workforce-post-dispatch", safeHandler("workforce-post-dispatch", async () => {
+      const result = await dispatchScheduledWorkforcePosts(new Date());
+      if (result.dispatched > 0) {
+        logger.info({ ...result }, "Scheduled workforce posts dispatched");
+      }
+    }));
+  }
 
-  await boss.schedule("email-campaign-dispatch", "*/5 * * * *", {});
-  await boss.work("email-campaign-dispatch", safeHandler("email-campaign-dispatch", async () => {
-    const result = await dispatchScheduledEmailCampaigns(new Date());
-    if (result.campaigns > 0) {
-      logger.info({ ...result }, "Scheduled email campaigns dispatched");
-    }
-  }));
+  if (jobEnabled("email-campaign-dispatch")) {
+    await boss.schedule("email-campaign-dispatch", "*/5 * * * *", {});
+    await boss.work("email-campaign-dispatch", safeHandler("email-campaign-dispatch", async () => {
+      const result = await dispatchScheduledEmailCampaigns(new Date());
+      if (result.campaigns > 0) {
+        logger.info({ ...result }, "Scheduled email campaigns dispatched");
+      }
+    }));
+  }
 
   // Marketing engine v1 — multi-channel campaign dispatcher
-  await boss.schedule("marketing-campaign-dispatch", "*/5 * * * *", {});
-  await boss.work("marketing-campaign-dispatch", safeHandler("marketing-campaign-dispatch", async () => {
-    const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
-    const result = await dispatchDueCampaigns(new Date());
-    if (result.dispatched > 0) {
-      logger.info({ ...result }, "Marketing campaigns dispatched");
-    }
-  }));
+  if (jobEnabled("marketing-campaign-dispatch")) {
+    await boss.schedule("marketing-campaign-dispatch", "*/5 * * * *", {});
+    await boss.work("marketing-campaign-dispatch", safeHandler("marketing-campaign-dispatch", async () => {
+      const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
+      const result = await dispatchDueCampaigns(new Date());
+      if (result.dispatched > 0) {
+        logger.info({ ...result }, "Marketing campaigns dispatched");
+      }
+    }));
+  }
 
-  await boss.schedule("sla-escalation", "*/15 * * * *", {});
-  await boss.work("sla-escalation", safeHandler("sla-escalation", async () => {
-    const result = await runSlaEscalation(new Date());
-    if (result.warned > 0 || result.escalated > 0) {
-      logger.warn({ ...result }, "SLA escalation run");
-    }
-  }));
+  if (jobEnabled("sla-escalation")) {
+    await boss.schedule("sla-escalation", "*/15 * * * *", {});
+    await boss.work("sla-escalation", safeHandler("sla-escalation", async () => {
+      const result = await runSlaEscalation(new Date());
+      if (result.warned > 0 || result.escalated > 0) {
+        logger.warn({ ...result }, "SLA escalation run");
+      }
+    }));
+  }
 
-  await boss.schedule("safety-checkin-alerts", "*/10 * * * *", {});
-  await boss.work("safety-checkin-alerts", safeHandler("safety-checkin-alerts", async () => {
-    const result = await runSafetyCheckinAlerts(new Date());
-    if (result.alerted > 0) {
-      logger.warn({ ...result }, "Safety check-in alerts sent");
-    }
-  }));
+  if (jobEnabled("safety-checkin-alerts")) {
+    await boss.schedule("safety-checkin-alerts", "*/10 * * * *", {});
+    await boss.work("safety-checkin-alerts", safeHandler("safety-checkin-alerts", async () => {
+      const result = await runSafetyCheckinAlerts(new Date());
+      if (result.alerted > 0) {
+        logger.warn({ ...result }, "Safety check-in alerts sent");
+      }
+    }));
+  }
 
-  await boss.schedule("recurring-job-generate", "5 0 * * *", {});
-  await boss.work("recurring-job-generate", safeHandler("recurring-job-generate", async () => {
-    const settings = await getAppSettings();
-    if (!settings.recurringJobs.enabled) return;
-    const startDate = new Date().toISOString().slice(0, 10);
-    const endDate = new Date(Date.now() + settings.recurringJobs.lookaheadDays * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    const result = await generateRecurringJobs({ startDate, endDate });
-    if (result.created > 0) {
-      logger.info({ ...result, startDate, endDate }, "Recurring jobs generated");
-    }
-  }));
+  if (jobEnabled("recurring-job-generate")) {
+    await boss.schedule("recurring-job-generate", "5 0 * * *", {});
+    await boss.work("recurring-job-generate", safeHandler("recurring-job-generate", async () => {
+      const settings = await getAppSettings();
+      if (!settings.recurringJobs.enabled) return;
+      const startDate = new Date().toISOString().slice(0, 10);
+      const endDate = new Date(Date.now() + settings.recurringJobs.lookaheadDays * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const result = await generateRecurringJobs({ startDate, endDate });
+      if (result.created > 0) {
+        logger.info({ ...result, startDate, endDate }, "Recurring jobs generated");
+      }
+    }));
+  }
 
-  await boss.schedule("document-expiry-check", "0 8 * * *", {});
-  await boss.work("document-expiry-check", safeHandler("document-expiry-check", async () => {
-    const result = await runDocumentExpiryCheck(new Date());
-    if (result.warned > 0 || result.expired > 0) {
-      logger.info({ ...result }, "Staff document expiry check completed");
-    }
-  }));
+  if (jobEnabled("document-expiry-check")) {
+    await boss.schedule("document-expiry-check", "0 8 * * *", {});
+    await boss.work("document-expiry-check", safeHandler("document-expiry-check", async () => {
+      const result = await runDocumentExpiryCheck(new Date());
+      if (result.warned > 0 || result.expired > 0) {
+        logger.info({ ...result }, "Staff document expiry check completed");
+      }
+    }));
+  }
 
   // Daily auto-invoice generation
-  await boss.schedule("daily-invoice-generation", "0 8 * * *", {});
-  await boss.work("daily-invoice-generation", safeHandler("daily-invoice-generation", async () => {
-    const { listUsersDueForInvoicing } = await import("@/lib/finance/cadence");
-    const { generateInvoiceForUser } = await import("@/lib/finance/auto-invoice");
-    const due = await listUsersDueForInvoicing();
-    if (due.length === 0) return;
-    logger.info({ count: due.length }, "[daily-invoice-generation] users due");
-    let generated = 0;
-    for (const u of due) {
-      try {
-        const result = await generateInvoiceForUser(u.userId);
-        if (result.invoiceId) generated++;
-      } catch (err) {
-        logger.error({ err, userId: u.userId }, "[daily-invoice-generation] failed");
+  if (jobEnabled("daily-invoice-generation")) {
+    await boss.schedule("daily-invoice-generation", "0 8 * * *", {});
+    await boss.work("daily-invoice-generation", safeHandler("daily-invoice-generation", async () => {
+      const { listUsersDueForInvoicing } = await import("@/lib/finance/cadence");
+      const { generateInvoiceForUser } = await import("@/lib/finance/auto-invoice");
+      const due = await listUsersDueForInvoicing();
+      if (due.length === 0) return;
+      logger.info({ count: due.length }, "[daily-invoice-generation] users due");
+      let generated = 0;
+      for (const u of due) {
+        try {
+          const result = await generateInvoiceForUser(u.userId);
+          if (result.invoiceId) generated++;
+        } catch (err) {
+          logger.error({ err, userId: u.userId }, "[daily-invoice-generation] failed");
+        }
       }
-    }
-    logger.info({ due: due.length, generated }, "[daily-invoice-generation] complete");
-  }));
+      logger.info({ due: due.length, generated }, "[daily-invoice-generation] complete");
+    }));
+  }
 
-  await boss.schedule("recognition-check", "0 9 * * 0", {});
-  await boss.work("recognition-check", safeHandler("recognition-check", async () => {
-    const result = await runRecognitionCheck(new Date());
-    if (result.created > 0) {
-      logger.info({ ...result }, "Automatic staff recognitions awarded");
-    }
-  }));
+  if (jobEnabled("recognition-check")) {
+    await boss.schedule("recognition-check", "0 9 * * 0", {});
+    await boss.work("recognition-check", safeHandler("recognition-check", async () => {
+      const result = await runRecognitionCheck(new Date());
+      if (result.created > 0) {
+        logger.info({ ...result }, "Automatic staff recognitions awarded");
+      }
+    }));
+  }
 
-  await boss.work<{ jobId: string }>("report-generate", safeHandler<{ jobId: string }>("report-generate", async (job) => {
-    if (!job?.data?.jobId) return;
-    logger.info({ jobId: job.data.jobId }, "Generating report");
-    await generateJobReport(job.data.jobId);
-  }));
+  // On-demand jobs (pushed by API handlers / other jobs — no cron schedule).
+  // Honour SNEEK_DISABLED_JOBS so ops can stop the worker from processing
+  // them entirely if a handler is the offender.
+  if (jobEnabled("report-generate")) {
+    await boss.work<{ jobId: string }>("report-generate", safeHandler<{ jobId: string }>("report-generate", async (job) => {
+      if (!job?.data?.jobId) return;
+      logger.info({ jobId: job.data.jobId }, "Generating report");
+      await generateJobReport(job.data.jobId);
+    }));
+  }
 
-  await boss.work<{ jobId: string; ruleId: string }>("post-job-followup", safeHandler<{ jobId: string; ruleId: string }>("post-job-followup", async (job) => {
-    if (!job?.data?.jobId || !job?.data?.ruleId) return;
-    await dispatchClientPostJobAutomationRule({ jobId: job.data.jobId, ruleId: job.data.ruleId });
-  }));
+  if (jobEnabled("post-job-followup")) {
+    await boss.work<{ jobId: string; ruleId: string }>("post-job-followup", safeHandler<{ jobId: string; ruleId: string }>("post-job-followup", async (job) => {
+      if (!job?.data?.jobId || !job?.data?.ruleId) return;
+      await dispatchClientPostJobAutomationRule({ jobId: job.data.jobId, ruleId: job.data.ruleId });
+    }));
+  }
 
-  await boss.schedule("daily-ops-briefing", "0 7 * * *", {});
-  await boss.work("daily-ops-briefing", safeHandler("daily-ops-briefing", async () => {
-    const result = await sendDailyOpsBriefing(new Date());
-    if ((result.sent ?? 0) > 0) {
-      logger.info({ ...result }, "Daily ops briefing sent");
-    }
-  }));
+  if (jobEnabled("daily-ops-briefing")) {
+    await boss.schedule("daily-ops-briefing", "0 7 * * *", {});
+    await boss.work("daily-ops-briefing", safeHandler("daily-ops-briefing", async () => {
+      const result = await sendDailyOpsBriefing(new Date());
+      if ((result.sent ?? 0) > 0) {
+        logger.info({ ...result }, "Daily ops briefing sent");
+      }
+    }));
+  }
 
-  await boss.work<{ jobId: string }>("follow-up-1d", safeHandler<{ jobId: string }>("follow-up-1d", async (job) => {
-    if (!job?.data?.jobId) return;
-    await dispatchJobFollowUp(job.data.jobId, "1d");
-  }));
-  await boss.work<{ jobId: string }>("follow-up-3d", safeHandler<{ jobId: string }>("follow-up-3d", async (job) => {
-    if (!job?.data?.jobId) return;
-    await dispatchJobFollowUp(job.data.jobId, "3d");
-  }));
-  await boss.work<{ jobId: string }>("follow-up-14d", safeHandler<{ jobId: string }>("follow-up-14d", async (job) => {
-    if (!job?.data?.jobId) return;
-    await dispatchJobFollowUp(job.data.jobId, "14d");
-  }));
+  if (jobEnabled("follow-up-1d")) {
+    await boss.work<{ jobId: string }>("follow-up-1d", safeHandler<{ jobId: string }>("follow-up-1d", async (job) => {
+      if (!job?.data?.jobId) return;
+      await dispatchJobFollowUp(job.data.jobId, "1d");
+    }));
+  }
+  if (jobEnabled("follow-up-3d")) {
+    await boss.work<{ jobId: string }>("follow-up-3d", safeHandler<{ jobId: string }>("follow-up-3d", async (job) => {
+      if (!job?.data?.jobId) return;
+      await dispatchJobFollowUp(job.data.jobId, "3d");
+    }));
+  }
+  if (jobEnabled("follow-up-14d")) {
+    await boss.work<{ jobId: string }>("follow-up-14d", safeHandler<{ jobId: string }>("follow-up-14d", async (job) => {
+      if (!job?.data?.jobId) return;
+      await dispatchJobFollowUp(job.data.jobId, "14d");
+    }));
+  }
 
-  await boss.schedule("google-reviews-refresh", "0 3 * * *", {});
-  await boss.work("google-reviews-refresh", safeHandler("google-reviews-refresh", async () => {
-    const payload = await refreshGoogleReviewsCache();
-    if (payload) {
-      logger.info({ updatedAt: payload.updatedAt, reviews: payload.reviews.length }, "Google reviews cache refreshed");
-    }
-  }));
+  if (jobEnabled("google-reviews-refresh")) {
+    await boss.schedule("google-reviews-refresh", "0 3 * * *", {});
+    await boss.work("google-reviews-refresh", safeHandler("google-reviews-refresh", async () => {
+      const payload = await refreshGoogleReviewsCache();
+      if (payload) {
+        logger.info({ updatedAt: payload.updatedAt, reviews: payload.reviews.length }, "Google reviews cache refreshed");
+      }
+    }));
+  }
 
   // Clean up stale location pings (keep 7 days)
-  await boss.schedule("location-pings-cleanup", "0 3 * * *", {});
-  await boss.work("location-pings-cleanup", safeHandler("location-pings-cleanup", async () => {
-    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const result = await db.cleanerLocationPing.deleteMany({
-      where: { timestamp: { lt: cutoff } },
-    });
-    if (result.count > 0) {
-      logger.info({ deleted: result.count }, "Old location pings cleaned up");
-    }
-  }));
+  if (jobEnabled("location-pings-cleanup")) {
+    await boss.schedule("location-pings-cleanup", "0 3 * * *", {});
+    await boss.work("location-pings-cleanup", safeHandler("location-pings-cleanup", async () => {
+      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const result = await db.cleanerLocationPing.deleteMany({
+        where: { timestamp: { lt: cutoff } },
+      });
+      if (result.count > 0) {
+        logger.info({ deleted: result.count }, "Old location pings cleaned up");
+      }
+    }));
+  }
 
   logger.info("All workers registered. Listening for jobs.");
 }
