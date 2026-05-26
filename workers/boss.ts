@@ -152,12 +152,25 @@ function safeHandler<T>(
 }
 
 async function main() {
-  // Master worker kill-switch. Set on the web container so a single
-  // image can serve both roles without the web process ever spawning
-  // pg-boss listeners by accident (which would defeat container
-  // isolation — see docs/ops/vps-triage.md §10).
+  // EMERGENCY (May 2026): Workers are OPT-IN by default. The default
+  // behaviour on any new deploy is the worker process exits immediately.
+  // Set SNEEK_WORKERS_ENABLED=true on the worker container to actually
+  // run pg-boss listeners. This guarantees no scheduled job activity
+  // until ops explicitly turns it back on. See docs/ops/vps-triage.md §11.
+  if (process.env.SNEEK_WORKERS_ENABLED !== "true") {
+    console.warn(
+      "[boss] Workers DISABLED by default. Set SNEEK_WORKERS_ENABLED=true on the worker container to enable. " +
+      "This is the emergency CPU-overload safe default.",
+    );
+    process.exit(0);
+  }
+
+  // Pre-existing master kill-switch. Lets ops force-disable workers
+  // even when SNEEK_WORKERS_ENABLED=true (e.g. on the web container so
+  // a single image can serve both roles without the web process ever
+  // spawning pg-boss listeners by accident).
   if (process.env.SNEEK_WORKERS_DISABLED === "true") {
-    logger.warn("[boss] Workers disabled via SNEEK_WORKERS_DISABLED — exiting.");
+    logger.warn("[boss] Workers explicitly disabled via SNEEK_WORKERS_DISABLED — exiting.");
     process.exit(0);
   }
 
