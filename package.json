@@ -7,7 +7,7 @@
     "dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" node ./scripts/run-next.cjs dev -H 0.0.0.0 -p 3000",
     "prebuild": "node ./scripts/prebuild.cjs",
     "build": "node ./scripts/run-next.cjs build",
-    "prestart": "node ./scripts/ensure-prisma-client.cjs",
+    "prestart": "node ./scripts/preflight-check.cjs && node ./scripts/ensure-prisma-client.cjs",
     "start": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" node ./scripts/run-next.cjs start -H 0.0.0.0 -p 3000",
     "setup:runtime": "npm run db:deploy && npm run admin:bootstrap && npm run playwright:install",
     "lint": "next lint",
