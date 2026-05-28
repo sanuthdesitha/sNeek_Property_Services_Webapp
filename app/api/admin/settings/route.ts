@@ -211,6 +211,16 @@ const updateSchema = z.object({
       })
     )
     .optional(),
+  publicWidgets: z
+    .object({
+      instantQuoteEstimator: z.boolean().optional(),
+      availabilityChecker: z.boolean().optional(),
+      liveChat: z.boolean().optional(),
+      newsletterSignup: z.boolean().optional(),
+      testimonialCarousel: z.boolean().optional(),
+      serviceCalculator: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export async function GET() {

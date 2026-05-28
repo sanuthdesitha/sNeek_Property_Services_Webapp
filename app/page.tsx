@@ -8,6 +8,7 @@ import { HomePage as MarketingHomePage } from "@/components/public/home-page";
 import { listPublishedBlogPosts } from "@/lib/public-site/blog";
 import { isWebsiteInMaintenance } from "@/lib/public-site/routing";
 import { MaintenancePage } from "@/components/public/maintenance-page";
+import { getPublicWidgetFlags } from "@/lib/public-site/widgets";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
@@ -81,6 +82,7 @@ export default async function HomePage() {
     const companyName = settings.companyName || "sNeek Property Services";
     const latestBlogPosts =
       settings.websiteContent.pageVisibility.blog !== false ? await listPublishedBlogPosts() : [];
+    const widgetFlags = await getPublicWidgetFlags();
 
     return (
       <>
@@ -95,6 +97,7 @@ export default async function HomePage() {
             <MarketingHomePage
               content={settings.websiteContent}
               latestBlogPosts={latestBlogPosts.slice(0, 3)}
+              widgetFlags={widgetFlags}
             />
           )}
         </PublicSiteShell>

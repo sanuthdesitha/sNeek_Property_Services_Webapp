@@ -206,6 +206,7 @@ export interface AppSettings {
   emailTemplates: AppEmailTemplates;
   notificationTemplates: AppNotificationTemplates;
   invoicing: InvoicingSettings;
+  publicWidgets: PublicWidgetFlags;
 }
 
 export interface InvoicingSettings {
@@ -217,6 +218,56 @@ export interface InvoicingSettings {
   paymentNote: string;
   abn: string;
   companyAddress: string;
+}
+
+export interface PublicWidgetFlags {
+  instantQuoteEstimator: boolean;
+  availabilityChecker: boolean;
+  liveChat: boolean;
+  newsletterSignup: boolean;
+  testimonialCarousel: boolean;
+  serviceCalculator: boolean;
+}
+
+export const DEFAULT_PUBLIC_WIDGETS: PublicWidgetFlags = {
+  instantQuoteEstimator: true,
+  availabilityChecker: true,
+  liveChat: true,
+  newsletterSignup: true,
+  testimonialCarousel: true,
+  serviceCalculator: true,
+};
+
+function sanitizePublicWidgets(
+  input: unknown,
+  fallback: PublicWidgetFlags
+): PublicWidgetFlags {
+  if (!input || typeof input !== "object") return fallback;
+  const row = input as Record<string, unknown>;
+  return {
+    instantQuoteEstimator:
+      typeof row.instantQuoteEstimator === "boolean"
+        ? row.instantQuoteEstimator
+        : fallback.instantQuoteEstimator,
+    availabilityChecker:
+      typeof row.availabilityChecker === "boolean"
+        ? row.availabilityChecker
+        : fallback.availabilityChecker,
+    liveChat:
+      typeof row.liveChat === "boolean" ? row.liveChat : fallback.liveChat,
+    newsletterSignup:
+      typeof row.newsletterSignup === "boolean"
+        ? row.newsletterSignup
+        : fallback.newsletterSignup,
+    testimonialCarousel:
+      typeof row.testimonialCarousel === "boolean"
+        ? row.testimonialCarousel
+        : fallback.testimonialCarousel,
+    serviceCalculator:
+      typeof row.serviceCalculator === "boolean"
+        ? row.serviceCalculator
+        : fallback.serviceCalculator,
+  };
 }
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
@@ -405,6 +456,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     abn: "",
     companyAddress: "",
   },
+  publicWidgets: DEFAULT_PUBLIC_WIDGETS,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -990,6 +1042,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       abn: typeof (parsed as any).invoicing?.abn === "string" ? (parsed as any).invoicing.abn : DEFAULT_SETTINGS.invoicing.abn,
       companyAddress: typeof (parsed as any).invoicing?.companyAddress === "string" ? (parsed as any).invoicing.companyAddress : DEFAULT_SETTINGS.invoicing.companyAddress,
     },
+    publicWidgets: sanitizePublicWidgets(
+      (parsed as any).publicWidgets,
+      DEFAULT_SETTINGS.publicWidgets
+    ),
   };
 }
 
@@ -1035,6 +1091,10 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     invoicing: {
       ...current.invoicing,
       ...(input.invoicing ?? {}),
+    },
+    publicWidgets: {
+      ...current.publicWidgets,
+      ...(input.publicWidgets ?? {}),
     },
   });
 

@@ -32,6 +32,7 @@ import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { WebsiteContent, WebsiteWhyItem } from "@/lib/public-site/content";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import type { ServiceSuburb } from "@/lib/public-site/suburbs";
+import { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/public-site/widgets";
 
 const WHATSAPP_HREF = "https://wa.me/61451217210";
 
@@ -110,6 +111,7 @@ function hasAvailabilityError(value: AvailabilityState) {
 export function HomePage({
   content,
   latestBlogPosts = [],
+  widgetFlags = DEFAULT_PUBLIC_WIDGETS,
 }: {
   content: WebsiteContent;
   latestBlogPosts?: Array<{
@@ -122,6 +124,7 @@ export function HomePage({
     updatedAt?: string | Date;
     authorName?: string | null;
   }>;
+  widgetFlags?: PublicWidgetFlags;
 }) {
   const faqPreview = content.faq?.items?.slice(0, 6) ?? [];
   const whyItems = content.whyChooseUs?.items ?? [];
@@ -409,8 +412,10 @@ export function HomePage({
       {/* ─────────────────────────────────────────────────
           SECTION 2 — TRUST STRIP (marquee)
       ───────────────────────────────────────────────── */}
+      {(widgetFlags.instantQuoteEstimator || widgetFlags.availabilityChecker) && (
       <section className={`${PUBLIC_PAGE_CONTAINER} -mt-2 pb-4`}>
         <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+          {widgetFlags.instantQuoteEstimator && (
           <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -500,7 +505,9 @@ export function HomePage({
               </div>
             </CardContent>
           </Card>
+          )}
 
+          {widgetFlags.availabilityChecker && (
           <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-6">
               <div>
@@ -578,8 +585,10 @@ export function HomePage({
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
       </section>
+      )}
 
       <div className="public-section-full border-y border-primary/8 bg-primary/4 py-4 overflow-hidden">
         <div className="flex" aria-hidden="true">

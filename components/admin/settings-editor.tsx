@@ -1925,6 +1925,40 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
         </div>
 
         <div className="space-y-2">
+          <p className="text-sm font-medium">Public Site Widgets</p>
+          <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
+            {[
+              ["instantQuoteEstimator", "Instant price estimator (home page)"],
+              ["availabilityChecker", "Suburb availability checker"],
+              ["liveChat", "Live chat / WhatsApp button"],
+              ["newsletterSignup", "Newsletter signup form"],
+              ["testimonialCarousel", "Testimonial carousel"],
+              ["serviceCalculator", "Service calculator widgets"],
+            ].map(([key, label]) => (
+              <div key={key} className="flex items-center justify-between gap-2 rounded border p-2">
+                <Label className="text-xs">{label}</Label>
+                <Switch
+                  checked={(settings.publicWidgets as any)?.[key] ?? true}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      publicWidgets: {
+                        ...(prev.publicWidgets ?? {}),
+                        [key]: value,
+                      } as any,
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Controls which optional widgets render on the public marketing site. Disabled widgets are removed from the home page.
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <p className="text-sm font-medium">Laundry Portal Controls</p>
           <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
             {[
