@@ -230,7 +230,7 @@ export default function AdminApprovalsPage() {
               className={cn(
                 "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-150",
                 activeTab === key
-                  ? "bg-white shadow-sm text-foreground"
+                  ? "bg-surface shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -723,7 +723,7 @@ export default function AdminApprovalsPage() {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-white/80 p-4 shadow-sm sm:p-5">
+    <div className="rounded-2xl border border-border/70 bg-surface/80 p-4 shadow-sm sm:p-5">
       {children}
     </div>
   );
@@ -816,7 +816,7 @@ function ClockAdjustmentCard({
   const deltaSign = delta != null && delta > 0 ? "+" : "";
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-white/80 p-4 shadow-sm sm:p-5">
+    <div className="rounded-2xl border border-border/70 bg-surface/80 p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         {/* Requestor + context */}
         <div className="flex items-start gap-3">

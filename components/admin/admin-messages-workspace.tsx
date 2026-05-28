@@ -177,7 +177,7 @@ export function AdminMessagesWorkspace() {
                   type="button"
                   onClick={() => setSelectedClientId(client.id)}
                   className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
-                    selectedClientId === client.id ? "border-primary bg-primary/10" : "bg-white hover:border-primary/20"
+                    selectedClientId === client.id ? "border-primary bg-primary/10" : "bg-surface hover:border-primary/20"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -216,7 +216,7 @@ export function AdminMessagesWorkspace() {
                       className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
                         message.isFromAdmin
                           ? "ml-auto bg-primary text-primary-foreground"
-                          : "border bg-white text-foreground"
+                          : "border bg-surface text-foreground"
                       }`}
                     >
                       <p className="font-medium">

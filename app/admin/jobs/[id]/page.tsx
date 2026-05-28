@@ -1252,7 +1252,7 @@ export default function JobDetailPage() {
             <div className="space-y-1">
               <Label>Status</Label>
               <select
-                className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm"
+                className="h-10 w-full rounded-xl border border-input/80 bg-surface/80 px-3 text-sm"
                 value={editForm.status}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
               >

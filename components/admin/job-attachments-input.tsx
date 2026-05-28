@@ -60,7 +60,7 @@ export function JobAttachmentsInput({ value, onChange }: JobAttachmentsInputProp
   }
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border/70 bg-white/60 p-4">
+    <div className="space-y-3 rounded-2xl border border-border/70 bg-surface/60 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">Reference files</p>

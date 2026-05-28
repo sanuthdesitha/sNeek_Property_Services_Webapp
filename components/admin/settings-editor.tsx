@@ -1581,7 +1581,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                               moveBuilderBlock(draggingBlockId, block.id);
                               setDraggingBlockId(null);
                             }}
-                            className="space-y-2 rounded-md border bg-white p-3"
+                            className="space-y-2 rounded-md border bg-surface p-3"
                           >
                             <div className="flex items-center justify-between">
                               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1764,12 +1764,12 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               <div className="space-y-3 rounded-md border p-3">
                 <p className="text-sm font-medium">Preview</p>
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-                  <div className="rounded-md border bg-white p-3">
+                  <div className="rounded-md border bg-surface p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Web title</p>
                     <p className="mt-1 text-sm font-semibold">{notificationPreview.webSubject}</p>
                     <p className="mt-2 text-sm text-muted-foreground">{notificationPreview.webBody}</p>
                   </div>
-                  <div className="rounded-md border bg-white p-3">
+                  <div className="rounded-md border bg-surface p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SMS</p>
                     <p className="mt-1 text-sm text-muted-foreground">{notificationPreview.smsBody}</p>
                   </div>
