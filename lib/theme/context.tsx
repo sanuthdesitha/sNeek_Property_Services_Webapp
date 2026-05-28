@@ -47,7 +47,25 @@ export function ThemeProvider({
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.documentElement.classList.toggle("dark", resolved === "dark");
+
+    // Detect public marketing pages — they ALWAYS render light regardless of
+    // user preference. Public surface styling assumes a light palette and
+    // doesn't have dark-mode tokens for many components.
+    const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+    const isPortalPath =
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/cleaner") ||
+      pathname.startsWith("/client") ||
+      pathname.startsWith("/laundry") ||
+      pathname.startsWith("/qa") ||
+      pathname.startsWith("/dev");
+
+    if (!isPortalPath) {
+      document.documentElement.classList.remove("dark");
+    } else {
+      document.documentElement.classList.toggle("dark", resolved === "dark");
+    }
+
     // Keep all `data-portal-theme` wrappers in sync with the resolved theme so
     // CSS selectors scoped to `[data-portal-theme="dark|light"]` pick up the
     // current theme without a reload. We deliberately skip elements explicitly
