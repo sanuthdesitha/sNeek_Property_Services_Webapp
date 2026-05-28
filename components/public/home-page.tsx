@@ -32,7 +32,7 @@ import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { WebsiteContent, WebsiteWhyItem } from "@/lib/public-site/content";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import type { ServiceSuburb } from "@/lib/public-site/suburbs";
-import { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/public-site/widgets";
+import { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/public-site/widgets-types";
 
 const WHATSAPP_HREF = "https://wa.me/61451217210";
 

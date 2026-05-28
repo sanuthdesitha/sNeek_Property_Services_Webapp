@@ -16,6 +16,12 @@ import {
   sanitizeWebsiteContent,
   type WebsiteContent,
 } from "@/lib/public-site/content";
+import {
+  DEFAULT_PUBLIC_WIDGETS,
+  type PublicWidgetFlags,
+} from "@/lib/public-site/widgets-types";
+
+export { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags };
 
 export type SmsProvider = "none" | "twilio" | "cellcast";
 
@@ -219,24 +225,6 @@ export interface InvoicingSettings {
   abn: string;
   companyAddress: string;
 }
-
-export interface PublicWidgetFlags {
-  instantQuoteEstimator: boolean;
-  availabilityChecker: boolean;
-  liveChat: boolean;
-  newsletterSignup: boolean;
-  testimonialCarousel: boolean;
-  serviceCalculator: boolean;
-}
-
-export const DEFAULT_PUBLIC_WIDGETS: PublicWidgetFlags = {
-  instantQuoteEstimator: true,
-  availabilityChecker: true,
-  liveChat: true,
-  newsletterSignup: true,
-  testimonialCarousel: true,
-  serviceCalculator: true,
-};
 
 function sanitizePublicWidgets(
   input: unknown,

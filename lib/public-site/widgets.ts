@@ -1,4 +1,8 @@
-import { getAppSettings, DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/settings";
+import { getAppSettings } from "@/lib/settings";
+import {
+  DEFAULT_PUBLIC_WIDGETS,
+  type PublicWidgetFlags,
+} from "@/lib/public-site/widgets-types";
 
 export type { PublicWidgetFlags };
 export { DEFAULT_PUBLIC_WIDGETS };
