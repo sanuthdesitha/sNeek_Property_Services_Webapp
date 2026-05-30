@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +77,24 @@ export function CleanerInvoicesPage() {
   const [previewingPdf, setPreviewingPdf] = useState(false);
   const [emailReviewOpen, setEmailReviewOpen] = useState(false);
   const [jobHourOverridesInput, setJobHourOverridesInput] = useState<Record<string, string>>({});
+  const [missingProfileFields, setMissingProfileFields] = useState<Array<{ key: string; label: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/me/profile-completeness");
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled && Array.isArray(body.missing)) setMissingProfileFields(body.missing);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const payableJobs = useMemo(() => invoicePreview?.rows ?? [], [invoicePreview]);
 
@@ -245,6 +264,21 @@ export function CleanerInvoicesPage() {
         </p>
       </div>
 
+      {missingProfileFields.length > 0 ? (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">Complete your profile before emailing an invoice.</p>
+          <p className="mt-1 text-xs">
+            Your invoice must include these details: {missingProfileFields.map((f) => f.label).join(", ")}.
+          </p>
+          <Link
+            href="/cleaner/profile"
+            className="mt-2 inline-block rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+          >
+            Complete profile
+          </Link>
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Invoice (Allocated Hours + Approved Extras)</CardTitle>
@@ -380,7 +414,7 @@ export function CleanerInvoicesPage() {
             </Button>
             <Button
               onClick={openEmailPreviewFlow}
-              disabled={invoiceSending || previewingPdf || hasPendingAwaitingApproval}
+              disabled={invoiceSending || previewingPdf || hasPendingAwaitingApproval || missingProfileFields.length > 0}
               className="w-full"
             >
               {previewingPdf ? "Opening preview..." : invoiceSending ? "Sending..." : "Email Invoice To Accounts"}

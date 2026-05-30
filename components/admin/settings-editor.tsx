@@ -375,6 +375,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingReportLogo, setUploadingReportLogo] = useState(false);
   const [newBagLocation, setNewBagLocation] = useState("");
   const [newDropoffLocation, setNewDropoffLocation] = useState("");
   const [selectedCleanerToAdd, setSelectedCleanerToAdd] = useState("");
@@ -491,6 +492,26 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
     }
     setSettings((prev) => ({ ...prev, logoUrl: body.url ?? prev.logoUrl }));
     toast({ title: "Logo uploaded" });
+  }
+
+  async function uploadReportLogo(file: File) {
+    if (readOnly) return;
+    setUploadingReportLogo(true);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("folder", "branding");
+    const res = await fetch("/api/uploads/direct", {
+      method: "POST",
+      body: form,
+    });
+    const body = await res.json().catch(() => ({}));
+    setUploadingReportLogo(false);
+    if (!res.ok) {
+      toast({ title: "Report logo upload failed", description: body.error ?? "Could not upload logo.", variant: "destructive" });
+      return;
+    }
+    setSettings((prev) => ({ ...prev, reportLogoUrl: body.url ?? prev.reportLogoUrl }));
+    toast({ title: "Report logo uploaded" });
   }
 
   function addBagLocationOption() {
@@ -903,6 +924,36 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
             {settings.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={settings.logoUrl} alt="Logo preview" className="h-12 w-auto rounded border bg-white p-1" />
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Report / invoice logo (optional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Used on PDF reports and cleaner invoices. Use a light or transparent version that looks
+              clean on white. Falls back to the main logo if left empty.
+            </p>
+            <Input
+              value={settings.reportLogoUrl}
+              onChange={(e) => setSettings((prev) => ({ ...prev, reportLogoUrl: e.target.value }))}
+              disabled={readOnly}
+              placeholder="https://.../report-logo.png"
+            />
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                accept="image/*"
+                disabled={readOnly || uploadingReportLogo}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadReportLogo(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+              {uploadingReportLogo ? <span className="text-xs text-muted-foreground">Uploading...</span> : null}
+            </div>
+            {settings.reportLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={settings.reportLogoUrl} alt="Report logo preview" className="h-12 w-auto rounded border bg-white p-1" />
             ) : null}
           </div>
           <div className="space-y-1.5">

@@ -19,7 +19,7 @@ import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { JobAttachmentsInput } from "@/components/admin/job-attachments-input";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { isUploadFieldType } from "@/lib/forms/types";
+import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import {
   parseJobInternalNotes,
   summarizeJobRules,
@@ -145,10 +145,7 @@ function renderFieldValue(field: any, submission: any) {
       .join(", ");
   }
 
-  const value = answers[field.id];
-  if (value === undefined || value === null || value === "") return "-";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
+  return formatFieldValue(field, answers[field.id]);
 }
 
 export default function JobDetailPage() {

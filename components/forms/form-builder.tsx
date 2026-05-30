@@ -254,6 +254,12 @@ export function FormBuilder({
     0,
   );
 
+  // All fields across the form, used to populate the conditional-logic field
+  // picker in each field editor.
+  const allFields = state.schema.sections.flatMap((s) =>
+    s.fields.map((f) => ({ id: f.id, label: f.label })),
+  );
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -349,6 +355,7 @@ export function FormBuilder({
                     to,
                   })
                 }
+                availableFields={allFields}
               />
             ))}
           </div>

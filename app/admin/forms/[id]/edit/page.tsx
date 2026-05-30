@@ -42,6 +42,9 @@ export default async function FormEditPage({
         collapsible: typeof s?.collapsible === "boolean" ? s.collapsible : undefined,
         fields: Array.isArray(s?.fields)
           ? s.fields.map((f: any, fIdx: number) => ({
+              // Preserve all advanced config (min/max/step/unit/references/etc.)
+              // by spreading first, then normalizing the legacy/required bits.
+              ...(f && typeof f === "object" ? f : {}),
               id: typeof f?.id === "string" ? f.id : `f-${idx}-${fIdx}`,
               type: typeof f?.type === "string" ? f.type : "text",
               label: typeof f?.label === "string" ? f.label : "Field",

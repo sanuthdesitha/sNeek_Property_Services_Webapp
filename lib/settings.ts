@@ -177,6 +177,10 @@ export interface AppSettings {
   companyName: string;
   projectName: string;
   logoUrl: string;
+  // Optional separate logo used on PDF reports and cleaner invoices. Falls back
+  // to logoUrl when empty. Lets admins use a light/transparent variant that
+  // looks clean on the white report background.
+  reportLogoUrl: string;
   accountsEmail: string;
   timezone: string;
   websiteContent: WebsiteContent;
@@ -286,6 +290,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
   projectName: "sneek-ops-dashboard",
   logoUrl: "",
+  reportLogoUrl: "",
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
   websiteContent: DEFAULT_WEBSITE_CONTENT,
@@ -919,6 +924,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       typeof (parsed as any).logoUrl === "string"
         ? (parsed as any).logoUrl.trim()
         : DEFAULT_SETTINGS.logoUrl,
+    reportLogoUrl:
+      typeof (parsed as any).reportLogoUrl === "string"
+        ? (parsed as any).reportLogoUrl.trim()
+        : DEFAULT_SETTINGS.reportLogoUrl,
     accountsEmail:
       typeof (parsed as any).accountsEmail === "string" && (parsed as any).accountsEmail.trim()
         ? (parsed as any).accountsEmail.trim()

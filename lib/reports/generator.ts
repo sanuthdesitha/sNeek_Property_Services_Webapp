@@ -4,7 +4,7 @@ import { s3 } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { isUploadFieldType } from "@/lib/forms/types";
+import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 
 const TZ = "Australia/Sydney";
 export const REPORT_TEMPLATE_VERSION = "v4-themeable-evidence-branding";
@@ -173,10 +173,7 @@ function buildFieldValue(field: any, context: { answers: Record<string, unknown>
       : "-";
   }
 
-  const value = answers[field.id];
-  if (value === undefined || value === null || value === "") return "-";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
+  return formatFieldValue(field, answers[field.id]);
 }
 
 function checkboxMarkHtml(checked: boolean) {
@@ -544,7 +541,7 @@ function buildReportHtml({ job, submission, qa, localDate, settings, theme }: an
   const remainingMediaHtml = renderFieldMediaHtml(remainingMedia);
   const companyName = settings?.companyName || "sNeek Property Services";
   const themedLogo = themeRec?.logoUrl?.trim() || "";
-  const logoUrl = themedLogo || settings?.logoUrl?.trim() || "";
+  const logoUrl = themedLogo || settings?.reportLogoUrl?.trim() || settings?.logoUrl?.trim() || "";
   const primaryHsl = themeRec?.primaryColorHsl || "200 98% 39%"; // sky-600-ish
   const accentHsl = themeRec?.accentColorHsl || primaryHsl;
   const density = themeRec?.layout?.density ?? "default";
@@ -574,7 +571,7 @@ function buildReportHtml({ job, submission, qa, localDate, settings, theme }: an
   }
   body { font-family: Arial, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: ${densityPad}; }
   .brand { display:flex; align-items:center; gap:12px; margin-bottom: 10px; }
-  .brand img { width:52px; height:52px; object-fit:contain; border-radius:10px; border:1px solid #e5e7eb; padding:4px; background:#fff; }
+  .brand img { max-width:180px; max-height:64px; width:auto; height:auto; object-fit:contain; }
   .brand h1 { margin:0; color: var(--primary); }
   h1, h3 { color: var(--primary); }
   .section { margin: ${sectionMargin} 0; }

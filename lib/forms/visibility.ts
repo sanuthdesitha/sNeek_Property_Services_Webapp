@@ -1,3 +1,5 @@
+import { isUploadFieldType } from "./field-types";
+
 type TemplateNode = {
   id?: unknown;
   label?: unknown;
@@ -31,6 +33,15 @@ export function isBalconyLikeTemplateNode(node: TemplateNode | null | undefined)
   return text.includes("balcony");
 }
 
+function isAnswered(value: unknown) {
+  return !(
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "") ||
+    (Array.isArray(value) && value.length === 0)
+  );
+}
+
 export function isTemplateConditionalMet(
   conditional: any,
   answers: Record<string, unknown>,
@@ -39,16 +50,40 @@ export function isTemplateConditionalMet(
 ) {
   if (!conditional || typeof conditional !== "object") return true;
 
+  // Expected comparison value: prefer the operator-form `value`, fall back to
+  // the legacy `equals` shape used by older templates.
+  const expected = "value" in conditional ? conditional.value : conditional.equals;
+  const operator: string = typeof conditional.operator === "string" ? conditional.operator : "equals";
+
   if ("propertyField" in conditional) {
-    return templateValuesEqual(property[conditional.propertyField], conditional.value);
+    return templateValuesEqual(property[conditional.propertyField], expected);
   }
 
   if ("fieldId" in conditional) {
-    const answerValue = answers[conditional.fieldId];
+    let answerValue = answers[conditional.fieldId];
     if (answerValue === undefined && /laundry/i.test(String(conditional.fieldId))) {
-      return templateValuesEqual(laundryReady, conditional.value);
+      answerValue = laundryReady;
     }
-    return templateValuesEqual(answerValue, conditional.value);
+
+    switch (operator) {
+      case "answered":
+        return isAnswered(answerValue);
+      case "notAnswered":
+        return !isAnswered(answerValue);
+      case "notEquals":
+        return !templateValuesEqual(answerValue, expected);
+      case "oneOf": {
+        const list = Array.isArray(expected) ? expected : [expected];
+        return list.some((item) => templateValuesEqual(answerValue, item));
+      }
+      case "gt":
+        return Number(answerValue) > Number(expected);
+      case "lt":
+        return Number(answerValue) < Number(expected);
+      case "equals":
+      default:
+        return templateValuesEqual(answerValue, expected);
+    }
   }
 
   return true;
@@ -80,7 +115,7 @@ export function collectRequiredUploadFields(
 
     const fields = Array.isArray(section?.fields) ? section.fields : [];
     for (const field of fields) {
-      if (field?.type !== "upload" || !field?.required || !field?.id) continue;
+      if (!isUploadFieldType(field?.type) || !field?.required || !field?.id) continue;
       if (!isTemplateNodeVisible(field, answers, property, laundryReady)) continue;
 
       uploads.push({

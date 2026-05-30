@@ -12,6 +12,7 @@ import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
+import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 
 export async function GET(
   _req: NextRequest,
@@ -224,6 +225,7 @@ export async function GET(
       expectedStartDate = format(toZonedTime(job.scheduledDate, "Australia/Sydney"), "yyyy-MM-dd");
     }
     const continuationProgressSnapshot = await getApprovedContinuationProgressSnapshot(job.id);
+    const resolvedTemplate = await resolveTemplateReferenceUrls(template);
     const currentAssignment =
       session.user.role === Role.CLEANER
         ? job.assignments.find((assignment) => assignment.userId === session.user.id) ?? null
@@ -257,7 +259,7 @@ export async function GET(
         companyName: settings.companyName,
         logoUrl: settings.logoUrl,
       },
-      template,
+      template: resolvedTemplate,
       templateSource,
       configuredPropertyTemplateId,
       inventoryStock,

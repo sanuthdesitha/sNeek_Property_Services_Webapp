@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
-import { isUploadFieldType } from "@/lib/forms/types";
+import { isUploadFieldType } from "@/lib/forms/field-types";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
 

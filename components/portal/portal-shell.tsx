@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PortalTheme } from "@/lib/settings";
+import { ProfileCompletionGate } from "@/components/shared/profile-completion-gate";
 
 type PortalNavItem = {
   href: string;
@@ -315,6 +316,7 @@ export function PortalShell({
 
         {/* Content */}
         <main className="page-fade flex-1 overflow-y-auto p-4 pb-24 sm:p-5 md:p-6 md:pb-6">
+          <ProfileCompletionGate />
           {children}
         </main>
       </div>

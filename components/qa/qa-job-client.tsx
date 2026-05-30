@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { toast } from "@/hooks/use-toast";
-import { isUploadFieldType } from "@/lib/forms/types";
+import { isUploadFieldType } from "@/lib/forms/field-types";
+import { FieldInput } from "@/components/forms/field-input";
 
 export function QaJobClient({ jobId }: { jobId: string }) {
   const [payload, setPayload] = useState<any>(null);
@@ -194,32 +195,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                 <p className="text-sm font-semibold">{section.label}</p>
                 {(section.fields ?? []).map((field: any) => (
                   <div key={field.id} className="space-y-1.5">
-                    {field.type === "rating" ? (
-                      <>
-                        <Label>{field.label}</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={field.max ?? 5}
-                          value={data[field.id] ?? ""}
-                          onChange={(event) => setField(field.id, Number(event.target.value || 0))}
-                        />
-                      </>
-                    ) : field.type === "checkbox" ? (
-                      <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
-                        <Checkbox checked={data[field.id] === true} onCheckedChange={(value) => setField(field.id, value === true)} />
-                        {field.label}
-                      </label>
-                    ) : isUploadFieldType(field.type) ? (
+                    {isUploadFieldType(field.type) ? (
                       <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                         <Camera className="mb-2 h-4 w-4" />
                         QA photo upload uses the shared media uploader in the next pass. Add media references in notes for now.
                       </div>
                     ) : (
-                      <>
-                        <Label>{field.label}</Label>
-                        <Textarea value={data[field.id] ?? ""} onChange={(event) => setField(field.id, event.target.value)} />
-                      </>
+                      <FieldInput
+                        field={field}
+                        value={data[field.id]}
+                        onChange={(value) => setField(field.id, value)}
+                      />
                     )}
                   </div>
                 ))}

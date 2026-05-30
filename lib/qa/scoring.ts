@@ -64,13 +64,29 @@ export function computeQaScore(template: FormSchema, answers: Record<string, unk
       const value = answers[field.id];
 
       let fieldPoints = 0;
-      if (field.type === "radio" && typeof value === "string" && value in RADIO_SCORES) {
-        fieldPoints = RADIO_SCORES[value] * weight;
-      } else if (field.type === "rating" && typeof value === "number" && Number.isFinite(value)) {
-        const clamped = Math.max(0, Math.min(value, field.scoring.max));
+      const isChoiceScore =
+        (field.type === "radio" || field.type === "select") &&
+        typeof value === "string" &&
+        value in RADIO_SCORES;
+      const isNumericScore =
+        (field.type === "rating" ||
+          field.type === "slider" ||
+          field.type === "scale" ||
+          field.type === "counter" ||
+          field.type === "number") &&
+        typeof value === "number" &&
+        Number.isFinite(value);
+
+      if (isChoiceScore) {
+        fieldPoints = RADIO_SCORES[value as string] * weight;
+      } else if (isNumericScore) {
+        const clamped = Math.max(0, Math.min(value as number, field.scoring.max));
         fieldPoints = clamped * weight;
       } else if (field.type === "checkbox") {
         fieldPoints = value ? field.scoring.max * weight : 0;
+      } else if (field.type === "yesno") {
+        // Only an explicit "Yes" (true) scores; "No" and "N/A" score zero.
+        fieldPoints = value === true ? field.scoring.max * weight : 0;
       }
 
       sectionPoints += fieldPoints;

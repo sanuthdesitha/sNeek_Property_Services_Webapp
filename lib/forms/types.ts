@@ -1,20 +1,66 @@
 // sneek-ops-dashboard – Form template schema types
-// Used by the seed library and (later) the drag-drop form builder.
+// Used by the seed library, the form builder, and every renderer.
 
 export type FormFieldType =
+  // basic
   | "text"
   | "longtext"
   | "number"
+  | "email"
+  | "phone"
+  | "currency"
+  | "date"
+  | "time"
+  | "datetime"
+  // choice
   | "select"
   | "multiselect"
   | "checkbox"
   | "radio"
+  | "yesno"
+  // scale
+  | "rating"
+  | "slider"
+  | "counter"
+  | "scale"
+  // media
   | "photo"
   | "video"
+  | "file"
   | "signature"
-  | "rating"
-  | "time"
-  | "date";
+  // advanced
+  | "location"
+  | "instruction";
+
+export type FieldConditionOperator =
+  | "equals"
+  | "notEquals"
+  | "answered"
+  | "notAnswered"
+  | "oneOf"
+  | "gt"
+  | "lt";
+
+export interface FieldCondition {
+  fieldId: string;
+  operator?: FieldConditionOperator;
+  // `value` is used by the operator forms. `equals` is the legacy shape and is
+  // treated as operator:"equals" when no operator is given.
+  value?: unknown;
+  equals?: unknown;
+}
+
+export type FormFieldReferenceKind = "image" | "video" | "link";
+
+export interface FormFieldReference {
+  kind: FormFieldReferenceKind;
+  // External URL, or a resolved (presigned/public) URL for an uploaded file.
+  url: string;
+  // S3 key when the reference was uploaded; resolved to a presigned GET URL at
+  // render time. External links leave this undefined.
+  storageKey?: string;
+  caption?: string;
+}
 
 export interface FormField {
   id: string;
@@ -23,8 +69,23 @@ export interface FormField {
   helpText?: string;
   required?: boolean;
   options?: string[];
+  // media
   minPhotos?: number;
-  conditional?: { fieldId: string; equals: unknown };
+  maxFiles?: number;
+  // numeric / slider / scale / counter
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  // choice enhancements
+  allowOther?: boolean;
+  searchable?: boolean;
+  // yes/no
+  includeNa?: boolean;
+  // reference/example media shown to the person filling the form
+  references?: FormFieldReference[];
+  // logic + scoring
+  conditional?: FieldCondition;
   scoring?: { weight: number; max: number };
 }
 
@@ -33,17 +94,10 @@ export interface FormSection {
   title: string;
   description?: string;
   collapsible?: boolean;
+  conditional?: FieldCondition;
   fields: FormField[];
 }
 
 export interface FormSchema {
   sections: FormSection[];
-}
-
-// Field types that represent media uploads (camera / file picker UI).
-// `"upload"` is kept as a back-compat alias for templates that may have been
-// authored with the older type name; canonical schema uses `photo` / `video`.
-// Signatures are NOT included — they're an inline canvas widget, not an upload.
-export function isUploadFieldType(value: unknown): boolean {
-  return value === "photo" || value === "video" || value === "upload";
 }

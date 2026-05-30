@@ -12,6 +12,7 @@ import {
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
 import { markCleanerShoppingRunsInvoiced } from "@/lib/inventory/shopping-runs";
+import { cleanerInvoiceMissingFields } from "@/lib/profile/completeness";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -38,6 +39,28 @@ export async function POST(req: NextRequest) {
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
     });
+    const missingProfile = cleanerInvoiceMissingFields({
+      phone: data.cleanerPhone,
+      email: data.cleanerEmail,
+      address: data.cleanerAddress,
+      abn: data.cleanerAbn,
+      bankBsb: data.cleanerBankBsb,
+      bankAccountNumber: data.cleanerBankAccountNumber,
+      bankAccountName: data.cleanerBankAccountName,
+    });
+    if (missingProfile.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Complete your profile before emailing an invoice. Missing: ${missingProfile
+            .map((field) => field.label)
+            .join(", ")}.`,
+          missingProfileFields: missingProfile,
+          fixUrl: "/cleaner/profile",
+        },
+        { status: 400 }
+      );
+    }
+
     if (data.estimatedPay <= 0 && data.pendingAdjustmentCount > 0) {
       return NextResponse.json(
         {

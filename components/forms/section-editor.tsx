@@ -35,6 +35,7 @@ export interface SectionEditorProps {
   onUpdateField: (field: FormField) => void;
   onRemoveField: (fieldId: string) => void;
   onReorderFields: (from: number, to: number) => void;
+  availableFields?: Array<{ id: string; label: string }>;
 }
 
 export function SectionEditor({
@@ -45,6 +46,7 @@ export function SectionEditor({
   onUpdateField,
   onRemoveField,
   onReorderFields,
+  availableFields = [],
 }: SectionEditorProps) {
   const {
     attributes,
@@ -125,6 +127,7 @@ export function SectionEditor({
                 field={field}
                 onUpdate={onUpdateField}
                 onRemove={() => onRemoveField(field.id)}
+                availableFields={availableFields.filter((f) => f.id !== field.id)}
               />
             ))}
           </div>

@@ -19,6 +19,13 @@ interface InvoiceOptions {
 export interface CleanerInvoiceData {
   cleanerName: string;
   cleanerEmail: string;
+  cleanerPhone?: string;
+  cleanerAddress?: string;
+  cleanerAbn?: string;
+  cleanerBankName?: string;
+  cleanerBankBsb?: string;
+  cleanerBankAccountNumber?: string;
+  cleanerBankAccountName?: string;
   start: Date;
   end: Date;
   hours: number;
@@ -87,7 +94,19 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const [user, settings] = await Promise.all([
     db.user.findUnique({
       where: { id: options.userId },
-      select: { name: true, email: true },
+      select: {
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+        suburb: true,
+        state: true,
+        postcode: true,
+        abn: true,
+        bankBsb: true,
+        bankAccountNumber: true,
+        bankAccountName: true,
+      },
     }),
     getAppSettings(),
   ]);
@@ -277,9 +296,19 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     0
   );
 
+  const addressParts = [user.address, user.suburb, user.state, user.postcode]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean);
+
   return {
     cleanerName: user.name ?? user.email,
     cleanerEmail: user.email,
+    cleanerPhone: user.phone ?? undefined,
+    cleanerAddress: addressParts.length ? addressParts.join(", ") : undefined,
+    cleanerAbn: user.abn ?? undefined,
+    cleanerBankBsb: user.bankBsb ?? undefined,
+    cleanerBankAccountNumber: user.bankAccountNumber ?? undefined,
+    cleanerBankAccountName: user.bankAccountName ?? undefined,
     start,
     end,
     hours,
@@ -293,7 +322,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,
-    logoUrl: settings.logoUrl,
+    logoUrl: settings.reportLogoUrl || settings.logoUrl,
   };
 }
 
@@ -341,6 +370,36 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
     ? `<img class="logo" src="${escapeHtml(data.logoUrl)}" alt="${escapeHtml(data.companyName)} logo" />`
     : "";
 
+  const cleanerLines = [
+    data.cleanerAddress ? `<p>${escapeHtml(data.cleanerAddress)}</p>` : "",
+    data.cleanerPhone ? `<p>Mobile: ${escapeHtml(data.cleanerPhone)}</p>` : "",
+    `<p>Email: ${escapeHtml(data.cleanerEmail)}</p>`,
+    data.cleanerAbn ? `<p>ABN: ${escapeHtml(data.cleanerAbn)}</p>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const bankLines = [
+    data.cleanerBankAccountName ? `<p>Account name: ${escapeHtml(data.cleanerBankAccountName)}</p>` : "",
+    data.cleanerBankBsb ? `<p>BSB: ${escapeHtml(data.cleanerBankBsb)}</p>` : "",
+    data.cleanerBankAccountNumber ? `<p>Account number: ${escapeHtml(data.cleanerBankAccountNumber)}</p>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const partiesHtml = `
+        <div class="parties">
+          <div class="party">
+            <h2>From (Cleaner)</h2>
+            <p><strong>${escapeHtml(data.cleanerName)}</strong></p>
+            ${cleanerLines}
+          </div>
+          <div class="party">
+            <h2>Payment details</h2>
+            ${bankLines || '<p style="color:#b91c1c;">No bank details on file</p>'}
+          </div>
+        </div>`;
+
   const rowsHtml = data.rows
     .map(
       (row) => {
@@ -383,7 +442,11 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           body { font-family: Arial, sans-serif; color: #111; margin: 24px; }
           .header { display: flex; justify-content: space-between; margin-bottom: 18px; gap: 12px; }
           .brand { display: flex; gap: 12px; align-items: center; }
-          .logo { width: 52px; height: 52px; object-fit: contain; border-radius: 10px; border: 1px solid #e5e7eb; padding: 4px; background: #fff; }
+          .logo { max-width: 180px; max-height: 64px; width: auto; height: auto; object-fit: contain; }
+          .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+          .party { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+          .party h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 6px; }
+          .party p { margin: 2px 0; font-size: 12px; color: #222; }
           .title { font-size: 24px; margin: 0; }
           .sub { color: #555; margin: 2px 0; font-size: 12px; }
           .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
@@ -414,6 +477,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <p class="sub"><strong>Generated:</strong> ${new Date().toLocaleString("en-AU")}</p>
           </div>
         </div>
+        ${partiesHtml}
 
         <div class="summary">
           <div class="box">

@@ -21,7 +21,9 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
 import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
-import { isUploadFieldType } from "@/lib/forms/types";
+import { isUploadFieldType } from "@/lib/forms/field-types";
+import { FieldInput } from "@/components/forms/field-input";
+import { FieldReferences } from "@/components/forms/field-references";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -2635,57 +2637,21 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   function renderDynamicFieldInput(field: any, section?: any) {
-    if (field.type === "checkbox") {
-      return (
-        <div className="flex items-start gap-3">
-          <Checkbox
-            id={field.id}
-            checked={!!formData[field.id]}
-            onCheckedChange={(value) => setFormData((prev) => ({ ...prev, [field.id]: value }))}
-          />
-          <Label htmlFor={field.id} className="cursor-pointer text-sm leading-snug">
-            {field.label}
-          </Label>
-        </div>
-      );
-    }
-
-    if (field.type === "textarea") {
-      return (
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">{field.label}</Label>
-          <Textarea
-            value={formData[field.id] ?? ""}
-            onChange={(e) => setFormData((prev) => ({ ...prev, [field.id]: e.target.value }))}
-          />
-        </div>
-      );
-    }
-
+    // Inventory is a bespoke widget driven by property stock; everything else
+    // (including all the new field types) is rendered by the shared FieldInput.
     if (field.type === "inventory") {
       return <div>{renderInventoryField(field, section)}</div>;
     }
 
-    if (field.type === "signature") {
-      return (
-        <SignaturePad
-          label={field.label}
-          value={typeof formData[field.id] === "string" ? formData[field.id] : ""}
-          required={Boolean(field.required)}
-          onChange={(value) => setFormData((prev) => ({ ...prev, [field.id]: value }))}
-        />
-      );
-    }
+    // Normalize the legacy "textarea" type name to the canonical "longtext".
+    const normalizedField = field.type === "textarea" ? { ...field, type: "longtext" } : field;
 
     return (
-      <div className="space-y-1">
-        <Label className="text-xs text-muted-foreground">{field.label}</Label>
-        <Input
-          type={field.type === "number" ? "number" : "text"}
-          value={formData[field.id] ?? ""}
-          onChange={(e) => setFormData((prev) => ({ ...prev, [field.id]: e.target.value }))}
-        />
-      </div>
+      <FieldInput
+        field={normalizedField}
+        value={formData[field.id]}
+        onChange={(value) => setFormData((prev) => ({ ...prev, [field.id]: value }))}
+      />
     );
   }
 
@@ -4595,12 +4561,21 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </div>
           ) : null}
           <div className="grid grid-cols-2 gap-3">
-            {checklistUploadFields.map((field: any) => (
+            {checklistUploadFields.map((field: any) => {
+              const isVideoField = field.type === "video";
+              const isFileField = field.type === "file";
+              const galleryAccept = isVideoField
+                ? "video/*"
+                : isFileField
+                  ? "application/pdf,image/*,video/*"
+                  : "image/*,video/*";
+              return (
               <div key={field.id} className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
                   {field.label}
                   {field.required ? " *" : ""}
                 </p>
+                <FieldReferences references={field.references} />
                 <div
                   className={`flex min-h-24 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-2 transition-colors ${
                     uploadFieldComplete(field.id) ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary"
@@ -4609,25 +4584,27 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                   <Camera className={`h-6 w-6 ${uploadFieldComplete(field.id) ? "text-primary" : "text-muted-foreground"}`} />
                   <span className="text-center text-xs">{uploadFieldStatus(field.id)}</span>
                   <div className="flex w-full flex-wrap items-center justify-center gap-2">
+                    {!isFileField ? (
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted">
+                        <Camera className="h-3.5 w-3.5" />
+                        {isVideoField ? "Record video" : "Take photo"}
+                        <input
+                          type="file"
+                          accept={isVideoField ? "video/*" : "image/*"}
+                          capture="environment"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.length) handleUpload(field.id, e.target.files, "camera");
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    ) : null}
                     <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted">
-                      <Camera className="h-3.5 w-3.5" />
-                      Take photo
+                      {isFileField ? "Upload file" : isVideoField ? "Upload video" : "Upload media"}
                       <input
                         type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={(e) => {
-                          if (e.target.files?.length) handleUpload(field.id, e.target.files, "camera");
-                          e.currentTarget.value = "";
-                        }}
-                      />
-                    </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted">
-                      Upload media
-                      <input
-                        type="file"
-                        accept="image/*,video/*"
+                        accept={galleryAccept}
                         multiple
                         className="hidden"
                         onChange={(e) => {
@@ -4640,7 +4617,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 </div>
                 {renderUnifiedUploadList(field.id)}
               </div>
-            ))}
+              );
+            })}
             {checklistUploadFields.length === 0 && (
               <p className="col-span-2 text-xs text-muted-foreground">No upload fields configured in this template.</p>
             )}
