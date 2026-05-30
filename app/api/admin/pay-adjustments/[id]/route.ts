@@ -43,9 +43,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Request not found." }, { status: 404 });
     }
 
+    const isStatusChange = Boolean(body.status);
+    // Editing the approved amount on a request that has already been approved
+    // (no status change, but a new approvedAmount supplied).
+    const isAmountEdit =
+      !isStatusChange &&
+      body.approvedAmount !== undefined &&
+      existing.status === PayAdjustmentStatus.APPROVED;
+
+    if (
+      !isStatusChange &&
+      body.approvedAmount !== undefined &&
+      existing.status !== PayAdjustmentStatus.APPROVED
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "The approved amount can only be edited on a request that is already approved. Approve the request first.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const previousApprovedAmount = existing.approvedAmount;
     const approvedAmount =
       body.status === PayAdjustmentStatus.APPROVED
         ? body.approvedAmount ?? existing.requestedAmount
+        : isAmountEdit
+        ? body.approvedAmount!
         : null;
 
     if (body.status === PayAdjustmentStatus.APPROVED) {
@@ -74,8 +99,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const updated = await db.cleanerPayAdjustment.update({
       where: { id: params.id },
       data: {
-        ...(body.status
+        ...(isStatusChange
           ? { status: body.status, approvedAmount, reviewedAt: new Date(), reviewedById: session.user.id }
+          : {}),
+        ...(isAmountEdit
+          ? { approvedAmount, reviewedAt: new Date(), reviewedById: session.user.id }
           : {}),
         ...(body.adminNote !== undefined ? { adminNote: body.adminNote.trim() || null } : {}),
         ...(body.propertyId !== undefined ? { propertyId: body.propertyId } : {}),
@@ -101,20 +129,43 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     });
 
-    if (body.status) {
+    if (isStatusChange || isAmountEdit) {
       const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
-      const subject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
       const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
+      const newAmount = Number(updated.approvedAmount ?? 0).toFixed(2);
+
+      let pushSubject: string;
+      let pushBody: string;
+      let emailSubject: string;
+      let emailIntro: string;
+
+      if (isAmountEdit) {
+        const oldAmount = Number(previousApprovedAmount ?? 0).toFixed(2);
+        pushSubject = `Approved payment updated - ${propertyName}`;
+        pushBody = `Your approved payment for ${propertyName} was updated from $${oldAmount} to $${newAmount}.${note}`;
+        emailSubject = "Approved Payment Updated";
+        emailIntro = `<p>Your approved extra payment for <strong>${propertyName}</strong> has been updated from <strong>$${oldAmount}</strong> to <strong>$${newAmount}</strong>.</p>`;
+      } else {
+        pushSubject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
+        pushBody =
+          updated.status === PayAdjustmentStatus.APPROVED
+            ? `Approved $${newAmount} for ${propertyName}.${note}`
+            : `Rejected extra payment request for ${propertyName}.${note}`;
+        emailSubject = `Extra Payment Request ${updated.status}`;
+        emailIntro = `<p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>${
+          updated.status === PayAdjustmentStatus.APPROVED
+            ? `<p><strong>Approved amount:</strong> $${newAmount}</p>`
+            : ""
+        }`;
+      }
+
       await db.notification.create({
         data: {
           userId: updated.cleaner.id,
           jobId: updated.job?.id ?? undefined,
           channel: NotificationChannel.PUSH,
-          subject,
-          body:
-            updated.status === PayAdjustmentStatus.APPROVED
-              ? `Approved $${Number(updated.approvedAmount ?? 0).toFixed(2)} for ${propertyName}.${note}`
-              : `Rejected extra payment request for ${propertyName}.${note}`,
+          subject: pushSubject,
+          body: pushBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -123,15 +174,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const settings = await getAppSettings();
       await sendEmailDetailed({
         to: updated.cleaner.email,
-        subject: `${settings.companyName} - Extra Payment Request ${updated.status}`,
+        subject: `${settings.companyName} - ${emailSubject}`,
         html: `
           <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
-          <p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>
-          ${
-            updated.status === PayAdjustmentStatus.APPROVED
-              ? `<p><strong>Approved amount:</strong> $${Number(updated.approvedAmount ?? 0).toFixed(2)}</p>`
-              : ""
-          }
+          ${emailIntro}
           ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
         `,
       });
@@ -141,9 +187,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: {
         userId: session.user.id,
         jobId: updated.job?.id ?? undefined,
-        action: "REVIEW_PAY_ADJUSTMENT",
+        action: isAmountEdit ? "EDIT_PAY_ADJUSTMENT_AMOUNT" : "REVIEW_PAY_ADJUSTMENT",
         entity: "CleanerPayAdjustment",
         entityId: updated.id,
+        before: isAmountEdit ? ({ approvedAmount: previousApprovedAmount } as any) : undefined,
         after: {
           status: updated.status,
           approvedAmount: updated.approvedAmount,

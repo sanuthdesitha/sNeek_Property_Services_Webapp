@@ -96,7 +96,7 @@ export default function AdminPayAdjustmentsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("pending");
   const [editing, setEditing] = useState<PayAdjustmentRow | null>(null);
-  const [actionType, setActionType] = useState<"APPROVED" | "REJECTED">("APPROVED");
+  const [actionType, setActionType] = useState<"APPROVED" | "REJECTED" | "EDIT_AMOUNT">("APPROVED");
   const [approvedAmount, setApprovedAmount] = useState("");
   const [adminNote, setAdminNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -179,6 +179,13 @@ export default function AdminPayAdjustmentsPage() {
     setAdminNote("");
   }
 
+  function openEditAmount(row: PayAdjustmentRow) {
+    setEditing(row);
+    setActionType("EDIT_AMOUNT");
+    setApprovedAmount(String(Number(row.approvedAmount ?? getPrimaryAmount(row)).toFixed(2)));
+    setAdminNote("");
+  }
+
   function openSendToClient(row: PayAdjustmentRow) {
     setSendToClientFor(row);
     setSendClientAmount(String(Number(row.clientRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)));
@@ -257,21 +264,26 @@ export default function AdminPayAdjustmentsPage() {
 
   async function submitReview() {
     if (!editing) return;
-    if (actionType === "APPROVED") {
+    if (actionType === "APPROVED" || actionType === "EDIT_AMOUNT") {
       const amount = Number(approvedAmount || 0);
       if (!Number.isFinite(amount) || amount <= 0) {
-        toast({ title: "Approved amount is required.", variant: "destructive" });
+        toast({ title: "A valid amount greater than zero is required.", variant: "destructive" });
         return;
       }
     }
 
     setSaving(true);
     const payload: Record<string, unknown> = {
-      status: actionType,
       adminNote: adminNote.trim() || undefined,
     };
-    if (actionType === "APPROVED") {
+    if (actionType === "EDIT_AMOUNT") {
+      // Amount-only edit on an already-approved request — no status change.
       payload.approvedAmount = Number(approvedAmount);
+    } else {
+      payload.status = actionType;
+      if (actionType === "APPROVED") {
+        payload.approvedAmount = Number(approvedAmount);
+      }
     }
     const res = await fetch(`/api/admin/pay-adjustments/${editing.id}`, {
       method: "PATCH",
@@ -284,7 +296,14 @@ export default function AdminPayAdjustmentsPage() {
       toast({ title: "Update failed", description: body.error ?? "Could not review request.", variant: "destructive" });
       return;
     }
-    toast({ title: actionType === "APPROVED" ? "Request approved" : "Request rejected" });
+    toast({
+      title:
+        actionType === "APPROVED"
+          ? "Request approved"
+          : actionType === "EDIT_AMOUNT"
+          ? "Approved amount updated"
+          : "Request rejected",
+    });
     setEditing(null);
     await load();
   }
@@ -396,6 +415,11 @@ export default function AdminPayAdjustmentsPage() {
                             <Button size="sm" variant="outline" onClick={() => openReject(row)}>Reject</Button>
                           </>
                         ) : null}
+                        {row.status === "APPROVED" ? (
+                          <Button size="sm" variant="outline" onClick={() => openEditAmount(row)}>
+                            Edit amount
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -409,7 +433,13 @@ export default function AdminPayAdjustmentsPage() {
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{actionType === "APPROVED" ? "Approve request" : "Reject request"}</DialogTitle>
+            <DialogTitle>
+              {actionType === "APPROVED"
+                ? "Approve request"
+                : actionType === "EDIT_AMOUNT"
+                ? "Edit approved amount"
+                : "Reject request"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {actionType === "APPROVED" &&
@@ -419,9 +449,15 @@ export default function AdminPayAdjustmentsPage() {
                 Client approval status is {editing.clientApproval.status}. You can approve cleaner payment only after client approval.
               </div>
             ) : null}
-            {actionType === "APPROVED" ? (
+            {actionType === "EDIT_AMOUNT" && editing ? (
+              <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+                Currently approved: {formatMoney(editing.approvedAmount)}. Updating this will re-notify the
+                cleaner of the revised amount.
+              </div>
+            ) : null}
+            {actionType === "APPROVED" || actionType === "EDIT_AMOUNT" ? (
               <div className="space-y-1.5">
-                <Label>Approved amount</Label>
+                <Label>{actionType === "EDIT_AMOUNT" ? "New approved amount" : "Approved amount"}</Label>
                 <Input
                   type="number"
                   min={0}
@@ -436,7 +472,13 @@ export default function AdminPayAdjustmentsPage() {
               <Textarea value={adminNote} onChange={(e) => setAdminNote(e.target.value)} />
             </div>
             <Button className="w-full" onClick={submitReview} disabled={saving}>
-              {saving ? "Saving..." : actionType === "APPROVED" ? "Approve Request" : "Reject Request"}
+              {saving
+                ? "Saving..."
+                : actionType === "APPROVED"
+                ? "Approve Request"
+                : actionType === "EDIT_AMOUNT"
+                ? "Update Amount"
+                : "Reject Request"}
             </Button>
           </div>
         </DialogContent>
