@@ -19,6 +19,7 @@ import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { JobAttachmentsInput } from "@/components/admin/job-attachments-input";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { isUploadFieldType } from "@/lib/forms/types";
 import {
   parseJobInternalNotes,
   summarizeJobRules,
@@ -131,7 +132,7 @@ function renderFieldValue(field: any, submission: any) {
   const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
   const uploads = answers?.uploads && typeof answers.uploads === "object" ? answers.uploads : {};
 
-  if (field.type === "upload") {
+  if (isUploadFieldType(field.type)) {
     const count = uploadCount(uploads, submission?.media ?? [], String(field.id));
     return count > 0 ? `${count} file(s) uploaded` : "Not uploaded";
   }
@@ -2008,7 +2009,7 @@ export default function JobDetailPage() {
                                   {fields.map((field: any) => {
                                     const fieldAnswers = isEditing ? submissionEditData : (sub?.data && typeof sub.data === "object" ? sub.data : {});
                                     const isCheckbox = field.type === "checkbox";
-                                    const isUpload = field.type === "upload";
+                                    const isUpload = isUploadFieldType(field.type);
                                     const isTextarea = field.type === "textarea";
                                     const isReadOnly = field.type === "inventory" || field.type === "laundry_confirm";
                                     const checked = isCheckbox ? fieldAnswers[field.id] === true : false;

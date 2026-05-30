@@ -21,6 +21,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
 import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
+import { isUploadFieldType } from "@/lib/forms/types";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -122,7 +123,7 @@ function resolveFieldStep(field: any, section: any): RenderableFormStep {
     return "laundry";
   }
 
-  if (field?.type === "upload") return "uploads";
+  if (isUploadFieldType(field?.type)) return "uploads";
   return "checklist";
 }
 
@@ -1525,7 +1526,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         .map((section: any) => ({
           ...section,
           fields: (section.fields ?? []).filter(
-            (field: any) => field._resolvedStep === "checklist" && field.type !== "upload"
+            (field: any) => field._resolvedStep === "checklist" && !isUploadFieldType(field.type)
           ),
         }))
         .filter((section: any) => (section.fields?.length ?? 0) > 0),
@@ -1536,7 +1537,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const all = visibleSections
       .flatMap((section) =>
         (section.fields ?? [])
-          .filter((field: any) => field._resolvedStep === "uploads" && field.type === "upload")
+          .filter((field: any) => field._resolvedStep === "uploads" && isUploadFieldType(field.type))
           .map((field: any) => ({ ...field, sectionLabel: section.label }))
       );
     return all.filter(
@@ -1557,12 +1558,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }, [visibleSections]);
 
   const laundryUploadFields = useMemo(
-    () => laundryFields.filter((field: any) => field.type === "upload"),
+    () => laundryFields.filter((field: any) => isUploadFieldType(field.type)),
     [laundryFields]
   );
 
   const laundryNonUploadFields = useMemo(
-    () => laundryFields.filter((field: any) => field.type !== "upload"),
+    () => laundryFields.filter((field: any) => !isUploadFieldType(field.type)),
     [laundryFields]
   );
 
@@ -1582,7 +1583,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const all = visibleSections
       .flatMap((section) =>
         (section.fields ?? [])
-          .filter((field: any) => field._resolvedStep === "submit" && field.type !== "upload")
+          .filter((field: any) => field._resolvedStep === "submit" && !isUploadFieldType(field.type))
           .map((field: any) => ({ ...field, sectionLabel: section.label, _section: section }))
       );
     return all.filter(
@@ -1593,7 +1594,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const progressFields = useMemo(
     () =>
       visibleSections.flatMap((section: any) =>
-        (section.fields ?? []).filter((field: any) => field.type !== "upload")
+        (section.fields ?? []).filter((field: any) => !isUploadFieldType(field.type))
       ),
     [visibleSections]
   );

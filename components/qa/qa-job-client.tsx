@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { toast } from "@/hooks/use-toast";
+import { isUploadFieldType } from "@/lib/forms/types";
 
 export function QaJobClient({ jobId }: { jobId: string }) {
   const [payload, setPayload] = useState<any>(null);
@@ -209,7 +210,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         <Checkbox checked={data[field.id] === true} onCheckedChange={(value) => setField(field.id, value === true)} />
                         {field.label}
                       </label>
-                    ) : field.type === "upload" ? (
+                    ) : isUploadFieldType(field.type) ? (
                       <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                         <Camera className="mb-2 h-4 w-4" />
                         QA photo upload uses the shared media uploader in the next pass. Add media references in notes for now.

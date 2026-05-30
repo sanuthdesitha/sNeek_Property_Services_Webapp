@@ -66,7 +66,11 @@ export const regularMaintenanceTemplate: {
         id: "wrap",
         title: "Photos + sign-off",
         fields: [
-          { id: "after-photos", type: "photo", label: "After photos (each main room)", required: true, minPhotos: 2 },
+          { id: "kitchen-photo", type: "photo", label: "Kitchen — finished photo", required: true, minPhotos: 1 },
+          { id: "bathroom-photos", type: "photo", label: "Bathroom(s) — finished photo each", required: true, minPhotos: 1 },
+          { id: "living-photo", type: "photo", label: "Living area — finished photo", required: true, minPhotos: 1 },
+          { id: "issues-noted", type: "checkbox", label: "Damage or issues noticed?" },
+          { id: "issues-photos", type: "photo", label: "Photos of issues / damage", minPhotos: 0, conditional: { fieldId: "issues-noted", equals: true } },
           { id: "client-notes", type: "longtext", label: "Notes for client / next visit" },
           { id: "signature", type: "signature", label: "Cleaner signature", required: true },
         ],

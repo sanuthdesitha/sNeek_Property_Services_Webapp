@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { isUploadFieldType } from "@/lib/forms/types";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
 
@@ -934,7 +935,7 @@ export default function FormsPage() {
                       const isBooleanField = field.type === "checkbox";
                       const isNumberField = field.type === "number";
                       const isLongField = field.type === "textarea";
-                      const isLockedMediaField = field.type === "upload" || field.type === "signature";
+                      const isLockedMediaField = isUploadFieldType(field.type) || field.type === "signature";
                       return (
                         <div key={field.id} className="space-y-1.5 rounded-md border p-3">
                           <Label>{field.label}</Label>

@@ -4,6 +4,7 @@ import { s3 } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { isUploadFieldType } from "@/lib/forms/types";
 
 const TZ = "Australia/Sydney";
 export const REPORT_TEMPLATE_VERSION = "v4-themeable-evidence-branding";
@@ -149,7 +150,7 @@ function buildFieldValue(field: any, context: { answers: Record<string, unknown>
   const { answers, uploads, submission } = context;
   if (!field?.id) return "-";
 
-  if (field.type === "upload") {
+  if (isUploadFieldType(field.type)) {
     const count = uploadCountForField(uploads, submission?.media ?? [], String(field.id));
     return count > 0 ? `${count} file(s)` : "Not uploaded";
   }
