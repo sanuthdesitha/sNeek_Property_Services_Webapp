@@ -396,7 +396,43 @@ export function CleanerInvoicesPage() {
             <DialogTitle>Review Invoice PDF</DialogTitle>
           </DialogHeader>
           {previewPdfUrl ? (
-            <iframe src={previewPdfUrl} title="Invoice PDF preview" className="h-[70vh] w-full rounded border" />
+            <>
+              {/* Desktop browsers render PDFs inline; mobile browsers (iOS Safari,
+                  Android Chrome) do NOT render a blob: PDF inside an iframe, so the
+                  inline preview is hidden on small screens in favour of an explicit
+                  "Open PDF" action that hands the file to the phone's native viewer. */}
+              <iframe
+                src={previewPdfUrl}
+                title="Invoice PDF preview"
+                className="hidden h-[70vh] w-full rounded border sm:block"
+              />
+              <div className="rounded-md border bg-muted/30 p-4 text-center sm:hidden">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Your invoice PDF is ready. Tap below to open it in your phone&apos;s PDF viewer.
+                </p>
+                <Button asChild className="w-full">
+                  <a href={previewPdfUrl} target="_blank" rel="noreferrer">
+                    Open PDF
+                  </a>
+                </Button>
+              </div>
+              <a
+                href={previewPdfUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-center text-xs text-muted-foreground underline sm:hidden"
+              >
+                Preview not showing? Open in a new tab
+              </a>
+              <a
+                href={previewPdfUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden text-center text-xs text-muted-foreground underline sm:block"
+              >
+                Open PDF in a new tab
+              </a>
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">No preview available.</p>
           )}
