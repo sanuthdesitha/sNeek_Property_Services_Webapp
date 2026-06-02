@@ -20,6 +20,7 @@ import type { ServiceFamily } from "@/lib/marketing/catalog";
 import type { WebsiteContent } from "@/lib/public-site/content";
 import { ADMIN_RECOVERY_LOGIN_URL, isWebsiteInMaintenance, isWebsiteLoginAllowed } from "@/lib/public-site/routing";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
+import { PublicThemeToggle } from "@/components/public/public-theme";
 
 interface PublicSiteShellProps {
   children: React.ReactNode;
@@ -186,7 +187,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
       className="relative min-h-screen overflow-x-hidden bg-background text-foreground"
       style={{ "--container-max-w": content.containerWidth || "1320px" } as React.CSSProperties}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(255,177,95,0.16),transparent_28%),radial-gradient(circle_at_92%_6%,rgba(37,169,184,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.95),rgba(249,246,240,0.94))]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(255,177,95,0.16),transparent_28%),radial-gradient(circle_at_92%_6%,rgba(37,169,184,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.95),rgba(249,246,240,0.94))] dark:hidden" />
       <div className="pointer-events-none absolute left-[4%] top-24 h-40 w-40 rounded-full bg-primary/10 blur-3xl motion-safe:animate-float-slow" />
       <div className="pointer-events-none absolute right-[5%] top-52 h-56 w-56 rounded-full bg-accent/70 blur-3xl motion-safe:animate-float-slower" />
 
@@ -261,7 +262,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                         href="/services"
                         className={cn(
                           "flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5",
-                          isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground"
+                          isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-white/10"
                         )}
                         aria-expanded={servicesOpen}
                       >
@@ -271,7 +272,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
 
                       {servicesOpen ? (
                         <div className="absolute left-0 top-full z-50 w-[22rem] pt-2">
-                          <div className="max-h-[70vh] overflow-y-auto rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_-20px_rgba(23,73,78,0.3)] backdrop-blur-xl">
+                          <div className="max-h-[70vh] overflow-y-auto rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_-20px_rgba(23,73,78,0.3)] backdrop-blur-xl dark:border-white/10 dark:bg-surface-raised">
                             <div className="space-y-2 p-3">
                             {serviceGroups.map(({ family, meta, services }) => {
                               const isExpanded = expandedFamilies.has(family);
@@ -328,7 +329,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                     href={item.href}
                     className={cn(
                       "rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5",
-                      active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground"
+                      active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-white/10"
                     )}
                   >
                     {item.label}
@@ -339,6 +340,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
           </div>
 
           <div className="hidden items-center gap-2 lg:flex">
+            <PublicThemeToggle />
             {loginAllowed ? (
               <Button variant="ghost" asChild className="rounded-full text-sm" size="sm">
                 <Link href="/login">Login</Link>
@@ -357,13 +359,16 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
             </Button>
           </div>
 
-          <Button variant="outline" size="icon" className="rounded-full lg:hidden" onClick={() => setMobileOpen((current) => !current)} aria-label={mobileOpen ? "Close site menu" : "Open site menu"}>
-            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-2 lg:hidden">
+            <PublicThemeToggle />
+            <Button variant="outline" size="icon" className="rounded-full" onClick={() => setMobileOpen((current) => !current)} aria-label={mobileOpen ? "Close site menu" : "Open site menu"}>
+              {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
 
         {mobileOpen ? (
-          <div className="border-t border-white/60 bg-white/98 px-4 pb-6 pt-4 shadow-lg lg:hidden">
+          <div className="border-t border-white/60 bg-white/98 px-4 pb-6 pt-4 shadow-lg dark:border-white/10 dark:bg-surface-raised lg:hidden">
             <div className="mb-4 flex items-center gap-4 rounded-2xl bg-primary/6 px-4 py-3 text-sm">
               <a href={telHref} className="flex items-center gap-1.5 font-medium text-primary">
                 <Phone className="h-3.5 w-3.5" />

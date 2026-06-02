@@ -60,10 +60,14 @@ export function ThemeProvider({
       pathname.startsWith("/qa") ||
       pathname.startsWith("/dev");
 
-    if (!isPortalPath) {
-      document.documentElement.classList.remove("dark");
-    } else {
+    if (isPortalPath) {
       document.documentElement.classList.toggle("dark", resolved === "dark");
+    } else if (document.documentElement.hasAttribute("data-public-theme-managed")) {
+      // Public marketing pages run their own light/dark toggle
+      // (PublicThemeProvider). Leave the `dark` class to them.
+    } else {
+      // Other non-portal pages (login, register, rate, etc.) stay light.
+      document.documentElement.classList.remove("dark");
     }
 
     // Keep all `data-portal-theme` wrappers in sync with the resolved theme so

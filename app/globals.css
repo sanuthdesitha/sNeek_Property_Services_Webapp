@@ -481,6 +481,43 @@ body:has([data-portal-theme="dark"]) {
   background-color: hsl(222 22% 9%);
 }
 
+/* Public marketing site in DARK mode (visitor-toggled). Scoped to the public
+   wrapper so it doesn't affect portal dark theme. The `.dark` class is set on
+   <html> by PublicThemeProvider; the public wrapper carries data-portal-theme. */
+.dark [data-portal-theme="public"] {
+  --background:          215 32% 10%;
+  --foreground:          40 26% 92%;
+  --surface:             215 28% 13%;
+  --surface-raised:      215 24% 16%;
+  --card:                215 28% 13%;
+  --card-foreground:     40 26% 92%;
+  --popover:             215 28% 13%;
+  --popover-foreground:  40 26% 92%;
+  --primary:             188 72% 46%;
+  --primary-foreground:  215 40% 8%;
+  --secondary:           215 20% 22%;
+  --secondary-foreground: 40 20% 88%;
+  --muted:               215 18% 20%;
+  --muted-foreground:    210 14% 66%;
+  --accent:              24 50% 28%;
+  --accent-foreground:   40 40% 92%;
+  --destructive:         0 72% 52%;
+  --destructive-foreground: 0 0% 98%;
+  --border:              215 18% 26%;
+  --input:               215 18% 26%;
+  --ring:                188 72% 46%;
+}
+
+.dark body:has([data-portal-theme="public"]) {
+  background-image: none;
+  background-color: hsl(215 32% 10%);
+}
+
+.dark .marketing-only {
+  background-color: hsl(215 32% 10%);
+  color: hsl(40 26% 92%);
+}
+
 /* Sidebar slide-in animation */
 @keyframes sidebarSlideIn {
   from { opacity: 0; transform: translateX(-12px); }
