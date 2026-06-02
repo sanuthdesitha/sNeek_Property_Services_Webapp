@@ -57,6 +57,7 @@ const globalRef = globalThis as unknown as {
   __sneekSseLiveLocations?: SseState;
   __sneekWorkerFailures?: WorkerFailure[];
   __sneekJobRuns?: JobRun[];
+  __sneekWebSchedulerLastTick?: number;
 };
 
 type PgActivityRow = {
@@ -172,6 +173,39 @@ export async function GET() {
     )
     .catch(() => [] as PgSlowQueryRow[]);
 
+  // --- Scheduler health (shared pg-boss state) --------------------------
+  // pg-boss stores schedules + job history in Postgres, shared between the
+  // web app and the (separate) worker container. So this reflects the worker's
+  // state even though the in-process jobStats above do not. If `schedules` is
+  // empty, the worker has never registered its crons → it isn't running, which
+  // is the #1 reason scheduled emails stop going out.
+  type ScheduleRow = { name: string; cron: string; updated_on: Date | null };
+  const schedules = await db
+    .$queryRawUnsafe<ScheduleRow[]>(
+      `SELECT name, cron, updated_on FROM pgboss.schedule ORDER BY name`,
+    )
+    .catch(() => [] as ScheduleRow[]);
+
+  // Recent email activity as a "are emails actually flowing" signal.
+  const recentEmailCount = await db.notification
+    .count({
+      where: {
+        channel: "EMAIL" as any,
+        status: "SENT" as any,
+        sentAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+      },
+    })
+    .catch(() => null);
+
+  const webFallbackLastTick = globalRef.__sneekWebSchedulerLastTick ?? null;
+  const scheduler = {
+    resendConfigured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()),
+    scheduleCount: schedules.length,
+    schedules: schedules.map((s) => ({ name: s.name, cron: s.cron, updatedOn: s.updated_on })),
+    emailsSentLast24h: recentEmailCount,
+    webFallbackLastTickAt: webFallbackLastTick ? new Date(webFallbackLastTick).toISOString() : null,
+  };
+
   const stealPercent = await stealPromise;
   const cpuCount = cpus().length;
   const load = loadavg();
@@ -210,6 +244,7 @@ export async function GET() {
       jobStats,
       runsObserved: allRuns.length,
     },
+    scheduler,
     db: {
       activeQueries: pgActivity.map((r) => ({
         pid: r.pid,

@@ -39,9 +39,14 @@ services:
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
       NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
       VIDEO_MAX_UPLOAD_MB: ${VIDEO_MAX_UPLOAD_MB:-300}
+      # The web process never runs pg-boss listeners itself.
       SNEEK_WORKERS_DISABLED: "true"
-      SNEEK_WEB_SCHEDULER_ENABLED: ${SNEEK_WEB_SCHEDULER_ENABLED:-false}
-      SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK: "1"
+      # In-web scheduled fallback: default ON. It auto-stands-down when the
+      # dedicated worker container is detected (shared pg-boss state), so they
+      # never double-fire. This guarantees automation even on a web-only deploy.
+      # Set SNEEK_WEB_SCHEDULER_ENABLED=false to hard-disable.
+      SNEEK_WEB_SCHEDULER_ENABLED: ${SNEEK_WEB_SCHEDULER_ENABLED:-true}
+      SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK: ${SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK:-0}
 
   worker:
     build:
@@ -75,7 +80,11 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
-      SNEEK_WORKERS_ENABLED: ${SNEEK_WORKERS_ENABLED:-false}
+      # Default ON now that the CPU-overload mitigations are in place (throttled
+      # crons, single-flight PDF lock, 10-min handler timeout). The worker runs
+      # in its own container, isolated from the request-serving web app. Set
+      # SNEEK_WORKERS_ENABLED=false in the environment to kill it again if needed.
+      SNEEK_WORKERS_ENABLED: ${SNEEK_WORKERS_ENABLED:-true}
 
   postgres:
     image: postgres:16

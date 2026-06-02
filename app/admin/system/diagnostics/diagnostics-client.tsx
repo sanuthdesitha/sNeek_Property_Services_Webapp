@@ -41,6 +41,13 @@ type Snapshot = {
     jobStats: { name: string; count: number; totalMs: number; maxMs: number; failures: number; percentOfHour: number }[];
     runsObserved: number;
   };
+  scheduler?: {
+    resendConfigured: boolean;
+    scheduleCount: number;
+    schedules: { name: string; cron: string; updatedOn: string | null }[];
+    emailsSentLast24h: number | null;
+    webFallbackLastTickAt: string | null;
+  };
   db: {
     activeQueries: { pid: number; user: string | null; state: string | null; seconds: number; query: string }[];
     jobsByState: { state: string; count: number }[];
@@ -343,6 +350,63 @@ export function DiagnosticsClient() {
           </div>
         )}
       </Card>
+
+      {snap.scheduler ? (
+        <Card className="p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Scheduled jobs &amp; email health</h2>
+            <BandPill
+              status={
+                snap.scheduler.scheduleCount > 0 || snap.scheduler.webFallbackLastTickAt ? "good" : "bad"
+              }
+            >
+              {snap.scheduler.scheduleCount > 0
+                ? "Dedicated worker active"
+                : snap.scheduler.webFallbackLastTickAt
+                  ? "In-web fallback active"
+                  : "No scheduler running"}
+            </BandPill>
+          </div>
+          {snap.scheduler.scheduleCount === 0 && !snap.scheduler.webFallbackLastTickAt ? (
+            <p className="mb-3 rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-800">
+              No scheduler is running — neither the dedicated pg-boss worker nor the in-web fallback has ticked.
+              Scheduled automation (iCal sync, laundry plan, reminders, campaigns, recurring jobs) is NOT running.
+              Redeploy with the worker enabled, or ensure the web container can reach the database.
+            </p>
+          ) : snap.scheduler.scheduleCount === 0 && snap.scheduler.webFallbackLastTickAt ? (
+            <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+              Running via the in-web fallback (no dedicated worker container detected). Automation is active. For
+              best isolation, deploy the dedicated worker with <code className="mx-1">SNEEK_WORKERS_ENABLED=true</code>.
+              Last fallback tick: {new Date(snap.scheduler.webFallbackLastTickAt).toLocaleString()}.
+            </p>
+          ) : null}
+          <div className="mb-3 flex flex-wrap gap-2 text-xs">
+            <BandPill status={snap.scheduler.resendConfigured ? "good" : "bad"}>
+              RESEND_API_KEY {snap.scheduler.resendConfigured ? "configured" : "MISSING"}
+            </BandPill>
+            <span className="rounded-md border border-border bg-surface-raised px-3 py-1.5">
+              Emails sent (24h):{" "}
+              <span className="font-medium tabular-nums">
+                {snap.scheduler.emailsSentLast24h ?? "n/a"}
+              </span>
+            </span>
+          </div>
+          {snap.scheduler.schedules.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {snap.scheduler.schedules.map((s) => (
+                <span
+                  key={s.name}
+                  className="rounded-md border border-border bg-surface-raised px-2 py-1 text-[11px]"
+                  title={s.updatedOn ? `updated ${new Date(s.updatedOn).toLocaleString()}` : undefined}
+                >
+                  <span className="font-medium">{s.name}</span>
+                  <span className="ml-1 text-muted-foreground">{s.cron}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card className="p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
