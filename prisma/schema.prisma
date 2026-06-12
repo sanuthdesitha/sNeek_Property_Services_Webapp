@@ -686,6 +686,19 @@ model Job {
   actualHours           Float?
   notes                 String?   @db.Text
   internalNotes         String?   @db.Text
+  // Agreed/negotiated fixed client price for this job. When set, it overrides
+  // the property/job-type PropertyClientRate on the client invoice and lets the
+  // job be invoiced even if no standard rate exists. null = use the rate table.
+  fixedPrice            Float?
+  // Note printed on the client invoice line (and shown in the admin invoicing UI).
+  invoiceNote           String?   @db.Text
+  // Actual completion date/time. Drives which payroll + client-invoice period the
+  // job falls into (falls back to scheduledDate when null). Stamped on QA pass and
+  // editable by admins for next-day / custom completion dates.
+  completedAt           DateTime?
+  // Set when this job's cleaner pay has been included in a payroll run. Prevents
+  // the same job being paid again in a later/overlapping run (payroll idempotency).
+  payrollRunId          String?
   priorityBucket        Int       @default(4)
   priorityReason        String?
   sameDayCheckin        Boolean   @default(false)
@@ -739,6 +752,15 @@ model Job {
   cleanerLocationPings   CleanerLocationPing[]
   feedback               JobFeedback?
   uploadFailures         UploadFailure[]
+
+  // Hot-path indexes: job lists, payroll, invoicing, and dashboards filter/sort
+  // on status + scheduledDate/completedAt + propertyId.
+  @@index([scheduledDate])
+  @@index([status, scheduledDate])
+  @@index([propertyId, scheduledDate])
+  @@index([completedAt])
+  @@index([status, completedAt])
+  @@index([payrollRunId])
 }
 
 model CleanerPayAdjustment {
@@ -919,6 +941,9 @@ model QAReview {
   job        Job   @relation(fields: [jobId], references: [id])
   reviewedBy User? @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
   qaFormSubmissions QaFormSubmission[]
+
+  @@index([jobId])
+  @@index([createdAt])
 }
 
 model QaFormTemplate {
@@ -1218,6 +1243,9 @@ model LaundryTask {
   property      Property              @relation(fields: [propertyId], references: [id])
   supplier      LaundrySupplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   confirmations LaundryConfirmation[]
+
+  @@index([droppedAt])
+  @@index([status])
 }
 
 model LaundryConfirmation {
@@ -1503,12 +1531,17 @@ model ShoppingSettlement {
   includeInCleanerInvoice              Boolean               @default(false)
   includedInClientInvoiceId            String?
   includedInCleanerInvoiceReference    String?
+  // Set when this reimbursement has been captured by a payroll run, so it is
+  // never paid to the cleaner again in a later/overlapping run.
+  includedInPayrollRunId               String?
   createdAt                            DateTime              @default(now())
   updatedAt                            DateTime              @updatedAt
 
   shoppingRun   ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
   paidByUser    User?          @relation("ShoppingSettlementPaidBy", fields: [paidByUserId], references: [id])
   clientInvoice ClientInvoice? @relation(fields: [includedInClientInvoiceId], references: [id])
+
+  @@index([includedInPayrollRunId])
 }
 
 model StockRun {
@@ -1586,6 +1619,9 @@ model ClientInvoice {
   lines               ClientInvoiceLine[]
   shoppingSettlements ShoppingSettlement[]
   payments            ClientPayment[]
+
+  @@index([status])
+  @@index([clientId, status])
 }
 
 model ClientInvoiceLine {
@@ -1594,6 +1630,7 @@ model ClientInvoiceLine {
   jobId         String?
   shoppingRunId String?
   description   String
+  note          String?  @db.Text // per-job note snapshotted from Job.invoiceNote at generation time
   quantity      Float    @default(1)
   unitPrice     Float    @default(0)
   lineTotal     Float    @default(0)
@@ -1604,6 +1641,10 @@ model ClientInvoiceLine {
   invoice     ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   job         Job?          @relation(fields: [jobId], references: [id])
   shoppingRun ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
+
+  // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
+  @@index([jobId])
+  @@index([invoiceId])
 }
 
 model UserNotificationPreference {
@@ -1869,6 +1910,11 @@ model Notification {
   createdAt      DateTime            @default(now())
 
   user User? @relation(fields: [userId], references: [id])
+
+  // The notification SSE stream polls by (userId, channel, createdAt) every few
+  // seconds per connected user — must be indexed to avoid full table scans.
+  @@index([userId, channel, createdAt])
+  @@index([createdAt])
 }
 
 model UserPushDevice {
@@ -1902,6 +1948,11 @@ model AuditLog {
 
   user User @relation("AuditUser", fields: [userId], references: [id])
   job  Job? @relation("AuditJob", fields: [jobId], references: [id])
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@index([jobId])
 }
 
 model TeamGroup {
@@ -2355,6 +2406,10 @@ model PayrollRun {
   createdByUserId           String?
   confirmedAt               DateTime?
   completedAt               DateTime?
+  // Set when an ABA bank file has been generated for this run. Used to warn on
+  // regeneration so the same batch isn't uploaded to the bank twice.
+  abaGeneratedAt            DateTime?
+  abaGeneratedById          String?
   notes                     String?           @db.Text
   metadata                  Json?
   createdAt                 DateTime          @default(now())

@@ -43,36 +43,34 @@ export interface PayoutDetail {
  * Calculates all cleaner pay from jobs, adjustments, shopping reimbursements, and transport allowances.
  */
 export async function createPayrollRun(input: { periodStart: string; periodEnd: string; notes?: string; createdByUserId: string }) {
-  const summary = await getPayrollSummary({ startDate: input.periodStart, endDate: input.periodEnd });
+  // excludePaidJobs: never include a job already attached to a prior payroll run.
+  const summary = await getPayrollSummary({
+    startDate: input.periodStart,
+    endDate: input.periodEnd,
+    excludePaidJobs: true,
+  });
 
   // Filter to cleaners with actual pay
   const payableCleaners = summary.filter((c) => c.totals.grossPay > 0);
 
   if (payableCleaners.length === 0) {
-    throw new Error("No payable cleaners found for this date range. Ensure jobs are submitted and adjustments are approved.");
+    throw new Error("No payable cleaners found for this date range. Ensure jobs are submitted and adjustments are approved, and that these jobs haven't already been paid in another run.");
   }
+
+  // Job IDs whose pay is captured by this run — stamped so they can't be paid again.
+  const includedJobIds = Array.from(
+    new Set(payableCleaners.flatMap((c) => c.jobs.map((j) => j.id)))
+  );
+  // Shopping-reimbursement settlement IDs captured by this run — same idempotency.
+  const includedSettlementIds = Array.from(
+    new Set(payableCleaners.flatMap((c) => c.shoppingReimbursements.map((s) => s.settlementId)))
+  );
 
   const grandTotal = payableCleaners.reduce((sum, c) => sum + c.totals.grossPay, 0);
   const totalShopping = payableCleaners.reduce((sum, c) => sum + c.totals.shoppingReimbursements, 0);
   const totalTransport = payableCleaners.reduce((sum, c) =>
     sum + c.jobs.reduce((jSum, j) => jSum + (j.transportAllowance ?? 0), 0), 0);
   const totalAdjustments = payableCleaners.reduce((sum, c) => sum + c.totals.adjustments, 0);
-
-  const run = await db.payrollRun.create({
-    data: {
-      periodStart: new Date(`${input.periodStart}T00:00:00+10:00`),
-      periodEnd: new Date(`${input.periodEnd}T23:59:59+10:00`),
-      status: PayrollRunStatus.DRAFT,
-      totalPayable: payableCleaners.reduce((sum, c) => sum + c.totals.jobGross, 0),
-      totalShoppingReimbursements: totalShopping,
-      totalTransportAllowances: totalTransport,
-      totalAdjustments: totalAdjustments,
-      grandTotal,
-      cleanerCount: payableCleaners.length,
-      createdByUserId: input.createdByUserId,
-      notes: input.notes ?? null,
-    },
-  });
 
   // Fetch full user data including bank details for each payable cleaner
   const cleanerIds = payableCleaners.map((c) => c.cleaner.id);
@@ -85,28 +83,63 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   });
   const userMap = new Map(fullUsers.map((u) => [u.id, u]));
 
-  // Create payout records for each cleaner
-  for (const cleaner of payableCleaners) {
+  const payoutRows = payableCleaners.map((cleaner) => {
     const user = userMap.get(cleaner.cleaner.id)!;
-    const method = determinePayoutMethod(user);
+    return {
+      cleanerId: user.id,
+      amount: cleaner.totals.grossPay,
+      shoppingReimbursement: cleaner.totals.shoppingReimbursements,
+      transportAllowance: cleaner.jobs.reduce((s, j) => s + (j.transportAllowance ?? 0), 0),
+      adjustments: cleaner.totals.adjustments,
+      status: PayoutStatus.PENDING,
+      method: determinePayoutMethod(user),
+      bankBsb: user.bankBsb,
+      bankAccountNumber: user.bankAccountNumber,
+      bankAccountName: user.bankAccountName,
+      stripeAccountId: user.stripeAccountId,
+    };
+  });
 
-    await db.payout.create({
+  // Atomic: the run, its payouts, and the job stamps all commit together (or not
+  // at all) so a partial failure can't leave an inconsistent / re-payable state.
+  const run = await db.$transaction(async (tx) => {
+    const createdRun = await tx.payrollRun.create({
       data: {
-        payrollRunId: run.id,
-        cleanerId: user.id,
-        amount: cleaner.totals.grossPay,
-        shoppingReimbursement: cleaner.totals.shoppingReimbursements,
-        transportAllowance: cleaner.jobs.reduce((s, j) => s + (j.transportAllowance ?? 0), 0),
-        adjustments: cleaner.totals.adjustments,
-        status: PayoutStatus.PENDING,
-        method,
-        bankBsb: user.bankBsb,
-        bankAccountNumber: user.bankAccountNumber,
-        bankAccountName: user.bankAccountName,
-        stripeAccountId: user.stripeAccountId,
+        periodStart: new Date(`${input.periodStart}T00:00:00+10:00`),
+        periodEnd: new Date(`${input.periodEnd}T23:59:59+10:00`),
+        status: PayrollRunStatus.DRAFT,
+        totalPayable: payableCleaners.reduce((sum, c) => sum + c.totals.jobGross, 0),
+        totalShoppingReimbursements: totalShopping,
+        totalTransportAllowances: totalTransport,
+        totalAdjustments: totalAdjustments,
+        grandTotal,
+        cleanerCount: payableCleaners.length,
+        createdByUserId: input.createdByUserId,
+        notes: input.notes ?? null,
       },
     });
-  }
+
+    await tx.payout.createMany({
+      data: payoutRows.map((row) => ({ ...row, payrollRunId: createdRun.id })),
+    });
+
+    if (includedSettlementIds.length > 0) {
+      await tx.shoppingSettlement.updateMany({
+        where: { id: { in: includedSettlementIds }, includedInPayrollRunId: null },
+        data: { includedInPayrollRunId: createdRun.id },
+      });
+    }
+
+    if (includedJobIds.length > 0) {
+      // Guard on payrollRunId: null so a concurrent run can't double-stamp.
+      await tx.job.updateMany({
+        where: { id: { in: includedJobIds }, payrollRunId: null },
+        data: { payrollRunId: createdRun.id },
+      });
+    }
+
+    return createdRun;
+  });
 
   return run;
 }
@@ -218,6 +251,12 @@ export async function processPayrollRun(runId: string) {
   let failCount = 0;
 
   for (const payout of run.payouts) {
+    // Idempotency: never re-pay a payout that already succeeded or is in flight.
+    // This makes re-running a partially-failed run safe (no double Stripe transfer).
+    if (payout.status === PayoutStatus.PAID || payout.status === PayoutStatus.PROCESSING) {
+      successCount++;
+      continue;
+    }
     try {
       if (payout.method === PayoutMethod.STRIPE_CONNECT && payout.stripeAccountId) {
         await processStripePayout(payout);
@@ -266,6 +305,9 @@ async function processStripePayout(payout: { id: string; amount: number; stripeA
     headers: {
       "Authorization": `Bearer ${stripeKey}`,
       "Content-Type": "application/x-www-form-urlencoded",
+      // Stripe dedupes retries with the same key — guarantees one transfer per
+      // payout even if this runs twice (network retry, re-processed run).
+      "Idempotency-Key": `payout_${payout.id}`,
     },
     body: new URLSearchParams({
       amount: String(amountCents),

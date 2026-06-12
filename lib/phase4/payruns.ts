@@ -131,7 +131,12 @@ async function computeLines(startDate: string, endDate: string): Promise<PayRunL
       jobAssignments: {
         some: {
           job: {
-            scheduledDate: { gte: start, lte: end },
+            // Match the completedAt ?? scheduledDate window that the per-cleaner
+            // invoice (getCleanerInvoiceData) uses, so selection and totals agree.
+            OR: [
+              { completedAt: { gte: start, lte: end } },
+              { completedAt: null, scheduledDate: { gte: start, lte: end } },
+            ],
             status: {
               in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
             },

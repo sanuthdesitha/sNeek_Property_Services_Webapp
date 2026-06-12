@@ -1,6 +1,12 @@
-import { startOfWeek, subDays } from "date-fns";
+import { startOfWeek, subDays, subMonths } from "date-fns";
 import { ClientInvoiceStatus, JobStatus, LeadStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+
+// Heavy history queries below feed rolling trend charts. Bound them to a
+// fixed window instead of loading the entire history on every dashboard load.
+const TREND_WINDOW_MONTHS = 24;
+// Safety cap for list-style (non-aggregate) queries to avoid pathological loads.
+const LIST_TAKE_CAP = 500;
 
 function monthKey(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -16,9 +22,17 @@ function labelFromEmail(email: string | null | undefined) {
 }
 
 export async function getFinanceDashboardData(now = new Date()) {
-  const [invoices, jobs, leads, clients, reviews] = await Promise.all([
+  const since = subMonths(now, TREND_WINDOW_MONTHS);
+
+  const [invoices, jobs, totalLeads, convertedLeads, clients, reviews, avgInvoiceAgg] = await Promise.all([
+    // Trend + MTD/YTD source. Windowed by paid date (paidAt ?? createdAt). The
+    // current month and year (used by mtdRevenue/ytdRevenue) sit inside the
+    // 24-month window. revenueByMonth/Service/Cleaner charts become windowed.
     db.clientInvoice.findMany({
-      where: { status: ClientInvoiceStatus.PAID },
+      where: {
+        status: ClientInvoiceStatus.PAID,
+        OR: [{ paidAt: { gte: since } }, { paidAt: null, createdAt: { gte: since } }],
+      },
       select: {
         id: true,
         clientId: true,
@@ -43,41 +57,47 @@ export async function getFinanceDashboardData(now = new Date()) {
       },
       orderBy: { createdAt: "asc" },
     }),
+    // jobsCompletedPerWeek trend. Windowed by scheduledDate.
     db.job.findMany({
-      where: { status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] } },
+      where: {
+        status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        scheduledDate: { gte: since },
+      },
       select: {
         id: true,
         scheduledDate: true,
-        jobType: true,
-        property: { select: { clientId: true } },
-        assignments: {
-          where: { removedAt: null },
-          select: { userId: true, user: { select: { name: true, email: true } } },
-        },
-        qaReviews: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { score: true, createdAt: true },
-        },
       },
       orderBy: { scheduledDate: "asc" },
+      take: LIST_TAKE_CAP,
     }),
-    db.quoteLead.findMany({
-      select: { status: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
-    }),
+    // Lead totals were derived only as counts; aggregate DB-side.
+    db.quoteLead.count(),
+    db.quoteLead.count({ where: { status: LeadStatus.CONVERTED } }),
     db.client.findMany({
       where: { isActive: true },
       select: {
         id: true,
         name: true,
-        invoices: { where: { status: ClientInvoiceStatus.PAID }, select: { totalAmount: true, paidAt: true, createdAt: true } },
         properties: { select: { jobs: { where: { status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] } }, select: { scheduledDate: true } } } },
       },
+      take: LIST_TAKE_CAP,
     }),
+    // qaTrend chart. Windowed by createdAt.
     db.qAReview.findMany({
+      where: { createdAt: { gte: since } },
       select: { score: true, createdAt: true },
       orderBy: { createdAt: "asc" },
+      take: LIST_TAKE_CAP,
+    }),
+    // avgJobValue is an all-time metric: aggregate it DB-side instead of
+    // loading every paid invoice row. Mirrors the original "<= now" guard
+    // (paidAt ?? createdAt not in the future) via the same OR expression.
+    db.clientInvoice.aggregate({
+      where: {
+        status: ClientInvoiceStatus.PAID,
+        OR: [{ paidAt: { lte: now } }, { paidAt: null, createdAt: { lte: now } }],
+      },
+      _avg: { totalAmount: true },
     }),
   ]);
 
@@ -119,9 +139,6 @@ export async function getFinanceDashboardData(now = new Date()) {
     qaTrendMap.set(key, bucket);
   }
 
-  const totalLeads = leads.length;
-  const convertedLeads = leads.filter((lead) => lead.status === LeadStatus.CONVERTED).length;
-
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const startOfYear = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
   const paidInvoices = invoices.filter((invoice) => (invoice.paidAt ?? invoice.createdAt) <= now);
@@ -131,7 +148,7 @@ export async function getFinanceDashboardData(now = new Date()) {
   const ytdRevenue = paidInvoices
     .filter((invoice) => (invoice.paidAt ?? invoice.createdAt) >= startOfYear)
     .reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0);
-  const avgJobValue = paidInvoices.length > 0 ? paidInvoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0) / paidInvoices.length : 0;
+  const avgJobValue = avgInvoiceAgg._avg.totalAmount ?? 0;
 
   const sixtyDaysAgo = subDays(now, 60);
   const churnRiskClients = clients.filter((client) => {

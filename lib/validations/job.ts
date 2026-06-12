@@ -87,6 +87,10 @@ const baseCreateJobSchema = z.object({
   estimatedHours: z.number().positive().optional(),
   notes: z.string().optional(),
   internalNotes: z.string().optional(),
+  // Agreed fixed client price (overrides the rate table on the client invoice).
+  fixedPrice: z.number().nonnegative().max(1_000_000).nullable().optional(),
+  // Note printed on the client invoice line.
+  invoiceNote: z.string().trim().max(2000).nullable().optional(),
   isDraft: z.boolean().optional(),
   tags: z.array(z.string().trim().min(1)).optional(),
   attachments: z.array(attachmentSchema).optional(),
@@ -120,6 +124,12 @@ export const createJobSchema = baseCreateJobSchema.superRefine((data, ctx) => {
 
 export const updateJobSchema = baseCreateJobSchema.partial().extend({
   status: z.nativeEnum(JobStatus).optional(),
+  // Actual completion date (next-day / custom). null clears it. Drives the
+  // payroll + client-invoice period the job falls into.
+  completedAt: z.string().datetime().nullable().optional(),
+  // Per-cleaner custom payout (userId -> amount). 0 is valid ("pay nothing").
+  // Replaces that cleaner's computed base pay for the job.
+  cleanerPayouts: z.record(z.string().min(1), z.number().nonnegative().max(100_000)).optional(),
 });
 
 export const assignJobSchema = z.object({

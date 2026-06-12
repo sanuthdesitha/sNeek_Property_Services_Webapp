@@ -2,10 +2,25 @@
 // the 4 APIs we need. Run with: node scripts/diagnose-google-maps.mjs
 // (or: npx tsx scripts/diagnose-google-maps.mjs)
 
-import { config } from "dotenv";
-config(); // loads .env
+// Read .env directly so this script has zero dependencies (dotenv may not be
+// installed at the repo root).
+import { readFileSync } from "node:fs";
 
-const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+function readEnvKey(name) {
+  if (process.env[name]) return process.env[name];
+  for (const file of [".env.local", ".env"]) {
+    try {
+      const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+      const m = text.match(new RegExp(`^${name}=(.*)$`, "m"));
+      if (m) return m[1].trim().replace(/^["']|["']$/g, "");
+    } catch {
+      /* file may not exist */
+    }
+  }
+  return undefined;
+}
+
+const key = readEnvKey("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY") || readEnvKey("GOOGLE_MAPS_API_KEY");
 
 console.log("\n=== Google Maps API Key Diagnostic ===\n");
 

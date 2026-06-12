@@ -3,8 +3,15 @@ import { PayAdjustmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { DEFAULT_CLEANER_HOURLY_RATE } from "@/lib/finance/pay-rates";
 
-export async function getPayrollSummary(input: { startDate: string; endDate: string }) {
+export async function getPayrollSummary(input: {
+  startDate: string;
+  endDate: string;
+  // When true (used by payroll-run creation), exclude jobs already attached to a
+  // payroll run so the same job is never paid twice across overlapping runs.
+  excludePaidJobs?: boolean;
+}) {
   const settings = await getAppSettings();
   const start = new Date(`${input.startDate}T00:00:00.000Z`);
   const endExclusive = addDays(new Date(`${input.endDate}T00:00:00.000Z`), 1);
@@ -17,14 +24,21 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
     }),
     db.job.findMany({
       where: {
-        scheduledDate: { gte: start, lt: endExclusive },
+        // Bucket by completion date when set (a job finished next-day/custom date
+        // counts in that period); fall back to the scheduled date otherwise.
+        OR: [
+          { completedAt: { gte: start, lt: endExclusive } },
+          { completedAt: null, scheduledDate: { gte: start, lt: endExclusive } },
+        ],
         status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
+        ...(input.excludePaidJobs ? { payrollRunId: null } : {}),
       },
       select: {
         id: true,
         jobNumber: true,
         jobType: true,
         scheduledDate: true,
+        completedAt: true,
         estimatedHours: true,
         internalNotes: true,
         property: { select: { name: true, suburb: true } },
@@ -64,6 +78,8 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
             clientBillable: false,
             adminApprovedForCleanerReimbursement: true,
             includeInCleanerInvoice: false,
+            // When creating a run, never re-include a reimbursement already paid.
+            ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
           },
         },
       },
@@ -72,6 +88,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
           where: {
             adminApprovedForCleanerReimbursement: true,
             includeInCleanerInvoice: false,
+            ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
           },
         },
         lines: true,
@@ -83,7 +100,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
   ]);
 
   // Build shopping reimbursement map by cleaner
-  const shoppingByCleaner = new Map<string, { id: string; title: string; amount: number; updatedAt: Date }[]>();
+  const shoppingByCleaner = new Map<string, { id: string; settlementId: string; title: string; amount: number; updatedAt: Date }[]>();
   for (const run of shoppingRuns) {
     const settlement = run.settlements[0];
     if (!settlement) continue;
@@ -92,7 +109,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
     const amount = Number(settlement.clientBillable ? 0 : (run.lines.reduce((sum, l) => sum + Number(l.lineCost ?? 0), 0)));
     if (amount <= 0) continue;
     const list = shoppingByCleaner.get(settlement.paidByUserId) || [];
-    list.push({ id: run.id, title: run.title || "Shopping reimbursement", amount, updatedAt: run.updatedAt });
+    list.push({ id: run.id, settlementId: settlement.id, title: run.title || "Shopping reimbursement", amount, updatedAt: run.updatedAt });
     shoppingByCleaner.set(settlement.paidByUserId, list);
   }
 
@@ -110,11 +127,22 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
         .reduce((sum, row) => sum + Number(row.durationM ?? 0) / 60, 0);
       const allocatedHours = Number(job.estimatedHours ?? 0);
       const paidHours = allocatedHours > 0 ? allocatedHours / splitCount : timerHours;
-      const rate = Number(assignment.payRate ?? cleaner.hourlyRate ?? settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? 40);
-      const baseGross = Number((paidHours * rate).toFixed(2));
+      // Resolve the rate from the most specific source available; flag when none
+      // is configured and we fall back to the shared default (so it can be fixed).
+      const configuredRate =
+        assignment.payRate ?? cleaner.hourlyRate ?? settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? null;
+      const rateMissing = configuredRate == null;
+      const rate = Number(configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE);
 
-      // Extract transport allowance from job internal notes
+      // Job meta carries per-cleaner overrides (transport allowance + custom payout).
       const notes = parseJobInternalNotes(job.internalNotes as string | null);
+      const customPayout = notes.cleanerPayouts?.[cleaner.id];
+      const hasCustomPayout = typeof customPayout === "number" && Number.isFinite(customPayout);
+      // A custom payout REPLACES this cleaner's computed hours×rate base pay.
+      const baseGross = hasCustomPayout
+        ? Number(customPayout.toFixed(2))
+        : Number((paidHours * rate).toFixed(2));
+
       const allowances = notes.transportAllowances ?? {};
       const transportAllowance = Number(allowances[cleaner.id] ?? 0);
       const gross = baseGross + transportAllowance;
@@ -125,10 +153,12 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
         propertyName: job.property.name,
         suburb: job.property.suburb,
         jobType: job.jobType,
-        scheduledDate: job.scheduledDate,
+        scheduledDate: job.completedAt ?? job.scheduledDate,
         hours: Number(paidHours.toFixed(2)),
         rate,
+        rateMissing: rateMissing && !hasCustomPayout,
         baseGross,
+        isCustomPayout: hasCustomPayout,
         transportAllowance,
         gross,
       }];
@@ -145,6 +175,7 @@ export async function getPayrollSummary(input: { startDate: string; endDate: str
 
     const shoppingRows = (shoppingByCleaner.get(cleaner.id) || []).map((row) => ({
       id: row.id,
+      settlementId: row.settlementId,
       label: row.title,
       updatedAt: row.updatedAt,
       amount: row.amount,

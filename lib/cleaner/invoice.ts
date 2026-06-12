@@ -2,6 +2,7 @@ import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { DEFAULT_CLEANER_HOURLY_RATE } from "@/lib/finance/pay-rates";
 import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
@@ -40,6 +41,7 @@ export interface CleanerInvoiceData {
     split: number;
     payBasis: "ALLOCATED" | "TIMER";
     rate: number | null;
+    rateMissing: boolean;
     hours: number;
     originalHours: number;
     isHoursOverridden: boolean;
@@ -103,6 +105,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         state: true,
         postcode: true,
         abn: true,
+        hourlyRate: true,
         bankBsb: true,
         bankAccountNumber: true,
         bankAccountName: true,
@@ -117,7 +120,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
   const payableJobs = await db.job.findMany({
     where: {
-      scheduledDate: { gte: start, lte: end },
+      // Bucket by completion date when set (next-day/custom), else scheduled date.
+      OR: [
+        { completedAt: { gte: start, lte: end } },
+        { completedAt: null, scheduledDate: { gte: start, lte: end } },
+      ],
       status: {
         in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
       },
@@ -154,7 +161,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       cleanerId: options.userId,
       status: PayAdjustmentStatus.PENDING,
       job: {
-        scheduledDate: { gte: start, lte: end },
+        // Match the same completedAt ?? scheduledDate window used for payable jobs.
+        OR: [
+          { completedAt: { gte: start, lte: end } },
+          { completedAt: null, scheduledDate: { gte: start, lte: end } },
+        ],
       },
     },
     select: {
@@ -216,29 +227,39 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         Number.isFinite(Number(overrideRaw)) &&
         Number(overrideRaw) >= 0;
       const paidHours = hasOverride ? Number(overrideRaw) : originalPaidHours;
-      const configuredRate = settings.cleanerJobHourlyRates?.[options.userId]?.[job.jobType];
-      const rawRate = cleanerAssignment.payRate ?? configuredRate ?? null;
-      const numericRate = rawRate == null ? null : Number(rawRate);
-      const rate =
-        numericRate != null && Number.isFinite(numericRate) && numericRate > 0
-          ? numericRate
+      // Same fallback chain + default as the payroll run, so the cleaner's invoice
+      // and the payroll run never disagree on what a job pays.
+      const configuredRateRaw =
+        cleanerAssignment.payRate ?? user.hourlyRate ?? settings.cleanerJobHourlyRates?.[options.userId]?.[job.jobType] ?? null;
+      const configuredRate =
+        configuredRateRaw != null && Number.isFinite(Number(configuredRateRaw)) && Number(configuredRateRaw) > 0
+          ? Number(configuredRateRaw)
           : null;
-      const baseAmount = rate != null ? paidHours * rate : 0;
-      const approvedExtraAmount = extrasByJob.get(job.id) ?? 0;
       const jobMeta = parseJobInternalNotes(job.internalNotes);
+      const customPayout = jobMeta.cleanerPayouts?.[options.userId];
+      const hasCustomPayout = typeof customPayout === "number" && Number.isFinite(customPayout);
+      const rateMissing = configuredRate == null && !hasCustomPayout;
+      // Effective rate falls back to the shared default when nothing is configured.
+      const rate = hasCustomPayout ? configuredRate : configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE;
+      // A custom payout REPLACES this cleaner's computed hours×rate base pay.
+      const baseAmount = hasCustomPayout
+        ? Number(customPayout)
+        : paidHours * (configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE);
+      const approvedExtraAmount = extrasByJob.get(job.id) ?? 0;
       const transportAllowance = Number(jobMeta.transportAllowances?.[options.userId] ?? 0);
       const comment = options.jobComments?.[job.id]?.trim() || "";
       const isHoursOverridden = hasOverride && Math.abs(paidHours - originalPaidHours) > 0.0001;
 
       return {
         jobId: job.id,
-        date: new Date(job.scheduledDate).toLocaleDateString("en-AU"),
+        date: new Date(job.completedAt ?? job.scheduledDate).toLocaleDateString("en-AU"),
         jobName: `${job.property.name} - ${job.jobType.replace(/_/g, " ")}`,
         property: job.property.name,
         jobType: job.jobType.replace(/_/g, " "),
         split: hasAllocatedHours ? splitCount : 1,
         payBasis,
         rate,
+        rateMissing,
         hours: paidHours,
         originalHours: originalPaidHours,
         isHoursOverridden,
@@ -417,7 +438,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <td class="cell">${escapeHtml(row.property)}</td>
           <td class="cell">${escapeHtml(row.jobType)}</td>
           <td class="cell right">${row.split}</td>
-          <td class="cell right">${row.rate != null ? formatCurrency(row.rate) : "Not set"}</td>
+          <td class="cell right">${row.rate != null ? `${formatCurrency(row.rate)}${row.rateMissing ? " (default)" : ""}` : "Not set"}</td>
           <td class="cell right">${row.hours.toFixed(2)}</td>
           ${includeHoursChangeColumn ? `<td class="cell">${row.hoursChangeNote ? escapeHtml(row.hoursChangeNote) : "-"}</td>` : ""}
           ${data.showSpentHours ? `<td class="cell right">${(row.spentHours ?? 0).toFixed(2)}</td>` : ""}

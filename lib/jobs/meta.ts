@@ -62,6 +62,10 @@ export interface JobMeta {
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
   transportAllowances: Record<string, number>;
+  // Per-cleaner custom payout (keyed by userId). When set for a cleaner, it
+  // REPLACES that cleaner's computed hours×rate base pay for the job. Transport
+  // allowances and approved adjustments still add on top. Separate per cleaner.
+  cleanerPayouts: Record<string, number>;
   serviceContext?: JobServiceContext;
   reservationContext?: JobReservationContext;
 }
@@ -82,9 +86,28 @@ export function defaultJobMeta(): JobMeta {
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
     transportAllowances: {},
+    cleanerPayouts: {},
     serviceContext: undefined,
     reservationContext: undefined,
   };
+}
+
+// Normalize a per-cleaner amount map (userId -> number). `allowZero` controls
+// whether 0 is a meaningful value: transport allowances drop 0, but a custom
+// payout of 0 means "pay this cleaner nothing for the job" and must be kept.
+function normalizeCleanerAmountMap(input: unknown, allowZero: boolean): Record<string, number> {
+  if (!input || typeof input !== "object") return {};
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, number>>(
+    (acc, [userId, amountRaw]) => {
+      const amount = Number(amountRaw);
+      const valid = allowZero ? amount >= 0 : amount > 0;
+      if (typeof userId === "string" && userId.trim().length > 0 && Number.isFinite(amount) && valid) {
+        acc[userId.trim()] = Number(amount.toFixed(2));
+      }
+      return acc;
+    },
+    {}
+  );
 }
 
 function normalizeTime(value: unknown): string | undefined {
@@ -257,19 +280,8 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       specialRequestTasks: normalizeSpecialRequestTasks(parsed.specialRequestTasks),
       earlyCheckin: normalizeRule(parsed.earlyCheckin),
       lateCheckout: normalizeRule(parsed.lateCheckout),
-      transportAllowances:
-        parsed.transportAllowances && typeof parsed.transportAllowances === "object"
-          ? Object.entries(parsed.transportAllowances as Record<string, unknown>).reduce<Record<string, number>>(
-              (acc, [userId, amountRaw]) => {
-                const amount = Number(amountRaw);
-                if (typeof userId === "string" && userId.trim().length > 0 && Number.isFinite(amount) && amount > 0) {
-                  acc[userId.trim()] = Number(amount.toFixed(2));
-                }
-                return acc;
-              },
-              {}
-            )
-          : {},
+      transportAllowances: normalizeCleanerAmountMap(parsed.transportAllowances, false),
+      cleanerPayouts: normalizeCleanerAmountMap(parsed.cleanerPayouts, true),
       serviceContext: normalizeServiceContext(parsed.serviceContext),
       reservationContext: normalizeReservationContext(parsed.reservationContext),
     };
@@ -290,19 +302,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     specialRequestTasks: normalizeSpecialRequestTasks(input.specialRequestTasks),
     earlyCheckin: normalizeRule(input.earlyCheckin),
     lateCheckout: normalizeRule(input.lateCheckout),
-    transportAllowances:
-      input.transportAllowances && typeof input.transportAllowances === "object"
-        ? Object.entries(input.transportAllowances).reduce<Record<string, number>>(
-            (acc, [userId, amountRaw]) => {
-              const amount = Number(amountRaw);
-              if (typeof userId === "string" && userId.trim().length > 0 && Number.isFinite(amount) && amount > 0) {
-                acc[userId.trim()] = Number(amount.toFixed(2));
-              }
-              return acc;
-            },
-            {}
-          )
-        : {},
+    transportAllowances: normalizeCleanerAmountMap(input.transportAllowances, false),
+    cleanerPayouts: normalizeCleanerAmountMap(input.cleanerPayouts, true),
     serviceContext: normalizeServiceContext(input.serviceContext),
     reservationContext: normalizeReservationContext(input.reservationContext),
   };
@@ -315,6 +316,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
     Object.keys(meta.transportAllowances).length > 0 ||
+    Object.keys(meta.cleanerPayouts).length > 0 ||
     Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
     Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0);
 
@@ -332,6 +334,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
     transportAllowances: meta.transportAllowances,
+    cleanerPayouts: meta.cleanerPayouts,
     serviceContext: meta.serviceContext,
     reservationContext: meta.reservationContext,
   });

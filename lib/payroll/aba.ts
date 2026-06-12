@@ -18,7 +18,10 @@ interface AbaPayout {
  * - File total record (footer) - 1 record
  * - Each record is exactly 120 characters
  */
-export async function generateAbaFile(runId: string): Promise<{ content: string; filename: string }> {
+export async function generateAbaFile(
+  runId: string,
+  opts?: { allowRegenerate?: boolean; actorUserId?: string }
+): Promise<{ content: string; filename: string; regenerated: boolean }> {
   const run = await db.payrollRun.findUnique({
     where: { id: runId },
     include: { payouts: true, createdBy: true },
@@ -27,6 +30,15 @@ export async function generateAbaFile(runId: string): Promise<{ content: string;
   if (!run) throw new Error("Payroll run not found");
   if (run.status !== "CONFIRMED" && run.status !== "PROCESSING" && run.status !== "COMPLETED" && run.status !== "FAILED") {
     throw new Error("Run must be confirmed before generating ABA file");
+  }
+
+  // Guard against accidentally producing the bank file twice (which an admin could
+  // upload to the bank a second time → duplicate payments). Require explicit confirm.
+  if (run.abaGeneratedAt && !opts?.allowRegenerate) {
+    throw new Error(
+      `ABA_ALREADY_GENERATED: An ABA file was already generated on ${run.abaGeneratedAt.toISOString().slice(0, 10)}. ` +
+        `Re-generating risks a duplicate bank payment — confirm to download it again.`
+    );
   }
 
   // Get payouts that need ABA processing (ABA_FILE or MANUAL_BANK_TRANSFER method)
@@ -76,7 +88,16 @@ export async function generateAbaFile(runId: string): Promise<{ content: string;
   const periodEnd = run.periodEnd.toISOString().slice(0, 10);
   const filename = `ABA-sNeekOps-${periodStart}-to-${periodEnd}.aba`;
 
-  return { content, filename };
+  // Record the first generation so future downloads are flagged as regenerations.
+  const regenerated = Boolean(run.abaGeneratedAt);
+  if (!run.abaGeneratedAt) {
+    await db.payrollRun.update({
+      where: { id: run.id },
+      data: { abaGeneratedAt: new Date(), abaGeneratedById: opts?.actorUserId ?? null },
+    });
+  }
+
+  return { content, filename, regenerated };
 }
 
 function normalizeBsb(bsb: string): string {

@@ -109,7 +109,8 @@ export async function generateClientInvoice(input: {
     db.clientInvoiceLine.findMany({
       where: {
         jobId: { not: null },
-        invoice: { status: { not: ClientInvoiceStatus.VOID } },
+        // Scope to THIS client — avoid scanning every invoice line for every client.
+        invoice: { status: { not: ClientInvoiceStatus.VOID }, clientId: input.clientId },
       },
       select: { jobId: true },
     }),
@@ -131,10 +132,22 @@ export async function generateClientInvoice(input: {
       status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
       ...(input.periodStart || input.periodEnd
         ? {
-            scheduledDate: {
-              ...(input.periodStart ? { gte: input.periodStart } : {}),
-              ...(input.periodEnd ? { lte: input.periodEnd } : {}),
-            },
+            // Bucket by completion date when set (next-day/custom), else scheduled date.
+            OR: [
+              {
+                completedAt: {
+                  ...(input.periodStart ? { gte: input.periodStart } : {}),
+                  ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+                },
+              },
+              {
+                completedAt: null,
+                scheduledDate: {
+                  ...(input.periodStart ? { gte: input.periodStart } : {}),
+                  ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+                },
+              },
+            ],
           }
         : {}),
     },
@@ -146,9 +159,10 @@ export async function generateClientInvoice(input: {
 
   const unInvoicedJobs = jobs.filter((job) => !invoicedJobIds.has(job.id));
 
-  // Check for missing rates before silently skipping jobs
+  // Check for missing rates before silently skipping jobs. Jobs with an agreed
+  // fixed price don't need a rate-table entry.
   const missingRateJobs = unInvoicedJobs.filter(
-    (job) => !rateMap.has(`${job.propertyId}:${job.jobType}`)
+    (job) => job.fixedPrice == null && !rateMap.has(`${job.propertyId}:${job.jobType}`)
   );
   if (missingRateJobs.length > 0) {
     const details = missingRateJobs
@@ -162,15 +176,19 @@ export async function generateClientInvoice(input: {
   const lines = unInvoicedJobs
     .map((job) => {
       const rate = rateMap.get(`${job.propertyId}:${job.jobType}`);
-      if (!rate) return null;
+      const hasFixedPrice = job.fixedPrice != null && Number.isFinite(job.fixedPrice);
+      // A fixed price overrides the rate table; otherwise the rate is required.
+      if (!rate && !hasFixedPrice) return null;
+      const lineDate = job.completedAt ?? job.scheduledDate;
       const description =
-        rate.defaultDescription?.trim() ||
-        `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${format(new Date(job.scheduledDate), "dd MMM yyyy")}`;
-      const lineTotal = Number(rate.baseCharge || 0);
+        rate?.defaultDescription?.trim() ||
+        `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${format(new Date(lineDate), "dd MMM yyyy")}`;
+      const lineTotal = hasFixedPrice ? Number(job.fixedPrice) : Number(rate?.baseCharge || 0);
       return {
         jobId: job.id,
         shoppingRunId: null,
         description,
+        note: job.invoiceNote?.trim() || null,
         quantity: 1,
         unitPrice: lineTotal,
         lineTotal,
@@ -181,6 +199,7 @@ export async function generateClientInvoice(input: {
     jobId: string;
     shoppingRunId: null;
     description: string;
+    note: string | null;
     quantity: number;
     unitPrice: number;
     lineTotal: number;
@@ -246,6 +265,7 @@ export async function generateClientInvoice(input: {
         jobId: null,
         shoppingRunId: run.id,
         description: `Shopping reimbursement - ${run.title}`,
+        note: null,
         quantity: 1,
         unitPrice: total,
         lineTotal: total,
@@ -257,6 +277,7 @@ export async function generateClientInvoice(input: {
       jobId: null;
       shoppingRunId: string;
       description: string;
+      note: null;
       quantity: number;
       unitPrice: number;
       lineTotal: number;
@@ -276,10 +297,15 @@ export async function generateClientInvoice(input: {
     { gstEnabled: gstFlag }
   );
 
-  const invoice = await db.clientInvoice.create({
+  const invoiceNumber = await nextInvoiceNumber();
+  // Atomic: create the invoice (with its lines) AND mark the consumed shopping
+  // settlements in one transaction, so a crash can't leave settlements billable
+  // again or produce an invoice with orphaned consumption.
+  const invoice = await db.$transaction(async (tx) => {
+    const created = await tx.clientInvoice.create({
     data: {
       clientId: client.id,
-      invoiceNumber: await nextInvoiceNumber(),
+      invoiceNumber,
       status: ClientInvoiceStatus.DRAFT,
       periodStart: input.periodStart ?? null,
       periodEnd: input.periodEnd ?? null,
@@ -307,12 +333,15 @@ export async function generateClientInvoice(input: {
     },
   });
 
-  if (shoppingLines.length > 0) {
-    await db.shoppingSettlement.updateMany({
-      where: { id: { in: shoppingLines.map((line) => line.settlementId) } },
-      data: { includedInClientInvoiceId: invoice.id },
-    });
-  }
+    if (shoppingLines.length > 0) {
+      await tx.shoppingSettlement.updateMany({
+        where: { id: { in: shoppingLines.map((line) => line.settlementId) } },
+        data: { includedInClientInvoiceId: created.id },
+      });
+    }
+
+    return created;
+  });
 
   return invoice;
 }
@@ -365,6 +394,7 @@ export function buildClientInvoiceHtml(
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
             <div style="font-weight:600;">${escapeHtml(line.description)}</div>
             ${meta ? `<div style="font-size:12px;color:#6b7280;">${meta}</div>` : ""}
+            ${line.note ? `<div style="font-size:12px;color:#374151;margin-top:4px;">${escapeHtml(line.note)}</div>` : ""}
           </td>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${line.quantity.toFixed(2)}</td>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${money(line.unitPrice)}</td>
