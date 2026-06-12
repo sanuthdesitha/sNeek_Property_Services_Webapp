@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
+import { OpsOverviewMap, type OpsMapProperty } from "@/components/admin/ops-overview-map";
 
 const TZ = "Australia/Sydney";
 const ACTIVE_STATUSES: JobStatus[] = [
@@ -93,6 +94,17 @@ export default async function OpsMapPage({
   const onSiteCount = jobs.filter((job) => typeof job.gpsDistanceMeters === "number" && job.gpsDistanceMeters < 500).length;
   const pendingSafetyCount = jobs.filter((job) => job.requiresSafetyCheckin && !job.safetyCheckinAt).length;
 
+  const mapProperties: OpsMapProperty[] = jobs
+    .filter((job) => job.property.latitude != null && job.property.longitude != null)
+    .map((job) => ({
+      jobId: job.id,
+      name: job.property.name,
+      suburb: job.property.suburb,
+      lat: job.property.latitude as number,
+      lng: job.property.longitude as number,
+      status: job.status,
+    }));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -151,6 +163,8 @@ export default async function OpsMapPage({
           </CardContent>
         </Card>
       </div>
+
+      <OpsOverviewMap properties={mapProperties} />
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
