@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Plus, Search, Edit, Trash2, Eye } from "lucide-react";
+import { ClipboardCheck, Plus, Search, Edit, Trash2, Eye } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -81,20 +82,19 @@ export default function OnboardingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Property Onboarding</h2>
-          <p className="text-sm text-muted-foreground">
-            Survey new properties and onboard cleaning contracts.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/onboarding/new">
-            <Plus className="mr-2 h-4 w-4" />
-            New Survey
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<ClipboardCheck />}
+        title="Property Onboarding"
+        description="Survey new properties and onboard cleaning contracts."
+        actions={
+          <Button asChild>
+            <Link href="/admin/onboarding/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Survey
+            </Link>
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">

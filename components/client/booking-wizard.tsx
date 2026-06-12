@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { CalendarCheck, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
@@ -114,12 +115,11 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Book a service</h1>
-        <p className="text-sm text-muted-foreground">
-          Choose the property, service, and preferred date. Admin will confirm timing once the booking is created.
-        </p>
-      </div>
+      <PageHeader
+        icon={<CalendarCheck />}
+        title="Book a service"
+        description="Choose the property, service, and preferred date. Admin will confirm timing once the booking is created."
+      />
 
       <div className="grid gap-3 md:grid-cols-3">
         {[
@@ -129,7 +129,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
         ].map((item) => (
           <Card key={item.value} className={step === item.value ? "border-primary/40" : ""}>
             <CardContent className="flex items-center gap-3 p-4">
-              <div className={`flex h-9 w-9 items-center justify-center rounded-2xl ${step === item.value ? "bg-primary text-white" : "bg-primary/10 text-primary"}`}>
+              <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${step === item.value ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                 {item.value}
               </div>
               <p className="text-sm font-medium">{item.label}</p>
@@ -148,7 +148,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
             <div className="space-y-1.5">
               <Label>Property</Label>
               <select
-                className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+                className="flex h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"
                 value={propertyId}
                 onChange={(event) => setPropertyId(event.target.value)}
               >
@@ -162,7 +162,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
             <div className="space-y-1.5">
               <Label>Service</Label>
               <select
-                className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+                className="flex h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"
                 value={jobType}
                 onChange={(event) => setJobType(event.target.value as MarketedJobTypeValue)}
               >
@@ -174,7 +174,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
               </select>
             </div>
             {selectedProperty ? (
-              <div className="rounded-2xl border bg-muted/30 p-4 text-sm md:col-span-2">
+              <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm md:col-span-2">
                 <p className="font-medium">{selectedProperty.name}</p>
                 <p className="text-muted-foreground">
                   {selectedProperty.suburb} • {selectedProperty.bedrooms} bed • {selectedProperty.bathrooms} bath
@@ -209,11 +209,11 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
                     key={date}
                     type="button"
                     onClick={() => setSelectedDate(date)}
-                    className={`rounded-2xl border px-4 py-3 text-left text-sm transition-colors ${
-                      selectedDate === date ? "border-primary bg-primary/10 text-primary" : "bg-white hover:border-primary/30"
+                    className={`rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                      selectedDate === date ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface hover:border-primary/30"
                     }`}
                   >
-                    <p className="font-medium">{date}</p>
+                    <p className="font-medium tabular-nums">{date}</p>
                     <p className="text-xs text-muted-foreground">Available</p>
                   </button>
                 ))}
@@ -241,7 +241,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
             <CardDescription>Confirm the booking details before sending.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-2xl border bg-muted/30 p-4 text-sm">
+            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm">
               <p><strong>Property:</strong> {selectedProperty?.name ?? "-"}</p>
               <p><strong>Service:</strong> {BOOKABLE_SERVICES.find((service) => service.jobType === jobType)?.label ?? jobType}</p>
               <p><strong>Date:</strong> {selectedDate || "-"}</p>
@@ -250,7 +250,7 @@ export function BookingWizard({ properties }: { properties: PropertyOption[] }) 
               <Label>Special instructions</Label>
               <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Access, guest timing, or anything the team should know" />
             </div>
-            <div className="rounded-2xl border border-primary/20 bg-primary/6 p-4 text-sm text-primary">
+            <div className="rounded-xl border border-primary/20 bg-primary/6 p-4 text-sm text-primary">
               <p className="flex items-center gap-2 font-medium">
                 <Sparkles className="h-4 w-4" />
                 Admin will review capacity and confirm the exact run sheet.

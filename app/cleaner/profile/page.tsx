@@ -10,6 +10,8 @@ import { DisplayPreferencesSection } from "@/components/profile/display-preferen
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { UserRound } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -66,12 +68,11 @@ export default async function CleanerProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Your profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Keep your details current so we can pay you correctly and reach you in an emergency.
-        </p>
-      </header>
+      <PageHeader
+        title="Your profile"
+        description="Keep your details current so we can pay you correctly and reach you in an emergency."
+        icon={<UserRound />}
+      />
 
       <CleanerProfileForm
         editingEnabled={editingEnabled}

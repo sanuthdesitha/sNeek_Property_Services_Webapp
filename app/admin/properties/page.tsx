@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Building2, Bed, Bath, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { PropertiesMap, type PropertyMarker } from "@/components/admin/properties-map";
 
 export default async function PropertiesPage() {
@@ -51,17 +52,18 @@ export default async function PropertiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Properties</h2>
-          <p className="text-sm text-muted-foreground">{properties.length} active properties</p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/properties/new">
-            <Plus className="h-4 w-4 mr-2" /> Add Property
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Building2 />}
+        title="Properties"
+        description={`${properties.length} active properties`}
+        actions={
+          <Button asChild>
+            <Link href="/admin/properties/new">
+              <Plus className="h-4 w-4 mr-2" /> Add Property
+            </Link>
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="list">
         <TabsList>

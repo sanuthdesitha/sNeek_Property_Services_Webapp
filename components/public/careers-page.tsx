@@ -48,7 +48,7 @@ export function CareersPage({ positions }: { positions: CareerPosition[] }) {
         {positions.length > 0 ? (
           <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
             {positions.map((position) => (
-              <Card key={position.id} className="group overflow-hidden rounded-[1.8rem] border-white/80 bg-white/88 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur">
+              <Card key={position.id} className="group overflow-hidden rounded-[1.8rem] border-white/80 dark:border-white/10 bg-white/88 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur">
                 <CardContent className="flex h-full flex-col gap-5 p-6">
                   <div className="flex items-start justify-between gap-3">
                     <Badge className={cn("rounded-full border px-3 py-1 text-xs font-medium", departmentClassName(position.department))}>
@@ -84,7 +84,7 @@ export function CareersPage({ positions }: { positions: CareerPosition[] }) {
             ))}
           </div>
         ) : (
-          <Card className="rounded-[1.8rem] border-dashed border-border/80 bg-white/70 shadow-none">
+          <Card className="rounded-[1.8rem] border-dashed border-border/80 bg-white/70 dark:bg-white/5 shadow-none">
             <CardContent className="space-y-3 p-8 text-center">
               <p className="text-lg font-semibold text-foreground">No positions currently open.</p>
               <p className="text-sm text-muted-foreground">Check back soon or contact us if you would like to register interest for future roles.</p>
@@ -99,7 +99,7 @@ export function CareersPage({ positions }: { positions: CareerPosition[] }) {
               <p className="text-lg font-semibold text-foreground">Do not see the right role yet?</p>
               <p className="text-sm text-muted-foreground">Send us your details and we can keep you in mind as the team grows.</p>
             </div>
-            <Button asChild variant="outline" className="rounded-full bg-white/80">
+            <Button asChild variant="outline" className="rounded-full bg-white/80 dark:bg-white/5">
               <Link href="/contact">Contact us</Link>
             </Button>
           </CardContent>

@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CalendarDays, LayoutGrid, Settings2, Shirt } from "lucide-react";
+import { Calendar, CalendarDays, LayoutGrid, Settings2, Shirt } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const CALENDAR_TAB_STORAGE_KEY = "sneek_admin_calendar_default_tab_v1";
@@ -47,13 +48,11 @@ export default function CalendarPage() {
         <CardContent className="p-0">
           <div className="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="p-5 sm:p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Calendar
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">Dispatch Calendar</h2>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-                Review all scheduled jobs and laundry pickups in one place, spot clashes early, and jump straight into a job from the calendar card.
-              </p>
+              <PageHeader
+                icon={<Calendar />}
+                title="Dispatch Calendar"
+                description="Review all scheduled jobs and laundry pickups in one place, spot clashes early, and jump straight into a job from the calendar card."
+              />
             </div>
             <div className="grid gap-3 border-t border-border/60 bg-muted/20 p-5 sm:grid-cols-2 sm:p-6 lg:border-l lg:border-t-0">
               <div className="rounded-2xl border border-border bg-surface p-4">

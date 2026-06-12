@@ -2,13 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { icalValidateSchema } from "@/lib/validations/onboarding";
+import { assertSafePublicUrl } from "@/lib/security/ssrf";
 
 export async function POST(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = icalValidateSchema.parse(await req.json());
 
-    const res = await fetch(body.icalUrl, { signal: AbortSignal.timeout(10000) });
+    try {
+      await assertSafePublicUrl(body.icalUrl);
+    } catch {
+      return NextResponse.json({ error: "URL not allowed." }, { status: 400 });
+    }
+
+    const res = await fetch(body.icalUrl, { redirect: "manual", signal: AbortSignal.timeout(10000) });
     if (!res.ok) {
       return NextResponse.json({ valid: false, error: `Could not fetch iCal feed (HTTP ${res.status}).` });
     }

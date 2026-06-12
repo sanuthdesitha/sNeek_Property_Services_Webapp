@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth/auth-options";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
+import { UserRound } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { AdminProfileForm } from "@/components/admin/admin-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
@@ -46,10 +48,11 @@ export default async function QaProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Your Profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Your contact info and preferences.</p>
-      </header>
+      <PageHeader
+        title="Your Profile"
+        description="Your contact info and preferences."
+        icon={<UserRound />}
+      />
 
       <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
 

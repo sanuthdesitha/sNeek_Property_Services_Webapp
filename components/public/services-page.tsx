@@ -52,7 +52,7 @@ export function ServicesPage({ content }: ServicesPageProps) {
         <div className="flex" aria-hidden="true">
           <div className="flex shrink-0 gap-4 animate-marquee pr-4">
             {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={`a-${pill}-${i}`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+              <span key={`a-${pill}-${i}`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white dark:border-white/10 dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
                 {pill}
               </span>
@@ -60,7 +60,7 @@ export function ServicesPage({ content }: ServicesPageProps) {
           </div>
           <div className="flex shrink-0 gap-4 animate-marquee pr-4" aria-hidden="true">
             {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={`b-${pill}-${i}`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+              <span key={`b-${pill}-${i}`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white dark:border-white/10 dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
                 {pill}
               </span>
@@ -91,7 +91,7 @@ export function ServicesPage({ content }: ServicesPageProps) {
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {services.map((service) => (
                       <Link key={service.jobType} href={`/services/${service.slug}`} className="group">
-                        <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(25,67,74,0.4)]">
+                        <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(25,67,74,0.4)]">
                           <CardContent className="space-y-4 p-6">
                             <div className={`inline-flex rounded-2xl bg-gradient-to-br ${service.cardColor} p-3 text-white shadow-sm`}>
                               <Sparkles className="h-5 w-5" />

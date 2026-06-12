@@ -65,7 +65,7 @@ export function PreferredCleanerCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <select
-          className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+          className="flex h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"
           value={selectedId}
           onChange={(event) => setSelectedId(event.target.value)}
         >

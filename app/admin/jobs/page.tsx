@@ -5,8 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, Briefcase, CalendarClock, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -760,17 +761,19 @@ export default function JobsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Jobs</h2>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        icon={<Briefcase />}
+        title="Jobs"
+        description={
+          <>
             {pagination.totalCount} {activeTab === "completed" ? "completed" : "active"} jobs
             {pagination.totalPages > 1 && (
               <span className="text-muted-foreground"> &middot; Page {pagination.page} of {pagination.totalPages}</span>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+          </>
+        }
+        actions={
+          <>
           <Button variant="outline" onClick={() => setFiltersOpen((current) => !current)}>
             <SlidersHorizontal className="mr-2 h-4 w-4" />
             Filters
@@ -867,8 +870,9 @@ export default function JobsPage() {
               New / Bulk
             </Link>
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Saved filter views */}
       <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1">

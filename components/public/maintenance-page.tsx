@@ -10,7 +10,7 @@ export function MaintenancePage({ content }: { content: WebsiteContent }) {
   return (
     <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
       <div className="mx-auto grid w-full max-w-4xl gap-6">
-        <Card className="rounded-[2rem] border-white/70 bg-white/88 shadow-[0_24px_70px_-36px_rgba(22,63,70,0.38)]">
+        <Card className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/88 dark:bg-white/5 shadow-[0_24px_70px_-36px_rgba(22,63,70,0.38)]">
           <CardContent className="grid gap-6 p-8 md:grid-cols-[auto_1fr] md:items-start">
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Wrench className="h-6 w-6" />

@@ -62,7 +62,7 @@ export function FaqPage({ content }: FaqPageProps) {
           </div>
 
           {/* Quick summary card */}
-          <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-4">
+          <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-4">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">Quick answers</p>
             {[
               { q: "Do I need to be home?", a: "No — we work with access codes, lockboxes, or building concierge." },
@@ -91,7 +91,7 @@ export function FaqPage({ content }: FaqPageProps) {
                 className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 ${
                   active === cat.value
                     ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-white/80 text-muted-foreground hover:bg-white hover:text-foreground"
+                    : "bg-white/80 dark:bg-white/5 text-muted-foreground hover:bg-white dark:hover:bg-white/10 hover:text-foreground"
                 }`}
               >
                 {cat.label}
@@ -106,7 +106,7 @@ export function FaqPage({ content }: FaqPageProps) {
 
           {/* FAQ accordion */}
           {filtered.length === 0 ? (
-            <div className="rounded-2xl border border-white/70 bg-white/80 p-8 text-center text-muted-foreground">
+            <div className="rounded-2xl border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-8 text-center text-muted-foreground">
               No questions in this category yet.
             </div>
           ) : (
@@ -115,7 +115,7 @@ export function FaqPage({ content }: FaqPageProps) {
                 <AccordionItem
                   key={item.id}
                   value={item.id}
-                  className="rounded-2xl border border-white/70 bg-white/85 px-5 shadow-sm data-[state=open]:shadow-md transition-all duration-200"
+                  className="rounded-2xl border border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 px-5 shadow-sm data-[state=open]:shadow-md transition-all duration-200"
                 >
                   <AccordionTrigger className="py-4 text-sm font-medium hover:no-underline text-left sm:text-base">
                     {item.question}
@@ -132,7 +132,7 @@ export function FaqPage({ content }: FaqPageProps) {
 
       {/* ─── BOTTOM CTA ─── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)] sm:p-8 lg:flex lg:items-center lg:justify-between">
+        <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)] sm:p-8 lg:flex lg:items-center lg:justify-between">
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#25D366]/10 p-3 w-fit">
               <MessageCircle className="h-5 w-5 text-[#25D366]" />

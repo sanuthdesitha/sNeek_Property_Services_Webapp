@@ -223,6 +223,10 @@ export default function JobDetailPage() {
     attachments: [] as any[],
     specialRequestTasks: [] as JobSpecialRequestTask[],
     transportAllowances: {} as Record<string, string>,
+    cleanerPayouts: {} as Record<string, string>,
+    completedAt: "",
+    fixedPrice: "",
+    invoiceNote: "",
     earlyCheckin: { enabled: false, preset: "none" as JobTimingPreset, time: "" },
     lateCheckout: { enabled: false, preset: "none" as JobTimingPreset, time: "" },
   });
@@ -261,6 +265,12 @@ export default function JobDetailPage() {
         transportAllowances: Object.fromEntries(
           Object.entries(meta.transportAllowances ?? {}).map(([userId, amount]) => [userId, String(amount)])
         ),
+        cleanerPayouts: Object.fromEntries(
+          Object.entries(meta.cleanerPayouts ?? {}).map(([userId, amount]) => [userId, String(amount)])
+        ),
+        completedAt: j?.completedAt ? toLocalDateInput(j.completedAt) : "",
+        fixedPrice: j?.fixedPrice != null ? String(j.fixedPrice) : "",
+        invoiceNote: j?.invoiceNote ?? "",
         earlyCheckin: {
           enabled: meta.earlyCheckin?.enabled === true,
           preset: meta.earlyCheckin?.preset ?? "none",
@@ -686,6 +696,23 @@ export default function JobDetailPage() {
           },
           {}
         ),
+        // Per-cleaner custom payout. Empty input = not set (compute normally);
+        // 0 is a valid override ("pay nothing for this job").
+        cleanerPayouts: Object.entries(editForm.cleanerPayouts).reduce<Record<string, number>>(
+          (acc, [userId, amountRaw]) => {
+            const raw = String(amountRaw ?? "").trim();
+            if (raw === "") return acc;
+            const amount = Number(raw);
+            if (userId.trim().length > 0 && Number.isFinite(amount) && amount >= 0) {
+              acc[userId.trim()] = Number(amount.toFixed(2));
+            }
+            return acc;
+          },
+          {}
+        ),
+        completedAt: editForm.completedAt ? `${editForm.completedAt}T00:00:00.000Z` : null,
+        fixedPrice: editForm.fixedPrice.trim() === "" ? null : Number(editForm.fixedPrice),
+        invoiceNote: editForm.invoiceNote.trim() === "" ? null : editForm.invoiceNote.trim(),
         earlyCheckin: editForm.earlyCheckin.enabled ? { enabled: true, preset: editForm.earlyCheckin.preset, time: editForm.earlyCheckin.preset === "custom" ? editForm.earlyCheckin.time || undefined : undefined } : { enabled: false, preset: "none" },
         lateCheckout: editForm.lateCheckout.enabled ? { enabled: true, preset: editForm.lateCheckout.preset, time: editForm.lateCheckout.preset === "custom" ? editForm.lateCheckout.time || undefined : undefined } : { enabled: false, preset: "none" },
         confirmCompletedReset: undefined as boolean | undefined,
@@ -989,6 +1016,9 @@ export default function JobDetailPage() {
   const transportAllowanceCleanerIds = Array.from(
     new Set([...selectedCleaners, ...Object.keys(editForm.transportAllowances ?? {})])
   );
+  const cleanerPayoutCleanerIds = Array.from(
+    new Set([...selectedCleaners, ...Object.keys(editForm.cleanerPayouts ?? {})])
+  );
   const scheduledDateLabel = job?.scheduledDate
     ? (() => {
         const parsed = new Date(job.scheduledDate);
@@ -1270,6 +1300,37 @@ export default function JobDetailPage() {
               />
             </div>
             <div className="space-y-1">
+              <Label>Completion date</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={editForm.completedAt}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, completedAt: e.target.value }))}
+                />
+                {editForm.scheduledDate ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() =>
+                      setEditForm((prev) => {
+                        const base = prev.completedAt || prev.scheduledDate;
+                        const next = new Date(`${base}T00:00:00`);
+                        next.setDate(next.getDate() + 1);
+                        return { ...prev, completedAt: toLocalDateInput(next) };
+                      })
+                    }
+                  >
+                    +1 day
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Defaults to when QA passes. Set a next-day/custom date to count this job in that pay &amp; invoice period.
+              </p>
+            </div>
+            <div className="space-y-1">
               <Label>Fixed / allocated pay hours</Label>
               <Input
                 type="number"
@@ -1496,6 +1557,86 @@ export default function JobDetailPage() {
               </div>
             )}
           </div>
+
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">Client billing</Label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-sm">Fixed price (optional)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editForm.fixedPrice}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, fixedPrice: e.target.value }))}
+                  placeholder="Use property rate"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Agreed price for this job. Overrides the property rate on the client invoice (and lets it be invoiced without a set rate).
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-sm">Invoice note (optional)</Label>
+                <Textarea
+                  rows={2}
+                  value={editForm.invoiceNote}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, invoiceNote: e.target.value }))}
+                  placeholder="Prints on the client invoice line"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Custom cleaner payout (optional)</Label>
+              <p className="text-xs text-muted-foreground">Replaces hours &times; rate for that cleaner</p>
+            </div>
+            {cleanerPayoutCleanerIds.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Assign cleaners first to set a custom payout per cleaner.</p>
+            ) : (
+              <div className="space-y-2">
+                {cleanerPayoutCleanerIds.map((cleanerId) => (
+                  <div key={cleanerId} className="grid grid-cols-[1fr_140px_auto] items-center gap-2">
+                    <p className="truncate text-sm">{cleanerLookup.get(cleanerId) ?? cleanerId}</p>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.cleanerPayouts[cleanerId] ?? ""}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          cleanerPayouts: {
+                            ...prev.cleanerPayouts,
+                            [cleanerId]: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Auto"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setEditForm((prev) => {
+                          const next = { ...prev.cleanerPayouts };
+                          delete next[cleanerId];
+                          return { ...prev, cleanerPayouts: next };
+                        })
+                      }
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to pay normally. Enter 0 to pay nothing. Transport allowance and approved adjustments still add on top.
+                </p>
+              </div>
+            )}
+          </div>
+
           {isAirbnbTurnover ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">

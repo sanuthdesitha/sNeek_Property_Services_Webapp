@@ -156,7 +156,10 @@ export function IntegrationsSettings() {
       const res = await fetch("/api/admin/integrations/credentials");
       if (!res.ok) return;
       const data = await res.json();
-      setCredentials(data.credentials || {});
+      // The API only returns masked values now (real secrets never leave the
+      // server). Edited fields are sent on save; untouched masked values are
+      // preserved server-side via bullet-detection.
+      setCredentials(data.masked || {});
       setMasked(data.masked || {});
       setDirty(new Set());
     } catch { /* ignore */ }

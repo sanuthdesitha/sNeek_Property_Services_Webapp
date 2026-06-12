@@ -60,7 +60,7 @@ export function ContactForm() {
 
   if (sent) {
     return (
-      <Card className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+      <Card className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
         <CardContent className="space-y-4 p-6 text-center sm:p-8">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Send className="h-6 w-6" />
@@ -77,7 +77,7 @@ export function ContactForm() {
   }
 
   return (
-    <Card className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+    <Card className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
       <CardHeader>
         <CardTitle>Send a quick message</CardTitle>
         <CardDescription>

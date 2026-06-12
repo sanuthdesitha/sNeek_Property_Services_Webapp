@@ -236,7 +236,7 @@ export default async function CleanerDashboard() {
       <Card className="transition-all hover:border-primary/35 hover:shadow-sm">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
               <CalendarDays className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0 flex-1">
@@ -280,13 +280,13 @@ export default async function CleanerDashboard() {
                     <Badge
                       key={`${job.id}-tag-${tag}`}
                       variant="secondary"
-                      className="border-sky-200 bg-sky-50 text-sky-800"
+                      className="border-info/30 bg-info/10 text-info"
                     >
                       {tag}
                     </Badge>
                   ))}
                   {hasCleanerNotes ? (
-                    <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                    <Badge variant="secondary" className="border-info/30 bg-info/10 text-info">
                       Notes
                     </Badge>
                   ) : null}
@@ -309,7 +309,7 @@ export default async function CleanerDashboard() {
             </div>
           </div>
           <div className="mt-3 sm:hidden">
-            <Button size="sm" variant="outline" asChild className="w-full">
+            <Button size="sm" variant="outline" asChild className="h-11 w-full">
               <Link href={`/cleaner/jobs/${job.id}`}>Open job</Link>
             </Button>
           </div>
@@ -332,10 +332,10 @@ export default async function CleanerDashboard() {
           <div className="grid gap-0 lg:grid-cols-[1.25fr_0.9fr]">
             {/* Left: greeting */}
             <div className="p-5 sm:p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {format(now, "EEEE, d MMMM")}
               </p>
-              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
+              <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
                 Good {now.getHours() < 12 ? "morning" : now.getHours() < 17 ? "afternoon" : "evening"},{" "}
                 {cleanerName}
               </h1>
@@ -366,13 +366,13 @@ export default async function CleanerDashboard() {
             </div>
 
             {/* Right: next job */}
-            <div className="border-t border-border/60 bg-muted/20 p-5 sm:p-6 lg:border-l lg:border-t-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="border-t border-border bg-surface-raised/60 p-5 sm:p-6 lg:border-l lg:border-t-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Next Job
               </p>
               {visibility.showJobs && nextJob ? (
                 <div className="mt-3 space-y-3">
-                  <div className="rounded-2xl border border-border/70 bg-card p-3">
+                  <div className="rounded-xl border border-border bg-surface p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-base font-semibold">{nextJob.property.name}</p>
@@ -433,56 +433,56 @@ export default async function CleanerDashboard() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <CalendarDays className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Jobs today</p>
-              <p className="text-2xl font-semibold">{todayJobs.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jobs today</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{todayJobs.length}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <Clock className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Hours this month</p>
-              <p className="text-2xl font-semibold">{totalHoursMonth.toFixed(1)}h</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Hours this month</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{totalHoursMonth.toFixed(1)}h</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <HandCoins className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Pending pay requests</p>
-              <p className="text-2xl font-semibold">{pendingExtraRequests}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending pay requests</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{pendingExtraRequests}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <CreditCard className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Approved extras</p>
-              <p className="text-2xl font-semibold">{formatCurrency(approvedExtrasMonth)}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Approved extras</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{formatCurrency(approvedExtrasMonth)}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100">
-              <AlertTriangle className="h-5 w-5 text-amber-700" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/15">
+              <AlertTriangle className="h-5 w-5 text-warning" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Awaiting confirmation</p>
-              <p className="text-2xl font-semibold">{awaitingConfirmationJobs.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting confirmation</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{awaitingConfirmationJobs.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -490,23 +490,23 @@ export default async function CleanerDashboard() {
 
       {/* ── ONGOING JOB (if any) ── */}
       {ongoingJob && visibility.showJobs && (
-        <Card className="border-emerald-500/45 bg-emerald-50/70">
+        <Card className="border-success/40 bg-success/10">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                <p className="text-xs font-medium uppercase tracking-wide text-success">
                   Ongoing Job
                 </p>
-                <p className="mt-1 text-lg font-semibold text-emerald-900">{ongoingJob.property.name}</p>
-                <p className="mt-0.5 text-sm text-emerald-800">
+                <p className="mt-1 text-lg font-semibold text-foreground">{ongoingJob.property.name}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
                   {ongoingJob.property.address}, {ongoingJob.property.suburb}
                 </p>
-                <p className="mt-2 text-sm text-emerald-900">
+                <p className="mt-2 text-sm text-foreground">
                   {format(toZonedTime(ongoingJob.scheduledDate, TZ), "EEE dd MMM yyyy")}
                   {ongoingJob.startTime ? ` | ${ongoingJob.startTime}` : ""}
                   {ongoingJob.dueTime ? ` – ${ongoingJob.dueTime}` : ""}
                 </p>
-                <p className="text-xs text-emerald-800">{ongoingJob.jobType.replace(/_/g, " ")}</p>
+                <p className="text-xs text-muted-foreground">{ongoingJob.jobType.replace(/_/g, " ")}</p>
                 {ongoingJobTimingHighlights.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {ongoingJobTimingHighlights.map((line) => (
@@ -518,10 +518,10 @@ export default async function CleanerDashboard() {
                   Boolean(ongoingJobMeta?.internalNoteText?.trim())) && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {ongoingJobMeta?.tags?.map((tag) => (
-                      <Badge key={`ongoing-tag-${tag}`} variant="secondary" className="border-sky-200 bg-sky-50 text-sky-800">{tag}</Badge>
+                      <Badge key={`ongoing-tag-${tag}`} variant="secondary" className="border-info/30 bg-info/10 text-info">{tag}</Badge>
                     ))}
                     {Boolean(ongoingJobMeta?.internalNoteText?.trim()) && (
-                      <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">Cleaner Notes</Badge>
+                      <Badge variant="secondary" className="border-info/30 bg-info/10 text-info">Cleaner Notes</Badge>
                     )}
                   </div>
                 )}
@@ -545,9 +545,9 @@ export default async function CleanerDashboard() {
 
       {/* ── AWAITING CONFIRMATION ── */}
       {visibility.showJobs && awaitingConfirmationJobs.length > 0 && (
-        <Card className="border-amber-300 bg-amber-50/70">
+        <Card className="border-warning/40 bg-warning/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-amber-950">Jobs Awaiting Your Confirmation</CardTitle>
+            <CardTitle className="text-lg">Jobs Awaiting Your Confirmation</CardTitle>
             <CardDescription>
               Accept or decline these offers so the schedule stays accurate.
             </CardDescription>
@@ -579,10 +579,10 @@ export default async function CleanerDashboard() {
                     className={`flex min-w-[96px] shrink-0 flex-col rounded-xl border p-2.5 ${
                       isToday
                         ? "border-primary/40 bg-primary/5"
-                        : "border-border/60 bg-muted/20"
+                        : "border-border bg-surface-raised/60"
                     }`}
                   >
-                    <p className={`text-[10px] font-bold uppercase tracking-wider ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                    <p className={`text-[10px] font-medium uppercase tracking-wide ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                       {label}
                     </p>
                     {dayJobs.length === 0 ? (
@@ -619,7 +619,7 @@ export default async function CleanerDashboard() {
               {todayJobs.length > 0 ? (
                 todayJobs.map((job) => <JobCard key={job.id} job={job} />)
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   No jobs scheduled for today.
                 </div>
               )}
@@ -635,25 +635,25 @@ export default async function CleanerDashboard() {
             </CardHeader>
             <CardContent className="grid gap-3">
               {visibility.showInvoices && (
-                <Link href="/cleaner/invoices" className="rounded-2xl border border-border/70 bg-card p-3 transition-colors hover:border-primary/35">
+                <Link href="/cleaner/invoices" className="rounded-xl border border-border bg-surface p-3 transition-colors hover:border-primary/35">
                   <p className="text-sm font-semibold">Invoices</p>
                   <p className="mt-1 text-xs text-muted-foreground">Preview, download, or email invoice PDFs.</p>
                 </Link>
               )}
               {visibility.showPayRequests && (
-                <Link href="/cleaner/pay-requests" className="rounded-2xl border border-border/70 bg-card p-3 transition-colors hover:border-primary/35">
+                <Link href="/cleaner/pay-requests" className="rounded-xl border border-border bg-surface p-3 transition-colors hover:border-primary/35">
                   <p className="text-sm font-semibold">Extra Pay Requests</p>
                   <p className="mt-1 text-xs text-muted-foreground">Submit and track hourly or fixed extras.</p>
                 </Link>
               )}
               {visibility.showLostFound && (
-                <Link href="/cleaner/lost-found" className="rounded-2xl border border-border/70 bg-card p-3 transition-colors hover:border-primary/35">
+                <Link href="/cleaner/lost-found" className="rounded-xl border border-border bg-surface p-3 transition-colors hover:border-primary/35">
                   <p className="text-sm font-semibold">Lost &amp; Found</p>
                   <p className="mt-1 text-xs text-muted-foreground">Log items, photos, and admin notes.</p>
                 </Link>
               )}
               {!visibility.showInvoices && !visibility.showPayRequests && !visibility.showLostFound && (
-                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   All quick-tool modules are currently hidden by admin.
                 </div>
               )}
@@ -668,7 +668,7 @@ export default async function CleanerDashboard() {
             <CardContent className="space-y-3">
               {completedJobs.length > 0 ? (
                 completedJobs.map((job) => (
-                  <div key={job.id} className="rounded-2xl border border-border/70 bg-card p-3">
+                  <div key={job.id} className="rounded-xl border border-border bg-surface p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="text-sm font-semibold">{job.property.name}</p>
@@ -686,7 +686,7 @@ export default async function CleanerDashboard() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   No completed jobs yet.
                 </div>
               )}
@@ -715,7 +715,7 @@ export default async function CleanerDashboard() {
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <FileWarning className="h-5 w-5 text-primary" />
             </div>
             <div>

@@ -1,5 +1,7 @@
 import { Role } from "@prisma/client";
+import { Settings } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui/page-header";
 import { db } from "@/lib/db";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getAppSettings } from "@/lib/settings";
@@ -39,12 +41,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Settings</h2>
-        <p className="text-sm text-muted-foreground">
-          Grouped operational settings with integrations and API credentials.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Settings />}
+        title="Settings"
+        description="Grouped operational settings with integrations and API credentials."
+      />
 
       <SettingsWorkspace
         appSettings={appSettings}

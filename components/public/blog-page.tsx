@@ -31,7 +31,7 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
   return (
     <>
       {/* ── PAGE HEADER ── */}
-      <div className="border-b border-border/60 bg-white/60 backdrop-blur-sm">
+      <div className="border-b border-border/60 bg-white/60 dark:bg-white/5 backdrop-blur-sm">
         <div className={`${PUBLIC_PAGE_CONTAINER} py-10 sm:py-14`}>
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-primary">Journal</p>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -48,7 +48,7 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
         <div className="border-b border-border/60">
           <div className={`${PUBLIC_PAGE_CONTAINER} py-8 sm:py-10`}>
             <Link href={`/blog/${featuredPost.slug}`} className="group block">
-              <div className="grid gap-6 overflow-hidden rounded-[1.6rem] border border-white/70 bg-white/80 shadow-[0_12px_40px_-20px_rgba(25,67,74,0.28)] transition-shadow duration-300 group-hover:shadow-[0_20px_56px_-24px_rgba(25,67,74,0.38)] lg:grid-cols-[1fr_420px] xl:grid-cols-[1fr_480px]">
+              <div className="grid gap-6 overflow-hidden rounded-[1.6rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_12px_40px_-20px_rgba(25,67,74,0.28)] transition-shadow duration-300 group-hover:shadow-[0_20px_56px_-24px_rgba(25,67,74,0.38)] lg:grid-cols-[1fr_420px] xl:grid-cols-[1fr_480px]">
                 {/* Image */}
                 <div className="relative min-h-[220px] overflow-hidden lg:min-h-[320px]">
                   {featuredPost.coverImageUrl ? (
@@ -108,7 +108,7 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
       {/* ── ALL POSTS ── */}
       <div className={`${PUBLIC_PAGE_CONTAINER} py-10 sm:py-14`}>
         {posts.length === 0 ? (
-          <div className="rounded-[1.6rem] border border-border/60 bg-white/70 px-8 py-16 text-center">
+          <div className="rounded-[1.6rem] border border-border/60 bg-white/70 dark:bg-white/5 px-8 py-16 text-center">
             <BookOpenText className="mx-auto mb-4 h-10 w-10 text-primary/30" />
             <p className="font-semibold">No posts yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Check back soon — articles are on their way.</p>
@@ -125,7 +125,7 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
                     className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
                       activeTag === tag
                         ? "bg-primary text-primary-foreground shadow-sm"
-                        : "border border-border bg-white/70 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                        : "border border-border bg-white/70 dark:bg-white/5 text-muted-foreground hover:border-primary/40 hover:text-foreground"
                     }`}
                   >
                     {tag === ALL_TAG ? (
@@ -146,7 +146,7 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
               <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                 {filtered.map((post) => (
                   <Link key={post.id} href={`/blog/${post.slug}`} className="group flex flex-col">
-                    <article className="flex flex-1 flex-col overflow-hidden rounded-[1.4rem] border border-border/60 bg-white/80 shadow-sm transition-all duration-250 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_-16px_rgba(25,67,74,0.28)]">
+                    <article className="flex flex-1 flex-col overflow-hidden rounded-[1.4rem] border border-border/60 bg-white/80 dark:bg-white/5 shadow-sm transition-all duration-250 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_-16px_rgba(25,67,74,0.28)]">
                       {/* Thumbnail */}
                       <div className="relative h-48 overflow-hidden bg-gradient-to-br from-primary/8 to-accent/20">
                         {post.coverImageUrl ? (

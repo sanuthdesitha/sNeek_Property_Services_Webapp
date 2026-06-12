@@ -715,8 +715,8 @@ export function CleanerRouteClient({
         </Card>
       )}
       {stopsMissingCoords > 0 && (
-        <Card className="border-amber-300 bg-amber-50/40 dark:bg-amber-950/20">
-          <CardContent className="p-3 text-xs text-amber-800 dark:text-amber-200">
+        <Card className="border-warning/40 bg-warning/10">
+          <CardContent className="p-3 text-xs text-foreground">
             {stopsMissingCoords} stop{stopsMissingCoords === 1 ? "" : "s"} on
             this day {stopsMissingCoords === 1 ? "is" : "are"} missing
             coordinates and won&apos;t appear on the map. (Property latitude /
@@ -738,11 +738,9 @@ export function CleanerRouteClient({
             </CardContent>
           </Card>
         ) : stops.length === 0 ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No jobs scheduled for this date.
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No jobs scheduled for this date — no driving today.
+          </div>
         ) : (
           stops.map((s, i) => {
             const leg = legForStop(i);
@@ -763,7 +761,7 @@ export function CleanerRouteClient({
                 key={s.jobId}
                 className={
                   s.status === "EN_ROUTE"
-                    ? "border-amber-300 bg-amber-50/40 dark:bg-amber-950/20"
+                    ? "border-warning/40 bg-warning/10"
                     : ""
                 }
               >

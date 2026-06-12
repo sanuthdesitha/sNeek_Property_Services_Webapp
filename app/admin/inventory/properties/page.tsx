@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { PropertyFilterTabs } from "./filter-tabs";
 
@@ -150,18 +151,12 @@ export default async function PropertyInventoryDashboard({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              By property
-            </p>
-            <CardTitle className="text-2xl">Property inventory overview</CardTitle>
-            <CardDescription>
-              Stock levels, pending shopping runs, and recent restocks for every inventory-enabled property in one place.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <PageHeader
+        icon={<Boxes />}
+        title="Property inventory overview"
+        description="Stock levels, pending shopping runs, and recent restocks for every inventory-enabled property in one place."
+        actions={
+          <>
             <Button variant="outline" size="sm" asChild>
               <Link href="/admin/inventory">Inventory items</Link>
             </Button>
@@ -171,9 +166,11 @@ export default async function PropertyInventoryDashboard({
             <Button variant="outline" size="sm" asChild>
               <Link href="/admin/shopping-runs">Shopping runs</Link>
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-4">
+          </>
+        }
+      />
+      <Card>
+        <CardContent className="grid gap-3 pt-6 sm:grid-cols-4">
           <SummaryStat label="Properties" value={totals.properties} icon={<Boxes className="size-4" />} />
           <SummaryStat
             label="Below reorder"

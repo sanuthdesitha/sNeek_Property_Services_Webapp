@@ -31,6 +31,18 @@ export async function POST(
         : "";
     const fullDescription = `${body.description}${evidenceBlock}`.trim();
 
+    // A cleaner may only report damage on jobs they're actually assigned to.
+    // Admins/ops managers may act on any job.
+    if (session.user.role === Role.CLEANER) {
+      const assignment = await db.jobAssignment.findFirst({
+        where: { jobId: params.id, userId: session.user.id, removedAt: null },
+        select: { id: true },
+      });
+      if (!assignment) {
+        return NextResponse.json({ error: "You are not assigned to this job." }, { status: 403 });
+      }
+    }
+
     const job = await db.job.findUnique({
       where: { id: params.id },
       select: {

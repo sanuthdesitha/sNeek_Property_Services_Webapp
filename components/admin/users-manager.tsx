@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Shield, ShieldCheck, Trash2, UserCog, UserX, KeyRound, Mail, BarChart2 } from "lucide-react";
+import { Shield, ShieldCheck, Trash2, UserCog, Users, UserX, KeyRound, Mail, BarChart2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -490,14 +491,15 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">User Accounts</h2>
-        <p className="text-sm text-muted-foreground">
-          {canManage
+      <PageHeader
+        icon={<Users />}
+        title="User Accounts"
+        description={
+          canManage
             ? "Create, edit, disable, reset, and manage account access."
-            : "View accounts and verification state. Admin access is required for changes."}
-        </p>
-      </div>
+            : "View accounts and verification state. Admin access is required for changes."
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total accounts</p><p className="text-2xl font-bold">{users.length}</p></CardContent></Card>

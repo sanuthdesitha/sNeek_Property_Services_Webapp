@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -487,22 +488,23 @@ export default function FormsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Forms</h2>
-          <p className="text-sm text-muted-foreground">Drag-and-drop form builder and submission review.</p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            setActiveTab("builder");
-            resetBuilder();
-          }}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          New Template
-        </Button>
-      </div>
+      <PageHeader
+        icon={<FileText />}
+        title="Forms"
+        description="Drag-and-drop form builder and submission review."
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => {
+              setActiveTab("builder");
+              resetBuilder();
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            New Template
+          </Button>
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

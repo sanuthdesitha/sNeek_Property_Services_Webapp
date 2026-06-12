@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         },
       }),
     ]);
-    const caseLink = resolveAppUrl("/admin/issues", req);
+    const caseLink = resolveAppUrl("/admin/cases", req);
 
     let notificationFailures = 0;
     for (const admin of admins) {

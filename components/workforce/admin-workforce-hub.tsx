@@ -33,6 +33,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { WorkforcePostCard } from "@/components/workforce/workforce-post-card";
 import { WorkforceHubTabNav } from "@/components/workforce/hub-tab-nav";
 
@@ -499,15 +500,16 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Workforce Hub</h2>
-          <p className="text-sm text-muted-foreground">Groups, chat, updates, onboarding, staff docs, recognition, and hiring.</p>
-        </div>
-        <Button variant="outline" onClick={() => void load({ silent: true })}>
-          <RefreshCw className="mr-2 h-4 w-4" />Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Users />}
+        title="Workforce Hub"
+        description="Groups, chat, updates, onboarding, staff docs, recognition, and hiring."
+        actions={
+          <Button variant="outline" onClick={() => void load({ silent: true })}>
+            <RefreshCw className="mr-2 h-4 w-4" />Refresh
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon={Users} label="Active staff" value={String(staff.length)} />
@@ -578,7 +580,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                     <Label>Locations</Label>
                     <Input placeholder="Parramatta, CBD, North Shore" value={groupForm.locations} onChange={(event) => setGroupForm((current) => ({ ...current, locations: event.target.value }))} />
                   </div>
-                  <div className="rounded-xl border bg-white p-3 text-xs text-muted-foreground">
+                  <div className="rounded-xl border bg-white dark:bg-surface-raised p-3 text-xs text-muted-foreground">
                     Smart rule preview uses role, department, and location matching together. Save a group after preview to lock the current logic.
                   </div>
                 </div>
@@ -636,7 +638,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                 ) : null}
               </div>
 
-              <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+              <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">Preview members</p>
@@ -666,7 +668,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
             </CardHeader>
             <CardContent className="space-y-4">
               {(groups as any[]).map((group) => (
-                <div key={group.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                <div key={group.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{group.name}</p>
                     <Badge variant="outline">{prettifyLabel(group.category)}</Badge>
@@ -876,7 +878,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
             </CardHeader>
             <CardContent className="space-y-4">
               {(data?.posts ?? []).map((post: any) => (
-                <div key={post.id} className="space-y-3 rounded-3xl border bg-white/80 p-4">
+                <div key={post.id} className="space-y-3 rounded-3xl border bg-white/80 dark:bg-white/5 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       {post.pinned ? <Badge variant="warning"><Pin className="mr-1 h-3 w-3" />Pinned</Badge> : null}
@@ -938,7 +940,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
               <ScrollArea className="h-[480px]">
                 <div className="space-y-2 pr-3">
                   {(data?.channels ?? []).map((channel: any) => (
-                    <button key={channel.id} type="button" className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedChannelId === channel.id ? "border-primary bg-primary/5" : "bg-white/80"}`} onClick={() => setSelectedChannelId(channel.id)}>
+                    <button key={channel.id} type="button" className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedChannelId === channel.id ? "border-primary bg-primary/5" : "bg-white/80 dark:bg-white/5"}`} onClick={() => setSelectedChannelId(channel.id)}>
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold">{channel.name}</p>
                         {channel.unreadCount > 0 ? <Badge variant="destructive">{channel.unreadCount}</Badge> : null}
@@ -972,7 +974,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                       <Label>Direct chat members</Label>
                       <div className="flex flex-wrap gap-2">
                         {staff.map((user: any) => (
-                          <label key={user.id} className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-2 text-xs">
+                          <label key={user.id} className="inline-flex items-center gap-2 rounded-full border bg-white dark:bg-surface-raised px-3 py-2 text-xs">
                             <Checkbox checked={channelEditForm.memberUserIds.includes(user.id)} onCheckedChange={(checked) => setChannelEditForm((current) => ({ ...current, memberUserIds: checked ? toggleValue(current.memberUserIds, user.id) : current.memberUserIds.filter((item) => item !== user.id) }))} />
                             {user.name || user.email}
                           </label>
@@ -1001,10 +1003,10 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                   </div>
                 </div>
               ) : null}
-              <ScrollArea className="h-[420px] rounded-2xl border bg-white/80 p-4">
+              <ScrollArea className="h-[420px] rounded-2xl border bg-white/80 dark:bg-white/5 p-4">
                 <div className="space-y-3">
                   {messages.map((message) => (
-                    <div key={message.id} className={`rounded-2xl border bg-white p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
+                    <div key={message.id} className={`rounded-2xl border bg-white dark:bg-surface-raised p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>{message.sender?.name || message.sender?.role || "Team"}</span>
                         <div className="flex items-center gap-2">
@@ -1175,7 +1177,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 {learningPaths.map((path: any) => (
-                  <div key={path.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <div key={path.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{path.title}</p>
                       <Badge variant="outline">{prettifyLabel(path.type)}</Badge>
@@ -1192,7 +1194,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
               </div>
               <div className="space-y-4">
                 {(data?.learningAssignments ?? []).map((assignment: any) => (
-                  <div key={assignment.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <div key={assignment.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{assignment.user?.name || assignment.user?.id}</p>
                       <Badge variant="outline">{assignment.path?.title}</Badge>
@@ -1295,7 +1297,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
               ) : null}
               <div className="space-y-4">
                 {filteredDocuments.map((doc: any) => (
-                  <div key={doc.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <div key={doc.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{doc.title}</p>
                       <Badge variant="outline">{prettifyLabel(doc.category)}</Badge>
@@ -1369,7 +1371,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-4">
                   {(data?.recognition?.board ?? []).map((row: any) => (
-                    <div key={row.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                    <div key={row.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{row.name || row.email}</p>
                         {typeof row.qaStars === "number" ? <Badge variant="warning">{row.qaStars.toFixed(1)} / 5</Badge> : null}
@@ -1382,7 +1384,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                 <div className="space-y-4">
                   <p className="text-sm font-semibold">Public wall</p>
                   {(data?.recognition?.publicWall ?? []).map((item: any) => (
-                    <div key={item.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                    <div key={item.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{item.user?.name || "Team member"}</p>
                         <Badge variant="outline">{prettifyLabel(item.badgeKey)}</Badge>
@@ -1439,7 +1441,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 {(data?.hiring?.positions ?? []).map((position: any) => (
-                  <div key={position.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                  <div key={position.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{position.title}</p>
                       <Badge variant={position.isPublished ? "success" : "secondary"}>{position.isPublished ? "Published" : "Draft"}</Badge>
@@ -1474,7 +1476,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                       </div>
                       <div className="mt-3 space-y-3">
                         {(data?.hiring?.applications ?? []).filter((item: any) => item.status === status).map((application: any) => (
-                          <div key={application.id} className="rounded-xl border bg-white p-3 text-sm shadow-sm">
+                          <div key={application.id} className="rounded-xl border bg-white dark:bg-surface-raised p-3 text-sm shadow-sm">
                             <p className="font-medium">{application.fullName}</p>
                             <p className="text-xs text-muted-foreground">{application.position?.title}</p>
                             {typeof application.screeningScore === "number" ? <Badge className="mt-2" variant="warning">Score {Math.round(application.screeningScore)}</Badge> : null}
@@ -1498,7 +1500,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                     offerStartDate: String(application.offerDetails?.startDate ?? ""),
                   };
                   return (
-                    <div key={application.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                    <div key={application.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{application.fullName}</p>
                         <Badge variant="outline">{application.position?.title}</Badge>
@@ -1515,7 +1517,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                           <p className="text-sm font-semibold">Application answers</p>
                           <div className="mt-3 grid gap-3 md:grid-cols-2">
                             {Object.entries(application.answers).map(([key, value]) => (
-                              <div key={key} className="rounded-xl border bg-white px-3 py-2">
+                              <div key={key} className="rounded-xl border bg-white dark:bg-surface-raised px-3 py-2">
                                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{prettifyLabel(key)}</p>
                                 <p className="mt-1 text-sm">{Array.isArray(value) ? value.join(", ") : String(value ?? "-")}</p>
                               </div>
@@ -1594,7 +1596,7 @@ function LeaderboardCard({
   suffix?: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+    <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
       <p className="font-semibold">{title}</p>
       <div className="mt-3 space-y-3">
         {rows.length > 0 ? rows.map((row, index) => (

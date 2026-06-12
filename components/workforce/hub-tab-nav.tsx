@@ -29,7 +29,7 @@ export function WorkforceHubTabNav({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-[1.35rem] border border-white/70 bg-white/92 p-3 shadow-[0_14px_36px_-24px_rgba(25,67,74,0.32)] md:hidden">
+      <div className="rounded-[1.35rem] border border-white/70 dark:border-white/10 bg-white/92 dark:bg-white/5 p-3 shadow-[0_14px_36px_-24px_rgba(25,67,74,0.32)] md:hidden">
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -59,7 +59,7 @@ export function WorkforceHubTabNav({
           </Button>
         </div>
         <Select value={activeTab} onValueChange={onChange}>
-          <SelectTrigger className="mt-3 h-11 w-full rounded-full bg-white">
+          <SelectTrigger className="mt-3 h-11 w-full rounded-full bg-white dark:bg-surface-raised">
             <SelectValue placeholder="Choose section" />
           </SelectTrigger>
           <SelectContent>

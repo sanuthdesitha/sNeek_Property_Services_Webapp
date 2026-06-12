@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight, Download, FileText, Pencil, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileBarChart, FileText, Pencil, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -152,37 +153,38 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Reports</h2>
-          <p className="text-sm text-muted-foreground">{pagination.totalCount} generated reports</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="hidden md:block w-[220px]">
-            <Select value={exportThemeId} onValueChange={setExportThemeId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Use default theme" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default__">Use default theme</SelectItem>
-                {themes.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                    {t.isDefault ? " (default)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button variant="outline" asChild>
-            <Link href="/admin/reports/themes">Themes</Link>
-          </Button>
-          <Button variant="outline" onClick={loadReports}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<FileBarChart />}
+        title="Reports"
+        description={`${pagination.totalCount} generated reports`}
+        actions={
+          <>
+            <div className="hidden md:block w-[220px]">
+              <Select value={exportThemeId} onValueChange={setExportThemeId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Use default theme" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">Use default theme</SelectItem>
+                  {themes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                      {t.isDefault ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" asChild>
+              <Link href="/admin/reports/themes">Themes</Link>
+            </Button>
+            <Button variant="outline" onClick={loadReports}>
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       <Card>
         <CardContent className="grid gap-3 p-4 md:grid-cols-[1.5fr_220px_220px_180px_auto]">

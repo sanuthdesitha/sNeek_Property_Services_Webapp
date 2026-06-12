@@ -21,6 +21,10 @@ import {
   Navigation,
   Trophy,
   ArrowRight,
+  AlertTriangle,
+  History,
+  HeartPulse,
+  CalendarRange,
 } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -30,7 +34,6 @@ import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention"
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
-import { AdminDashboardGraphs } from "@/components/admin/admin-dashboard-graphs";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 
 function statusToPillVariant(
@@ -132,12 +135,9 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
       }),
       db.job.findMany({
         where: {
-          scheduledDate: {
-            gte: new Date(todayStart.getTime() - 30 * 86400_000),
-            lt: addDays(todayEnd, 7),
-          },
+          scheduledDate: { gte: todayStart, lt: addDays(todayStart, 7) },
         },
-        select: { status: true, scheduledDate: true, jobType: true },
+        select: { status: true, scheduledDate: true },
         take: 2000,
         orderBy: { scheduledDate: "asc" },
       }),
@@ -149,36 +149,25 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
     ...recentPastJobs,
   ].slice(0, 10);
 
-  const jobsByStatus = Object.values(JobStatus).map((status) => ({
-    label: status.replace(/_/g, " "),
-    value: chartRows.filter((row) => row.status === status).length,
-  }));
-
   const upcomingSevenDayLoad = Array.from({ length: 7 }, (_, index) => {
     const day = addDays(todayStart, index);
     const key = day.toISOString().slice(0, 10);
-    const label = format(day, "EEE");
     return {
       date: key,
-      label,
+      label: format(day, "EEE"),
+      dayOfMonth: format(day, "d"),
       jobs: chartRows.filter(
         (row) => row.scheduledDate.toISOString().slice(0, 10) === key,
+      ).length,
+      unassigned: chartRows.filter(
+        (row) =>
+          row.scheduledDate.toISOString().slice(0, 10) === key &&
+          (row.status === JobStatus.UNASSIGNED || row.status === JobStatus.OFFERED),
       ).length,
     };
   });
 
-  const jobTypeBreakdown = Array.from(
-    chartRows.reduce<Map<string, number>>((acc, row) => {
-      const key = row.jobType.replace(/_/g, " ");
-      acc.set(key, (acc.get(key) ?? 0) + 1);
-      return acc;
-    }, new Map<string, number>()),
-  )
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
-
-  return { recentJobs, jobsByStatus, upcomingSevenDayLoad, jobTypeBreakdown };
+  return { recentJobs, upcomingSevenDayLoad };
 }
 
 const STATUS_COLORS: Record<JobStatus, string> = {
@@ -269,6 +258,55 @@ export default async function AdminDashboard() {
         scheduledDate: { gte: nowForAttention, lt: next24h },
       },
     }),
+  ]);
+
+  const next48h = new Date(nowForAttention.getTime() + 48 * 60 * 60 * 1000);
+  const [
+    dispatchRiskJobs,
+    auditFeed,
+    failedNotifications24h,
+    unresolvedUploadFailures,
+    failedIcalSyncs24h,
+  ] = await Promise.all([
+    db.job
+      .findMany({
+        where: {
+          status: { in: [JobStatus.UNASSIGNED, JobStatus.OFFERED] },
+          scheduledDate: { gte: nowForAttention, lt: next48h },
+        },
+        orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+        take: 8,
+        select: {
+          id: true,
+          jobType: true,
+          status: true,
+          scheduledDate: true,
+          startTime: true,
+          property: { select: { name: true, suburb: true } },
+        },
+      })
+      .catch(() => []),
+    db.auditLog
+      .findMany({
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          action: true,
+          entity: true,
+          entityId: true,
+          createdAt: true,
+          user: { select: { name: true } },
+        },
+      })
+      .catch(() => []),
+    db.notificationLog
+      .count({ where: { status: "FAILED", createdAt: { gte: cutoff24h } } })
+      .catch(() => 0),
+    db.uploadFailure.count({ where: { resolvedAt: null } }).catch(() => 0),
+    db.icalSyncRun
+      .count({ where: { status: "FAILED", createdAt: { gte: cutoff24h } } })
+      .catch(() => 0),
   ]);
 
   const continuationJobIds = Array.from(
@@ -717,11 +755,179 @@ export default async function AdminDashboard() {
         items={urgentItems}
       />
 
-      <AdminDashboardGraphs
-        jobsByStatus={chartData.jobsByStatus}
-        upcomingSevenDayLoad={chartData.upcomingSevenDayLoad}
-        jobTypeBreakdown={chartData.jobTypeBreakdown}
-      />
+      {/* 7-day schedule strip */}
+      <Card className="border-border bg-surface">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarRange className="h-4 w-4 text-primary" />
+            Next 7 days
+          </CardTitle>
+          <Link href="/admin/calendar" className="text-xs text-primary hover:underline">
+            Open calendar →
+          </Link>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-7 gap-2">
+            {chartData.upcomingSevenDayLoad.map((day, idx) => (
+              <Link
+                key={day.date}
+                href={`/admin/jobs?date=${day.date}`}
+                className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center transition hover:bg-surface-raised ${
+                  day.unassigned > 0
+                    ? "border-warning/50 bg-warning/5"
+                    : "border-border bg-surface"
+                }`}
+              >
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {idx === 0 ? "Today" : day.label}
+                </span>
+                <span className="text-xl font-bold tabular-nums text-foreground">
+                  {day.jobs}
+                </span>
+                {day.unassigned > 0 ? (
+                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                    {day.unassigned} open
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground">covered</span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dispatch risk + System health */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="border-border bg-surface">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle
+                className={`h-4 w-4 ${dispatchRiskJobs.length > 0 ? "text-warning" : "text-muted-foreground"}`}
+              />
+              Dispatch risk · next 48h
+            </CardTitle>
+            <Link
+              href="/admin/jobs?status=UNASSIGNED"
+              className="text-xs text-primary hover:underline"
+            >
+              All unassigned →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {dispatchRiskJobs.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                Every job in the next 48 hours has a cleaner assigned.
+              </p>
+            ) : (
+              dispatchRiskJobs.map((job) => (
+                <Link
+                  key={job.id}
+                  href={`/admin/jobs/${job.id}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/40 px-3 py-2.5 transition hover:bg-surface-raised"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {job.property?.name ?? "Job"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {format(toZonedTime(job.scheduledDate, TZ), "EEE d MMM")}
+                      {job.startTime ? ` · ${job.startTime}` : ""}
+                      {job.property?.suburb ? ` · ${job.property.suburb}` : ""}
+                    </p>
+                  </div>
+                  <StatusPill variant={statusToPillVariant(job.status)} size="sm">
+                    {job.status.replace(/_/g, " ")}
+                  </StatusPill>
+                </Link>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-surface">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <HeartPulse
+                className={`h-4 w-4 ${
+                  failedNotifications24h + unresolvedUploadFailures + failedIcalSyncs24h > 0
+                    ? "text-destructive"
+                    : "text-success"
+                }`}
+              />
+              System health
+            </CardTitle>
+            <Link
+              href="/admin/system/diagnostics"
+              className="text-xs text-primary hover:underline"
+            >
+              Diagnostics →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <HealthRow
+              label="Failed notifications · 24h"
+              count={failedNotifications24h}
+              href="/admin/notifications"
+              okText="All notifications delivered"
+            />
+            <HealthRow
+              label="Unresolved upload failures"
+              count={unresolvedUploadFailures}
+              href="/admin/system/uploads"
+              okText="No stuck uploads"
+            />
+            <HealthRow
+              label="Failed calendar syncs · 24h"
+              count={failedIcalSyncs24h}
+              href="/admin/integrations"
+              okText="All iCal feeds syncing"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Activity feed */}
+      <Card className="border-border bg-surface">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="h-4 w-4 text-primary" />
+            Latest activity
+          </CardTitle>
+          <Link href="/admin/activity" className="text-xs text-primary hover:underline">
+            Full audit log →
+          </Link>
+        </CardHeader>
+        <CardContent className="p-0">
+          {auditFeed.length === 0 ? (
+            <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+              No audited actions recorded yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-border">
+              {auditFeed.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 px-6 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-foreground">
+                      <span className="font-medium">{entry.user?.name ?? "System"}</span>{" "}
+                      <span className="text-muted-foreground">
+                        {entry.action.replace(/[._]/g, " ").toLowerCase()}
+                      </span>{" "}
+                      <span className="font-medium">{entry.entity}</span>
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {format(toZonedTime(entry.createdAt, TZ), "d MMM HH:mm")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {pendingContinuations.length > 0 ? (
         <Card className="border-warning/40 bg-warning/10">
@@ -831,6 +1037,43 @@ export default async function AdminDashboard() {
 // ─────────────────────────────────────────────────────────
 // Local primitives
 // ─────────────────────────────────────────────────────────
+
+function HealthRow({
+  label,
+  count,
+  href,
+  okText,
+}: {
+  label: string;
+  count: number;
+  href: string;
+  okText: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition hover:bg-surface-raised ${
+        count > 0 ? "border-destructive/40 bg-destructive/5" : "border-border bg-background/40"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground">
+          {count > 0 ? "Needs investigation" : okText}
+        </p>
+      </div>
+      <span
+        className={`flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-sm font-bold tabular-nums ${
+          count > 0
+            ? "bg-destructive/15 text-destructive"
+            : "bg-success/10 text-success"
+        }`}
+      >
+        {count}
+      </span>
+    </Link>
+  );
+}
 
 type Accent = "success" | "warning" | "info" | "neutral";
 

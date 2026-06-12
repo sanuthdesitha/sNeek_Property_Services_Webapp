@@ -40,6 +40,7 @@ import {
   ClipboardCheck,
   Trophy,
   Activity,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -112,6 +113,7 @@ export const ADMIN_NAV_GROUPS = [
   {
     label: "System",
     items: [
+      { label: "Activity Log", href: "/admin/activity", icon: History },
       { label: "Diagnostics", href: "/admin/system/diagnostics", icon: Activity },
     ],
   },
@@ -147,13 +149,11 @@ export function AdminSidebar({
   return (
     <aside
       className={cn(
-        "relative z-20 flex h-screen flex-col border-r border-border bg-surface-raised/85 backdrop-blur-md transition-all duration-300",
+        "relative z-20 flex h-screen flex-col border-r border-border bg-surface/80 backdrop-blur-xl transition-all duration-300",
         collapsed ? "w-16" : "w-60",
         className
       )}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_20%_12%,rgba(255,174,87,0.21),transparent_65%),radial-gradient(circle_at_90%_4%,rgba(39,153,163,0.2),transparent_52%)]" />
-
       {/* Logo */}
       <div className="relative flex items-center gap-3 border-b border-border px-4 py-5">
         {logoUrl ? (

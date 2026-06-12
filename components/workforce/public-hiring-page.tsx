@@ -47,7 +47,7 @@ export function PublicHiringPage({ position }: { position: any }) {
           </div>
           <div className="space-y-2"><Label>Phone</Label><Input value={phone} onChange={(event) => setPhone(event.target.value)} /></div>
           {(position.applicationSchema?.steps ?? []).map((step: any) => (
-            <div key={step.id} className="rounded-2xl border bg-white/90 p-5 shadow-sm">
+            <div key={step.id} className="rounded-2xl border bg-white/90 dark:bg-white/5 p-5 shadow-sm">
               <h3 className="text-lg font-semibold">{step.title}</h3>
               <div className="mt-4 space-y-4">
                 {(step.fields ?? []).map((field: any) => (

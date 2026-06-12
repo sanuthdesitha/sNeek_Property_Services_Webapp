@@ -73,7 +73,10 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ credentials: creds, masked });
+    // SECURITY: never return unmasked secrets to the browser. The PATCH handler
+    // treats masked (bullet-containing) values as "unchanged", so the editor can
+    // round-trip on masked values without ever seeing the real keys.
+    return NextResponse.json({ masked });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

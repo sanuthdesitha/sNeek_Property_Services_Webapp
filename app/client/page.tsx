@@ -5,6 +5,7 @@ import { Role } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Building2, CalendarDays, CheckCircle2, ClipboardList, CreditCard, FileText, Package, Plus, Shirt } from "lucide-react";
 import { format } from "date-fns";
@@ -146,69 +147,68 @@ export default async function ClientDashboard() {
   return (
     <div className="space-y-5 max-w-7xl">
 
-      {/* ─── WELCOME HERO ─── */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <Card className="overflow-hidden border-primary/20">
-          <CardContent className="p-5 sm:p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Client Dashboard</p>
-            <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
-              {session.user.name ? `Welcome back, ${session.user.name.split(" ")[0]}` : "Welcome back"}
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {client?.name || "Your properties, reports, and service activity are tracked here."}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {visibility.showQuoteRequests && (
-                <Button size="sm" asChild>
-                  <Link href="/client/quote"><Plus className="mr-1.5 h-3.5 w-3.5" />Request Quote</Link>
-                </Button>
-              )}
-              {visibility.showBooking && (
-                <Button size="sm" variant="outline" asChild>
-                  <Link href="/client/booking">Book a Clean</Link>
-                </Button>
-              )}
-              {visibility.showJobs && (
-                <Button size="sm" variant="outline" asChild>
-                  <Link href="/client/jobs">All Jobs <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link>
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+      {/* ─── PAGE HEADER + NEXT SERVICE ─── */}
+      <PageHeader
+        title={session.user.name ? `Welcome back, ${session.user.name.split(" ")[0]}` : "Welcome back"}
+        description={client?.name || "Your properties, reports, and service activity are tracked here."}
+        actions={
+          <>
+            {visibility.showQuoteRequests && (
+              <Button size="sm" asChild>
+                <Link href="/client/quote"><Plus className="mr-1.5 h-3.5 w-3.5" />Request Quote</Link>
+              </Button>
+            )}
+            {visibility.showBooking && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/client/booking">Book a Clean</Link>
+              </Button>
+            )}
+            {visibility.showJobs && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/client/jobs">All Jobs <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link>
+              </Button>
+            )}
+          </>
+        }
+      />
 
-        {/* Next service card */}
-        <Card className="border-primary/20 bg-primary/4">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-              <CalendarDays className="h-3.5 w-3.5" />
-              Next Service
-            </div>
-            {nextJob ? (
-              <div className="mt-3 space-y-1.5">
+      {/* Next service card */}
+      <Card className="border-border bg-surface">
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Next Service
+          </div>
+          {nextJob ? (
+            <div className="mt-3 flex flex-wrap items-start gap-x-8 gap-y-1.5">
+              <div className="min-w-0 space-y-1">
                 <p className="font-semibold">{nextJob.property.name}</p>
                 <p className="text-sm text-muted-foreground">{nextJob.property.suburb}</p>
-                <p className="text-sm font-medium text-foreground">
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground tabular-nums">
                   {format(toZonedTime(nextJob.scheduledDate, TZ), "EEE, dd MMM yyyy")}
                 </p>
                 {nextJob.startTime && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground tabular-nums">
                     {nextJob.startTime}{nextJob.dueTime ? ` – ${nextJob.dueTime}` : ""}
                   </p>
                 )}
-                <Badge variant="secondary" className="mt-1 text-[11px]">
+              </div>
+              <div className="space-y-1.5">
+                <Badge variant="secondary" className="text-[11px]">
                   {nextJob.status.replace(/_/g, " ")}
                 </Badge>
                 {nextJob.priorityReason && (
-                  <p className="text-xs font-medium text-amber-600">{nextJob.priorityReason}</p>
+                  <p className="text-xs font-medium text-warning">{nextJob.priorityReason}</p>
                 )}
               </div>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">No active jobs scheduled.</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">No active jobs scheduled.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ─── ATTENTION PANEL ─── */}
       <ImmediateAttentionPanel
@@ -237,8 +237,8 @@ export default async function ClientDashboard() {
                   </Link>
                 )}
               </div>
-              <p className="mt-3 text-2xl font-bold">{stat.value}</p>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
+              <p className="mt-3 text-2xl font-bold tracking-tight tabular-nums">{stat.value}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{stat.label}</p>
             </CardContent>
           </Card>
         ))}
@@ -267,7 +267,7 @@ export default async function ClientDashboard() {
                     return (
                       <div
                         key={job.id}
-                        className={`rounded-2xl border p-4 transition-all duration-150 ${isInProgress ? "border-primary/40 bg-primary/5" : "border-border/60 hover:border-primary/20"}`}
+                        className={`rounded-xl border p-4 transition-all duration-150 ${isInProgress ? "border-primary/40 bg-primary/5" : "border-border hover:border-primary/20"}`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
@@ -294,7 +294,7 @@ export default async function ClientDashboard() {
                           </Badge>
                         </div>
                         {job.priorityReason && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600">
+                          <div className="mt-2 flex items-center gap-1.5 text-xs text-warning">
                             <AlertTriangle className="h-3 w-3 shrink-0" />
                             {job.priorityReason}
                           </div>
@@ -303,9 +303,9 @@ export default async function ClientDashboard() {
                     );
                   })
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-border/60 px-4 py-8 text-center">
+                  <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                     <CheckCircle2 className="mx-auto h-8 w-8 text-muted-foreground/40" />
-                    <p className="mt-2 text-sm text-muted-foreground">No active jobs right now.</p>
+                    <p className="mt-2">No active jobs right now.</p>
                   </div>
                 )}
               </CardContent>
@@ -325,7 +325,7 @@ export default async function ClientDashboard() {
                   <Link
                     key={prop.id}
                     href={`/client/properties/${prop.id}`}
-                    className="group flex items-start gap-3 rounded-2xl border border-border/60 p-4 transition-all duration-150 hover:border-primary/30 hover:bg-primary/4"
+                    className="group flex items-start gap-3 rounded-xl border border-border p-4 transition-all duration-150 hover:border-primary/30 hover:bg-primary/4"
                   >
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                       <Building2 className="h-4 w-4 text-primary" />
@@ -340,7 +340,7 @@ export default async function ClientDashboard() {
                   </Link>
                 ))}
                 {!client?.properties?.length && (
-                  <div className="sm:col-span-2 rounded-2xl border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                  <div className="sm:col-span-2 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                     No properties found for this account.
                   </div>
                 )}
@@ -365,7 +365,7 @@ export default async function ClientDashboard() {
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {inventoryByProperty.map((property) => (
-                  <div key={property.id} className="rounded-2xl border border-border/60 p-4">
+                  <div key={property.id} className="rounded-xl border border-border p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{property.name}</p>
@@ -387,7 +387,7 @@ export default async function ClientDashboard() {
                   </div>
                 ))}
                 {inventoryByProperty.length === 0 && (
-                  <div className="sm:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                  <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                     No inventory tracked yet.
                   </div>
                 )}
@@ -413,7 +413,7 @@ export default async function ClientDashboard() {
                     const price = typeof meta?.totalPrice === "number" ? meta.totalPrice : null;
                     const isComplete = task.status === "DROPPED";
                     return (
-                      <div key={task.id} className="rounded-2xl border border-border/60 p-3.5">
+                      <div key={task.id} className="rounded-xl border border-border p-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                             <Shirt className="h-3.5 w-3.5 text-primary" />
@@ -457,7 +457,7 @@ export default async function ClientDashboard() {
               <CardContent className="space-y-2.5">
                 {reports.length > 0 ? (
                   reports.map((report) => (
-                    <div key={report.id} className="rounded-2xl border border-border/60 p-3.5">
+                    <div key={report.id} className="rounded-xl border border-border p-3.5">
                       <p className="text-sm font-semibold">{report.job.property.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {report.job.jobType.replace(/_/g, " ")} · {format(toZonedTime(report.job.scheduledDate, TZ), "dd MMM yyyy")}
@@ -491,9 +491,9 @@ export default async function ClientDashboard() {
                   { label: "Pending", value: financeOverview?.summary.pendingChargeCount ?? 0 },
                   { label: "Invoices", value: financeOverview?.summary.invoiceCount ?? 0 },
                 ].map((s) => (
-                  <div key={s.label} className="rounded-xl border border-border/60 bg-muted/20 p-3">
-                    <p className="text-[11px] text-muted-foreground">{s.label}</p>
-                    <p className="mt-1 text-lg font-bold">{s.value}</p>
+                  <div key={s.label} className="rounded-xl border border-border bg-muted/20 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</p>
+                    <p className="mt-1 text-lg font-bold tracking-tight tabular-nums">{s.value}</p>
                   </div>
                 ))}
               </CardContent>

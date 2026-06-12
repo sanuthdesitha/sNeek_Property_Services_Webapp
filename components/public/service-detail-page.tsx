@@ -81,7 +81,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
         <section className={`${PUBLIC_PAGE_CONTAINER} py-8 sm:py-10`}>
           <div className="grid gap-5 sm:grid-cols-2">
             {pageContent.whatIncluded.length > 0 && (
-              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
+              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
                   <p className="mb-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary">What&apos;s included</p>
                   <ul className="space-y-3">
@@ -96,7 +96,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
               </Card>
             )}
             {pageContent.notIncluded.length > 0 && (
-              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
+              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
                   <p className="mb-5 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Not included</p>
                   <ul className="space-y-3">
@@ -119,7 +119,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
         <section className={`${PUBLIC_PAGE_CONTAINER} py-4 sm:py-6`}>
           <div className="grid gap-5 sm:grid-cols-2">
             {pageContent.idealFor && (
-              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
+              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
                   <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Who is this for?</p>
                   <p className="text-sm leading-7 text-foreground/80">{pageContent.idealFor}</p>
@@ -127,7 +127,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
               </Card>
             )}
             {pageContent.priceGuide && (
-              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
+              <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
                   <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Price guide</p>
                   <p className="text-sm leading-7 text-foreground/80">{pageContent.priceGuide}</p>
@@ -141,7 +141,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
 
       {/* ── How It Works ── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} py-8 sm:py-10`}>
-        <div className="rounded-[2rem] border border-white/70 bg-white/75 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.28)] sm:p-8">
+        <div className="rounded-[2rem] border border-white/70 bg-white/75 dark:border-white/10 dark:bg-white/5 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.28)] sm:p-8">
           <p className="mb-6 text-sm font-semibold uppercase tracking-[0.18em] text-primary">How it works</p>
           <div className="grid gap-4 sm:grid-cols-3">
             {HOW_IT_WORKS.map((step, idx) => (
@@ -172,7 +172,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
                 <AccordionItem
                   key={`faq-${idx}`}
                   value={`faq-${idx}`}
-                  className="rounded-2xl border border-white/70 bg-white/80 px-5 shadow-sm data-[state=open]:shadow-md"
+                  className="rounded-2xl border border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 px-5 shadow-sm data-[state=open]:shadow-md"
                 >
                   <AccordionTrigger className="py-4 text-sm font-medium hover:no-underline">
                     {item.question}
@@ -194,7 +194,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {related.map((rel) => (
               <Link key={rel.slug} href={`/services/${rel.slug}`} className="group">
-                <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1">
+                <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1">
                   <CardContent className="space-y-3 p-6">
                     <div className={`inline-flex rounded-xl bg-gradient-to-br ${rel.cardColor} p-2.5 text-white`}>
                       <Quote className="h-4 w-4" />
@@ -212,7 +212,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
 
       {/* ── Bottom CTA ── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} pb-12 pt-4 sm:pb-20`}>
-        <Card className="overflow-hidden rounded-[2rem] border-white/70 bg-gradient-to-br from-primary/95 to-[#163b41] text-white shadow-[0_24px_70px_-36px_rgba(15,77,84,0.6)]">
+        <Card className="overflow-hidden rounded-[2rem] border-white/70 dark:border-white/10 bg-gradient-to-br from-primary/95 to-[#163b41] text-white shadow-[0_24px_70px_-36px_rgba(15,77,84,0.6)]">
           <CardContent className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="space-y-2">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/60">Ready to book</p>

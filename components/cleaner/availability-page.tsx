@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { CalendarClock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -158,12 +160,11 @@ export function CleanerAvailabilityPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">Availability</h1>
-        <p className="text-sm text-muted-foreground">
-          Set your repeating weekly pattern and day-specific changes.
-        </p>
-      </div>
+      <PageHeader
+        title="Availability"
+        description="Set your repeating weekly pattern and day-specific changes."
+        icon={<CalendarClock />}
+      />
 
       <Card>
         <CardHeader className="pb-2">

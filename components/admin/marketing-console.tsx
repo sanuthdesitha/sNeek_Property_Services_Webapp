@@ -276,6 +276,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
   return (
     <AdminPageShell
       eyebrow="Marketing"
+      icon={<Rocket />}
       title="Campaigns, public plans, and quote conversion tools"
       description="Manage public discount campaigns and subscription-style marketing plans without changing the live client billing model. The public site and quote wizard consume these records directly."
       actions={
@@ -291,19 +292,19 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
     >
       {dialog}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-[1.7rem] border-white/70 bg-white/80">
+        <Card className="rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
           <CardContent className="space-y-1 p-5">
             <p className="text-sm text-muted-foreground">Active campaigns</p>
             <p className="text-3xl font-semibold">{activeCampaignCount}</p>
           </CardContent>
         </Card>
-        <Card className="rounded-[1.7rem] border-white/70 bg-white/80">
+        <Card className="rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
           <CardContent className="space-y-1 p-5">
             <p className="text-sm text-muted-foreground">Published plans</p>
             <p className="text-3xl font-semibold">{publishedPlanCount}</p>
           </CardContent>
         </Card>
-        <Card className="rounded-[1.7rem] border-white/70 bg-white/80">
+        <Card className="rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
           <CardContent className="space-y-1 p-5">
             <p className="text-sm text-muted-foreground">Quote-ready service catalogue</p>
             <p className="text-3xl font-semibold">{serviceOptions.length}</p>
@@ -318,7 +319,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
         </TabsList>
 
         <TabsContent value="campaigns" className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className="rounded-[1.8rem] border-white/70 bg-white/80">
+          <Card className="rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
             <CardHeader>
               <CardTitle>{editingCampaignId ? "Edit campaign" : "New campaign"}</CardTitle>
             </CardHeader>
@@ -383,7 +384,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
               <EmptyState title="No campaigns yet" description="Create discount campaigns here and the public quote wizard can validate them by code." action={<Button onClick={resetCampaignForm}><Plus className="mr-2 h-4 w-4" />New campaign</Button>} />
             ) : (
               campaigns.map((campaign) => (
-                <Card key={campaign.id} className="rounded-[1.7rem] border-white/70 bg-white/80">
+                <Card key={campaign.id} className="rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
                   <CardContent className="space-y-4 p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
@@ -427,7 +428,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
         </TabsContent>
 
         <TabsContent value="plans" className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className="rounded-[1.8rem] border-white/70 bg-white/80">
+          <Card className="rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
             <CardHeader>
               <CardTitle>{editingPlanId ? "Edit subscription plan" : "New subscription plan"}</CardTitle>
             </CardHeader>
@@ -487,7 +488,7 @@ export function MarketingConsole({ initialCampaigns, initialPlans }: { initialCa
               <EmptyState title="No subscription plans yet" description="Create public-facing plan ideas here. These are marketing records only in this phase, not live client subscriptions." action={<Button onClick={resetPlanForm}><Plus className="mr-2 h-4 w-4" />New plan</Button>} />
             ) : (
               plans.map((plan) => (
-                <Card key={plan.id} className="rounded-[1.7rem] border-white/70 bg-white/80">
+                <Card key={plan.id} className="rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5">
                   <CardContent className="space-y-4 p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>

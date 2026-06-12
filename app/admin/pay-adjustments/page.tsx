@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { HandCoins } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -310,13 +312,12 @@ export default function AdminPayAdjustmentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Extra Payment Requests</h2>
-          <p className="text-sm text-muted-foreground">Review cleaner hourly/fixed extra payment requests.</p>
-        </div>
-        <Button variant="outline" onClick={load}>Refresh</Button>
-      </div>
+      <PageHeader
+        icon={<HandCoins />}
+        title="Extra Payment Requests"
+        description="Review cleaner hourly/fixed extra payment requests."
+        actions={<Button variant="outline" onClick={load}>Refresh</Button>}
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

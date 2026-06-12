@@ -277,7 +277,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                             {serviceGroups.map(({ family, meta, services }) => {
                               const isExpanded = expandedFamilies.has(family);
                               return (
-                                <div key={family} className="rounded-xl border border-border/60 bg-white/90">
+                                <div key={family} className="rounded-xl border border-border/60 bg-white/90 dark:bg-white/5">
                                   <button
                                     type="button"
                                     onClick={() => toggleFamily(family)}
@@ -384,7 +384,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                     href={item.href}
                     className={cn(
                       "block rounded-2xl px-4 py-3 text-sm font-medium transition-colors",
-                      active ? "bg-primary text-primary-foreground" : "bg-white/80 text-foreground hover:bg-white"
+                      active ? "bg-primary text-primary-foreground" : "bg-white/80 text-foreground hover:bg-white dark:bg-white/5 dark:hover:bg-white/10"
                     )}
                   >
                     {item.label}
@@ -582,7 +582,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
       {showScrollTop ? (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="fixed bottom-[4.5rem] right-5 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-foreground shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-white sm:bottom-[4.5rem] sm:right-6"
+          className="fixed bottom-[4.5rem] right-5 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-foreground shadow-md backdrop-blur-sm transition-all duration-200 hover:scale-110 hover:bg-white dark:bg-surface-raised dark:hover:bg-white/10 sm:bottom-[4.5rem] sm:right-6"
           aria-label="Scroll to top"
         >
           <ChevronUp className="h-4 w-4" />

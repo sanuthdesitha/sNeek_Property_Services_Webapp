@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ClipboardList, Package, ShoppingCart, Building2, Download, Mail } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -503,22 +504,25 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-foreground">Inventory</h2>
-        <Select value={selectedProp} onValueChange={setSelectedProp}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Select property" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All properties</SelectItem>
-            {properties.map((property: any) => (
-              <SelectItem key={property.id} value={property.id}>
-                {property.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <PageHeader
+        icon={<Package />}
+        title="Inventory"
+        actions={
+          <Select value={selectedProp} onValueChange={setSelectedProp}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Select property" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All properties</SelectItem>
+              {properties.map((property: any) => (
+                <SelectItem key={property.id} value={property.id}>
+                  {property.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

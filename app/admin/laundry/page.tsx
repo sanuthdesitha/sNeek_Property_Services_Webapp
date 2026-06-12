@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { addDays, format, startOfWeek } from "date-fns";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Download, Mail, Plus, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -785,30 +786,33 @@ export default function LaundryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Laundry Planner</h2>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        icon={<Shirt />}
+        title="Laundry Planner"
+        description={
+          <>
             Week of {format(weekStart, "d MMM")} - {format(addDays(weekStart, 6), "d MMM yyyy")}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setWeekStart((w) => addDays(w, -7))}>
-            {"<- Prev"}
-          </Button>
-          <Button variant="outline" onClick={() => setWeekStart((w) => addDays(w, 7))}>
-            {"Next ->"}
-          </Button>
-          <Button onClick={generatePlan} disabled={generating}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${generating ? "animate-spin" : ""}`} />
-            Generate Draft
-          </Button>
-          <Button variant="outline" onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Task
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setWeekStart((w) => addDays(w, -7))}>
+              {"<- Prev"}
+            </Button>
+            <Button variant="outline" onClick={() => setWeekStart((w) => addDays(w, 7))}>
+              {"Next ->"}
+            </Button>
+            <Button onClick={generatePlan} disabled={generating}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${generating ? "animate-spin" : ""}`} />
+              Generate Draft
+            </Button>
+            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Task
+            </Button>
+          </>
+        }
+      />
 
         {filteredAlerts.length > 0 && (
           <Card className="border-destructive/50 bg-destructive/5">

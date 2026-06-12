@@ -28,7 +28,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           data-portal-theme={ssrTheme}
           className="relative flex h-screen overflow-hidden bg-background"
         >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_76%_5%,rgba(31,158,170,0.18),transparent_24%),radial-gradient(circle_at_3%_34%,rgba(255,177,95,0.18),transparent_28%)]" />
           <AdminSidebar
             companyName={settings.companyName}
             logoUrl={settings.logoUrl}

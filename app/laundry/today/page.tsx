@@ -5,7 +5,8 @@ import Link from "next/link";
 import { addDays, format, isSameDay, startOfDay } from "date-fns";
 import { CheckCircle2, MapPin, Package, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { toast } from "@/hooks/use-toast";
@@ -185,18 +186,12 @@ export default function LaundryTodayPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="border-primary/20">
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Compact view
-            </p>
-            <CardTitle className="text-2xl">Today and tomorrow</CardTitle>
-            <CardDescription>
-              Dense board of pickups and drop-offs for the next two days. Use the full planner for history, edits, and reschedules.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <PageHeader
+        title="Today and tomorrow"
+        description="Pickups and drop-offs for the next two days. Use the full planner for history, edits, and reschedules."
+        icon={<Truck />}
+        actions={
+          <>
             <Select value={filter} onValueChange={(value) => setFilter(value as StatusFilter)}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Status" />
@@ -215,9 +210,9 @@ export default function LaundryTodayPage() {
             <Button variant="ghost" size="sm" asChild>
               <Link href="/laundry">Full planner</Link>
             </Button>
-          </div>
-        </CardHeader>
-      </Card>
+          </>
+        }
+      />
 
       <DayBoard
         title="Today"
@@ -260,9 +255,9 @@ function DayBoard({
 }) {
   return (
     <Card>
-      <CardHeader className="border-b pb-3">
+      <CardHeader className="border-b border-border pb-3">
         <div className="flex items-baseline justify-between">
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle className="text-lg font-bold tracking-tight">{title}</CardTitle>
           <span className="text-xs text-muted-foreground">{subtitle}</span>
         </div>
       </CardHeader>
@@ -313,17 +308,17 @@ function BoardColumn({
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <span className="text-muted-foreground">{icon}</span>
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {icon}
         {label}
-        <span className="text-xs text-muted-foreground">({tasks.length})</span>
+        <span className="tabular-nums">({tasks.length})</span>
       </div>
       {loading && tasks.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border bg-surface-raised p-3 text-xs text-muted-foreground">
+        <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Loading…
         </p>
       ) : tasks.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border bg-surface-raised p-3 text-xs text-muted-foreground">
+        <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Nothing scheduled.
         </p>
       ) : (
@@ -341,7 +336,7 @@ function BoardColumn({
             return (
               <li
                 key={task.id}
-                className="rounded-md border border-border bg-surface px-3 py-2 shadow-xs transition hover:shadow-sm"
+                className="rounded-xl border border-border bg-surface px-3 py-3 shadow-sm transition hover:shadow"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -384,13 +379,11 @@ function BoardColumn({
                   </div>
                   {showAction ? (
                     <Button
-                      size="sm"
-                      variant="outline"
                       disabled={submittingId === task.id}
                       onClick={() => onConfirm(task, actionKind)}
-                      className="shrink-0"
+                      className="h-11 shrink-0 px-4"
                     >
-                      <CheckCircle2 className="mr-1 size-3.5" />
+                      <CheckCircle2 className="mr-1.5 size-4" />
                       {submittingId === task.id ? "Saving…" : actionLabel}
                     </Button>
                   ) : null}

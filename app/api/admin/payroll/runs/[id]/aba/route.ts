@@ -3,10 +3,15 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { generateAbaFile } from "@/lib/payroll/aba";
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const { content, filename } = await generateAbaFile(params.id);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // ?confirm=1 acknowledges a regeneration of an already-generated file.
+    const allowRegenerate = new URL(req.url).searchParams.get("confirm") === "1";
+    const { content, filename } = await generateAbaFile(params.id, {
+      allowRegenerate,
+      actorUserId: session.user.id,
+    });
 
     return new NextResponse(content, {
       headers: {
@@ -15,7 +20,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       },
     });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not generate ABA file." }, { status });
+    const message: string = err?.message ?? "Could not generate ABA file.";
+    // Already-generated guard → 409 so the UI can prompt for confirmation.
+    if (message.startsWith("ABA_ALREADY_GENERATED")) {
+      return NextResponse.json(
+        { error: message.replace("ABA_ALREADY_GENERATED: ", ""), code: "ABA_ALREADY_GENERATED" },
+        { status: 409 }
+      );
+    }
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }

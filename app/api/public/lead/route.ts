@@ -4,13 +4,21 @@ import { getPublicRequestedServiceLabel, normalizePublicServiceTypeForLead } fro
 import { sendWebsiteLeadNotification } from "@/lib/public-site/lead-notifications";
 import { createPublicQuoteLead } from "@/lib/public-site/lead-persistence";
 import { getAppSettings } from "@/lib/settings";
+import { escapeHtml } from "@/lib/utils/escape-html";
 import { leadSchema } from "@/lib/validations/quote";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const { ok } = rateLimit(`lead:${ip}`, { limit: 8, windowMs: 10 * 60 * 1000 });
+    if (!ok) {
+      return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+    }
+
     const body = leadSchema.parse(await req.json());
     const settings = await getAppSettings();
     const requestedServiceType = body.serviceType as MarketedJobTypeValue;
@@ -52,16 +60,16 @@ export async function POST(req: NextRequest) {
         replyTo: body.email,
         html: `
           <h2>New quote request received</h2>
-          <p><strong>Name:</strong> ${body.name}</p>
-          <p><strong>Email:</strong> ${body.email}</p>
-          <p><strong>Phone:</strong> ${body.phone || "Not provided"}</p>
-          <p><strong>Suburb:</strong> ${body.suburb || "Not provided"}</p>
-          <p><strong>Address:</strong> ${body.address || "Not provided"}</p>
-          <p><strong>Requested service:</strong> ${requestedServiceLabel}</p>
+          <p><strong>Name:</strong> ${escapeHtml(body.name)}</p>
+          <p><strong>Email:</strong> ${escapeHtml(body.email)}</p>
+          <p><strong>Phone:</strong> ${escapeHtml(body.phone || "Not provided")}</p>
+          <p><strong>Suburb:</strong> ${escapeHtml(body.suburb || "Not provided")}</p>
+          <p><strong>Address:</strong> ${escapeHtml(body.address || "Not provided")}</p>
+          <p><strong>Requested service:</strong> ${escapeHtml(requestedServiceLabel)}</p>
           <p><strong>Estimate range:</strong> ${typeof body.estimateMin === "number" ? `$${body.estimateMin.toFixed(2)}` : "Pending manual review"}${typeof body.estimateMax === "number" ? ` to $${body.estimateMax.toFixed(2)}` : ""}</p>
           <p><strong>Notes:</strong></p>
-          <p>${(body.notes || "No extra notes provided.").replace(/\n/g, "<br />")}</p>
-          <p><strong>Lead ID:</strong> ${lead.id}</p>
+          <p>${escapeHtml(body.notes || "No extra notes provided.").replace(/\n/g, "<br />")}</p>
+          <p><strong>Lead ID:</strong> ${escapeHtml(lead.id)}</p>
         `,
       });
     } catch (error) {

@@ -5,9 +5,16 @@ import { registerSchema } from "@/lib/validations/user";
 import { issueSignupOtp } from "@/lib/auth/registration-otp";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const { ok } = rateLimit(`register:${ip}`, { limit: 5, windowMs: 15 * 60 * 1000 });
+    if (!ok) {
+      return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+    }
+
     const payload = registerSchema.parse(await req.json());
     const email = payload.email.toLowerCase();
 

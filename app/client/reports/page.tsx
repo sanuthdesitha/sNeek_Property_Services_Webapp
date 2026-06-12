@@ -9,6 +9,7 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { PageHeader } from "@/components/ui/page-header";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 import { getClientPortalContext } from "@/lib/client/portal";
 
@@ -97,17 +98,16 @@ export default async function ClientReportsPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-sm text-muted-foreground">
-            {rangeType[0].toUpperCase() + rangeType.slice(1)} view from {format(fromDate, "dd MMM yyyy")}
-          </p>
-        </div>
-        <Button asChild variant="outline">
-          <Link href="/client">Back</Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<FileText />}
+        title="Reports"
+        description={`${rangeType[0].toUpperCase() + rangeType.slice(1)} view from ${format(fromDate, "dd MMM yyyy")}`}
+        actions={
+          <Button asChild variant="outline">
+            <Link href="/client">Back</Link>
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-2">
         <Button asChild variant={rangeType === "weekly" ? "default" : "outline"} size="sm">
@@ -140,14 +140,14 @@ export default async function ClientReportsPage({
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Reports in range</p>
-            <p className="text-2xl font-bold">{totalJobs}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reports in range</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{totalJobs}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Properties covered</p>
-            <p className="text-2xl font-bold">{properties}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Properties covered</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{properties}</p>
           </CardContent>
         </Card>
       </div>

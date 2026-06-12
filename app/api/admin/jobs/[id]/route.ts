@@ -166,6 +166,7 @@ export async function PATCH(
         startTime: true,
         dueTime: true,
         scheduledDate: true,
+        completedAt: true,
         property: { select: { name: true, suburb: true, clientId: true } },
         assignments: {
           where: { removedAt: null },
@@ -196,6 +197,18 @@ export async function PATCH(
     if (body.scheduledDate) {
       data.scheduledDate = new Date(body.scheduledDate);
     }
+    // Completion date: explicit value wins (null clears it); otherwise stamp now
+    // the first time a job transitions to COMPLETED.
+    if (body.completedAt !== undefined) {
+      data.completedAt = body.completedAt ? new Date(body.completedAt) : null;
+    } else if (body.status === JobStatus.COMPLETED && !current.completedAt) {
+      data.completedAt = new Date();
+    } else if (body.status === JobStatus.UNASSIGNED) {
+      // Reset back to unassigned: drop the completion date so it can't keep
+      // bucketing into a pay/invoice period. (payrollRunId is intentionally kept
+      // so an already-paid job is never re-paid if re-completed later.)
+      data.completedAt = null;
+    }
     const hasMetaFields =
       body.internalNotes !== undefined ||
       body.isDraft !== undefined ||
@@ -203,6 +216,7 @@ export async function PATCH(
       body.attachments !== undefined ||
       body.specialRequestTasks !== undefined ||
       body.transportAllowances !== undefined ||
+      body.cleanerPayouts !== undefined ||
       body.earlyCheckin !== undefined ||
       body.lateCheckout !== undefined ||
       body.serviceContext !== undefined ||
@@ -223,6 +237,7 @@ export async function PATCH(
             requiresNote: task.requiresNote === true,
           })) ?? currentMeta.specialRequestTasks,
         transportAllowances: body.transportAllowances ?? currentMeta.transportAllowances,
+        cleanerPayouts: body.cleanerPayouts ?? currentMeta.cleanerPayouts,
         earlyCheckin: nextEarlyCheckin,
         lateCheckout: nextLateCheckout,
         serviceContext: body.serviceContext ?? currentMeta.serviceContext,
@@ -251,6 +266,7 @@ export async function PATCH(
     delete data.attachments;
     delete data.specialRequestTasks;
     delete data.transportAllowances;
+    delete data.cleanerPayouts;
     delete data.earlyCheckin;
     delete data.lateCheckout;
     delete data.clientId;

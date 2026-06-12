@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { JobType, Role } from "@prisma/client";
@@ -757,7 +757,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
       actionLabel: "Review now",
       jobUrl: "https://example.com/jobs/123",
       reportLink: "https://example.com/reports/123",
-      caseLink: "https://example.com/admin/issues/123",
+      caseLink: "https://example.com/admin/cases/123",
       createdVia: "invited account onboarding",
       createdAt: "24 Mar 2026, 10:15 AM",
       status: "Open",
@@ -782,7 +782,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
       dateLabel: "Wednesday, 25 March 2026",
       jobCount: "4",
       summaryHtml:
-        "<ol><li><strong>P1 · SPS-0001 · Harbour View Apartment</strong><br/>Airbnb Turnover · 09:30-12:30<br/>Priority: Early check-in due by 12:30<br/>Notes: VIP arrival, top up coffee pods.</li></ol>",
+        "<ol><li><strong>P1 Â· SPS-0001 Â· Harbour View Apartment</strong><br/>Airbnb Turnover Â· 09:30-12:30<br/>Priority: Early check-in due by 12:30<br/>Notes: VIP arrival, top up coffee pods.</li></ol>",
       summaryText:
         "1) P1 SPS-0001 Harbour View Apartment 09:30-12:30. Early check-in due by 12:30. Note: VIP arrival, top up coffee pods.",
       propertyCount: "2",

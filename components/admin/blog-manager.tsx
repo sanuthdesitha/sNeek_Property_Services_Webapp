@@ -206,7 +206,7 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
     >
       {dialog}
       <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-        <Card className="rounded-[1.8rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
+        <Card className="rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <CardTitle>{editingId ? "Edit post" : "New post"}</CardTitle>
             <div className="flex gap-2">
@@ -337,7 +337,7 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
                     <Textarea rows={22} value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} className="font-mono text-sm" />
                   </TabsContent>
                   <TabsContent value="preview" className="pt-3">
-                    <div className="min-h-[26rem] rounded-[1.4rem] border border-border/70 bg-white p-5">
+                    <div className="min-h-[26rem] rounded-[1.4rem] border border-border/70 bg-white dark:bg-surface-raised p-5">
                       <h1 className="text-2xl font-semibold">{form.title || "Preview title"}</h1>
                       <p className="mt-2 text-sm leading-7 text-muted-foreground">{form.excerpt || "Your post excerpt will appear here."}</p>
                       {form.coverImageUrl ? <img src={form.coverImageUrl} alt={form.title || "Cover"} className="mt-4 max-h-72 w-full rounded-[1.4rem] object-cover" /> : null}
@@ -358,7 +358,7 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
             <Badge variant="secondary">{posts.length}</Badge>
           </div>
           {posts.map((post) => (
-            <Card key={post.id} className="rounded-[1.5rem] border-white/70 bg-white/85 shadow-[0_16px_44px_-28px_rgba(22,63,70,0.28)]">
+            <Card key={post.id} className="rounded-[1.5rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_16px_44px_-28px_rgba(22,63,70,0.28)]">
               <CardContent className="space-y-4 p-5">
                 <div className="flex items-start gap-4">
                   <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl border border-border/70 bg-muted/20">
@@ -397,7 +397,7 @@ export function BlogManager({ initialPosts }: { initialPosts: BlogPostRecord[] }
             </Card>
           ))}
           {posts.length === 0 ? (
-            <Card className="rounded-[1.5rem] border-white/70 bg-white/85">
+            <Card className="rounded-[1.5rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5">
               <CardContent className="p-6 text-sm text-muted-foreground">No blog posts yet.</CardContent>
             </Card>
           ) : null}

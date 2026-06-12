@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Copy, Gift, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
@@ -93,36 +94,34 @@ export function RewardsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Rewards & referrals</h1>
-        <p className="text-sm text-muted-foreground">
-          Track loyalty points, convert them into credit value, and invite friends to sNeek.
-        </p>
-      </div>
+      <PageHeader
+        title="Rewards & referrals"
+        description="Track loyalty points, convert them into credit value, and invite friends to sNeek."
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Points balance</p>
-            <p className="text-2xl font-semibold">{payload?.summary.points ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Points balance</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{payload?.summary.points ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Credit value</p>
-            <p className="text-2xl font-semibold">${(payload?.summary.creditValue ?? 0).toFixed(2)}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Credit value</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">${(payload?.summary.creditValue ?? 0).toFixed(2)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Pending referrals</p>
-            <p className="text-2xl font-semibold">{payload?.summary.pendingReferrals ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending referrals</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{payload?.summary.pendingReferrals ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Converted referrals</p>
-            <p className="text-2xl font-semibold">{payload?.summary.convertedReferrals ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Converted referrals</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{payload?.summary.convertedReferrals ?? 0}</p>
           </CardContent>
         </Card>
       </section>
@@ -163,7 +162,7 @@ export function RewardsPage() {
             </div>
           ) : payload?.referrals?.length ? (
             payload.referrals.map((row) => (
-              <div key={row.id} className="rounded-2xl border p-4">
+              <div key={row.id} className="rounded-xl border border-border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-medium">{row.refereeEmail}</p>
@@ -187,7 +186,7 @@ export function RewardsPage() {
               </div>
             ))
           ) : (
-            <div className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               No referral invites created yet.
             </div>
           )}

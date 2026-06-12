@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
@@ -89,12 +90,10 @@ export function ClientMessagesThread() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold">Messages</h1>
-        <p className="text-sm text-muted-foreground">
-          Send questions or service updates directly to admin. Replies refresh automatically.
-        </p>
-      </div>
+      <PageHeader
+        title="Messages"
+        description="Send questions or service updates directly to admin. Replies refresh automatically."
+      />
 
       <Card>
         <CardHeader>
@@ -102,7 +101,7 @@ export function ClientMessagesThread() {
           <CardDescription>All messages for your client account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="max-h-[55vh] space-y-3 overflow-y-auto rounded-2xl border bg-muted/20 p-4">
+          <div className="max-h-[55vh] space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/20 p-4">
             {loading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -114,9 +113,9 @@ export function ClientMessagesThread() {
               messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
+                  className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${
                     message.isFromAdmin
-                      ? "border bg-white text-foreground"
+                      ? "border border-border bg-surface text-foreground"
                       : "ml-auto bg-primary text-primary-foreground"
                   }`}
                 >

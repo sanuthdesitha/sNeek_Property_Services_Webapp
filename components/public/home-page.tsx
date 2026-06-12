@@ -350,7 +350,7 @@ export function HomePage({
             {/* Stats */}
             <div className="grid gap-3 sm:grid-cols-3">
               {content.home.stats.map((item) => (
-                <Card key={item.label} className="rounded-3xl border-white/70 bg-white/75 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.35)] transition-transform duration-300 hover:-translate-y-1">
+                <Card key={item.label} className="rounded-3xl border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.35)] transition-transform duration-300 hover:-translate-y-1">
                   <CardContent className="space-y-1 p-5">
                     <p className="text-2xl font-semibold">{item.value}</p>
                     <p className="text-sm font-medium">{item.label}</p>
@@ -365,7 +365,7 @@ export function HomePage({
           <div className="relative">
             <div className="absolute -left-6 top-10 hidden h-16 w-16 rounded-full bg-accent/80 blur-2xl lg:block motion-safe:animate-float-slow" />
             <div className="absolute -right-8 bottom-8 hidden h-24 w-24 rounded-full bg-primary/15 blur-3xl lg:block motion-safe:animate-float-slower" />
-            <Card className="overflow-hidden rounded-[2rem] border-white/70 bg-white/80 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)]">
+            <Card className="overflow-hidden rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)]">
               <div className="relative">
                 <img
                   src={content.home.heroImageUrl}
@@ -375,11 +375,11 @@ export function HomePage({
                   onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; }}
                 />
                 {/* Floating trust pills over image */}
-                <div className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 bg-white/96 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+                <div className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 dark:border-white/10 bg-white/96 dark:bg-neutral-900/80 dark:text-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                   500+ Cleans Completed
                 </div>
-                <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 bg-white/96 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+                <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 dark:border-white/10 bg-white/96 dark:bg-neutral-900/80 dark:text-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
                   <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                   4.9 Rated
                 </div>
@@ -416,7 +416,7 @@ export function HomePage({
       <section className={`${PUBLIC_PAGE_CONTAINER} -mt-2 pb-4`}>
         <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           {widgetFlags.instantQuoteEstimator && (
-          <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
+          <Card className="rounded-[1.9rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -508,7 +508,7 @@ export function HomePage({
           )}
 
           {widgetFlags.availabilityChecker && (
-          <Card className="rounded-[1.9rem] border-white/70 bg-white/85 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
+          <Card className="rounded-[1.9rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-6">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Availability checker</p>
@@ -523,7 +523,7 @@ export function HomePage({
                     className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary"
                   />
                   {availabilitySuggestions.length > 0 ? (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/70 bg-white shadow-[0_18px_48px_-28px_rgba(22,63,70,0.32)]">
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/70 bg-white dark:bg-surface-raised shadow-[0_18px_48px_-28px_rgba(22,63,70,0.32)]">
                       {availabilitySuggestions.map((item) => (
                         <button
                           key={`${item.slug}-${item.postcode}`}
@@ -594,7 +594,7 @@ export function HomePage({
         <div className="flex" aria-hidden="true">
           <div className="flex shrink-0 gap-4 animate-marquee pr-4">
             {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 dark:border-white/10 bg-white dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
                 {pill}
               </span>
@@ -602,7 +602,7 @@ export function HomePage({
           </div>
           <div className="flex shrink-0 gap-4 animate-marquee pr-4" aria-hidden="true">
             {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 dark:border-white/10 bg-white dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
                 {pill}
               </span>
@@ -626,7 +626,7 @@ export function HomePage({
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {content.home.serviceBenefits.map((card, i) => (
-              <Card key={card.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} overflow-hidden rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]`}>
+              <Card key={card.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} overflow-hidden rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]`}>
                 <img
                   src={card.imageUrl}
                   alt={card.imageAlt}
@@ -669,7 +669,7 @@ export function HomePage({
               {whyItems.map((item: WebsiteWhyItem, idx: number) => (
                 <div
                   key={item.id}
-                  className={`scroll-reveal scroll-delay-${[100, 200, 300, 400][idx % 4] ?? 100} rounded-[1.6rem] border border-white/80 bg-white/80 p-5 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
+                  className={`scroll-reveal scroll-delay-${[100, 200, 300, 400][idx % 4] ?? 100} rounded-[1.6rem] border border-white/80 dark:border-white/10 bg-white/80 dark:bg-white/5 p-5 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
                 >
                   <div className={`mb-4 inline-flex rounded-2xl p-3 ${idx % 2 === 0 ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
                     <WhyIcon iconName={item.icon} className="h-5 w-5" />
@@ -687,7 +687,7 @@ export function HomePage({
           SECTION 5 — AIRBNB HOSTING
       ───────────────────────────────────────────────── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-6 rounded-[2rem] border border-white/70 bg-white/75 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.34)] sm:p-8 lg:grid-cols-[1fr_1.05fr] lg:gap-10 lg:items-center">
+        <div className="grid gap-6 rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.34)] sm:p-8 lg:grid-cols-[1fr_1.05fr] lg:gap-10 lg:items-center">
           <div className="space-y-4">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Airbnb &amp; managed properties</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">{content.home.hostingTitle}</h2>
@@ -714,7 +714,7 @@ export function HomePage({
                 key={card.id}
                 type="button"
                 onClick={() => setHostingPreviewIndex(index)}
-                className="rounded-[1.5rem] border border-border/70 bg-white p-4 text-left transition-transform duration-300 hover:-translate-y-1"
+                className="rounded-[1.5rem] border border-border/70 bg-white dark:bg-surface-raised p-4 text-left transition-transform duration-300 hover:-translate-y-1"
               >
                 <img
                   src={card.imageUrl}
@@ -752,7 +752,7 @@ export function HomePage({
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {featuredServices.map((service) => (
               <Link key={service.jobType} href={`/services/${service.slug}`} className="group">
-                <Card className="h-full rounded-[1.7rem] border-white/70 bg-white/75 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]">
+                <Card className="h-full rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]">
                   <CardContent className="space-y-4 p-6">
                     <div className={`inline-flex rounded-2xl bg-gradient-to-br ${service.cardColor} p-3 text-white shadow-sm`}>
                       <Sparkles className="h-5 w-5" />
@@ -828,7 +828,7 @@ export function HomePage({
                       ) : (
                         <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
                       )}
-                      <div className="absolute left-4 top-4 inline-flex rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-foreground shadow-sm">
+                      <div className="absolute left-4 top-4 inline-flex rounded-full bg-white/90 dark:bg-neutral-900/80 dark:text-white px-3 py-1 text-xs font-semibold text-foreground shadow-sm">
                         {showingAfter ? "After" : "Before"}
                       </div>
                       <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/10 to-transparent p-4 opacity-100 transition-opacity duration-300">
@@ -876,7 +876,7 @@ export function HomePage({
                   href={partner.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 px-4 grayscale transition-all duration-300 hover:grayscale-0 hover:shadow-md"
+                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 dark:bg-white/5 px-4 grayscale transition-all duration-300 hover:grayscale-0 hover:shadow-md"
                 >
                   {partner.logoUrl ? (
                     <img src={partner.logoUrl} alt={partner.name} className="max-h-10 w-auto object-contain" loading="lazy" />
@@ -887,7 +887,7 @@ export function HomePage({
               ) : (
                 <div
                   key={partner.id}
-                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 px-4 grayscale transition-all duration-300 hover:grayscale-0"
+                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 dark:bg-white/5 px-4 grayscale transition-all duration-300 hover:grayscale-0"
                 >
                   {partner.logoUrl ? (
                     <img src={partner.logoUrl} alt={partner.name} className="max-h-10 w-auto object-contain" loading="lazy" />
@@ -922,7 +922,7 @@ export function HomePage({
         </div>
         <div className="grid gap-5 md:grid-cols-3">
           {displayedTestimonials.map((item, i) => (
-            <Card key={`${item.author}-${item.meta}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_14px_40px_-24px_rgba(22,63,70,0.32)] transition-transform duration-300 hover:-translate-y-1`}>
+            <Card key={`${item.author}-${item.meta}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_14px_40px_-24px_rgba(22,63,70,0.32)] transition-transform duration-300 hover:-translate-y-1`}>
               <CardContent className="space-y-4 p-6">
                 {/* Stars */}
                 <div className="flex gap-0.5">
@@ -960,7 +960,7 @@ export function HomePage({
             <div className="min-w-0 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {latestBlogPosts.map((post, i) => (
                 <Link key={post.id} href={`/blog/${post.slug}`} className="group block min-w-0">
-                  <Card className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} h-full overflow-hidden rounded-[1.5rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)] sm:rounded-[1.8rem]`}>
+                  <Card className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} h-full overflow-hidden rounded-[1.5rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)] sm:rounded-[1.8rem]`}>
                     {post.coverImageUrl ? (
                       <img src={post.coverImageUrl} alt={post.title} className="h-40 w-full object-cover sm:h-48" loading="lazy" />
                     ) : null}
@@ -997,7 +997,7 @@ export function HomePage({
                   <AccordionItem
                     key={item.id}
                     value={item.id}
-                    className="rounded-2xl border border-white/70 bg-white/80 px-5 shadow-sm data-[state=open]:shadow-md"
+                    className="rounded-2xl border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 px-5 shadow-sm data-[state=open]:shadow-md"
                   >
                     <AccordionTrigger className="py-4 text-sm font-medium hover:no-underline [&[data-state=open]>svg]:rotate-180">
                       {item.question}

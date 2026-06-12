@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { Clock3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -137,15 +139,12 @@ export default function AdminTimeAdjustmentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Clock Adjustments</h2>
-          <p className="text-sm text-muted-foreground">
-            Review cleaner requests to change the final clock time captured at submission.
-          </p>
-        </div>
-        <Button variant="outline" onClick={load}>Refresh</Button>
-      </div>
+      <PageHeader
+        icon={<Clock3 />}
+        title="Clock Adjustments"
+        description="Review cleaner requests to change the final clock time captured at submission."
+        actions={<Button variant="outline" onClick={load}>Refresh</Button>}
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

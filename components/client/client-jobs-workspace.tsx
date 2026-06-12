@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { ClientJobTaskRequestDialog } from "@/components/client/job-task-request-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -251,7 +252,7 @@ export function ClientJobsWorkspace({
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center justify-between gap-3 text-base">
             <span className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                 <ClipboardList className="h-4 w-4 text-primary" />
               </span>
               <span>
@@ -264,12 +265,12 @@ export function ClientJobsWorkspace({
         <CardContent className="space-y-3 text-sm">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <p className="text-xs text-muted-foreground">Property</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Property</p>
               <p className="font-medium">{job.property.name}</p>
               <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Scheduled</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scheduled</p>
               <p className="font-medium">{format(toLocalDate(job.scheduledDate), "EEE dd MMM yyyy")}</p>
               <p className="text-xs text-muted-foreground">
                 {job.startTime || "Time not set"}
@@ -277,7 +278,7 @@ export function ClientJobsWorkspace({
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Assignment</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Assignment</p>
               <p className="font-medium">{job.assignments.length > 0 ? "Assigned" : "Unassigned"}</p>
               {showCleanerNames && job.assignments.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -286,14 +287,14 @@ export function ClientJobsWorkspace({
               ) : null}
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Task requests</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Task requests</p>
               <p className="font-medium">{job.jobTasks.length} linked task(s)</p>
               <p className="text-xs text-muted-foreground">Client requests, carry-forwards, and approvals</p>
             </div>
           </div>
 
           {showLaundryUpdates && job.laundryTask ? (
-            <div className="rounded-2xl border bg-muted/15 p-3">
+            <div className="rounded-xl border border-border bg-muted/15 p-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-medium">
@@ -367,24 +368,24 @@ export function ClientJobsWorkspace({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Jobs</h1>
-          <p className="text-sm text-muted-foreground">
-            Upcoming jobs first, with quick filters, direct task-request access, and linked laundry updates.
-          </p>
-        </div>
+        <PageHeader
+          icon={<ClipboardList />}
+          title="Jobs"
+          description="Upcoming jobs first, with quick filters, direct task-request access, and linked laundry updates."
+          className="flex-1"
+        />
         <div className="flex items-center gap-2">
-          <div className="flex rounded-md border">
+          <div className="flex rounded-lg border border-border">
             <Button
               variant={viewMode === "list" ? "default" : "ghost"}
-              className="rounded-r-none"
+              className="rounded-r-none rounded-l-lg"
               onClick={() => setViewMode("list")}
             >
               List
             </Button>
             <Button
               variant={viewMode === "calendar" ? "default" : "ghost"}
-              className="rounded-l-none"
+              className="rounded-l-none rounded-r-lg"
               onClick={() => setViewMode("calendar")}
             >
               <CalendarDays className="mr-2 h-4 w-4" />
@@ -463,9 +464,9 @@ export function ClientJobsWorkspace({
                       setFilterMode("date");
                     }}
                     className={cn(
-                      "relative rounded-2xl border px-2 py-3 text-sm transition-colors",
+                      "relative rounded-xl border px-2 py-3 text-sm transition-colors",
                       isSameMonth(day, calendarMonth)
-                        ? "bg-white hover:border-primary/40"
+                        ? "border-border bg-surface hover:border-primary/40"
                         : "bg-muted/30 text-muted-foreground",
                       isSelected && "border-primary bg-primary/10 text-primary"
                     )}
@@ -500,9 +501,9 @@ export function ClientJobsWorkspace({
         ) : null}
 
         {filteredJobs.length === 0 ? (
-          <Card>
-            <CardContent className="p-6 text-sm text-muted-foreground">No jobs match the selected filter.</CardContent>
-          </Card>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No jobs match the selected filter.
+          </div>
         ) : null}
       </div>
 
@@ -512,7 +513,7 @@ export function ClientJobsWorkspace({
             <DialogTitle>{actionMode === "reschedule" ? "Request a new date" : "Request cancellation"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-xl border p-3 text-sm">
+            <div className="rounded-xl border border-border p-3 text-sm">
               <p className="font-medium">{actionJob?.property?.name}</p>
               <p className="text-muted-foreground">
                 {actionJob ? format(toLocalDate(actionJob.scheduledDate), "EEE dd MMM yyyy") : ""}

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Upload } from "lucide-react";
+import { HandCoins, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -193,12 +194,11 @@ export function CleanerPayRequestsPage({
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">Extra Payment Requests</h1>
-        <p className="text-sm text-muted-foreground">
-          Submit job-linked, property-based, or standalone extra payment requests with notes and image evidence.
-        </p>
-      </div>
+      <PageHeader
+        title="Extra Payment Requests"
+        description="Submit job-linked, property-based, or standalone extra payment requests with notes and image evidence."
+        icon={<HandCoins />}
+      />
 
       <Card>
         <CardHeader className="pb-2">

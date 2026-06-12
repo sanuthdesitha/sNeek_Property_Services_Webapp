@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Building2, Mail, Phone } from "lucide-react";
+import { Plus, Building2, Mail, Phone, Users } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { ClientsCardsGrid, type ClientCardStats } from "@/components/admin/clients-cards-grid";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
@@ -73,18 +74,19 @@ export default async function ClientsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Clients</h2>
-          <p className="text-sm text-muted-foreground">{clients.length} active clients</p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/clients/new">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Client
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Users />}
+        title="Clients"
+        description={`${clients.length} active clients`}
+        actions={
+          <Button asChild>
+            <Link href="/admin/clients/new">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Client
+            </Link>
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="cards">
         <TabsList>

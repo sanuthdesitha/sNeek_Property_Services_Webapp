@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { RefreshCw, CheckCircle2, AlertTriangle, History, Search, ChevronDown } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -200,18 +201,17 @@ export default function AdminIcalIntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">iCal Sync Ops</h2>
-          <p className="text-sm text-muted-foreground">
-            Monitor every iCal sync run across all properties, verify issues, and re-sync selected properties in bulk.
-          </p>
-        </div>
-        <Button variant="outline" onClick={loadData} disabled={loading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={<RefreshCw />}
+        title="iCal Sync Ops"
+        description="Monitor every iCal sync run across all properties, verify issues, and re-sync selected properties in bulk."
+        actions={
+          <Button variant="outline" onClick={loadData} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>

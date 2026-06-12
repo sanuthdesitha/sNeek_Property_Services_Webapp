@@ -301,7 +301,7 @@ export default function ClientJobDetailPage() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-bold">{job.property.name}</h2>
+            <h2 className="text-xl font-bold tracking-tight">{job.property.name}</h2>
             <Badge variant={(STATUS_VARIANT[job.status] ?? "outline") as any}>
               {STATUS_LABELS[job.status] ?? job.status.replace(/_/g, " ")}
             </Badge>
@@ -334,7 +334,7 @@ export default function ClientJobDetailPage() {
         <TabsContent value="overview" className="space-y-4 mt-4">
           <div className="grid gap-4 sm:grid-cols-2">
             {job.status === "EN_ROUTE" && (
-              <Card className={`sm:col-span-2 ${job.drivingPausedAt ? "border-orange-400 bg-orange-50/60" : job.drivingDelayedAt ? "border-amber-400 bg-amber-50/40" : "border-primary/30"}`}>
+              <Card className={`sm:col-span-2 ${job.drivingPausedAt ? "border-warning bg-warning/10" : job.drivingDelayedAt ? "border-warning/60 bg-warning/5" : "border-primary/30"}`}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-primary" />
@@ -352,7 +352,7 @@ export default function ClientJobDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {job.drivingPausedAt ? (
-                    <div className="rounded-lg border border-orange-300 bg-orange-100/60 px-3 py-2 text-sm text-orange-800 font-medium">
+                    <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-sm font-medium text-warning">
                       Your cleaner has temporarily paused driving
                       {job.drivingPauseReason ? ` · ${job.drivingPauseReason.replace(/_/g, " ").toLowerCase()}` : ""}
                       . ETA will resume once they continue.
@@ -374,7 +374,7 @@ export default function ClientJobDetailPage() {
                         <span className="text-destructive text-xs font-medium">Behind schedule (starts {job.startTime})</span>
                       )}
                       {scheduleStatus === "early" && job.startTime && (
-                        <span className="text-emerald-700 text-xs font-medium">Arriving before {job.startTime}</span>
+                        <span className="text-success text-xs font-medium">Arriving before {job.startTime}</span>
                       )}
                       <span className="text-muted-foreground text-xs">
                         Updated {formatTripFreshness(job.enRouteEtaUpdatedAt ?? job.liveTrip?.lastPingAt ?? null)}
@@ -382,7 +382,7 @@ export default function ClientJobDetailPage() {
                     </div>
                   )}
                   {job.drivingDelayedAt && !job.drivingPausedAt && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <div className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-warning">
                       Delay reported{job.drivingDelayedReason ? `: ${job.drivingDelayedReason.replace(/_/g, " ").toLowerCase()}` : ""}
                     </div>
                   )}
@@ -489,7 +489,7 @@ export default function ClientJobDetailPage() {
                   {cleaner.phone && (
                     <a
                       href={`tel:${cleaner.phone}`}
-                      className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
                     >
                       Call
                     </a>
@@ -525,7 +525,7 @@ export default function ClientJobDetailPage() {
               <CardContent className="text-sm">
                 <div className="flex items-center gap-2">
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <span key={i} className={i < job.satisfactionRating!.score ? "text-amber-400" : "text-muted-foreground/30"}>★</span>
+                    <span key={i} className={i < job.satisfactionRating!.score ? "text-warning" : "text-muted-foreground/30"}>★</span>
                   ))}
                   <span className="text-muted-foreground ml-1">{job.satisfactionRating.score}/5</span>
                 </div>
@@ -581,7 +581,7 @@ export default function ClientJobDetailPage() {
                 )}
                 {job.laundryTask.confirmations.length > 0 && (
                   <div className="space-y-3 pt-2">
-                    <p className="font-medium text-xs uppercase tracking-[0.12em] text-muted-foreground">Laundry updates</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Laundry updates</p>
                     {job.laundryTask.confirmations.map((c) => (
                       <div key={c.id} className="flex gap-3 rounded-xl border p-3">
                         {c.photoUrl && (
@@ -626,12 +626,12 @@ export default function ClientJobDetailPage() {
                         </p>
                       )}
                     </div>
-                    <span className="font-semibold text-primary">{formatCurrency(line.lineTotal)}</span>
+                    <span className="font-semibold text-primary tabular-nums">{formatCurrency(line.lineTotal)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between border-t pt-3 font-semibold text-sm">
                   <span>Total charged</span>
-                  <span className="text-primary">{formatCurrency(totalCharged)}</span>
+                  <span className="text-primary tabular-nums">{formatCurrency(totalCharged)}</span>
                 </div>
               </CardContent>
             </Card>

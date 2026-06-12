@@ -32,12 +32,21 @@ function buildWhereClause(params: {
 
   if (params.date) {
     const d = new Date(params.date);
-    where.scheduledDate = { gte: d, lt: new Date(d.getTime() + 86400000) };
+    // Ignore an unparseable date rather than passing Invalid Date to Prisma (500).
+    if (!Number.isNaN(d.getTime())) {
+      where.scheduledDate = { gte: d, lt: new Date(d.getTime() + 86400000) };
+    }
   } else if (params.dateFrom || params.dateTo) {
     const dateRange: Record<string, Date> = {};
-    if (params.dateFrom) dateRange.gte = new Date(`${params.dateFrom}T00:00:00`);
-    if (params.dateTo) dateRange.lte = new Date(`${params.dateTo}T23:59:59`);
-    where.scheduledDate = dateRange;
+    if (params.dateFrom) {
+      const from = new Date(`${params.dateFrom}T00:00:00`);
+      if (!Number.isNaN(from.getTime())) dateRange.gte = from;
+    }
+    if (params.dateTo) {
+      const to = new Date(`${params.dateTo}T23:59:59`);
+      if (!Number.isNaN(to.getTime())) dateRange.lte = to;
+    }
+    if (Object.keys(dateRange).length > 0) where.scheduledDate = dateRange;
   }
 
   if (params.role === Role.CLEANER) {

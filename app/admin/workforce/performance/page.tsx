@@ -5,7 +5,8 @@ import { requireRole } from "@/lib/auth/session";
 import { getPerformanceMetrics } from "@/lib/workforce/performance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Users, Star, Clock, CheckCircle2, ShieldCheck, FileCheck } from "lucide-react";
+import { Users, Star, Clock, CheckCircle2, ShieldCheck, FileCheck, Trophy } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -91,16 +92,17 @@ export default async function CleanerPerformancePage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Cleaner Performance
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          30-day rolling metrics across {cleaners.length} active cleaner
-          {cleaners.length === 1 ? "" : "s"}. Click a row for the full
-          breakdown.
-        </p>
-      </header>
+      <PageHeader
+        icon={<Trophy />}
+        title="Cleaner Performance"
+        description={
+          <>
+            30-day rolling metrics across {cleaners.length} active cleaner
+            {cleaners.length === 1 ? "" : "s"}. Click a row for the full
+            breakdown.
+          </>
+        }
+      />
 
       {/* Roster rollup */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

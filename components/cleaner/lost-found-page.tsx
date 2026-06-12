@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { PackageSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,12 +58,11 @@ export function CleanerLostFoundPage({ jobs }: { jobs: JobOption[] }) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">Lost &amp; Found</h1>
-        <p className="text-sm text-muted-foreground">
-          Report an item found during a job. This opens a case for admin follow-up.
-        </p>
-      </div>
+      <PageHeader
+        title={<>Lost &amp; Found</>}
+        description="Report an item found during a job. This opens a case for admin follow-up."
+        icon={<PackageSearch />}
+      />
 
       <Card>
         <CardHeader className="pb-2">

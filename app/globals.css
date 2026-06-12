@@ -4,16 +4,16 @@
 
 @layer base {
   :root {
-    /* Surfaces */
-    --background:          210 20% 98%;
-    --foreground:          215 28% 14%;
+    /* Surfaces — Apple-neutral greys (no blue cast) */
+    --background:          240 10% 97%;
+    --foreground:          240 6% 10%;
     --surface:             0 0% 100%;
-    --surface-raised:      210 20% 96%;
+    --surface-raised:      240 9% 96%;
 
     --card:                0 0% 100%;
-    --card-foreground:     215 28% 14%;
+    --card-foreground:     240 6% 10%;
     --popover:             0 0% 100%;
-    --popover-foreground:  215 28% 14%;
+    --popover-foreground:  240 6% 10%;
 
     /* Brand */
     --primary:             188 78% 30%;
@@ -21,10 +21,10 @@
     --primary-soft:        188 60% 94%;
 
     /* Secondary / muted / accent */
-    --secondary:           210 18% 92%;
-    --secondary-foreground: 215 28% 22%;
-    --muted:               210 18% 94%;
-    --muted-foreground:    215 12% 45%;
+    --secondary:           240 7% 93%;
+    --secondary-foreground: 240 6% 18%;
+    --muted:               240 7% 95%;
+    --muted-foreground:    240 4% 44%;
     --accent:              35 95% 50%;
     --accent-foreground:   25 90% 18%;
 
@@ -40,37 +40,43 @@
     --info-foreground:     210 90% 96%;
 
     /* Hairlines */
-    --border:              214 15% 88%;
-    --border-strong:       214 15% 78%;
-    --input:               214 15% 88%;
+    --border:              240 6% 90%;
+    --border-strong:       240 6% 81%;
+    --input:               240 6% 86%;
     --ring:                188 78% 40%;
 
-    /* Radii */
-    --radius-sm:           4px;
-    --radius:              8px;
-    --radius-lg:           12px;
-    --radius-xl:           16px;
+    /* Radii — softer, continuous-curve feel */
+    --radius-sm:           8px;
+    --radius:              10px;
+    --radius-lg:           14px;
+    --radius-xl:           20px;
+
+    /* Layered elevation */
+    --shadow-color:        240 6% 30%;
+    --elevation-1:         0 1px 2px hsl(var(--shadow-color) / 0.06);
+    --elevation-2:         0 1px 2px hsl(var(--shadow-color) / 0.05), 0 4px 12px -4px hsl(var(--shadow-color) / 0.10);
+    --elevation-3:         0 2px 4px hsl(var(--shadow-color) / 0.05), 0 12px 32px -12px hsl(var(--shadow-color) / 0.18);
   }
 
   .dark {
-    --background:          222 22% 9%;
-    --foreground:          210 22% 94%;
-    --surface:             222 18% 12%;
-    --surface-raised:      222 16% 16%;
+    --background:          240 6% 7%;
+    --foreground:          240 8% 95%;
+    --surface:             240 5% 11%;
+    --surface-raised:      240 5% 15%;
 
-    --card:                222 18% 12%;
-    --card-foreground:     210 22% 94%;
-    --popover:             222 18% 12%;
-    --popover-foreground:  210 22% 94%;
+    --card:                240 5% 11%;
+    --card-foreground:     240 8% 95%;
+    --popover:             240 5% 11%;
+    --popover-foreground:  240 8% 95%;
 
     --primary:             185 68% 48%;
     --primary-foreground:  222 22% 8%;
     --primary-soft:        185 50% 22%;
 
-    --secondary:           218 14% 22%;
-    --secondary-foreground: 210 20% 88%;
-    --muted:               222 13% 19%;
-    --muted-foreground:    210 14% 65%;
+    --secondary:           240 5% 20%;
+    --secondary-foreground: 240 8% 88%;
+    --muted:               240 5% 17%;
+    --muted-foreground:    240 5% 65%;
     --accent:              38 95% 60%;
     --accent-foreground:   30 50% 14%;
 
@@ -84,10 +90,12 @@
     --info:                212 80% 60%;
     --info-foreground:     212 30% 10%;
 
-    --border:              220 13% 22%;
-    --border-strong:       220 13% 32%;
-    --input:               220 13% 22%;
+    --border:              240 5% 20%;
+    --border-strong:       240 5% 30%;
+    --input:               240 5% 22%;
     --ring:                185 68% 56%;
+
+    --shadow-color:        240 20% 2%;
   }
 
   * {
@@ -102,8 +110,9 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: var(--font-sans), "Segoe UI", sans-serif;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1, "cv11" 1;
+    text-rendering: optimizeLegibility;
     background-image: none;
     background-color: hsl(var(--background));
   }
@@ -385,60 +394,62 @@
 /* automatically inherit the portal theme with no extra changes.  */
 
 [data-portal-theme="light"] {
-  --background:          210 20% 98%;
-  --foreground:          215 28% 14%;
+  --background:          240 10% 97%;
+  --foreground:          240 6% 10%;
   --surface:             0 0% 100%;
-  --surface-raised:      210 20% 96%;
+  --surface-raised:      240 9% 96%;
   --card:                0 0% 100%;
-  --card-foreground:     215 28% 14%;
+  --card-foreground:     240 6% 10%;
   --popover:             0 0% 100%;
-  --popover-foreground:  215 28% 14%;
+  --popover-foreground:  240 6% 10%;
   --primary:             188 78% 30%;
   --primary-foreground:  43 100% 97%;
-  --secondary:           210 18% 92%;
-  --secondary-foreground: 215 28% 22%;
-  --muted:               210 18% 94%;
-  --muted-foreground:    215 12% 45%;
+  --secondary:           240 7% 93%;
+  --secondary-foreground: 240 6% 18%;
+  --muted:               240 7% 95%;
+  --muted-foreground:    240 4% 44%;
   --accent:              35 95% 50%;
   --accent-foreground:   25 90% 18%;
   --destructive:         0 72% 52%;
   --destructive-foreground: 0 0% 98%;
-  --border:              214 15% 88%;
-  --input:               214 15% 88%;
+  --border:              240 6% 90%;
+  --input:               240 6% 86%;
   --ring:                188 78% 40%;
+  --shadow-color:        240 6% 30%;
 
   --portal-sidebar-bg:         0 0% 100%;
-  --portal-sidebar-fg:         215 12% 45%;
+  --portal-sidebar-fg:         240 4% 44%;
   --portal-sidebar-active-bg:  188 78% 30%;
   --portal-sidebar-active-fg:  43 100% 97%;
   --portal-amber:              38 90% 50%;
 }
 
 [data-portal-theme="dark"] {
-  --background:          222 22% 9%;
-  --foreground:          210 22% 94%;
-  --surface:             222 18% 12%;
-  --surface-raised:      222 16% 16%;
-  --card:                222 18% 12%;
-  --card-foreground:     210 22% 94%;
-  --popover:             222 18% 12%;
-  --popover-foreground:  210 22% 94%;
+  --background:          240 6% 7%;
+  --foreground:          240 8% 95%;
+  --surface:             240 5% 11%;
+  --surface-raised:      240 5% 15%;
+  --card:                240 5% 11%;
+  --card-foreground:     240 8% 95%;
+  --popover:             240 5% 11%;
+  --popover-foreground:  240 8% 95%;
   --primary:             185 68% 48%;
   --primary-foreground:  222 22% 8%;
-  --secondary:           218 14% 22%;
-  --secondary-foreground: 210 20% 88%;
-  --muted:               222 13% 19%;
-  --muted-foreground:    210 14% 65%;
+  --secondary:           240 5% 20%;
+  --secondary-foreground: 240 8% 88%;
+  --muted:               240 5% 17%;
+  --muted-foreground:    240 5% 65%;
   --accent:              38 95% 60%;
   --accent-foreground:   30 50% 14%;
   --destructive:         0 70% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border:              220 13% 22%;
-  --input:               220 13% 22%;
+  --border:              240 5% 20%;
+  --input:               240 5% 22%;
   --ring:                185 68% 56%;
+  --shadow-color:        240 20% 2%;
 
-  --portal-sidebar-bg:         222 22% 7%;
-  --portal-sidebar-fg:         210 14% 60%;
+  --portal-sidebar-bg:         240 6% 6%;
+  --portal-sidebar-fg:         240 5% 62%;
   --portal-sidebar-active-bg:  185 68% 48%;
   --portal-sidebar-active-fg:  222 22% 8%;
   --portal-amber:              38 90% 62%;
@@ -478,7 +489,7 @@
 
 body:has([data-portal-theme="dark"]) {
   background-image: none;
-  background-color: hsl(222 22% 9%);
+  background-color: hsl(240 6% 7%);
 }
 
 /* Public marketing site in DARK mode (visitor-toggled). Scoped to the public

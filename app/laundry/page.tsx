@@ -1200,10 +1200,10 @@ export default function LaundryPortal() {
         <CardContent className="p-0">
           <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="p-5 sm:p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Laundry Overview
               </p>
-              <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Laundry Planner</h1>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Laundry Planner</h1>
               <p className="mt-2 text-sm text-muted-foreground sm:text-base">
                 {format(weekStart, "d MMM")} -{" "}
                 {format(addDays(weekStart, rangeMode === "day" ? 0 : rangeMode === "month" ? 30 : rangeMode === "all" ? 365 : 6), "d MMM yyyy")}
@@ -1237,7 +1237,7 @@ export default function LaundryPortal() {
                 >
                   Next
                 </Button>
-                <label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted">
+                <label className="inline-flex cursor-pointer items-center rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted">
                   {scanningQr ? "Scanning..." : "Scan bag QR"}
                   <input
                     type="file"
@@ -1254,18 +1254,18 @@ export default function LaundryPortal() {
               </div>
             </div>
 
-            <div className="grid gap-3 border-t border-border/60 bg-muted/20 p-5 sm:grid-cols-3 sm:p-6 lg:border-l lg:border-t-0 lg:grid-cols-1">
+            <div className="grid gap-3 border-t border-border bg-surface-raised p-5 sm:grid-cols-3 sm:p-6 lg:border-l lg:border-t-0 lg:grid-cols-1">
               <div>
-                <p className="text-xs text-muted-foreground">Confirmed</p>
-                <p className="text-2xl font-semibold">{confirmedTasks.length}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Confirmed</p>
+                <p className="text-2xl font-bold tracking-tight tabular-nums">{confirmedTasks.length}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">At laundry</p>
-                <p className="text-2xl font-semibold">{pickedUpCount}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">At laundry</p>
+                <p className="text-2xl font-bold tracking-tight tabular-nums">{pickedUpCount}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue" : "Returned"}</p>
-                <p className="text-2xl font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(2)}` : returnedCount}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue" : "Returned"}</p>
+                <p className="text-2xl font-bold tracking-tight tabular-nums">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(2)}` : returnedCount}</p>
               </div>
             </div>
           </div>
@@ -1304,30 +1304,30 @@ export default function LaundryPortal() {
               <Shirt className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Awaiting pickup</p>
-              <p className="text-2xl font-semibold">{confirmedTasks.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting pickup</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{confirmedTasks.length}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100">
-              <Truck className="h-4 w-4 text-amber-700" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warning/10">
+              <Truck className="h-4 w-4 text-warning" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">At laundry</p>
-              <p className="text-2xl font-semibold">{pickedUpCount}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">At laundry</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{pickedUpCount}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-              <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-success/10">
+              <CheckCircle2 className="h-4 w-4 text-success" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Returned</p>
-              <p className="text-2xl font-semibold">{returnedCount}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Returned</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{returnedCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -1337,15 +1337,15 @@ export default function LaundryPortal() {
               <AlertTriangle className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue tracked" : "Skipped pickups"}</p>
-              <p className="text-2xl font-semibold">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(0)}` : skippedTasks.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue tracked" : "Skipped pickups"}</p>
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(0)}` : skippedTasks.length}</p>
             </div>
           </CardContent>
         </Card>
       </section>
 
       {skippedTasks.length > 0 ? (
-        <Card className="border-amber-300 bg-amber-50/60">
+        <Card className="border-warning/40 bg-warning/5">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Skipped Pickups</CardTitle>
             <CardDescription>
@@ -1358,7 +1358,7 @@ export default function LaundryPortal() {
                 LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
                 String(task.skipReasonCode ?? "Not set").replace(/_/g, " ");
               return (
-                <div key={task.id} className="rounded-xl border border-amber-300 bg-white/80 p-4">
+                <div key={task.id} className="rounded-xl border border-warning/40 bg-surface p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="font-semibold">{task.property.name}</p>
@@ -1370,7 +1370,7 @@ export default function LaundryPortal() {
                       <p className="text-sm">
                         <strong>Scheduled drop-off:</strong> {format(new Date(task.dropoffDate), "EEE dd MMM yyyy")}
                       </p>
-                      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                      <div className="mt-2 rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-foreground">
                         <p><strong>Reason:</strong> {reasonLabel}</p>
                         {task.skipReasonNote ? <p className="mt-1">Cleaner note: {task.skipReasonNote}</p> : null}
                         {task.adminOverrideNote ? <p className="mt-1">Admin note: {task.adminOverrideNote}</p> : null}
@@ -1432,7 +1432,7 @@ export default function LaundryPortal() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">View mode</Label>
-            <div className="flex rounded-md border">
+            <div className="flex rounded-lg border border-border">
               <Button type="button" variant={viewMode === "full" ? "default" : "ghost"} className="flex-1 rounded-r-none" onClick={() => setViewMode("full")}>Full</Button>
               <Button type="button" variant={viewMode === "compact" ? "default" : "ghost"} className="flex-1 rounded-l-none" onClick={() => setViewMode("compact")}>Compact</Button>
             </div>
@@ -1480,14 +1480,14 @@ export default function LaundryPortal() {
           )}
           {pickedUpTasksList.length > 0 && confirmedTasks.length === 0 && (
             <div className="flex items-center gap-2 pt-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-warning" />
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 At Laundry — {pickedUpTasksList.length} task{pickedUpTasksList.length === 1 ? "" : "s"}
               </p>
             </div>
           )}
           {readyQueue.length === 0 ? (
-            <div className="py-10 text-center text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               <Shirt className="mx-auto mb-2 h-10 w-10 opacity-30" />
               <p>No active laundry tasks.</p>
               <p className="mt-1 text-xs">Confirmed when cleaners mark laundry ready.</p>
@@ -1631,7 +1631,7 @@ export default function LaundryPortal() {
                           </div>
                         ) : null}
                         {droppedEarly && (
-                          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs">
+                          <div className="mt-2 rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs">
                             <p>
                               <strong>Early return.</strong> Intended drop-off: {format(new Date(task.dropoffDate), "dd MMM yyyy")} | Actual:{" "}
                               {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
@@ -1642,7 +1642,7 @@ export default function LaundryPortal() {
                           </div>
                         )}
                         {pendingFailedPickup ? (
-                          <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                          <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
                             Awaiting admin approval to {String(pendingFailedPickup.requestedAction ?? "SKIP").toLowerCase()} this pickup.
                           </div>
                         ) : null}
@@ -1656,7 +1656,7 @@ export default function LaundryPortal() {
                       {task.status === "CONFIRMED" && (
                         <Button
                           size="sm"
-                          className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                          className="flex-1 bg-success text-success-foreground hover:bg-success/90"
                           onClick={() => openAction(task, "PICKED_UP")}
                         >
                           <Truck className="mr-1 h-4 w-4" />
@@ -1695,7 +1695,7 @@ export default function LaundryPortal() {
                       )}
                     </div>
 
-                    <div className="mt-3 rounded-md bg-muted/40 p-2">
+                    <div className="mt-3 rounded-lg bg-surface-raised p-2">
                       <p className="mb-1 text-xs font-medium">Timeline</p>
                       <div className="space-y-1">
                         {buildTimeline(task).map((event, index) => (
@@ -1714,7 +1714,7 @@ export default function LaundryPortal() {
 
         <TabsContent value="returned" className="space-y-3">
           {completedScheduleTasks.length === 0 ? (
-            <div className="py-10 text-center text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="mx-auto mb-2 h-10 w-10 opacity-30" />
               <p>No returned laundry in this range.</p>
               <p className="mt-1 text-xs">Returned loads appear here once the drop-off is confirmed.</p>
@@ -1735,7 +1735,7 @@ export default function LaundryPortal() {
                           Pickup {format(new Date(task.pickupDate), "dd MMM")} → Drop {format(new Date(task.dropoffDate), "dd MMM")}
                         </p>
                         {droppedEarly && (
-                          <p className="mt-1 text-xs text-amber-700">
+                          <p className="mt-1 text-xs text-warning">
                             Early return: planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
                             {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
                             {droppedMeta?.earlyDropoffReason ? ` — ${droppedMeta.earlyDropoffReason}` : ""}
@@ -1846,7 +1846,7 @@ export default function LaundryPortal() {
                         <p className="text-xs text-muted-foreground">Supplier: {task.supplier.name}</p>
                       ) : null}
                       {droppedEarly && (
-                        <p className="mt-1 text-xs text-amber-700">
+                        <p className="mt-1 text-xs text-warning">
                           Returned early. Planned {format(new Date(task.dropoffDate), "dd MMM yyyy")}, actual{" "}
                           {task.droppedAt ? format(new Date(task.droppedAt), "dd MMM yyyy") : "-"}
                           {droppedMeta?.earlyDropoffReason ? ` - ${droppedMeta.earlyDropoffReason}` : ""}
@@ -1892,7 +1892,7 @@ export default function LaundryPortal() {
                   <div className="space-y-1.5">
                     <Label>Pickup photo (optional)</Label>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                         <Camera className="h-3.5 w-3.5" />
                         Take photo
                         <input
@@ -1908,7 +1908,7 @@ export default function LaundryPortal() {
                           }}
                         />
                       </label>
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                         Upload photo
                         <input
                           type="file"
@@ -1924,7 +1924,7 @@ export default function LaundryPortal() {
                       </label>
                     </div>
                     {pickupPhoto && pickupPhotoPreviewUrl ? (
-                      <div className="space-y-2 rounded-md border p-2">
+                      <div className="space-y-2 rounded-lg border border-border p-2">
                         <p className="text-xs font-medium text-muted-foreground">Selected pickup photo</p>
                         <MediaGallery
                           items={[
@@ -1960,7 +1960,7 @@ export default function LaundryPortal() {
             )}
 
             {actionType === "EDIT_COMPLETED" && (
-              <div className="space-y-3 rounded-md border border-border/60 p-3">
+              <div className="space-y-3 rounded-lg border border-border p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pickup corrections</p>
                 <div className="space-y-1.5">
                   <Label>Bag count</Label>
@@ -1969,7 +1969,7 @@ export default function LaundryPortal() {
                 <div className="space-y-1.5">
                   <Label>Pickup photo (optional replacement)</Label>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       <Camera className="h-3.5 w-3.5" />
                       Take photo
                       <input
@@ -1985,7 +1985,7 @@ export default function LaundryPortal() {
                         }}
                       />
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       Upload photo
                       <input
                         type="file"
@@ -2001,7 +2001,7 @@ export default function LaundryPortal() {
                     </label>
                   </div>
                   {actionPickedUpConfirmation?.photoUrl ? (
-                    <div className="space-y-2 rounded-md border p-2">
+                    <div className="space-y-2 rounded-lg border border-border p-2">
                       <p className="text-xs font-medium text-muted-foreground">Current pickup photo</p>
                       <MediaGallery
                         items={[
@@ -2018,7 +2018,7 @@ export default function LaundryPortal() {
                     </div>
                   ) : null}
                   {pickupPhoto && pickupPhotoPreviewUrl ? (
-                    <div className="space-y-2 rounded-md border border-primary/30 p-2">
+                    <div className="space-y-2 rounded-lg border border-primary/30 p-2">
                       <p className="text-xs font-medium text-primary">Selected replacement photo</p>
                       <MediaGallery
                         items={[
@@ -2057,7 +2057,7 @@ export default function LaundryPortal() {
             {(actionType === "RETURNED" || actionType === "EDIT_COMPLETED") && (
               <>
                 {laundryConfig.requireEarlyDropoffReason && earlyReturnCandidate && (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+                  <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
                     <p className="font-medium">Early drop-off detected</p>
                     <p className="mt-1 text-muted-foreground">
                       Intended drop-off: {actionTask?.dropoffDate ? format(new Date(actionTask.dropoffDate), "dd MMM yyyy") : "-"}
@@ -2095,7 +2095,7 @@ export default function LaundryPortal() {
                     Drop-off photo {actionType === "EDIT_COMPLETED" ? "(optional replacement)" : laundryConfig.requireDropoffPhoto ? "" : "(optional)"}
                   </Label>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       <Camera className="h-3.5 w-3.5" />
                       Take photo
                       <input
@@ -2111,7 +2111,7 @@ export default function LaundryPortal() {
                         }}
                       />
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       Upload photo
                       <input
                         type="file"
@@ -2127,7 +2127,7 @@ export default function LaundryPortal() {
                     </label>
                   </div>
                   {actionType === "EDIT_COMPLETED" && actionDroppedConfirmation?.photoUrl ? (
-                    <div className="space-y-2 rounded-md border p-2">
+                    <div className="space-y-2 rounded-lg border border-border p-2">
                       <p className="text-xs font-medium text-muted-foreground">Current drop-off photo</p>
                       <MediaGallery
                         items={[
@@ -2144,7 +2144,7 @@ export default function LaundryPortal() {
                     </div>
                   ) : null}
                   {dropoffPhoto && dropoffPhotoPreviewUrl ? (
-                    <div className="space-y-2 rounded-md border border-primary/30 p-2">
+                    <div className="space-y-2 rounded-lg border border-primary/30 p-2">
                       <p className="text-xs font-medium text-primary">
                         {actionType === "EDIT_COMPLETED" ? "Selected replacement photo" : "Selected drop-off photo"}
                       </p>
@@ -2224,7 +2224,7 @@ export default function LaundryPortal() {
                 <div className="space-y-1.5">
                   <Label>Receipt photo (optional)</Label>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       <Camera className="h-3.5 w-3.5" />
                       Take photo
                       <input
@@ -2239,7 +2239,7 @@ export default function LaundryPortal() {
                         }}
                       />
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                    <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted">
                       Upload receipt
                       <input
                         type="file"
@@ -2254,7 +2254,7 @@ export default function LaundryPortal() {
                     </label>
                   </div>
                   {actionType === "EDIT_COMPLETED" && actionTask?.receiptImageUrl ? (
-                    <div className="space-y-2 rounded-md border p-2">
+                    <div className="space-y-2 rounded-lg border border-border p-2">
                       <p className="text-xs font-medium text-muted-foreground">Current receipt image</p>
                       <MediaGallery
                         items={[
@@ -2271,7 +2271,7 @@ export default function LaundryPortal() {
                     </div>
                   ) : null}
                   {receiptPhoto && receiptPhotoPreviewUrl ? (
-                    <div className="space-y-2 rounded-md border border-primary/30 p-2">
+                    <div className="space-y-2 rounded-lg border border-primary/30 p-2">
                       <p className="text-xs font-medium text-primary">Selected receipt image</p>
                       <MediaGallery
                         items={[
@@ -2314,7 +2314,7 @@ export default function LaundryPortal() {
             )}
 
             {actionType === "FAILED_PICKUP" && (
-              <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50/60 p-3">
+              <div className="space-y-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
                 <div className="space-y-1.5">
                   <Label>What should happen next?</Label>
                   <Select value={failedPickupMode} onValueChange={(value) => setFailedPickupMode(value as FailedPickupMode)}>

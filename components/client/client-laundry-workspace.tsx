@@ -17,6 +17,7 @@ import {
 import { toZonedTime } from "date-fns-tz";
 import { CalendarDays, ExternalLink, Shirt } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MediaGallery } from "@/components/shared/media-gallery";
@@ -289,7 +290,7 @@ export function ClientLaundryWorkspace({
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-start justify-between gap-3 text-base">
             <span className="flex min-w-0 items-start gap-2">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                 <Shirt className="h-4 w-4 text-primary" />
               </span>
               <span className="min-w-0">
@@ -354,7 +355,7 @@ export function ClientLaundryWorkspace({
           ) : null}
           {task.skipReasonNote ? <p className="text-xs text-muted-foreground">{task.skipReasonNote}</p> : null}
           {task.adminOverrideNote ? (
-            <p className="text-xs font-medium text-amber-700">Admin note: {task.adminOverrideNote}</p>
+            <p className="text-xs font-medium text-warning">Admin note: {task.adminOverrideNote}</p>
           ) : null}
 
           {showLaundryImages && confirmationPhotos.length > 0 ? (
@@ -371,38 +372,36 @@ export function ClientLaundryWorkspace({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Laundry</h1>
-          <p className="text-sm text-muted-foreground">
-            Read-only laundry schedule and timeline for your properties, with today&apos;s linked cleaning jobs pinned first.
-          </p>
-        </div>
-        <Button variant="outline" asChild>
-          <Link href="/client/jobs">
-            <CalendarDays className="mr-2 h-4 w-4" />
-            Back to jobs
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Laundry"
+        description="Read-only laundry schedule and timeline for your properties, with today's linked cleaning jobs pinned first."
+        actions={
+          <Button variant="outline" asChild>
+            <Link href="/client/jobs">
+              <CalendarDays className="mr-2 h-4 w-4" />
+              Back to jobs
+            </Link>
+          </Button>
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Today&apos;s linked cleans</p>
-            <p className="text-2xl font-bold">{todayPriorityTasks.length}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Today&apos;s linked cleans</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{todayPriorityTasks.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Matching this filter</p>
-            <p className="text-2xl font-bold">{filteredTasks.length}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Matching this filter</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{filteredTasks.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Completed in this range</p>
-            <p className="text-2xl font-bold">{completedCount}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Completed in this range</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{completedCount}</p>
           </CardContent>
         </Card>
       </section>

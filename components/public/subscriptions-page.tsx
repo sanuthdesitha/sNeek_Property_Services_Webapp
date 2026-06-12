@@ -40,13 +40,13 @@ export function SubscriptionsPage({ plans, content }: SubscriptionsPageProps) {
       <div className="public-section-full bg-primary/4">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           {plans.length === 0 ? (
-            <div className="rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center text-muted-foreground shadow-sm">
+            <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-10 text-center text-muted-foreground shadow-sm">
               No subscription plans have been published yet. Check back soon.
             </div>
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {plans.map((plan: any) => (
-                <Card key={plan.id} className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(25,67,74,0.4)]">
+                <Card key={plan.id} className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(25,67,74,0.4)]">
                   <CardContent className="space-y-5 p-7">
                     <div className="space-y-2">
                       <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">{plan.name}</p>
@@ -89,7 +89,7 @@ export function SubscriptionsPage({ plans, content }: SubscriptionsPageProps) {
 
       {/* ── Compare / CTA card ── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] sm:p-8">
+        <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] sm:p-8">
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="space-y-2">
               <h2 className="text-xl font-semibold sm:text-2xl">{content.compareTitle}</h2>

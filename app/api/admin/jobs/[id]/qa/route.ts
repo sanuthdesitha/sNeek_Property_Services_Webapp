@@ -59,7 +59,11 @@ export async function POST(
 
       await tx.job.update({
         where: { id: params.id },
-        data: { status: passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW },
+        data: {
+          status: passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
+          // Stamp the completion date used for payroll + invoice periods.
+          completedAt: passed ? new Date() : null,
+        },
       });
 
       let autoCaseCreated = false;

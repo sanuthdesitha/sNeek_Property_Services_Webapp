@@ -6,6 +6,8 @@ import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Role } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { Package } from "lucide-react";
 
 export default async function ClientInventoryPage({
   searchParams,
@@ -80,40 +82,39 @@ export default async function ClientInventoryPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Inventory</h1>
-          <p className="text-sm text-muted-foreground">
-            View stock levels for your properties.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/client/shopping">Start Shopping</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/client">Back to dashboard</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Package />}
+        title="Inventory"
+        description="View stock levels for your properties."
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link href="/client/shopping">Start Shopping</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/client">Back to dashboard</Link>
+            </Button>
+          </>
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Properties</p>
-            <p className="text-2xl font-bold">{client?.properties.length ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Properties</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{client?.properties.length ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Items shown</p>
-            <p className="text-2xl font-bold">{rows.length}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Items shown</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{rows.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Low stock items</p>
-            <p className="text-2xl font-bold">{totalLow}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Low stock items</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{totalLow}</p>
           </CardContent>
         </Card>
       </section>
@@ -125,11 +126,11 @@ export default async function ClientInventoryPage({
         <CardContent>
           <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Property</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Property</label>
               <select
                 name="propertyId"
                 defaultValue={propertyId ?? ""}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               >
                 <option value="">All properties</option>
                 {(client?.properties ?? []).map((property) => (
@@ -140,13 +141,13 @@ export default async function ClientInventoryPage({
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Search item/category/location</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Search item/category/location</label>
               <input
                 type="text"
                 name="q"
                 defaultValue={q}
                 placeholder="e.g. toilet paper"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
             </div>
             <div className="flex items-end">
@@ -166,11 +167,9 @@ export default async function ClientInventoryPage({
       </Card>
 
       {rows.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            No inventory items found for the selected filters.
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No inventory items found for the selected filters.
+        </div>
       ) : (
         <div className="space-y-4">
           {(client?.properties ?? [])
@@ -219,11 +218,11 @@ export default async function ClientInventoryPage({
                                     .join(" ")}
                                 </td>
                                 <td className="px-4 py-2 text-muted-foreground">{row.item.supplier ?? "-"}</td>
-                                <td className="px-4 py-2 text-right">
+                                <td className="px-4 py-2 text-right tabular-nums">
                                   {row.onHand} {row.item.unit}
                                 </td>
-                                <td className="px-4 py-2 text-right">{row.parLevel}</td>
-                                <td className="px-4 py-2 text-right">{row.reorderThreshold}</td>
+                                <td className="px-4 py-2 text-right tabular-nums">{row.parLevel}</td>
+                                <td className="px-4 py-2 text-right tabular-nums">{row.reorderThreshold}</td>
                                 <td className="px-4 py-2">
                                   <span
                                     className={`inline-flex rounded-full border px-2 py-1 text-xs ${

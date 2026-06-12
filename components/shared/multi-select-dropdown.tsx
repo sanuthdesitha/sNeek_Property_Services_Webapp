@@ -46,7 +46,7 @@ export function MultiSelectDropdown({
     <div className={cn("relative", open && "z-50")}>
       <button
         type="button"
-        className="flex h-10 w-full items-center justify-between rounded-xl border border-input/80 bg-white/80 px-3 text-left text-sm"
+        className="flex h-10 w-full items-center justify-between rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-left text-sm"
         onClick={() => setOpen((value) => !value)}
       >
         <span className={cn("truncate", selectedLabels.length === 0 ? "text-muted-foreground" : "text-foreground")}>
@@ -58,7 +58,7 @@ export function MultiSelectDropdown({
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-[60] mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-border/70 bg-white p-2 shadow-xl">
+        <div className="absolute left-0 right-0 z-[60] mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-border/70 bg-white dark:bg-surface-raised p-2 shadow-xl">
           {options.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground">{emptyText}</p>
           ) : (

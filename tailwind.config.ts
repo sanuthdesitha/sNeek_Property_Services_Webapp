@@ -99,7 +99,11 @@ const config: Config = {
         full: "9999px",
       },
       boxShadow: {
-        xs: "0 1px 2px 0 hsl(var(--shadow-color, 220 13% 30%) / 0.05)",
+        xs: "var(--elevation-1)",
+        sm: "var(--elevation-1)",
+        DEFAULT: "var(--elevation-2)",
+        md: "var(--elevation-2)",
+        lg: "var(--elevation-3)",
         fab: "0 8px 24px -8px hsl(var(--primary) / 0.35), 0 2px 8px hsl(var(--primary) / 0.18)",
       },
       keyframes: {

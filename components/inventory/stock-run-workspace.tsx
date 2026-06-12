@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ClipboardList, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -219,16 +220,17 @@ export function StockRunWorkspace({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Button variant="outline" onClick={() => void loadListing()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={<ClipboardList />}
+        title={title}
+        description={description}
+        actions={
+          <Button variant="outline" onClick={() => void loadListing()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>

@@ -44,7 +44,7 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
               </Button>
             </div>
           </div>
-          <Card className="overflow-hidden rounded-[2rem] border-white/70 bg-white/80 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)]">
+          <Card className="overflow-hidden rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)]">
             <ClientImage
               src={content.heroImageUrl}
               alt={content.heroImageAlt}
@@ -64,7 +64,7 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
           </div>
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {content.features.map((feature) => (
-              <Card key={feature.id} className="overflow-hidden rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1">
+              <Card key={feature.id} className="overflow-hidden rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1">
                 <ClientImageCover
                   src={feature.imageUrl}
                   alt={feature.imageAlt}
@@ -83,7 +83,7 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
       {/* ── Reports + outcome ── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-5 lg:grid-cols-2">
-          <Card className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)]">
+          <Card className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-7">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.reportsTitle}</p>
               <p className="text-sm leading-7 text-muted-foreground">{content.reportsBody}</p>

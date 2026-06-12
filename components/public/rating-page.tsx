@@ -57,7 +57,7 @@ export function RatingPage({
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-4 py-10">
-      <Card className="w-full rounded-[2rem] border-white/70 bg-white/85 shadow-[0_24px_80px_-36px_rgba(22,63,70,0.38)]">
+      <Card className="w-full rounded-[2rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_24px_80px_-36px_rgba(22,63,70,0.38)]">
         <CardHeader className="space-y-3 text-center">
           <CardTitle className="text-3xl">Rate your clean</CardTitle>
           <CardDescription className="text-base">

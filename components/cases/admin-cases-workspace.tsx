@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { RefreshCw, Upload, Wand2 } from "lucide-react";
+import { AlertTriangle, RefreshCw, Upload, Wand2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -519,23 +520,24 @@ export function AdminCasesWorkspace() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Cases</h2>
-          <p className="text-sm text-muted-foreground">Damage reports, client disputes, lost and found, and other operational follow-up now run through one case workflow.</p>
-        </div>
-        <Button variant="outline" onClick={() => void loadList()}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={<AlertTriangle />}
+        title="Cases"
+        description="Damage reports, client disputes, lost and found, and other operational follow-up now run through one case workflow."
+        actions={
+          <Button variant="outline" onClick={() => void loadList()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader><CardTitle className="text-base">Open a case</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_220px_220px_auto]">
           <Input placeholder="Case title" value={createDraft.title} onChange={(event) => setCreateDraft((prev) => ({ ...prev, title: event.target.value }))} />
-          <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={createDraft.caseType} onChange={(event) => setCreateDraft((prev) => ({ ...prev, caseType: event.target.value as CaseType }))}>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
-          <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={createDraft.severity} onChange={(event) => setCreateDraft((prev) => ({ ...prev, severity: event.target.value as Severity }))}>{SEVERITIES.map((severity) => <option key={severity} value={severity}>{severity}</option>)}</select>
+          <select className="h-10 rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={createDraft.caseType} onChange={(event) => setCreateDraft((prev) => ({ ...prev, caseType: event.target.value as CaseType }))}>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
+          <select className="h-10 rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={createDraft.severity} onChange={(event) => setCreateDraft((prev) => ({ ...prev, severity: event.target.value as Severity }))}>{SEVERITIES.map((severity) => <option key={severity} value={severity}>{severity}</option>)}</select>
           <Button onClick={createCase} disabled={saving}>{saving ? "Creating..." : "Create case"}</Button>
           <div className="space-y-2 md:col-span-2 xl:col-span-4">
             <Textarea rows={3} placeholder="Case description" value={createDraft.description} onChange={(event) => setCreateDraft((prev) => ({ ...prev, description: event.target.value }))} />
@@ -581,9 +583,9 @@ export function AdminCasesWorkspace() {
           <CardContent className="space-y-3">
             <Input placeholder="Search title, description, notes" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
               <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-                <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="ALL">All statuses</option>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select>
-              <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.caseType} onChange={(event) => setFilters((prev) => ({ ...prev, caseType: event.target.value }))}><option value="ALL">All case types</option>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
-              <select className="h-10 rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={filters.assigneeUserId} onChange={(event) => setFilters((prev) => ({ ...prev, assigneeUserId: event.target.value }))}><option value="ALL">All owners</option><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select>
+                <select className="h-10 rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="ALL">All statuses</option>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select>
+              <select className="h-10 rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={filters.caseType} onChange={(event) => setFilters((prev) => ({ ...prev, caseType: event.target.value }))}><option value="ALL">All case types</option>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select>
+              <select className="h-10 rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={filters.assigneeUserId} onChange={(event) => setFilters((prev) => ({ ...prev, assigneeUserId: event.target.value }))}><option value="ALL">All owners</option><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select>
             </div>
             <Input placeholder="Filter by job id" value={filters.jobId} onChange={(event) => setFilters((prev) => ({ ...prev, jobId: event.target.value }))} />
             {loadingList ? <p className="py-10 text-center text-sm text-muted-foreground">Loading cases...</p> : visibleItems.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No cases in this view.</p> : (
@@ -669,10 +671,10 @@ export function AdminCasesWorkspace() {
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>Created {formatDateTime(selected.createdAt)}</span><span>Updated {formatDateTime(selected.updatedAt)}</span><span>Job {selected.job?.jobNumber || selected.job?.id || "Not linked"}</span><span>Client {selected.client?.name || "Not linked"}</span></div>
                 <div className="flex flex-wrap gap-2">{selected.job?.id ? <Button asChild variant="outline" size="sm"><Link href={`/admin/jobs/${selected.job.id}`}>Open job</Link></Button> : null}{selected.reportId ? <Button asChild variant="outline" size="sm"><Link href={`/admin/reports?reportId=${selected.reportId}`}>Open report</Link></Button> : null}</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <div className="space-y-1.5"><Label>Type</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.caseType} onChange={(event) => setSelected((prev) => prev ? { ...prev, caseType: event.target.value as CaseType } : prev)}>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select></div>
-                  <div className="space-y-1.5"><Label>Status</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.status} onChange={(event) => setSelected((prev) => prev ? { ...prev, status: event.target.value as CaseStatus } : prev)}>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select></div>
-                  <div className="space-y-1.5"><Label>Priority</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.severity} onChange={(event) => setSelected((prev) => prev ? { ...prev, severity: event.target.value as Severity } : prev)}>{SEVERITIES.map((severity) => <option key={severity} value={severity}>{severity}</option>)}</select></div>
-                  <div className="space-y-1.5"><Label>Owner</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={selected.assignedTo?.id ?? "__unassigned"} onChange={(event) => setSelected((prev) => prev ? { ...prev, assignedTo: event.target.value === "__unassigned" ? null : assignees.find((item) => item.id === event.target.value) || null } : prev)}><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select></div>
+                  <div className="space-y-1.5"><Label>Type</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={selected.caseType} onChange={(event) => setSelected((prev) => prev ? { ...prev, caseType: event.target.value as CaseType } : prev)}>{CASE_TYPES.map((caseType) => <option key={caseType} value={caseType}>{prettify(caseType)}</option>)}</select></div>
+                  <div className="space-y-1.5"><Label>Status</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={selected.status} onChange={(event) => setSelected((prev) => prev ? { ...prev, status: event.target.value as CaseStatus } : prev)}>{CASE_STATUSES.map((status) => <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>)}</select></div>
+                  <div className="space-y-1.5"><Label>Priority</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={selected.severity} onChange={(event) => setSelected((prev) => prev ? { ...prev, severity: event.target.value as Severity } : prev)}>{SEVERITIES.map((severity) => <option key={severity} value={severity}>{severity}</option>)}</select></div>
+                  <div className="space-y-1.5"><Label>Owner</Label><select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={selected.assignedTo?.id ?? "__unassigned"} onChange={(event) => setSelected((prev) => prev ? { ...prev, assignedTo: event.target.value === "__unassigned" ? null : assignees.find((item) => item.id === event.target.value) || null } : prev)}><option value="__unassigned">Unassigned</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name?.trim() || assignee.email}</option>)}</select></div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2"><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can see this case</span><Switch checked={selected.clientVisible} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientVisible: checked } : prev)} /></label><label className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"><span>Client can reply</span><Switch checked={selected.clientCanReply} onCheckedChange={(checked) => setSelected((prev) => prev ? { ...prev, clientCanReply: checked } : prev)} /></label></div>
                 <div className="space-y-1.5"><Label>Description</Label><Textarea rows={5} value={selected.description || ""} onChange={(event) => setSelected((prev) => prev ? { ...prev, description: event.target.value } : prev)} /></div>

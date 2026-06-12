@@ -10,6 +10,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientPropertyDetailForUser } from "@/lib/client/portal-data";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { Button } from "@/components/ui/button";
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
@@ -42,65 +43,62 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/client/properties">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to properties
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{property.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {property.address}, {property.suburb}, {property.state} {property.postcode}
-            </p>
-          </div>
-        </div>
+      <div className="space-y-3">
+        <Button asChild variant="outline" size="sm">
+          <Link href="/client/properties">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to properties
+          </Link>
+        </Button>
+        <PageHeader
+          icon={<Building2 />}
+          title={property.name}
+          description={`${property.address}, ${property.suburb}, ${property.state} ${property.postcode}`}
+        />
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <Building2 className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Property setup</p>
-              <p className="text-base font-semibold">{property.bedrooms}bd / {property.bathrooms}ba</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Property setup</p>
+              <p className="text-base font-semibold tabular-nums">{property.bedrooms}bd / {property.bathrooms}ba</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <ClipboardList className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Upcoming / active jobs</p>
-              <p className="text-base font-semibold">{jobs.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Upcoming / active jobs</p>
+              <p className="text-base font-semibold tabular-nums">{jobs.length}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <Package className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Low stock items</p>
-              <p className="text-base font-semibold">{lowStock.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Low stock items</p>
+              <p className="text-base font-semibold tabular-nums">{lowStock.length}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <Shirt className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Laundry updates</p>
-              <p className="text-base font-semibold">{laundryTasks.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Laundry updates</p>
+              <p className="text-base font-semibold tabular-nums">{laundryTasks.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -121,7 +119,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                   <p className="text-sm text-muted-foreground">No active checklist templates found.</p>
                 ) : (
                   checklistTemplates.map((template) => (
-                    <div key={`${template.jobType}-${template.id}`} className="rounded-xl border p-4">
+                    <div key={`${template.jobType}-${template.id}`} className="rounded-xl border border-border p-4">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="font-medium">{template.jobType.replace(/_/g, " ")}</p>
@@ -194,7 +192,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                   <p className="text-sm text-muted-foreground">No laundry updates for this property.</p>
                 ) : (
                   laundryTasks.map((task) => (
-                    <div key={task.id} className="rounded-xl border p-4">
+                    <div key={task.id} className="rounded-xl border border-border p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="font-medium">
@@ -249,7 +247,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                 <p className="text-sm text-muted-foreground">No active jobs scheduled right now.</p>
               ) : (
                 jobs.map((job) => (
-                  <div key={job.id} className="rounded-xl border p-4">
+                  <div key={job.id} className="rounded-xl border border-border p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="font-medium">
@@ -270,7 +268,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                         Assigned: {job.assignments.map((assignment) => assignment.user?.name || "Cleaner").join(", ")}
                       </p>
                     ) : null}
-                    {job.priorityReason ? <p className="mt-2 text-xs font-medium text-amber-700">{job.priorityReason}</p> : null}
+                    {job.priorityReason ? <p className="mt-2 text-xs font-medium text-warning">{job.priorityReason}</p> : null}
                   </div>
                 ))
               )}
@@ -288,7 +286,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                   <p className="text-sm text-muted-foreground">No reports available yet.</p>
                 ) : (
                   reports.map((report) => (
-                    <div key={report.id} className="rounded-xl border p-4">
+                    <div key={report.id} className="rounded-xl border border-border p-4">
                       <p className="font-medium">
                         {report.job.jobNumber ? `Job ${report.job.jobNumber}` : "Report"} • {report.job.jobType.replace(/_/g, " ")}
                       </p>
@@ -317,7 +315,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                 <p className="text-sm text-muted-foreground">No recent activity for this property.</p>
               ) : (
                 activity.slice(0, 20).map((item, index) => (
-                  <div key={`${item.type}-${index}-${item.at.toISOString()}`} className="rounded-xl border p-3">
+                  <div key={`${item.type}-${index}-${item.at.toISOString()}`} className="rounded-xl border border-border p-3">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <CalendarDays className="h-4 w-4" />
                       <span>{format(item.at, "dd MMM yyyy HH:mm")}</span>
@@ -348,7 +346,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
                 <p className="text-sm text-muted-foreground">No media history is available for this property yet.</p>
               ) : (
                 conditionTimeline.map((item) => (
-                  <div key={item.id} className="rounded-xl border p-4">
+                  <div key={item.id} className="rounded-xl border border-border p-4">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="font-medium">

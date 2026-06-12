@@ -136,7 +136,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       await tx.job.update({
         where: { id: params.id },
-        data: { status: result.passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW },
+        data: {
+          status: result.passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
+          // Stamp the completion date used for payroll + invoice periods.
+          completedAt: result.passed ? new Date() : null,
+        },
       });
       await tx.auditLog.create({
         data: {

@@ -68,7 +68,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
             {/* Trust stats */}
             <div className="grid gap-3 sm:grid-cols-3">
               {TRUST_STATS.map((stat) => (
-                <Card key={stat.label} className="rounded-3xl border-white/70 bg-white/75 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.35)]">
+                <Card key={stat.label} className="rounded-3xl border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.35)]">
                   <CardContent className="space-y-1 p-5">
                     <p className="text-2xl font-semibold">{stat.value}</p>
                     <p className="text-sm font-medium">{stat.label}</p>
@@ -79,7 +79,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-5 sm:p-7">
+          <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-5 sm:p-7">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-primary/10 p-3 shrink-0">
                 <ShieldCheck className="h-5 w-5 text-primary" />
@@ -140,7 +140,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
               {whyItems.map((item: WebsiteWhyItem, idx: number) => (
                 <div
                   key={item.id}
-                  className={`scroll-reveal ${["scroll-delay-100","scroll-delay-200","scroll-delay-300"][idx % 3]} rounded-[1.6rem] border border-white/80 bg-white/85 p-6 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
+                  className={`scroll-reveal ${["scroll-delay-100","scroll-delay-200","scroll-delay-300"][idx % 3]} rounded-[1.6rem] border border-white/80 dark:border-white/10 bg-white/85 dark:bg-white/5 p-6 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
                 >
                   <div className={`mb-4 inline-flex rounded-2xl p-3 ${idx % 2 === 0 ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
                     <WhyIcon iconName={item.icon} className="h-5 w-5" />
@@ -162,7 +162,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
               ].map((item, idx) => (
                 <div
                   key={item.title}
-                  className={`scroll-reveal ${["scroll-delay-100","scroll-delay-200","scroll-delay-300"][idx % 3]} rounded-[1.6rem] border border-white/80 bg-white/85 p-6 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1`}
+                  className={`scroll-reveal ${["scroll-delay-100","scroll-delay-200","scroll-delay-300"][idx % 3]} rounded-[1.6rem] border border-white/80 dark:border-white/10 bg-white/85 dark:bg-white/5 p-6 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1`}
                 >
                   <div className={`mb-4 inline-flex rounded-2xl p-3 ${item.tint ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
                     <item.icon className="h-5 w-5" />
@@ -178,7 +178,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
 
       {/* ─── BOTTOM CTA ─── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
+        <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
           <div className="space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Ready to get started?</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">

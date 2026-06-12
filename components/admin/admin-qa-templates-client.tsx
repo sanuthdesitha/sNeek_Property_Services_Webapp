@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { JobType } from "@prisma/client";
 import { ClipboardCheck, Plus, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -90,16 +91,16 @@ export function AdminQaTemplatesClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Admin</p>
-          <h1 className="text-2xl font-semibold">QA Forms</h1>
-        </div>
-        <Button variant="outline" onClick={() => void load()} disabled={loading}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={<ClipboardCheck />}
+        title="QA Forms"
+        actions={
+          <Button variant="outline" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
         <Card>

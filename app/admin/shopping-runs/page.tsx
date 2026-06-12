@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ShoppingCart } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -291,13 +293,11 @@ export default function AdminShoppingRunsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Shopping Runs</h2>
-        <p className="text-sm text-muted-foreground">
-          Review active shopping runs, receipts, who paid, and what needs to be reimbursed to
-          cleaners or clients.
-        </p>
-      </div>
+      <PageHeader
+        icon={<ShoppingCart />}
+        title="Shopping Runs"
+        description="Review active shopping runs, receipts, who paid, and what needs to be reimbursed to cleaners or clients."
+      />
 
       <Card>
         <CardHeader>

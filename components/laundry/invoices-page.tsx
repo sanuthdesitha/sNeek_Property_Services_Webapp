@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { addDays, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from "date-fns";
+import { ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -171,22 +173,21 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Laundry Invoices</h1>
-          <p className="text-sm text-muted-foreground">
-            Create invoices by property and date range (daily, weekly, monthly, or custom) with job-level price breakdown.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={loadPreview} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh Preview"}
-          </Button>
-          <Button onClick={downloadPdf} disabled={downloading || !template}>
-            {downloading ? "Generating PDF..." : "Download PDF"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Laundry Invoices"
+        description="Create invoices by property and date range (daily, weekly, monthly, or custom) with job-level price breakdown."
+        icon={<ReceiptText />}
+        actions={
+          <>
+            <Button variant="outline" onClick={loadPreview} disabled={loading}>
+              {loading ? "Refreshing..." : "Refresh Preview"}
+            </Button>
+            <Button onClick={downloadPdf} disabled={downloading || !template}>
+              {downloading ? "Generating PDF..." : "Download PDF"}
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
@@ -239,7 +240,7 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
                 </>
               )}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-raised p-3">
               <p className="text-sm">{computedRangeLabel}</p>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Switch checked={showFullView} onCheckedChange={setShowFullView} />
@@ -288,20 +289,20 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
       <section className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Jobs in invoice</p>
-            <p className="text-2xl font-bold">{data?.rows.length ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jobs in invoice</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{data?.rows.length ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Properties</p>
-            <p className="text-2xl font-bold">{data?.propertyBreakdown.length ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Properties</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{data?.propertyBreakdown.length ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Invoice total</p>
-            <p className="text-2xl font-bold">{money(data?.totalAmount ?? 0)}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Invoice total</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{money(data?.totalAmount ?? 0)}</p>
           </CardContent>
         </Card>
       </section>
@@ -312,18 +313,20 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
         </CardHeader>
         <CardContent>
           {!data || data.propertyBreakdown.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No returned laundry jobs found in the selected period.</p>
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              No returned laundry jobs found in the selected period.
+            </p>
           ) : (
             <div className="space-y-2">
               {data.propertyBreakdown.map((item) => (
-                <div key={item.propertyId} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3">
+                <div key={item.propertyId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface p-3">
                   <div>
                     <p className="font-medium text-sm">{item.propertyName}</p>
                     <p className="text-xs text-muted-foreground">{item.suburb}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary">{item.jobs} jobs</Badge>
-                    <span className="text-sm font-semibold">{money(item.amount)}</span>
+                    <span className="text-sm font-semibold tabular-nums">{money(item.amount)}</span>
                   </div>
                 </div>
               ))}
@@ -338,18 +341,20 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
         </CardHeader>
         <CardContent>
           {!data || data.rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No jobs to invoice for this selection.</p>
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              No jobs to invoice for this selection.
+            </p>
           ) : showFullView ? (
             <div className="space-y-2">
               {data.rows.map((row) => (
-                <div key={row.taskId} className="rounded border p-3">
+                <div key={row.taskId} className="rounded-lg border border-border bg-surface p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="font-medium text-sm">{row.propertyName}</p>
                       <p className="text-xs text-muted-foreground">{row.suburb}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold">{money(row.amount)}</p>
+                      <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
                       <p className="text-xs text-muted-foreground">{row.status.replace(/_/g, " ")}</p>
                     </div>
                   </div>
@@ -367,8 +372,8 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
-                <thead className="border-b">
-                  <tr className="text-left text-xs text-muted-foreground">
+                <thead className="border-b border-border">
+                  <tr className="text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     <th className="px-2 py-2">Property</th>
                     <th className="px-2 py-2">Service</th>
                     <th className="px-2 py-2">Pickup</th>
@@ -380,14 +385,14 @@ export function LaundryInvoicesPage({ properties }: { properties: PropertyOption
                 </thead>
                 <tbody>
                   {data.rows.map((row) => (
-                    <tr key={row.taskId} className="border-b last:border-0">
+                    <tr key={row.taskId} className="border-b border-border last:border-0">
                       <td className="px-2 py-2">{row.propertyName}</td>
                       <td className="px-2 py-2">{format(new Date(row.serviceDate), "dd MMM yyyy")}</td>
                       <td className="px-2 py-2">{format(new Date(row.pickupDate), "dd MMM yyyy")}</td>
                       <td className="px-2 py-2">{format(new Date(row.dropoffDate), "dd MMM yyyy")}</td>
-                      <td className="px-2 py-2 text-right">{row.bagCount ?? "-"}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{row.bagCount ?? "-"}</td>
                       <td className="px-2 py-2">{row.dropoffLocation ?? "-"}</td>
-                      <td className="px-2 py-2 text-right">{money(row.amount)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{money(row.amount)}</td>
                     </tr>
                   ))}
                 </tbody>

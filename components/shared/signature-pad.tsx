@@ -104,7 +104,7 @@ export function SignaturePad({ label, value = "", required = false, onChange }: 
           Clear
         </Button>
       </div>
-      <div className="overflow-hidden rounded-xl border border-dashed border-border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-dashed border-border bg-white dark:bg-surface-raised shadow-sm">
         <canvas
           ref={canvasRef}
           width={CANVAS_WIDTH}

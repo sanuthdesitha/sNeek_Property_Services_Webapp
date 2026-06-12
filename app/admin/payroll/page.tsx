@@ -1,16 +1,19 @@
 import { Role } from "@prisma/client";
+import { Wallet } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { PayrollRunsList } from "@/components/payroll/payroll-runs-list";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default async function PayrollPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Payroll</h2>
-        <p className="text-sm text-muted-foreground">Manage payroll runs and payouts.</p>
-      </div>
+      <PageHeader
+        icon={<Wallet />}
+        title="Payroll"
+        description="Manage payroll runs and payouts."
+      />
       <PayrollRunsList />
     </div>
   );

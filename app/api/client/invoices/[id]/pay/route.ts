@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireRole } from "@/lib/auth/session";
 import { getPrimaryGateway, createPaymentAdapter } from "@/lib/payments/service";
 
 const paySchema = z.object({
@@ -9,10 +11,20 @@ const paySchema = z.object({
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const session = await requireRole([Role.CLIENT]);
     const body = paySchema.parse(await req.json());
 
-    const invoice = await db.clientInvoice.findUnique({
-      where: { id: params.id },
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { clientId: true },
+    });
+    if (!user?.clientId) {
+      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
+    }
+
+    // Scope the lookup to the caller's own client — never trust the id alone.
+    const invoice = await db.clientInvoice.findFirst({
+      where: { id: params.id, clientId: user.clientId },
       include: { client: true },
     });
 

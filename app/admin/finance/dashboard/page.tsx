@@ -1,9 +1,11 @@
 ﻿import Link from "next/link";
 import { Role } from "@prisma/client";
+import { BarChart3 } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getFinanceDashboardData } from "@/lib/finance/dashboard";
 import { FinanceDashboardWorkspace } from "@/components/admin/finance-dashboard-workspace";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default async function AdminFinanceDashboardPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -11,22 +13,21 @@ export default async function AdminFinanceDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Finance Analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            Revenue, conversion, QA trend, and cleaner contribution in one view.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/admin/finance">Finance overview</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/admin/finance/payroll">Open payroll</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<BarChart3 />}
+        title="Finance Analytics"
+        description="Revenue, conversion, QA trend, and cleaner contribution in one view."
+        actions={
+          <>
+            <Button variant="outline" asChild>
+              <Link href="/admin/finance">Finance overview</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/admin/finance/payroll">Open payroll</Link>
+            </Button>
+          </>
+        }
+      />
       <FinanceDashboardWorkspace data={data} />
     </div>
   );

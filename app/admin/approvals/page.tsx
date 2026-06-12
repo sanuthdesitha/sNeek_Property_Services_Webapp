@@ -15,6 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -198,26 +199,24 @@ export default function AdminApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Approvals Centre</h1>
-          <p className="text-sm text-muted-foreground">
-            All pending requests across jobs, pay, laundry, and client approvals in one place.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {total > 0 && (
-            <span className="rounded-full bg-destructive px-3 py-1 text-sm font-bold text-white">
-              {total} pending
-            </span>
-          )}
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={cn("mr-2 h-3.5 w-3.5", loading && "animate-spin")} />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<CheckCircle2 />}
+        title="Approvals Centre"
+        description="All pending requests across jobs, pay, laundry, and client approvals in one place."
+        actions={
+          <>
+            {total > 0 && (
+              <span className="rounded-full bg-destructive px-3 py-1 text-sm font-bold text-white">
+                {total} pending
+              </span>
+            )}
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={cn("mr-2 h-3.5 w-3.5", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {/* Tab bar */}
       <div className="flex flex-wrap gap-1.5 rounded-2xl border border-border/60 bg-muted/40 p-1.5">

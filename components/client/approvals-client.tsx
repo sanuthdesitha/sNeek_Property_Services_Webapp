@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { CheckCircle2, Clock3, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -69,17 +70,15 @@ export function ClientApprovalsClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Approval Requests</h2>
-          <p className="text-sm text-muted-foreground">
-            Review and approve optional extras before work is billed.
-          </p>
-        </div>
-        <Button variant="outline" onClick={loadRows}>
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Approval Requests"
+        description="Review and approve optional extras before work is billed."
+        actions={
+          <Button variant="outline" onClick={loadRows}>
+            Refresh
+          </Button>
+        }
+      />
 
       {loading ? (
         <Card>

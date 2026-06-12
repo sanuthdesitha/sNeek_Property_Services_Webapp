@@ -95,10 +95,18 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   }
 
   if (loading) {
-    return <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading QA job...</CardContent></Card>;
+    return (
+      <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        Loading QA job...
+      </div>
+    );
   }
   if (!payload || !job) {
-    return <Card><CardContent className="p-6 text-sm text-muted-foreground">QA job not found.</CardContent></Card>;
+    return (
+      <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        QA job not found.
+      </div>
+    );
   }
 
   return (
@@ -108,8 +116,8 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           <Link href="/qa"><ArrowLeft className="h-5 w-5" /></Link>
         </Button>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">QA inspection</p>
-          <h1 className="truncate text-2xl font-semibold">{job.property?.name}</h1>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">QA inspection</p>
+          <h1 className="truncate text-2xl font-bold tracking-tight">{job.property?.name}</h1>
           <p className="text-sm text-muted-foreground">{job.property?.address}, {job.property?.suburb}</p>
         </div>
         <Badge variant={job.status === "COMPLETED" ? "success" : "warning"}>{String(job.status).replace(/_/g, " ")}</Badge>
@@ -126,7 +134,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               {mediaItems.length > 0 ? (
                 <MediaGallery items={mediaItems} />
               ) : (
-                <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">No cleaner media was attached.</p>
+                <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No cleaner media was attached.</p>
               )}
             </CardContent>
           </Card>
@@ -134,17 +142,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           <Card>
             <CardHeader><CardTitle className="text-base">Tasks, laundry, and issues</CardTitle></CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Job tasks</p>
-                <p className="text-2xl font-semibold">{job.jobTasks?.length ?? 0}</p>
+              <div className="rounded-lg border border-border bg-surface-raised p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Job tasks</p>
+                <p className="text-2xl font-bold tracking-tight tabular-nums">{job.jobTasks?.length ?? 0}</p>
               </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Laundry status</p>
+              <div className="rounded-lg border border-border bg-surface-raised p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Laundry status</p>
                 <p className="text-sm font-semibold">{job.laundryTask?.status?.replace(/_/g, " ") ?? "No laundry task"}</p>
               </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Open cases/issues</p>
-                <p className="text-2xl font-semibold">{job.issueTickets?.length ?? 0}</p>
+              <div className="rounded-lg border border-border bg-surface-raised p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Open cases/issues</p>
+                <p className="text-2xl font-bold tracking-tight tabular-nums">{job.issueTickets?.length ?? 0}</p>
               </div>
             </CardContent>
           </Card>
@@ -154,7 +162,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               <CardHeader><CardTitle className="text-base">Upload-later approvals</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 {payload.mediaOverrides.map((item: any) => (
-                  <div key={item.id} className="rounded-lg border p-3">
+                  <div key={item.id} className="rounded-lg border border-border bg-surface p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-sm font-semibold">{item.fieldLabel || item.fieldId}</p>
@@ -185,7 +193,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         <Card className="h-fit">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Star className="h-4 w-4 text-amber-500" />
+              <Star className="h-4 w-4 text-warning" />
               {template?.name ?? "QA form"}
             </CardTitle>
           </CardHeader>
@@ -196,7 +204,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                 {(section.fields ?? []).map((field: any) => (
                   <div key={field.id} className="space-y-1.5">
                     {isUploadFieldType(field.type) ? (
-                      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                      <div className="rounded-lg border border-border bg-surface-raised p-3 text-sm text-muted-foreground">
                         <Camera className="mb-2 h-4 w-4" />
                         QA photo upload uses the shared media uploader in the next pass. Add media references in notes for now.
                       </div>

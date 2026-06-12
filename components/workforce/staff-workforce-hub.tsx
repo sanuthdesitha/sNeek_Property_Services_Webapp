@@ -394,7 +394,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                 }}>Open direct chat</Button>
               </div>
               {(data?.channels ?? []).map((channel: any) => (
-                <button key={channel.id} type="button" className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedChannelId === channel.id ? "border-primary bg-primary/5" : "bg-white/80"}`} onClick={() => setSelectedChannelId(channel.id)}>
+                <button key={channel.id} type="button" className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedChannelId === channel.id ? "border-primary bg-primary/5" : "bg-white/80 dark:bg-white/5"}`} onClick={() => setSelectedChannelId(channel.id)}>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold">{channel.name}</p>
                     {channel.unreadCount > 0 ? <Badge variant="destructive">{channel.unreadCount}</Badge> : null}
@@ -409,7 +409,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
           <Card>
             <CardHeader><CardTitle>Conversation</CardTitle><CardDescription>Messages sync across team members working from the same hub.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <ScrollArea className="h-[420px] rounded-2xl border bg-white/80 p-4">
+              <ScrollArea className="h-[420px] rounded-2xl border bg-white/80 dark:bg-white/5 p-4">
                 <div className="space-y-4">
                   {groupedMessages.map((group) => (
                     <div key={group.label} className="space-y-3">
@@ -417,7 +417,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                         <span className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{group.label}</span>
                       </div>
                       {group.items.map((message) => (
-                        <div key={message.id} className={`rounded-2xl border bg-white p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
+                        <div key={message.id} className={`rounded-2xl border bg-white dark:bg-surface-raised p-3 shadow-sm ${message.isPinned ? "border-amber-300 bg-amber-50/40" : ""}`}>
                           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                             <span>{message.sender?.name || message.sender?.role || "Team"}</span>
                             <div className="flex items-center gap-2">
@@ -482,7 +482,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
             <CardHeader><CardTitle>Your Learning</CardTitle><CardDescription>Structured learning with progress, review, and retake controls.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {(data?.assignments ?? []).map((assignment: any) => (
-                <button key={assignment.id} type="button" onClick={() => setSelectedAssignmentId(assignment.id)} className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedAssignmentId === assignment.id ? "border-primary bg-primary/5" : "bg-white/80"}`}>
+                <button key={assignment.id} type="button" onClick={() => setSelectedAssignmentId(assignment.id)} className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedAssignmentId === assignment.id ? "border-primary bg-primary/5" : "bg-white/80 dark:bg-white/5"}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold">{assignment.path?.title}</p>
                     <Badge variant={assignment.status === "COMPLETED" ? "success" : "secondary"}>{assignment.status}</Badge>
@@ -503,7 +503,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
             <CardContent className="space-y-6">
               {currentAssignment ? (
                 <>
-                  <div className="rounded-3xl border bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.18),transparent_28%),white] p-5 shadow-sm">
+                  <div className="rounded-3xl border bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.18),transparent_28%),white] dark:bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(251,191,36,0.18),transparent_28%),hsl(var(--card))] p-5 shadow-sm">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -517,7 +517,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                         </p>
                       </div>
                       <div className="grid min-w-[220px] gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border bg-white/90 px-4 py-3">
+                        <div className="rounded-2xl border bg-white/90 dark:bg-white/5 px-4 py-3">
                           <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Questions answered</p>
                           <p className="mt-1 text-xl font-semibold">
                             {assignmentModules.reduce((sum: number, module: any) => sum + moduleAnsweredCount(module, assignmentAnswers), 0)}
@@ -526,7 +526,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                             </span>
                           </p>
                         </div>
-                        <div className="rounded-2xl border bg-white/90 px-4 py-3">
+                        <div className="rounded-2xl border bg-white/90 dark:bg-white/5 px-4 py-3">
                           <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Latest rating</p>
                           <p className="mt-1 text-xl font-semibold">
                             {typeof currentAssignment.starRating === "number" ? `${currentAssignment.starRating.toFixed(1)} / 5` : "In progress"}
@@ -538,19 +538,19 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
 
                   {currentAssignment.status === "COMPLETED" && currentAssignment.evaluation ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border bg-white/90 p-4">
+                      <div className="rounded-2xl border bg-white/90 dark:bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Readiness band</p>
                         <p className="mt-2 font-semibold">{currentAssignment.evaluation.band || "Completed"}</p>
                       </div>
-                      <div className="rounded-2xl border bg-white/90 p-4">
+                      <div className="rounded-2xl border bg-white/90 dark:bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Prediction</p>
                         <p className="mt-2 text-sm text-muted-foreground">{currentAssignment.evaluation.prediction || "Evaluation ready."}</p>
                       </div>
-                      <div className="rounded-2xl border bg-white/90 p-4">
+                      <div className="rounded-2xl border bg-white/90 dark:bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Strengths</p>
                         <p className="mt-2 text-sm">{(currentAssignment.evaluation.strengths ?? []).join(", ") || "Not enough data yet"}</p>
                       </div>
-                      <div className="rounded-2xl border bg-white/90 p-4">
+                      <div className="rounded-2xl border bg-white/90 dark:bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Focus areas</p>
                         <p className="mt-2 text-sm">{(currentAssignment.evaluation.lowAreas ?? []).join(", ") || "No critical low areas"}</p>
                       </div>
@@ -558,7 +558,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                   ) : null}
 
                   <div className="grid gap-4 xl:grid-cols-[280px,1fr]">
-                    <div className="rounded-3xl border bg-white/80 p-4 shadow-sm">
+                    <div className="rounded-3xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="mb-4">
                         <p className="text-sm font-semibold">Course outline</p>
                         <p className="text-xs text-muted-foreground">Follow the modules in order, save draft progress, and resubmit whenever needed.</p>
@@ -574,7 +574,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                               key={module.id}
                               type="button"
                               onClick={() => setCurrentModule(module.id)}
-                              className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${active ? "border-primary bg-primary/5" : "bg-white/90 hover:bg-muted/40"}`}
+                              className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${active ? "border-primary bg-primary/5" : "bg-white/90 dark:bg-white/5 hover:bg-muted/40"}`}
                             >
                               <div className="flex items-start gap-3">
                                 <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${complete ? "bg-emerald-500 text-white" : active ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
@@ -596,7 +596,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
 
                     <div className="space-y-4">
                       {selectedModule ? (
-                        <div className="rounded-3xl border bg-white/85 p-5 shadow-sm">
+                        <div className="rounded-3xl border bg-white/85 dark:bg-white/5 p-5 shadow-sm">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
@@ -613,7 +613,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                           {selectedModule.imageUrl ? <img src={selectedModule.imageUrl} alt={selectedModule.title} className="mt-5 h-52 w-full rounded-3xl object-cover" /> : null}
 
                           {(selectedModule.sections ?? []).map((section: any, index: number) => (
-                            <div key={`${selectedModule.id}-${index}`} className="mt-5 space-y-3 rounded-2xl border bg-white/90 p-4">
+                            <div key={`${selectedModule.id}-${index}`} className="mt-5 space-y-3 rounded-2xl border bg-white/90 dark:bg-white/5 p-4">
                               {section.heading ? <h4 className="font-medium">{section.heading}</h4> : null}
                               {section.body ? <p className="text-sm leading-6 text-muted-foreground">{section.body}</p> : null}
                               {section.bullets?.length ? <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-muted-foreground">{section.bullets.map((bullet: string) => <li key={bullet}>{bullet}</li>)}</ul> : null}
@@ -674,10 +674,10 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                           ))}
                         </div>
                       ) : (
-                        <div className="rounded-3xl border bg-white/80 p-8 text-sm text-muted-foreground">Choose a module to start learning.</div>
+                        <div className="rounded-3xl border bg-white/80 dark:bg-white/5 p-8 text-sm text-muted-foreground">Choose a module to start learning.</div>
                       )}
 
-                      <div className="sticky bottom-3 z-10 rounded-3xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+                      <div className="sticky bottom-3 z-10 rounded-3xl border bg-white/95 dark:bg-white/5 p-4 shadow-lg backdrop-blur">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="flex flex-wrap gap-2">
                             <Button variant="outline" disabled={selectedModuleIndex <= 0} onClick={() => goToAdjacentModule(-1)}>
@@ -784,7 +784,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                   </div>
                 </>
               ) : (
-                <div className="rounded-3xl border bg-white/80 p-8 text-sm text-muted-foreground">Select an assignment to begin.</div>
+                <div className="rounded-3xl border bg-white/80 dark:bg-white/5 p-8 text-sm text-muted-foreground">Select an assignment to begin.</div>
               )}
             </CardContent>
           </Card>
@@ -869,7 +869,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                 </div>
               ) : null}
               {(data?.documents ?? []).map((doc: any) => (
-                <div key={doc.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                <div key={doc.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{doc.title}</p>
                     <Badge variant="outline">{doc.category.replace(/_/g, " ")}</Badge>
@@ -921,25 +921,25 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
             <CardHeader><CardTitle>Your Recognition</CardTitle><CardDescription>QA trend visibility, public wall highlights, and badge history sent by admin.</CardDescription></CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">QA profile</p>
                     {typeof data?.me?.qaStars === "number" ? <Badge variant="warning">{data.me.qaStars.toFixed(1)} / 5</Badge> : <Badge variant="secondary">No QA average yet</Badge>}
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">Average QA: {data?.me?.qaAverage ?? "-"}% · Reviews: {data?.me?.qaReviewCount ?? 0}</p>
                 </div>
-                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                   <p className="font-semibold">Readiness</p>
                   <p className="mt-2 text-sm text-muted-foreground">{data?.me?.readinessLabel || "Awaiting QA data"}</p>
                 </div>
-                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                   <p className="font-semibold">Public recognitions</p>
                   <p className="mt-2 text-sm text-muted-foreground">{data?.me?.publicRecognitionCount ?? 0} visible shout-out(s)</p>
                 </div>
               </div>
 
               {data?.recognitionBoard?.spotlight ? (
-                <div className="rounded-3xl border bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_32%),white] p-5 shadow-sm">
+                <div className="rounded-3xl border bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_32%),white] dark:bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_32%),hsl(var(--card))] p-5 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <Award className="h-5 w-5 text-amber-600" />
                     <p className="text-lg font-semibold">{data.recognitionBoard.spotlight.title}</p>
@@ -959,7 +959,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                 <div className="space-y-4">
                   <p className="text-sm font-semibold">Your history</p>
                   {(data?.recognitions ?? []).map((recognition: any) => (
-                    <div key={recognition.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                    <div key={recognition.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{recognition.title}</p>
                         <Badge variant="outline"><Sparkles className="mr-1 h-3 w-3" />{recognition.badgeKey.replace(/_/g, " ")}</Badge>
@@ -972,7 +972,7 @@ export function StaffWorkforceHub({ title = "Team Hub" }: { title?: string }) {
                 <div className="space-y-4">
                   <p className="text-sm font-semibold">Public wall</p>
                   {(data?.recognitionBoard?.publicWall ?? []).slice(0, 8).map((recognition: any) => (
-                    <div key={recognition.id} className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+                    <div key={recognition.id} className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold">{recognition.user?.name || "Team member"}</p>
                         <Badge variant="outline">{recognition.badgeKey.replace(/_/g, " ")}</Badge>
@@ -1003,7 +1003,7 @@ function MiniLeaderboard({
   suffix?: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+    <div className="rounded-2xl border bg-white/80 dark:bg-white/5 p-4 shadow-sm">
       <p className="font-semibold">{title}</p>
       <div className="mt-3 space-y-3">
         {rows.length > 0 ? rows.map((row, index) => (

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Truck } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -143,12 +144,11 @@ export default function SuppliersPage() {
   return (
     <div className="space-y-6">
       {dialog}
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Supplier Catalog</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage supplier contact details and purchasing defaults.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Truck />}
+        title="Supplier Catalog"
+        description="Manage supplier contact details and purchasing defaults."
+      />
 
       <Card>
         <CardHeader>

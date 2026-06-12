@@ -289,7 +289,7 @@ export function PortalShell({
       {/* ─── MAIN AREA ─── */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-card px-4 sm:px-5">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border/60 bg-card/80 backdrop-blur-xl px-4 sm:px-5">
           <div className="flex items-center gap-3">
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground md:hidden"
@@ -322,7 +322,7 @@ export function PortalShell({
       </div>
 
       {/* ─── MOBILE BOTTOM TABS ─── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-border/60 bg-card px-2 py-2 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-border/60 bg-card/85 backdrop-blur-xl px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden">
         {primaryItems.map((item) => {
           const active = isActive(item);
           const Icon = getNavIcon(item);

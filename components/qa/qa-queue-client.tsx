@@ -6,6 +6,7 @@ import { ClipboardCheck, RefreshCw, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 
@@ -91,16 +92,17 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Quality assurance</p>
-          <h1 className="text-2xl font-semibold">QA Queue</h1>
-        </div>
-        <Button variant="outline" onClick={() => void load()} disabled={loading}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="QA Queue"
+        description="Review submitted jobs and assign inspections."
+        icon={<ClipboardCheck />}
+        actions={
+          <Button variant="outline" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-3">
@@ -128,16 +130,20 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
 
       <div className="grid gap-3">
         {loading ? (
-          <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading QA queue...</CardContent></Card>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            Loading QA queue...
+          </div>
         ) : rows.length === 0 ? (
-          <Card><CardContent className="p-6 text-sm text-muted-foreground">No submitted jobs are waiting for QA.</CardContent></Card>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No submitted jobs are waiting for QA.
+          </div>
         ) : (
           rows.map((row) => (
             <Card key={row.key} className="overflow-hidden">
               <CardContent className="grid gap-3 p-4 lg:grid-cols-[auto_1fr_auto] lg:items-center">
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4"
+                  className="mt-1 h-4 w-4 accent-primary"
                   checked={selectedJobs.includes(row.jobId)}
                   onChange={(event) =>
                     setSelectedJobs((prev) =>
@@ -148,7 +154,7 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
                 />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold">{jobTitle(row.job)}</p>
+                    <p className="font-semibold text-foreground">{jobTitle(row.job)}</p>
                     <Badge variant={statusTone(row.job?.status) as any}>{String(row.job?.status ?? "").replace(/_/g, " ")}</Badge>
                     <Badge variant={row.assigned ? "secondary" : "outline"}>
                       {row.assigned ? String(row.assignment.status).replace(/_/g, " ") : "Unassigned"}

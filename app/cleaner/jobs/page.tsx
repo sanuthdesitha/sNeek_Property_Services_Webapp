@@ -5,6 +5,8 @@ import { JobStatus, Role } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import {
@@ -161,22 +163,21 @@ export default async function CleanerJobsPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">My Jobs</h1>
-          <p className="text-sm text-muted-foreground">
-            Filter and review all assigned jobs, including completed history.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/cleaner">Dashboard</Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/cleaner/jobs?scope=completed">Completed History</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="My Jobs"
+        description="Filter and review all assigned jobs, including completed history."
+        icon={<ClipboardList />}
+        actions={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/cleaner">Dashboard</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/cleaner/jobs?scope=completed">Completed History</Link>
+            </Button>
+          </>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-3">
@@ -185,16 +186,16 @@ export default async function CleanerJobsPage({
         <CardContent>
           <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Scope</label>
-              <select name="scope" defaultValue={scope} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scope</label>
+              <select name="scope" defaultValue={scope} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm">
                 <option value="all">All</option>
                 <option value="upcoming">Upcoming</option>
                 <option value="completed">Completed / Submitted</option>
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Status</label>
-              <select name="status" defaultValue={status} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</label>
+              <select name="status" defaultValue={status} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm">
                 {FILTERABLE_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {s === "ALL" ? "All statuses" : s.replace(/_/g, " ")}
@@ -203,16 +204,16 @@ export default async function CleanerJobsPage({
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">From</label>
-              <input type="date" name="from" defaultValue={searchParams?.from ?? ""} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">From</label>
+              <input type="date" name="from" defaultValue={searchParams?.from ?? ""} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">To</label>
-              <input type="date" name="to" defaultValue={searchParams?.to ?? ""} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>
+              <input type="date" name="to" defaultValue={searchParams?.to ?? ""} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Property / suburb</label>
-              <input type="text" name="q" defaultValue={q} placeholder="Search" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Property / suburb</label>
+              <input type="text" name="q" defaultValue={q} placeholder="Search" className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
             </div>
             <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-5">
               <Button type="submit" size="sm">Apply filters</Button>
@@ -227,20 +228,20 @@ export default async function CleanerJobsPage({
       <section className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Loaded jobs</p>
-            <p className="text-2xl font-bold">{total}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Loaded jobs</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{total}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Completed / invoiced</p>
-            <p className="text-2xl font-bold">{completedCount}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Completed / invoiced</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{completedCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Active / paused</p>
-            <p className="text-2xl font-bold">{activeCount}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active / paused</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{activeCount}</p>
           </CardContent>
         </Card>
       </section>
@@ -248,7 +249,9 @@ export default async function CleanerJobsPage({
       <Card>
         <CardContent className="p-0">
           {sortedJobs.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">No jobs matched your filters.</p>
+            <div className="m-4 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              No jobs matched your filters. Try widening the date range.
+            </div>
           ) : (
             <div className="divide-y">
               {sortedJobs.map((job) => {
@@ -276,7 +279,7 @@ export default async function CleanerJobsPage({
                         {job.jobNumber ? (
                           <Badge
                             variant="warning"
-                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                            className="text-[10px] font-medium uppercase tracking-wide"
                           >
                             {job.jobNumber}
                           </Badge>
@@ -305,13 +308,13 @@ export default async function CleanerJobsPage({
                             <Badge
                               key={`${job.id}-tag-${tag}`}
                               variant="secondary"
-                              className="border-sky-200 bg-sky-50 text-sky-800"
+                              className="border-info/30 bg-info/10 text-info"
                             >
                               {tag}
                             </Badge>
                           ))}
                           {hasCleanerNotes ? (
-                            <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+                            <Badge variant="secondary" className="border-info/30 bg-info/10 text-info">
                               Cleaner Notes
                             </Badge>
                           ) : null}

@@ -1,6 +1,8 @@
+import { Mail } from "lucide-react";
 import { db } from "@/lib/db";
 import { listSuppressed } from "@/lib/email/suppression";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { EmailUnsuppressButton } from "./unsuppress-button";
 
@@ -26,12 +28,11 @@ export default async function EmailSystemPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-foreground">Email Operations</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Suppression list and 30-day delivery funnel.
-        </p>
-      </header>
+      <PageHeader
+        icon={<Mail />}
+        title="Email Operations"
+        description="Suppression list and 30-day delivery funnel."
+      />
 
       <Card>
         <CardHeader>

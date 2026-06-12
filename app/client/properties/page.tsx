@@ -6,6 +6,7 @@ import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { listClientPropertiesForUser } from "@/lib/client/portal-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default async function ClientPropertiesPage() {
   await ensureClientModuleAccess("properties");
@@ -14,17 +15,16 @@ export default async function ClientPropertiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Properties</h1>
-          <p className="text-sm text-muted-foreground">
-            View each property separately with its checklist, inventory, jobs, laundry, and reports.
-          </p>
-        </div>
-        <Button asChild variant="outline">
-          <Link href="/client">Back</Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<Building2 />}
+        title="Properties"
+        description="View each property separately with its checklist, inventory, jobs, laundry, and reports."
+        actions={
+          <Button asChild variant="outline">
+            <Link href="/client">Back</Link>
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {properties.map((property) => (
@@ -32,7 +32,7 @@ export default async function ClientPropertiesPage() {
             <Card className="h-full transition hover:border-primary/40">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-start gap-3 text-base">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                     <Building2 className="h-5 w-5 text-primary" />
                   </span>
                   <span className="space-y-1">

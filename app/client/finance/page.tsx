@@ -4,8 +4,10 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
+import { CreditCard } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 import { PayNowButton } from "@/components/client/pay-now-button";
 
@@ -27,37 +29,36 @@ export default async function ClientFinancePage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold">Finance</h1>
-        <p className="text-sm text-muted-foreground">
-          Service pricing, recent billable work, and invoice history for {user?.client?.name ?? "your account"}.
-        </p>
-      </div>
+      <PageHeader
+        icon={<CreditCard />}
+        title="Finance"
+        description={`Service pricing, recent billable work, and invoice history for ${user?.client?.name ?? "your account"}.`}
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Active property rates</p>
-            <p className="text-2xl font-semibold">{finance?.summary.activeRates ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active property rates</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{finance?.summary.activeRates ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Pending billable services</p>
-            <p className="text-2xl font-semibold">{finance?.summary.pendingChargeCount ?? 0}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{money(finance?.summary.pendingChargeTotal)}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending billable services</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{finance?.summary.pendingChargeCount ?? 0}</p>
+            <p className="mt-1 text-xs text-muted-foreground tabular-nums">{money(finance?.summary.pendingChargeTotal)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Invoices issued</p>
-            <p className="text-2xl font-semibold">{finance?.summary.invoiceCount ?? 0}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Invoices issued</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{finance?.summary.invoiceCount ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Total billed</p>
-            <p className="text-2xl font-semibold">{money(finance?.summary.totalBilled)}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total billed</p>
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{money(finance?.summary.totalBilled)}</p>
           </CardContent>
         </Card>
       </section>
@@ -73,7 +74,7 @@ export default async function ClientFinancePage() {
           <CardContent className="space-y-3">
             {finance?.rates.length ? (
               finance.rates.map((rate) => (
-                <div key={rate.id} className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                <div key={rate.id} className="rounded-xl border border-border bg-surface p-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold">{rate.property.name}</p>
@@ -85,14 +86,14 @@ export default async function ClientFinancePage() {
                       ) : null}
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold">{money(rate.baseCharge)}</p>
+                      <p className="text-sm font-semibold tabular-nums">{money(rate.baseCharge)}</p>
                       <p className="text-xs text-muted-foreground">{rate.billingUnit.replace(/_/g, " ")}</p>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 No property rates are available to show right now.
               </div>
             )}
@@ -110,7 +111,7 @@ export default async function ClientFinancePage() {
             <CardContent className="space-y-3">
               {finance?.recentCharges.length ? (
                 finance.recentCharges.slice(0, 12).map((row) => (
-                  <div key={row.jobId} className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <div key={row.jobId} className="rounded-xl border border-border bg-surface p-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold">{row.propertyName}</p>
@@ -123,7 +124,7 @@ export default async function ClientFinancePage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold">{money(row.amount)}</p>
+                        <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
                         <Badge variant={row.invoiced ? "success" : "warning"}>
                           {row.invoiced ? "Invoiced" : "Pending invoice"}
                         </Badge>
@@ -132,7 +133,7 @@ export default async function ClientFinancePage() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   No billable service records available yet.
                 </div>
               )}
@@ -147,7 +148,7 @@ export default async function ClientFinancePage() {
             <CardContent className="space-y-3">
               {finance?.invoices.length ? (
                 finance.invoices.map((invoice) => (
-                  <div key={invoice.id} className="rounded-2xl border border-border/70 bg-white/70 p-3">
+                  <div key={invoice.id} className="rounded-xl border border-border bg-surface p-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold">{invoice.invoiceNumber}</p>
@@ -168,7 +169,7 @@ export default async function ClientFinancePage() {
                         ) : null}
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold">{money(invoice.totalAmount)}</p>
+                        <p className="text-sm font-semibold tabular-nums">{money(invoice.totalAmount)}</p>
                         <Badge variant={invoice.status === "PAID" ? "success" : invoice.status === "SENT" ? "default" : "secondary"}>
                           {invoice.status.replace(/_/g, " ")}
                         </Badge>
@@ -182,7 +183,7 @@ export default async function ClientFinancePage() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   No invoices have been issued yet.
                 </div>
               )}

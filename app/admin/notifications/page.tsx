@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -290,22 +291,23 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Notifications</h2>
-          <p className="text-sm text-muted-foreground">Defaults, timed automation, profile overrides, and delivery history.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { loadControl(); loadLog(); }}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          <Button variant="destructive" onClick={() => setClearOpen(true)} disabled={items.length === 0}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            Clear logs
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Bell />}
+        title="Notifications"
+        description="Defaults, timed automation, profile overrides, and delivery history."
+        actions={
+          <>
+            <Button variant="outline" onClick={() => { loadControl(); loadLog(); }}>
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+            <Button variant="destructive" onClick={() => setClearOpen(true)} disabled={items.length === 0}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Clear logs
+            </Button>
+          </>
+        }
+      />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList className="grid w-full max-w-md grid-cols-2">

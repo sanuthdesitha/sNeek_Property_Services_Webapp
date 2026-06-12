@@ -95,7 +95,7 @@ export function AppInstallPrompt() {
   }
 
   return (
-    <div className="fixed inset-x-3 bottom-20 z-50 mx-auto max-w-md rounded-2xl border border-primary/20 bg-white/95 p-4 shadow-xl backdrop-blur sm:bottom-6">
+    <div className="fixed inset-x-3 bottom-20 z-50 mx-auto max-w-md rounded-2xl border border-primary/20 bg-white/95 dark:bg-white/5 p-4 shadow-xl backdrop-blur sm:bottom-6">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-semibold">Install sNeek on this device</p>

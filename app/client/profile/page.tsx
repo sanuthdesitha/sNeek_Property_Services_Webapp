@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { redirect } from "next/navigation";
 import { ClientProfileForm } from "@/components/client/client-profile-form";
+import { PageHeader } from "@/components/ui/page-header";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
 
@@ -66,12 +67,10 @@ export default async function ClientProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Your profile</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your contact details, billing, and how we reach you.
-        </p>
-      </header>
+      <PageHeader
+        title="Your profile"
+        description="Manage your contact details, billing, and how we reach you."
+      />
 
       <ClientProfileForm
         editingEnabled={editingEnabled}

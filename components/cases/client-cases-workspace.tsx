@@ -463,7 +463,7 @@ export function ClientCasesWorkspace() {
                 <p className="text-muted-foreground">This step is optional. Skip it if the issue is not tied to a specific visit.</p>
               </div>
               <select
-                className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm"
+                className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm"
                 value={createDraft.jobId || "__none"}
                 onChange={(event) => {
                   const value = event.target.value === "__none" ? "" : event.target.value;
@@ -524,7 +524,7 @@ export function ClientCasesWorkspace() {
         <Card>
           <CardHeader><CardTitle className="text-base">Your cases</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <select className="h-10 w-full rounded-xl border border-input/80 bg-white/80 dark:bg-white/5 px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="ALL">All statuses</option>
               {CASE_STATUSES.map((status) => (
                 <option key={status} value={status}>{CASE_STATUS_LABELS[status]}</option>

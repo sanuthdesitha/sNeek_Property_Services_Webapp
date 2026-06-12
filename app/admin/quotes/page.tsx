@@ -14,7 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { cn, formatCurrency } from "@/lib/utils";
 import { addDays, format } from "date-fns";
-import { Plus, Pencil, Trash2, Copy, Mail, Phone, Send, UserRoundPlus, X } from "lucide-react";
+import { DollarSign, Plus, Pencil, Trash2, Copy, Mail, Phone, Send, UserRoundPlus, X } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/hooks/use-toast";
 
 const STATUS_COLORS: Record<string, "secondary" | "default" | "success" | "destructive" | "outline"> = {
@@ -427,15 +428,18 @@ export default function QuotesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-foreground">Quotes and Leads</h2>
-        <Button asChild>
-          <Link href="/admin/quotes/new">
-            <Plus className="mr-2 h-4 w-4" />
-            New Quote
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={<DollarSign />}
+        title="Quotes and Leads"
+        actions={
+          <Button asChild>
+            <Link href="/admin/quotes/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Quote
+            </Link>
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="leads">
         <TabsList>

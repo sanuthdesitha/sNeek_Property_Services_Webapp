@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { ReceiptText } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -257,22 +259,21 @@ export function CleanerInvoicesPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">Invoices</h1>
-        <p className="text-sm text-muted-foreground">
-          Preview paid hours, add job comments, download invoice PDF, and email to accounts.
-        </p>
-      </div>
+      <PageHeader
+        title="Invoices"
+        description="Preview paid hours, add job comments, download invoice PDF, and email to accounts."
+        icon={<ReceiptText />}
+      />
 
       {missingProfileFields.length > 0 ? (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm text-foreground">
           <p className="font-medium">Complete your profile before emailing an invoice.</p>
-          <p className="mt-1 text-xs">
+          <p className="mt-1 text-xs text-muted-foreground">
             Your invoice must include these details: {missingProfileFields.map((f) => f.label).join(", ")}.
           </p>
           <Link
             href="/cleaner/profile"
-            className="mt-2 inline-block rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            className="mt-2 inline-block rounded-lg border border-warning/40 bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-warning/10"
           >
             Complete profile
           </Link>
@@ -336,7 +337,7 @@ export function CleanerInvoicesPage() {
 
                 <div className="max-h-[60vh] space-y-2 overflow-auto">
                   {(invoicePreview.expenseRows ?? []).map((row) => (
-                    <div key={row.runId} className="rounded border border-emerald-200 bg-emerald-50/60 p-2">
+                    <div key={row.runId} className="rounded-lg border border-success/40 bg-success/10 p-2">
                       <p className="text-xs font-medium">Shopping reimbursement - {row.runName}</p>
                       <p className="text-[11px] text-muted-foreground">
                         {row.date} | {row.properties} | {row.paymentMethod} | Total: {money(row.amount)}
@@ -345,7 +346,7 @@ export function CleanerInvoicesPage() {
                     </div>
                   ))}
                   {(invoicePreview.shoppingTimeRows ?? []).map((row) => (
-                    <div key={`time-${row.runId}`} className="rounded border border-sky-200 bg-sky-50/60 p-2">
+                    <div key={`time-${row.runId}`} className="rounded-lg border border-info/30 bg-info/10 p-2">
                       <p className="text-xs font-medium">Shopping time - {row.runName}</p>
                       <p className="text-[11px] text-muted-foreground">
                         {row.date} | {row.properties} | {row.minutes} min | Rate: {money(row.hourlyRate)} | Total: {money(row.amount)}
@@ -382,7 +383,7 @@ export function CleanerInvoicesPage() {
                           />
                         </div>
                         {Number(jobHourOverridesInput[row.jobId] ?? row.hours) !== Number(row.originalHours) ? (
-                          <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                          <div className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-foreground">
                             Hours changed: {Number(row.originalHours).toFixed(2)} {"->"} {Number(jobHourOverridesInput[row.jobId] ?? row.hours).toFixed(2)}
                           </div>
                         ) : null}

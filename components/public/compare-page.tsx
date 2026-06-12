@@ -56,7 +56,7 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-5 sm:p-7">
+          <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)] space-y-5 sm:p-7">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-primary/10 p-3 shrink-0">
                 <ClipboardList className="h-5 w-5 text-primary" />
@@ -111,7 +111,7 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
               {services.map(({ marketing, page, slug }, idx) => (
                 <Card
                   key={slug}
-                  className="animate-fade-up rounded-[1.8rem] border-white/70 bg-white/85 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1"
+                  className="animate-fade-up rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1"
                   style={{ animationDelay: `${idx * 60}ms` }}
                 >
                   <CardHeader className="pb-3">
@@ -162,7 +162,7 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-white/70 bg-white/80 p-8 text-center text-muted-foreground">
+            <div className="rounded-2xl border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-8 text-center text-muted-foreground">
               Service comparison details are coming soon.
             </div>
           )}
@@ -171,7 +171,7 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
 
       {/* ─── BOTTOM CTA ─── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
+        <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
           <div className="space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Not sure which service fits?</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">

@@ -1,5 +1,7 @@
+import { Upload } from "lucide-react";
 import { db } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { format } from "date-fns";
 
@@ -18,10 +20,12 @@ export default async function UploadFailuresPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-6">
-      <header className="mb-6 flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold text-foreground">Upload Failures</h1>
-        <span className="text-sm text-muted-foreground">{failures.length} unresolved</span>
-      </header>
+      <PageHeader
+        className="mb-6"
+        icon={<Upload />}
+        title="Upload Failures"
+        actions={<span className="text-sm text-muted-foreground">{failures.length} unresolved</span>}
+      />
       {failures.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">

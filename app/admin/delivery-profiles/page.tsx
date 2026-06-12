@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { Save, SendToBack } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,12 +101,11 @@ export default function DeliveryProfilesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Client Delivery Profiles</h2>
-        <p className="text-sm text-muted-foreground">
-          Configure default recipients and auto-send behavior for reports and invoices.
-        </p>
-      </div>
+      <PageHeader
+        icon={<SendToBack />}
+        title="Client Delivery Profiles"
+        description="Configure default recipients and auto-send behavior for reports and invoices."
+      />
 
       <Card>
         <CardHeader>

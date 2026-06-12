@@ -2,12 +2,19 @@
 import { randomUUID } from "crypto";
 import { extname } from "path";
 import { publicUrl, s3 } from "@/lib/s3";
+import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = new Set([".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"]);
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const { ok } = rateLimit(`uploads:${ip}`, { limit: 10, windowMs: 10 * 60 * 1000 });
+    if (!ok) {
+      return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+    }
+
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {

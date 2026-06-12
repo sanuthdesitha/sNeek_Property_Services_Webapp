@@ -5,6 +5,7 @@ import { getPublicRequestedServiceLabel, normalizePublicServiceTypeForLead } fro
 import { sendWebsiteLeadNotification } from "@/lib/public-site/lead-notifications";
 import { createPublicQuoteLead } from "@/lib/public-site/lead-persistence";
 import { getAppSettings } from "@/lib/settings";
+import { escapeHtml } from "@/lib/utils/escape-html";
 import {
   optionalAddressSchema,
   optionalAustralianPhoneSchema,
@@ -13,6 +14,7 @@ import {
   requiredNameSchema,
 } from "@/lib/validations/common";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 const contactSchema = z.object({
   inquiryType: z.enum(["general-clean", "deep-clean", "airbnb-turnover", "end-of-lease", "specialty-cleaning", "exterior-service", "commercial", "subscription", "custom-project"]),
@@ -40,6 +42,12 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const { ok } = rateLimit(`contact:${ip}`, { limit: 5, windowMs: 10 * 60 * 1000 });
+    if (!ok) {
+      return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+    }
+
     const body = contactSchema.parse(await req.json());
     const settings = await getAppSettings();
     const requestedServiceType = serviceTypeMap[body.inquiryType];
@@ -70,16 +78,16 @@ export async function POST(req: NextRequest) {
         replyTo: body.email,
         html: `
           <h2>New website enquiry received</h2>
-          <p><strong>Name:</strong> ${body.name}</p>
-          <p><strong>Email:</strong> ${body.email}</p>
-          <p><strong>Phone:</strong> ${body.phone || "Not provided"}</p>
-          <p><strong>Suburb:</strong> ${body.suburb || "Not provided"}</p>
-          <p><strong>Address:</strong> ${body.address || "Not provided"}</p>
-          <p><strong>Request type:</strong> ${body.inquiryType}</p>
-          <p><strong>Requested service:</strong> ${requestedServiceLabel}</p>
+          <p><strong>Name:</strong> ${escapeHtml(body.name)}</p>
+          <p><strong>Email:</strong> ${escapeHtml(body.email)}</p>
+          <p><strong>Phone:</strong> ${escapeHtml(body.phone || "Not provided")}</p>
+          <p><strong>Suburb:</strong> ${escapeHtml(body.suburb || "Not provided")}</p>
+          <p><strong>Address:</strong> ${escapeHtml(body.address || "Not provided")}</p>
+          <p><strong>Request type:</strong> ${escapeHtml(body.inquiryType)}</p>
+          <p><strong>Requested service:</strong> ${escapeHtml(requestedServiceLabel)}</p>
           <p><strong>Message:</strong></p>
-          <p>${body.message.replace(/\n/g, "<br />")}</p>
-          <p><strong>Lead ID:</strong> ${lead.id}</p>
+          <p>${escapeHtml(body.message).replace(/\n/g, "<br />")}</p>
+          <p><strong>Lead ID:</strong> ${escapeHtml(lead.id)}</p>
         `,
       });
     } catch (error) {

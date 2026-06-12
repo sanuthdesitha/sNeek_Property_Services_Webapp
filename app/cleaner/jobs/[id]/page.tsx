@@ -2421,7 +2421,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                         item.status === "failed"
                           ? "text-destructive"
                           : item.status === "uploaded"
-                            ? "text-emerald-600"
+                            ? "text-success"
                             : "text-muted-foreground"
                       }
                     >
@@ -3440,13 +3440,13 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             <Badge
               key={`detail-tag-${tag}`}
               variant="secondary"
-              className="border-sky-200 bg-sky-50 text-sky-800"
+              className="border-info/30 bg-info/10 text-info"
             >
               {tag}
             </Badge>
           ))}
           {cleanerInstructionText ? (
-            <Badge variant="secondary" className="border-blue-200 bg-blue-50 text-blue-800">
+            <Badge variant="secondary" className="border-info/30 bg-info/10 text-info">
               Cleaner Notes
             </Badge>
           ) : null}
@@ -3465,9 +3465,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {job?.status === "EN_ROUTE" && (
-        <Card className="border-amber-200 bg-amber-50/60">
+        <Card className="border-warning/40 bg-warning/10">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Navigation className="h-4 w-4" />
               Driving panel
               {tripStateLabel ? <Badge variant="outline">{tripStateLabel}</Badge> : null}
@@ -3531,7 +3531,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             ) : null}
 
             {job?.drivingDelayedReason ? (
-              <div className="rounded-md border border-amber-200 bg-amber-100/70 px-3 py-2 text-xs text-amber-900">
+              <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                 Delay reason: {String(job.drivingDelayedReason).replace(/_/g, " ")}
               </div>
             ) : null}
@@ -3655,7 +3655,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       )}
 
       {pendingSync ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
           A previous submission is queued for sync. It will auto-submit when internet is available.
         </div>
       ) : null}
@@ -3667,7 +3667,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {canManageAssignment ? (
-        <Card className={assignmentResponseStatus === "PENDING" ? "border-amber-300 bg-amber-50/80" : "border-blue-200 bg-blue-50/70"}>
+        <Card className={assignmentResponseStatus === "PENDING" ? "border-warning/40 bg-warning/10" : "border-info/30 bg-info/10"}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">
               {assignmentResponseStatus === "PENDING" ? "Job Confirmation Required" : "Assignment Status"}
@@ -3782,25 +3782,25 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {latestEarlyCheckoutRequest ? (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-3">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-rose-900">Timing Update</p>
-                <p className="mt-2 text-sm text-rose-950">
+                <p className="text-xs font-medium uppercase tracking-wide text-destructive">Timing Update</p>
+                <p className="mt-2 text-sm text-foreground">
                   {pendingEarlyCheckoutRequest
                     ? "Admin requested your approval for a timing change on this job."
                     : "This job had a timing update request."}
                 </p>
-                <p className="mt-1 text-xs text-rose-900">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Type: {latestEarlyCheckoutRequest.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}
                 </p>
                 {latestEarlyCheckoutRequest.requestedTime ? (
-                  <p className="mt-1 text-xs text-rose-900">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Requested time: {latestEarlyCheckoutRequest.requestedTime}
                   </p>
                 ) : null}
                 {latestEarlyCheckoutRequest.note ? (
-                  <p className="mt-1 text-xs text-rose-900">Admin note: {latestEarlyCheckoutRequest.note}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Admin note: {latestEarlyCheckoutRequest.note}</p>
                 ) : null}
               </div>
               {pendingEarlyCheckoutRequest ? (
@@ -3822,8 +3822,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {jobTimingHighlights.length > 0 ? (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Priority Timing</p>
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-warning">Priority Timing</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {jobTimingHighlights.map((line) => (
               <Badge key={line} variant="warning">
@@ -3835,9 +3835,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {cleanerInstructionText ? (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-900">Cleaner Notes</p>
-          <p className="mt-2 text-sm text-blue-950">{cleanerInstructionText}</p>
+        <div className="rounded-lg border border-info/30 bg-info/10 px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-info">Cleaner Notes</p>
+          <p className="mt-2 text-sm text-foreground">{cleanerInstructionText}</p>
         </div>
       ) : null}
 
@@ -3863,7 +3863,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           </div>
           <div className="flex gap-2">
             {!isRunning ? (
-              <Button onClick={handleStart} disabled={finished}>
+              <Button className="h-11" onClick={handleStart} disabled={finished}>
                 <Play className="mr-2 h-4 w-4" />
                 {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume" : "Start"}
               </Button>
@@ -4021,7 +4021,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {payload?.job?.requiresSafetyCheckin ? (
-        <Card className={payload?.job?.safetyCheckinAt ? "border-emerald-300 bg-emerald-50/60" : "border-amber-300 bg-amber-50/70"}>
+        <Card className={payload?.job?.safetyCheckinAt ? "border-success/40 bg-success/10" : "border-warning/40 bg-warning/10"}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">
               {payload?.job?.safetyCheckinAt ? "Safety check-in confirmed" : "Safety check-in required"}
@@ -4173,7 +4173,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={handleStart} disabled={finished}>
+              <Button className="h-11" onClick={handleStart} disabled={finished}>
                 <Play className="mr-2 h-4 w-4" />
                 {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume job" : "Begin job"}
               </Button>
@@ -4468,7 +4468,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                           {photoCount === 0 ? (
                             <span className="text-[11px] text-muted-foreground">Optional</span>
                           ) : (
-                            <span className="text-[11px] text-emerald-700">Ready</span>
+                            <span className="text-[11px] text-success">Ready</span>
                           )}
                         </div>
                         <div className="mt-2">{renderUnifiedUploadList(fieldId)}</div>
@@ -4556,7 +4556,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             Images are resized and compressed automatically. Videos must be under 150MB before upload and are compressed to a much smaller stored file on the server.
           </p>
           {hasPendingUploads ? (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
               Uploading {pendingUploadCount} file(s). Please wait before continuing.
             </div>
           ) : null}
@@ -4860,14 +4860,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               </CardContent>
             </Card>
           ) : null}
-          <Card className={laundryUpdateCollapsed ? "border-emerald-200 bg-emerald-50/70" : undefined}>
+          <Card className={laundryUpdateCollapsed ? "border-success/40 bg-success/10" : undefined}>
             <CardContent className="space-y-3 p-4 text-sm">
               {laundryUpdateCollapsed && savedLaundryUpdate ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-medium text-emerald-900">Laundry update sent</p>
-                    <p className="mt-1 text-xs text-emerald-900">{savedLaundryUpdateSummary}</p>
-                    <p className="mt-1 text-xs text-emerald-800">
+                    <p className="font-medium text-foreground">Laundry update sent</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{savedLaundryUpdateSummary}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Sent at {formatDateTimeLabel(savedLaundryUpdate.submittedAt) ?? savedLaundryUpdate.submittedAt}
                     </p>
                   </div>
@@ -4895,7 +4895,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                   </div>
                   <Button
                     type="button"
-                    className="bg-emerald-600 text-white shadow-[0_10px_24px_-12px_rgba(5,150,105,0.8)] hover:bg-emerald-700 hover:text-white"
+                    className="h-11 bg-success text-success-foreground hover:bg-success/90"
                     onClick={handleSendLaundryUpdateNow}
                     disabled={savingLaundryUpdate || !hasStartedJob}
                   >
@@ -5152,7 +5152,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             <Button variant="outline" onClick={() => setStep("laundry")}>
               {"<- Back"}
             </Button>
-            <Button className="flex-1" onClick={handleSubmit} disabled={submitting || hasPendingUploads || hasPendingContinuationRequest}>
+            <Button className="h-11 flex-1" onClick={handleSubmit} disabled={submitting || hasPendingUploads || hasPendingContinuationRequest}>
               <Send className="mr-2 h-4 w-4" />
               {submitting
                 ? "Submitting..."
@@ -5205,7 +5205,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 The system will stop this clock based on {clockLimitSourceLabel(timeReview.limitSource)}.
               </p>
               {timeReview.exceedsAllowedDuration ? (
-                <p className="mt-2 text-xs text-amber-700">
+                <p className="mt-2 text-xs text-warning">
                   The current running time is above the automatic limit. Submit now to use the capped time or request an adjustment for admin approval.
                 </p>
               ) : (

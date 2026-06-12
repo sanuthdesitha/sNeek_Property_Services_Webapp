@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { Role } from "@prisma/client";
+import { Activity } from "lucide-react";
 import { authOptions } from "@/lib/auth/auth-options";
+import { PageHeader } from "@/components/ui/page-header";
 import { DiagnosticsClient } from "./diagnostics-client";
 
 export const dynamic = "force-dynamic";
@@ -15,15 +17,17 @@ export default async function SystemDiagnosticsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <header className="space-y-1">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">System</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Diagnostics</h1>
-        <p className="text-sm text-muted-foreground">
-          Live process, database, and worker stats. Polls every 5 seconds. See{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">docs/ops/vps-triage.md</code>{" "}
-          for VPS-side triage commands.
-        </p>
-      </header>
+      <PageHeader
+        icon={<Activity />}
+        title="Diagnostics"
+        description={
+          <>
+            Live process, database, and worker stats. Polls every 5 seconds. See{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">docs/ops/vps-triage.md</code>{" "}
+            for VPS-side triage commands.
+          </>
+        }
+      />
       <DiagnosticsClient />
     </div>
   );

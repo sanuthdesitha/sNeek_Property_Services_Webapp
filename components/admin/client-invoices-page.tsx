@@ -13,9 +13,11 @@ import {
   RefreshCw,
   Send,
   Trash2,
+  Wallet,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -296,25 +298,25 @@ export function ClientInvoicesPage() {
   return (
     <div className="space-y-6">
       {dialog}
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold">Invoices</h2>
-          <p className="text-sm text-muted-foreground">Generate, approve, and send client invoices with payment details.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowRates(true)}>
-            Billing rates
-          </Button>
-          <Button onClick={() => setShowGenerate(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Generate invoice
-          </Button>
-          <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Wallet />}
+        title="Invoices"
+        description="Generate, approve, and send client invoices with payment details."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setShowRates(true)}>
+              Billing rates
+            </Button>
+            <Button onClick={() => setShowGenerate(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Generate invoice
+            </Button>
+            <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+          </>
+        }
+      />
 
       {/* Two-column layout */}
       <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">

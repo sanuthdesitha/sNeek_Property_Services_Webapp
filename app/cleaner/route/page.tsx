@@ -5,6 +5,7 @@ import { toZonedTime } from "date-fns-tz";
 import { addDays } from "date-fns";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { PageHeader } from "@/components/ui/page-header";
 import { CleanerRouteClient } from "@/components/cleaner/cleaner-route-client";
 
 export const dynamic = "force-dynamic";
@@ -123,16 +124,11 @@ export default async function CleanerRoutePage() {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-bold">
-          <Navigation className="h-5 w-5 text-primary" />
-          Your Route
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Live travel times via Google Distance Matrix — driving, transit,
-          walking, or biking.
-        </p>
-      </header>
+      <PageHeader
+        title="Your Route"
+        description="Live travel times via Google Distance Matrix — driving, transit, walking, or biking."
+        icon={<Navigation />}
+      />
 
       <CleanerRouteClient initialDate={isoDate} initialStops={stops} />
     </div>

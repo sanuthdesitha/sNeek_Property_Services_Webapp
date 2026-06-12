@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Eye, Save, Upload, RotateCcw, Globe } from "lucide-react";
+import { Eye, Save, Upload, RotateCcw, Globe, MonitorSmartphone } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { DEFAULT_WEBSITE_CONTENT, type WebsiteContent, type WebsiteFeatureCard, type WebsiteFaqItem, type WebsiteGalleryItem, type WebsiteHeroStat, type WebsiteLegalSection, type WebsitePartner, type WebsiteServicePage, type WebsiteTestimonial, type WebsiteWhyItem } from "@/lib/public-site/content";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
@@ -44,7 +44,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className={`rounded-[1.8rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] ${className ?? ""}`}>
+    <Card className={`rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] ${className ?? ""}`}>
       <CardHeader>
         <CardTitle className="text-lg">{title}</CardTitle>
         {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
@@ -162,7 +162,7 @@ function FeatureCardsEditor({
         </Button>
       </div>
       {value.map((card, index) => (
-        <Card key={card.id} className="rounded-[1.4rem] border border-border/70 bg-white">
+        <Card key={card.id} className="rounded-[1.4rem] border border-border/70 bg-white dark:bg-surface-raised">
           <CardContent className="space-y-4 p-5">
             <div className="flex items-center justify-between gap-3">
               <p className="font-medium">Card {index + 1}</p>
@@ -342,6 +342,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
   return (
     <AdminPageShell
       eyebrow="Website"
+      icon={<MonitorSmartphone />}
       title="Public website editor"
       description="Edit customer-facing page content, public images, and contact-recipient emails without changing the operational portals."
     >
@@ -356,17 +357,17 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
               <h2 className="mt-2 text-2xl font-semibold tracking-tight">{activeTabMeta.label}</h2>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{activeTabMeta.summary}</p>
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                <div className="rounded-[1.2rem] border border-white/70 dark:border-white/10 bg-white/90 dark:bg-white/5 p-4 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Public pages</p>
                   <p className="mt-2 text-2xl font-semibold">{previewLinks.length}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Direct preview shortcuts available.</p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                <div className="rounded-[1.2rem] border border-white/70 dark:border-white/10 bg-white/90 dark:bg-white/5 p-4 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Visible pages</p>
                   <p className="mt-2 text-2xl font-semibold">{enabledPageCount}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Currently enabled in public navigation.</p>
                 </div>
-                <div className="rounded-[1.2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
+                <div className="rounded-[1.2rem] border border-white/70 dark:border-white/10 bg-white/90 dark:bg-white/5 p-4 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Blog tools</p>
                   <p className="mt-2 text-2xl font-semibold">Live</p>
                   <p className="mt-1 text-xs text-muted-foreground">Create and manage posts from the blog manager.</p>
@@ -374,7 +375,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] border border-border/70 bg-white/92 p-5 shadow-sm">
+            <div className="rounded-[1.5rem] border border-border/70 bg-white/92 dark:bg-white/5 p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Preview shortcuts</p>
@@ -394,7 +395,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                     key={link.href}
                     type="button"
                     variant="outline"
-                    className="h-auto justify-start rounded-[1rem] border-border/70 bg-white px-4 py-3 text-left"
+                    className="h-auto justify-start rounded-[1rem] border-border/70 bg-white dark:bg-surface-raised px-4 py-3 text-left"
                     asChild
                   >
                     <a href={link.href} target="_blank" rel="noreferrer">
@@ -431,7 +432,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
         <div className="overflow-x-auto pb-1">
-          <TabsList className="flex min-w-max flex-nowrap justify-start gap-2 rounded-[1.2rem] bg-white/70 p-1">
+          <TabsList className="flex min-w-max flex-nowrap justify-start gap-2 rounded-[1.2rem] bg-white/70 dark:bg-white/5 p-1">
             {editorTabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="rounded-full px-4">
                 {tab.label}
@@ -969,7 +970,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                       key={preset}
                       type="button"
                       onClick={() => setContent({ ...content, containerWidth: preset })}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${(content.containerWidth ?? "1320px") === preset ? "border-primary bg-primary text-primary-foreground" : "border-border bg-white/80 text-muted-foreground hover:border-primary hover:text-primary"}`}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${(content.containerWidth ?? "1320px") === preset ? "border-primary bg-primary text-primary-foreground" : "border-border bg-white/80 dark:bg-white/5 text-muted-foreground hover:border-primary hover:text-primary"}`}
                     >
                       {preset}
                     </button>
@@ -1107,7 +1108,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
                     </div>
                   </>
                 ) : (
-                  <div className="bg-white px-4 py-3 text-sm text-muted-foreground">Announcement bar is disabled.</div>
+                  <div className="bg-white dark:bg-surface-raised px-4 py-3 text-sm text-muted-foreground">Announcement bar is disabled.</div>
                 )}
               </div>
             </div>
@@ -1166,7 +1167,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
       </Tabs>
 
       <div className="sticky bottom-4 z-20 flex justify-end">
-        <div className="flex flex-wrap items-center gap-3 rounded-[1.3rem] border border-white/80 bg-white/92 px-4 py-3 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur-md">
+        <div className="flex flex-wrap items-center gap-3 rounded-[1.3rem] border border-white/80 dark:border-white/10 bg-white/92 dark:bg-white/5 px-4 py-3 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur-md">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Editing</p>
             <p className="text-sm font-medium">{activeTabMeta.label}</p>

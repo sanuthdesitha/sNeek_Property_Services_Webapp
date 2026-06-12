@@ -41,7 +41,7 @@ export function ContactPage({ content }: ContactPageProps) {
         <div className="mb-10 grid gap-4 sm:grid-cols-3">
           <a
             href="tel:+61451217210"
-            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 bg-white/80 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
+            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
           >
             <div className="rounded-2xl bg-primary/10 p-3 w-fit transition-colors duration-200 group-hover:bg-primary/15">
               <PhoneCall className="h-5 w-5 text-primary" />
@@ -57,7 +57,7 @@ export function ContactPage({ content }: ContactPageProps) {
             href="https://wa.me/61451217210"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 bg-white/80 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
+            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
           >
             <div className="rounded-2xl bg-[#25D366]/10 p-3 w-fit transition-colors duration-200 group-hover:bg-[#25D366]/20">
               <WhatsAppIcon className="h-5 w-5 text-[#25D366]" />
@@ -71,7 +71,7 @@ export function ContactPage({ content }: ContactPageProps) {
 
           <a
             href={`mailto:${content.displayEmail}`}
-            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 bg-white/80 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
+            className="group flex flex-col gap-3 rounded-[1.8rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-6 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)]"
           >
             <div className="rounded-2xl bg-primary/10 p-3 w-fit transition-colors duration-200 group-hover:bg-primary/15">
               <Mail className="h-5 w-5 text-primary" />
@@ -101,7 +101,7 @@ export function ContactPage({ content }: ContactPageProps) {
                   body: "Use this for weekly, fortnightly, monthly, or hosting-support subscriptions rather than a once-off clean.",
                 },
               ].map((item) => (
-                <Card key={item.title} className="rounded-[1.6rem] border-white/70 bg-white/80 shadow-[0_14px_40px_-28px_rgba(22,63,70,0.3)]">
+                <Card key={item.title} className="rounded-[1.6rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_14px_40px_-28px_rgba(22,63,70,0.3)]">
                   <CardContent className="flex gap-4 p-5">
                     <div className="rounded-2xl bg-primary/10 p-3 shrink-0">
                       <item.icon className="h-5 w-5 text-primary" />
@@ -114,7 +114,7 @@ export function ContactPage({ content }: ContactPageProps) {
                 </Card>
               ))}
             </div>
-            <Card className="rounded-[1.6rem] border-white/70 bg-white/80 shadow-[0_14px_40px_-28px_rgba(22,63,70,0.3)]">
+            <Card className="rounded-[1.6rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_14px_40px_-28px_rgba(22,63,70,0.3)]">
               <CardContent className="space-y-1.5 p-5 text-sm text-muted-foreground">
                 <p>{content.addressLine}</p>
                 <p>{content.responsePromise}</p>
