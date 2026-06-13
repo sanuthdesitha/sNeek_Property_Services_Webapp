@@ -86,7 +86,9 @@ export async function GET(
             submittedBy: { select: { name: true } },
           },
         },
-        qaReviews: true,
+        // Newest first so qaReviews[0] is always the latest review (a fresh
+        // admin/inspector review supersedes an earlier quick/auto QA review).
+        qaReviews: { orderBy: { createdAt: "desc" } },
         laundryTask: {
           include: {
             supplier: {

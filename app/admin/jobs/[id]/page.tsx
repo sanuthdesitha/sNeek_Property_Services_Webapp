@@ -1076,9 +1076,23 @@ export default function JobDetailPage() {
           >
             Request Timing Update
           </Button>
-        {job.status === "SUBMITTED" && (
-          <Button size="sm" variant="outline" onClick={() => setQaOpen(true)}>
-            <Star className="mr-2 h-4 w-4" /> QA Review
+        {(job.status === "SUBMITTED" ||
+          job.status === "QA_REVIEW" ||
+          job.status === "COMPLETED") && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const latest = job.qaReviews[0];
+              if (latest) {
+                setQaScore(String(Math.round(latest.score)));
+                setQaNotes(latest.notes ?? "");
+              }
+              setQaOpen(true);
+            }}
+          >
+            <Star className="mr-2 h-4 w-4" />{" "}
+            {job.qaReviews.length > 0 ? "Re-review QA" : "QA Review"}
           </Button>
         )}
         {(job.status === "SUBMITTED" || job.status === "QA_REVIEW" || job.status === "COMPLETED") && (
