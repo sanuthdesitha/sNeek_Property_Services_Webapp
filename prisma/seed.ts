@@ -80,6 +80,18 @@ async function seedDemoData() {
       },
       update: {},
     }),
+    db.user.upsert({
+      where: { email: "qa@sneekproservices.com.au" },
+      create: {
+        name: "Quinn QA",
+        email: "qa@sneekproservices.com.au",
+        role: Role.QA_INSPECTOR,
+        phone: "+61400000003",
+        passwordHash: await hash("qa123"),
+        isActive: true,
+      },
+      update: {},
+    }),
   ]);
 
   console.log(`Created ${users.length} demo users`);
@@ -204,6 +216,7 @@ async function seedDemoData() {
   console.log("  Cleaner: cleaner@sneekproservices.com.au / cleaner123");
   console.log("  Client:  client@sneekproservices.com.au / client123");
   console.log("  Laundry: laundry@sneekproservices.com.au / laundry123");
+  console.log("  QA:      qa@sneekproservices.com.au / qa123");
 }
 
 type SeedPriceBookEntry = {

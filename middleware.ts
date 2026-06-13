@@ -145,6 +145,8 @@ function portalHome(role: Role | undefined): string {
       return "/client";
     case Role.LAUNDRY:
       return "/laundry";
+    case Role.QA_INSPECTOR:
+      return "/qa";
     default:
       return "/login";
   }
