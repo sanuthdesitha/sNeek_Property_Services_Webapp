@@ -7,6 +7,7 @@ import { Role } from "@prisma/client";
 import { AdminProfileForm } from "@/components/admin/admin-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
+import { BiometricDevicesSection } from "@/components/profile/biometric-section";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export default async function AdminProfilePage() {
       </header>
 
       <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
+
+      <BiometricDevicesSection />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}
