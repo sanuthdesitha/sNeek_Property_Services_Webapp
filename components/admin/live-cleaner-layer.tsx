@@ -30,7 +30,21 @@ type LiveLocation = {
   drivingDelayedAt: string | null;
   drivingDelayedReason: string | null;
   arrivedAt: string | null;
+  clockInAt: string | null;
+  elapsedMinutes: number | null;
 };
+
+function formatClockedIn(clockInAt: string | null, elapsedMinutes: number | null): string | null {
+  if (!clockInAt) return null;
+  const started = new Date(clockInAt);
+  if (!Number.isFinite(started.getTime())) return null;
+  const time = started.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const safeElapsed = Math.max(0, Math.round(elapsedMinutes ?? (Date.now() - started.getTime()) / 60_000));
+  const hours = Math.floor(safeElapsed / 60);
+  const mins = safeElapsed % 60;
+  const elapsedLabel = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  return `Clocked in ${time} · elapsed ${elapsedLabel}`;
+}
 
 function formatEta(eta: number | null): string {
   if (eta == null) return "ETA unknown";
@@ -148,6 +162,11 @@ export function LiveCleanerLayer() {
                     <p className="text-[11px] text-muted-foreground">
                       {loc.jobType.replaceAll("_", " ")} · Last ping {formatLastPing(loc.lastPingAt)}
                     </p>
+                    {formatClockedIn(loc.clockInAt, loc.elapsedMinutes) && (
+                      <p className="text-[11px] font-medium text-success">
+                        {formatClockedIn(loc.clockInAt, loc.elapsedMinutes)}
+                      </p>
+                    )}
                     {loc.drivingPauseReason && (
                       <p className="text-[11px] text-muted-foreground">Pause: {loc.drivingPauseReason}</p>
                     )}

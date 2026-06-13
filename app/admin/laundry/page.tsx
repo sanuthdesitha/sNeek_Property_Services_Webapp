@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import Link from "next/link";
 import { addDays, format, startOfWeek } from "date-fns";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Download, Mail, Plus, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, BarChart3, Check, ChevronDown, ChevronUp, Download, Mail, Plus, RefreshCw, Shirt, Pencil, Trash2, X } from "lucide-react";
+import { AdminLaundryLive } from "@/components/admin/laundry-live-map";
+import { StatusPill } from "@/components/ui/status-pill";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -194,7 +197,7 @@ export default function LaundryPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [propertyFilter, setPropertyFilter] = useState<string>("ALL");
   const [clientFilter, setClientFilter] = useState<string>("ALL");
-  const [activeScheduleTab, setActiveScheduleTab] = useState<"active" | "completed">("active");
+  const [activeScheduleTab, setActiveScheduleTab] = useState<"active" | "completed" | "live">("active");
   const [editForm, setEditForm] = useState({
     pickupDate: "",
     dropoffDate: "",
@@ -516,7 +519,7 @@ export default function LaundryPage() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(ADMIN_LAUNDRY_TAB_KEY);
-      if (saved === "active" || saved === "completed") {
+      if (saved === "active" || saved === "completed" || saved === "live") {
         setActiveScheduleTab(saved);
       }
     } catch {
@@ -796,6 +799,12 @@ export default function LaundryPage() {
         }
         actions={
           <>
+            <Button variant="outline" asChild>
+              <Link href="/admin/laundry/stats">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Stats
+              </Link>
+            </Button>
             <Button variant="outline" onClick={() => setWeekStart((w) => addDays(w, -7))}>
               {"<- Prev"}
             </Button>
@@ -813,6 +822,34 @@ export default function LaundryPage() {
           </>
         }
       />
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              ["PENDING", "Pending", "neutral"],
+              ["CONFIRMED", "Confirmed", "info"],
+              ["PICKED_UP", "Picked up", "primary"],
+              ["DROPPED", "Dropped", "success"],
+              ["FLAGGED", "Flagged", "danger"],
+              ["SKIPPED_PICKUP", "Skipped", "warning"],
+            ] as const
+          ).map(([status, label, variant]) => {
+            const count = tasks.filter((task) => task.status === status).length;
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(statusFilter === status ? "ALL" : status)}
+                className={`rounded-lg transition ${statusFilter === status ? "ring-2 ring-primary/50" : ""}`}
+                title={`Filter: ${label}`}
+              >
+                <StatusPill variant={variant} withDot>
+                  {label} <span className="tabular-nums">{count}</span>
+                </StatusPill>
+              </button>
+            );
+          })}
+        </div>
 
         {filteredAlerts.length > 0 && (
           <Card className="border-destructive/50 bg-destructive/5">
@@ -1313,11 +1350,15 @@ export default function LaundryPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeScheduleTab} onValueChange={(value) => setActiveScheduleTab(value as "active" | "completed")}>
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={activeScheduleTab} onValueChange={(value) => setActiveScheduleTab(value as "active" | "completed" | "live")}>
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="active">Today & upcoming</TabsTrigger>
               <TabsTrigger value="completed">Completed</TabsTrigger>
+              <TabsTrigger value="live">Live</TabsTrigger>
             </TabsList>
+            <TabsContent value="live" className="mt-4">
+              <AdminLaundryLive />
+            </TabsContent>
             <TabsContent value="active" className="mt-4">
               <div className="px-0 pb-0">
                 {activeTasks.length === 0 ? (

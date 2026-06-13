@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
-import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2 } from "lucide-react";
+import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -493,16 +494,24 @@ export default function FormsPage() {
         title="Forms"
         description="Drag-and-drop form builder and submission review."
         actions={
-          <Button
-            variant="outline"
-            onClick={() => {
-              setActiveTab("builder");
-              resetBuilder();
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Template
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/admin/forms/stats">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Statistics
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setActiveTab("builder");
+                resetBuilder();
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Template
+            </Button>
+          </>
         }
       />
 

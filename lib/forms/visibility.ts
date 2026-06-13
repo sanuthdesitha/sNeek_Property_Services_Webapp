@@ -7,7 +7,48 @@ type TemplateNode = {
   required?: unknown;
   conditional?: unknown;
   fields?: unknown;
+  children?: unknown;
 };
+
+/** Key under which a yes/no field's "details when No" note is stored. */
+export function fieldDetailsKey(fieldId: string) {
+  return `${fieldId}_details`;
+}
+
+/**
+ * Expands each field's `children` (sub-fields, one level deep) inline after
+ * the parent. Child entries are annotated with `_isChild`/`_parentId` and a
+ * `_parent` reference so callers can apply parent-aware visibility and
+ * indentation. Safe on legacy fields without children.
+ */
+export function flattenFieldsOneLevel(fields: unknown): any[] {
+  const list = Array.isArray(fields) ? fields : [];
+  const out: any[] = [];
+  for (const field of list) {
+    if (!field || typeof field !== "object") continue;
+    out.push(field);
+    const children = Array.isArray((field as any).children) ? (field as any).children : [];
+    for (const child of children) {
+      if (!child || typeof child !== "object" || !(child as any).id) continue;
+      out.push({ ...child, _isChild: true, _parentId: (field as any).id, _parent: field });
+    }
+  }
+  return out;
+}
+
+/** Visibility for a flattened field entry: its own condition AND its parent's. */
+export function isFlattenedFieldVisible(
+  field: any,
+  answers: Record<string, unknown>,
+  property: Record<string, unknown>,
+  laundryReady?: boolean
+) {
+  if (!isTemplateNodeVisible(field, answers, property, laundryReady)) return false;
+  if (field?._parent && !isTemplateNodeVisible(field._parent, answers, property, laundryReady)) {
+    return false;
+  }
+  return true;
+}
 
 export type RequiredUploadFieldMeta = {
   id: string;
@@ -113,10 +154,10 @@ export function collectRequiredUploadFields(
   for (const section of sections) {
     if (!isTemplateNodeVisible(section, answers, property, laundryReady)) continue;
 
-    const fields = Array.isArray(section?.fields) ? section.fields : [];
+    const fields = flattenFieldsOneLevel(section?.fields);
     for (const field of fields) {
       if (!isUploadFieldType(field?.type) || !field?.required || !field?.id) continue;
-      if (!isTemplateNodeVisible(field, answers, property, laundryReady)) continue;
+      if (!isFlattenedFieldVisible(field, answers, property, laundryReady)) continue;
 
       uploads.push({
         id: String(field.id),
@@ -157,10 +198,10 @@ export function collectRequiredAnswerFields(
   for (const section of sections) {
     if (!isTemplateNodeVisible(section, answers, property, options?.laundryReady)) continue;
 
-    const fields = Array.isArray(section?.fields) ? section.fields : [];
+    const fields = flattenFieldsOneLevel(section?.fields);
     for (const field of fields) {
       if (!field?.required || !field?.id) continue;
-      if (!isTemplateNodeVisible(field, answers, property, options?.laundryReady)) continue;
+      if (!isFlattenedFieldVisible(field, answers, property, options?.laundryReady)) continue;
       const fieldType = typeof field.type === "string" ? field.type.trim().toLowerCase() : "";
       if (allowedTypes && !allowedTypes.has(fieldType)) continue;
 

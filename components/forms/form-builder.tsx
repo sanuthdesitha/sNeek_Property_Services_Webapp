@@ -17,10 +17,13 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/ui/status-pill";
+import { isUploadFieldType } from "@/lib/forms/field-types";
 import { SectionEditor } from "./section-editor";
+import { FormPreview } from "./form-preview";
 import type { FormField, FormSchema } from "@/lib/forms/types";
 
 export interface FormBuilderProps {
@@ -38,6 +41,8 @@ type Action =
   | { type: "ADD_SECTION" }
   | { type: "REMOVE_SECTION"; sectionId: string }
   | { type: "UPDATE_SECTION_TITLE"; sectionId: string; title: string }
+  | { type: "UPDATE_SECTION_DESCRIPTION"; sectionId: string; description: string }
+  | { type: "DUPLICATE_FIELD"; sectionId: string; fieldId: string }
   | { type: "REORDER_SECTIONS"; from: number; to: number }
   | { type: "ADD_FIELD"; sectionId: string; field: FormField }
   | { type: "UPDATE_FIELD"; sectionId: string; field: FormField }
@@ -90,6 +95,34 @@ function reducer(state: State, action: Action): State {
         dirty: true,
         schema: {
           sections: arrayMove(state.schema.sections, action.from, action.to),
+        },
+      };
+    case "UPDATE_SECTION_DESCRIPTION":
+      return {
+        ...state,
+        dirty: true,
+        schema: {
+          sections: state.schema.sections.map((s) =>
+            s.id === action.sectionId
+              ? { ...s, description: action.description || undefined }
+              : s,
+          ),
+        },
+      };
+    case "DUPLICATE_FIELD":
+      return {
+        ...state,
+        dirty: true,
+        schema: {
+          sections: state.schema.sections.map((s) => {
+            if (s.id !== action.sectionId) return s;
+            const index = s.fields.findIndex((f) => f.id === action.fieldId);
+            if (index === -1) return s;
+            const copy = duplicateField(s.fields[index]);
+            const fields = [...s.fields];
+            fields.splice(index + 1, 0, copy);
+            return { ...s, fields };
+          }),
         },
       };
     case "ADD_FIELD":
@@ -148,6 +181,23 @@ function reducer(state: State, action: Action): State {
     case "MARK_CLEAN":
       return { ...state, dirty: false };
   }
+}
+
+function newFieldId() {
+  return `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Deep-copies a field (incl. sub-fields) with fresh ids. */
+function duplicateField(field: FormField): FormField {
+  return {
+    ...JSON.parse(JSON.stringify(field)),
+    id: newFieldId(),
+    label: `${field.label} (copy)`,
+    children: field.children?.map((child) => ({
+      ...JSON.parse(JSON.stringify(child)),
+      id: newFieldId(),
+    })),
+  };
 }
 
 export function FormBuilder({
@@ -249,19 +299,25 @@ export function FormBuilder({
     dispatch({ type: "REORDER_SECTIONS", from, to });
   }
 
-  const totalFields = state.schema.sections.reduce(
-    (sum, s) => sum + s.fields.length,
-    0,
-  );
+  const [showPreview, setShowPreview] = React.useState(false);
 
-  // All fields across the form, used to populate the conditional-logic field
-  // picker in each field editor.
-  const allFields = state.schema.sections.flatMap((s) =>
-    s.fields.map((f) => ({ id: f.id, label: f.label })),
+  // Template-level stats: count sub-fields too.
+  const flatFields = state.schema.sections.flatMap((s) =>
+    s.fields.flatMap((f) => [f, ...(f.children ?? [])]),
   );
+  const totalFields = flatFields.length;
+  const requiredPhotoCount = flatFields.reduce((sum, f) => {
+    if (!isUploadFieldType(f.type)) return sum;
+    if (f.required) return sum + Math.max(1, f.minPhotos ?? 1);
+    return sum + (f.minPhotos ?? 0);
+  }, 0);
+
+  // All fields across the form (incl. sub-fields), used to populate the
+  // conditional-logic field picker in each field editor.
+  const allFields = flatFields.map((f) => ({ id: f.id, label: f.label }));
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className={`mx-auto space-y-6 p-6 ${showPreview ? "max-w-7xl" : "max-w-4xl"}`}>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <Input
@@ -270,9 +326,10 @@ export function FormBuilder({
             className="text-xl font-semibold"
             aria-label="Template name"
           />
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
             {initialKind} · v{initialVersion} ·{" "}
-            {state.schema.sections.length} sections · {totalFields} fields
+            {state.schema.sections.length} sections · {totalFields} fields ·{" "}
+            {requiredPhotoCount} required photos
           </p>
           {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         </div>
@@ -290,6 +347,10 @@ export function FormBuilder({
           ) : (
             <StatusPill variant="warning">Draft</StatusPill>
           )}
+          <Button variant="outline" onClick={() => setShowPreview((v) => !v)}>
+            {showPreview ? <EyeOff className="mr-1 size-4" /> : <Eye className="mr-1 size-4" />}
+            {showPreview ? "Hide preview" : "Preview"}
+          </Button>
           <Button variant="outline" onClick={duplicate}>
             Duplicate
           </Button>
@@ -302,72 +363,101 @@ export function FormBuilder({
         </div>
       </header>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleSectionDragEnd}
-      >
-        <SortableContext
-          items={state.schema.sections.map((s) => s.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <div className="space-y-3">
-            {state.schema.sections.map((section) => (
-              <SectionEditor
-                key={section.id}
-                section={section}
-                onUpdateTitle={(title) =>
-                  dispatch({
-                    type: "UPDATE_SECTION_TITLE",
-                    sectionId: section.id,
-                    title,
-                  })
-                }
-                onRemove={() =>
-                  dispatch({ type: "REMOVE_SECTION", sectionId: section.id })
-                }
-                onAddField={(field) =>
-                  dispatch({
-                    type: "ADD_FIELD",
-                    sectionId: section.id,
-                    field,
-                  })
-                }
-                onUpdateField={(field) =>
-                  dispatch({
-                    type: "UPDATE_FIELD",
-                    sectionId: section.id,
-                    field,
-                  })
-                }
-                onRemoveField={(fieldId) =>
-                  dispatch({
-                    type: "REMOVE_FIELD",
-                    sectionId: section.id,
-                    fieldId,
-                  })
-                }
-                onReorderFields={(from, to) =>
-                  dispatch({
-                    type: "REORDER_FIELDS",
-                    sectionId: section.id,
-                    from,
-                    to,
-                  })
-                }
-                availableFields={allFields}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      <div className={showPreview ? "grid items-start gap-6 lg:grid-cols-2" : undefined}>
+        <div className="space-y-6">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleSectionDragEnd}
+          >
+            <SortableContext
+              items={state.schema.sections.map((s) => s.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-3">
+                {state.schema.sections.map((section) => (
+                  <SectionEditor
+                    key={section.id}
+                    section={section}
+                    onUpdateTitle={(title) =>
+                      dispatch({
+                        type: "UPDATE_SECTION_TITLE",
+                        sectionId: section.id,
+                        title,
+                      })
+                    }
+                    onUpdateDescription={(description) =>
+                      dispatch({
+                        type: "UPDATE_SECTION_DESCRIPTION",
+                        sectionId: section.id,
+                        description,
+                      })
+                    }
+                    onRemove={() =>
+                      dispatch({ type: "REMOVE_SECTION", sectionId: section.id })
+                    }
+                    onAddField={(field) =>
+                      dispatch({
+                        type: "ADD_FIELD",
+                        sectionId: section.id,
+                        field,
+                      })
+                    }
+                    onUpdateField={(field) =>
+                      dispatch({
+                        type: "UPDATE_FIELD",
+                        sectionId: section.id,
+                        field,
+                      })
+                    }
+                    onRemoveField={(fieldId) =>
+                      dispatch({
+                        type: "REMOVE_FIELD",
+                        sectionId: section.id,
+                        fieldId,
+                      })
+                    }
+                    onDuplicateField={(fieldId) =>
+                      dispatch({
+                        type: "DUPLICATE_FIELD",
+                        sectionId: section.id,
+                        fieldId,
+                      })
+                    }
+                    onReorderFields={(from, to) =>
+                      dispatch({
+                        type: "REORDER_FIELDS",
+                        sectionId: section.id,
+                        from,
+                        to,
+                      })
+                    }
+                    availableFields={allFields}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
 
-      <Button
-        variant="outline"
-        onClick={() => dispatch({ type: "ADD_SECTION" })}
-      >
-        + Add section
-      </Button>
+          <Button
+            variant="outline"
+            onClick={() => dispatch({ type: "ADD_SECTION" })}
+          >
+            + Add section
+          </Button>
+        </div>
+
+        {showPreview ? (
+          <div className="lg:sticky lg:top-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Live preview — exactly what the cleaner sees
+            </p>
+            <div className="max-h-[80vh] overflow-y-auto rounded-xl border bg-muted/20 p-3">
+              <FormPreview schema={state.schema} />
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

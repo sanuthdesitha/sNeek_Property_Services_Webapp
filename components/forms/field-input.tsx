@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Minus, Plus, Star, MapPin, Loader2 } from "lucide-react";
+import { Minus, Plus, Star, MapPin, Loader2, QrCode, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,12 +74,14 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         <FieldShell field={field}>
           <Textarea
             id={id}
+            placeholder={field.placeholder}
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
           />
         </FieldShell>
       );
 
+    case "temperature":
     case "number":
     case "currency": {
       return (
@@ -97,11 +99,16 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
               min={field.min}
               max={field.max}
               step={field.step}
+              placeholder={field.placeholder}
               className={field.type === "currency" ? "pl-7" : undefined}
               value={value === undefined || value === null ? "" : String(value)}
               onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
             />
-            {field.unit ? <span className="ml-2 text-xs text-muted-foreground">{field.unit}</span> : null}
+            {field.unit || field.type === "temperature" ? (
+              <span className="ml-2 text-xs text-muted-foreground">
+                {field.unit ?? "°C"}
+              </span>
+            ) : null}
           </div>
         </FieldShell>
       );
@@ -368,6 +375,13 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         </FieldShell>
       );
 
+    case "barcode":
+      return (
+        <FieldShell field={field}>
+          <BarcodeCapture value={value} onChange={onChange} placeholder={field.placeholder} />
+        </FieldShell>
+      );
+
     case "signature":
       return (
         <FieldShell field={field} hideLabel>
@@ -385,10 +399,122 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       // text + any unknown type fall back to a text input.
       return (
         <FieldShell field={field}>
-          <Input id={id} type="text" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
+          <Input id={id} type="text" placeholder={field.placeholder} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );
   }
+}
+
+/**
+ * Live QR / barcode scanner built on getUserMedia + jsqr, with a manual text
+ * fallback so the field still works without camera permission.
+ */
+function BarcodeCapture({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: unknown;
+  onChange: (v: unknown) => void;
+  placeholder?: string;
+}) {
+  const [scanning, setScanning] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const rafRef = React.useRef<number>(0);
+
+  const stopScanning = React.useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setScanning(false);
+  }, []);
+
+  React.useEffect(() => stopScanning, [stopScanning]);
+
+  async function startScanning() {
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Camera not available — type the code instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScanning(true);
+      const { default: jsQR } = await import("jsqr");
+      const video = videoRef.current;
+      if (!video) {
+        stopScanning();
+        return;
+      }
+      video.srcObject = stream;
+      await video.play().catch(() => undefined);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      const tick = () => {
+        if (!streamRef.current) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA && ctx) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert",
+          });
+          if (code?.data) {
+            onChange(code.data);
+            stopScanning();
+            return;
+          }
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch {
+      stopScanning();
+      setError("Could not open the camera — type the code instead.");
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {scanning ? (
+        <div className="relative overflow-hidden rounded-lg border bg-black">
+          <video ref={videoRef} className="h-48 w-full object-cover" muted playsInline />
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="absolute right-2 top-2 h-9 w-9"
+            onClick={stopScanning}
+            aria-label="Stop scanning"
+          >
+            <X className="size-4" />
+          </Button>
+          <p className="absolute bottom-2 left-0 right-0 text-center text-xs text-white/90">
+            Point the camera at the QR / barcode
+          </p>
+        </div>
+      ) : (
+        <Button type="button" variant="outline" className="h-11 w-full" onClick={startScanning}>
+          <QrCode className="mr-2 size-4" />
+          {typeof value === "string" && value ? "Scan again" : "Scan QR / barcode"}
+        </Button>
+      )}
+      <Input
+        placeholder={placeholder ?? "Or type the code manually"}
+        value={typeof value === "string" ? value : ""}
+        onChange={(e) => onChange(e.target.value || undefined)}
+      />
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
 }
 
 function LocationCapture({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {

@@ -19,6 +19,15 @@ type RawPing = {
   lng: number;
   accuracy?: number | null;
   timestamp: string;
+  liveStatus?: "EN_ROUTE" | "ON_SITE" | "IDLE";
+  activeJob?: {
+    id: string;
+    jobNumber: string | null;
+    status: string;
+    propertyName: string;
+    etaMinutes: number | null;
+  } | null;
+  timer?: { startedAt: string; elapsedMinutes: number } | null;
 };
 
 const POLL_INTERVAL_MS = 15_000;
@@ -30,6 +39,82 @@ function staleColor(timestamp: string): string {
   return "#ef4444"; // stale — red
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function liveStatusLabel(ping: RawPing): string {
+  if (ping.liveStatus === "EN_ROUTE") return "En route";
+  if (ping.liveStatus === "ON_SITE") return "On site";
+  return "Idle";
+}
+
+function formatElapsed(minutes: number): string {
+  const safe = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safe / 60);
+  const mins = safe % 60;
+  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+}
+
+function formatClockIn(startedAt: string): string {
+  const date = new Date(startedAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** Plain-text tooltip (marker title) for a cleaner dot. */
+function cleanerTooltip(ping: RawPing): string {
+  const name = ping.user?.name ?? "Cleaner";
+  const parts = [`${name} — ${liveStatusLabel(ping)}`];
+  if (ping.activeJob) {
+    parts.push(`${ping.activeJob.propertyName}${ping.activeJob.jobNumber ? ` (#${ping.activeJob.jobNumber})` : ""}`);
+  }
+  if (ping.timer) {
+    parts.push(`Clocked in ${formatClockIn(ping.timer.startedAt)} · elapsed ${formatElapsed(ping.timer.elapsedMinutes)}`);
+  }
+  return parts.join("\n");
+}
+
+/** Rich InfoWindow HTML for a cleaner dot. */
+function cleanerInfoHtml(ping: RawPing): string {
+  const name = escapeHtml(ping.user?.name ?? "Cleaner");
+  const rows: string[] = [
+    `<div style="font:600 13px system-ui;color:#111">${name} <span style="font-weight:500;color:#0e7490">· ${liveStatusLabel(ping)}</span></div>`,
+  ];
+  if (ping.activeJob) {
+    const jobLabel = `${escapeHtml(ping.activeJob.propertyName)}${
+      ping.activeJob.jobNumber ? ` <span style="color:#555">#${escapeHtml(String(ping.activeJob.jobNumber))}</span>` : ""
+    }`;
+    rows.push(
+      `<div style="font:400 12px system-ui;color:#333;margin-top:4px">${jobLabel} · ${escapeHtml(
+        ping.activeJob.status.replace(/_/g, " ").toLowerCase(),
+      )}</div>`,
+      `<a href="/admin/jobs/${encodeURIComponent(ping.activeJob.id)}" style="font:500 12px system-ui;color:#0e7490">Open job →</a>`,
+    );
+  }
+  if (ping.timer) {
+    rows.push(
+      `<div style="font:400 12px system-ui;color:#333;margin-top:4px">Clocked in ${formatClockIn(
+        ping.timer.startedAt,
+      )} · elapsed ${formatElapsed(ping.timer.elapsedMinutes)}</div>`,
+    );
+  }
+  if (!ping.activeJob && !ping.timer) {
+    rows.push(`<div style="font:400 12px system-ui;color:#555;margin-top:4px">No active job or running timer.</div>`);
+  }
+  rows.push(
+    `<div style="font:400 11px system-ui;color:#777;margin-top:4px">Last ping ${escapeHtml(
+      new Date(ping.timestamp).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    )}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}</div>`,
+  );
+  return `<div style="max-width:240px">${rows.join("")}</div>`;
+}
+
 /**
  * Full live operations map: every active job's property as a pin plus every
  * cleaner GPS ping from the last 15 minutes as a colour-coded dot
@@ -39,7 +124,7 @@ function staleColor(timestamp: string): string {
 export function OpsOverviewMap({ properties }: { properties: OpsMapProperty[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
-  const cleanerMarkersRef = useRef<Map<string, any>>(new Map());
+  const cleanerMarkersRef = useRef<Map<string, { marker: any; info: any }>>(new Map());
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -127,24 +212,27 @@ export function OpsOverviewMap({ properties }: { properties: OpsMapProperty[] })
             strokeColor: "#ffffff",
             strokeWeight: 2,
           };
-          const label = ping.user?.name ?? "Cleaner";
+          const tooltip = cleanerTooltip(ping);
+          const infoHtml = cleanerInfoHtml(ping);
           const existing = cleanerMarkersRef.current.get(ping.userId);
           if (existing) {
-            existing.setPosition(pos);
-            existing.setIcon(icon);
-            existing.setTitle(label);
+            existing.marker.setPosition(pos);
+            existing.marker.setIcon(icon);
+            existing.marker.setTitle(tooltip);
+            existing.info.setContent(infoHtml);
           } else {
-            cleanerMarkersRef.current.set(
-              ping.userId,
-              new google.maps.Marker({ position: pos, map, title: label, icon, zIndex: 20 }),
-            );
+            const marker = new google.maps.Marker({ position: pos, map, title: tooltip, icon, zIndex: 20 });
+            const info = new google.maps.InfoWindow({ content: infoHtml });
+            marker.addListener("click", () => info.open({ map, anchor: marker }));
+            cleanerMarkersRef.current.set(ping.userId, { marker, info });
           }
         }
 
         // Drop markers for cleaners that stopped pinging.
-        cleanerMarkersRef.current.forEach((marker, userId) => {
+        cleanerMarkersRef.current.forEach((entry, userId) => {
           if (!seen.has(userId)) {
-            marker.setMap(null);
+            entry.info.close();
+            entry.marker.setMap(null);
             cleanerMarkersRef.current.delete(userId);
           }
         });

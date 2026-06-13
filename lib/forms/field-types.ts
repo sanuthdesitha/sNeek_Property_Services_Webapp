@@ -119,6 +119,25 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
   file: { type: "file", label: "Document / file", icon: "FileText", category: "media", isUpload: true, formatValue: fmtUpload },
   signature: { type: "signature", label: "Signature", icon: "PenLine", category: "media", formatValue: (_f, v) => (typeof v === "string" && v.startsWith("data:image/") ? "Signed" : EMPTY) },
 
+  // ---- measurement / scanning ----
+  temperature: {
+    type: "temperature",
+    label: "Temperature",
+    icon: "Thermometer",
+    category: "scale",
+    hasRange: true,
+    scorable: true,
+    defaultConfig: { unit: "°C", step: 0.5 },
+    formatValue: fmtNumberWithUnit,
+  },
+  barcode: {
+    type: "barcode",
+    label: "Barcode / QR scan",
+    icon: "QrCode",
+    category: "advanced",
+    formatValue: (_f, v) => fmtScalar(v),
+  },
+
   // ---- advanced ----
   location: {
     type: "location",

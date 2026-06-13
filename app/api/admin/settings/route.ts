@@ -98,6 +98,7 @@ const scheduledNotificationsSchema = z.object({
 
 const autoClockOutSchema = z.object({
   enabled: z.boolean().optional(),
+  stopAtEstimatedDuration: z.boolean().optional(),
   graceMinutes: z.number().int().min(0).max(240).optional(),
   fallbackAtMidnight: z.boolean().optional(),
   maxJobLengthHours: z.number().int().min(1).max(24).optional(),

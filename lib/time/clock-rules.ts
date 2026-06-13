@@ -43,7 +43,15 @@ export function resolveClockRuleForLog(params: {
   const timezone = settings.timezone || "Australia/Sydney";
   const candidates: Array<{ at: Date; source: ClockLimitSource }> = [];
 
-  if (typeof job.estimatedHours === "number" && Number.isFinite(job.estimatedHours) && job.estimatedHours > 0) {
+  // Estimate-based cutoff is opt-in (settings.autoClockOut.stopAtEstimatedDuration,
+  // default false): by default the timer keeps running past the job's estimated
+  // duration and only the due-time + grace / midnight / max-length rules apply.
+  if (
+    settings.autoClockOut.stopAtEstimatedDuration &&
+    typeof job.estimatedHours === "number" &&
+    Number.isFinite(job.estimatedHours) &&
+    job.estimatedHours > 0
+  ) {
     const totalAllowedMinutes = Math.max(0, Math.round(job.estimatedHours * 60) - completedDurationMinutes);
     candidates.push({
       at: addMinutes(startedAt, totalAllowedMinutes),

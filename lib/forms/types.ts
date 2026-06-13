@@ -28,6 +28,9 @@ export type FormFieldType =
   | "video"
   | "file"
   | "signature"
+  // measurement / scanning
+  | "temperature"
+  | "barcode"
   // advanced
   | "location"
   | "instruction";
@@ -62,13 +65,27 @@ export interface FormFieldReference {
   caption?: string;
 }
 
+export type FieldSeverity = "low" | "medium" | "high";
+
 export interface FormField {
   id: string;
   type: FormFieldType;
   label: string;
   helpText?: string;
+  placeholder?: string;
   required?: boolean;
   options?: string[];
+  // Free-text area label ("Kitchen", "Bathroom 2"). Used for grouping in the
+  // guided capture flow and per-area rollups in form statistics.
+  locationTag?: string;
+  // Priority flag surfaced to the cleaner and weighted in stats.
+  severity?: FieldSeverity;
+  // yes/no: when answered "No", a details note (stored as `${id}_details` in
+  // the submission data) becomes required.
+  detailsWhenNo?: boolean;
+  // Sub-fields rendered indented under this field (one level deep). They take
+  // part in visibility, validation, and stats like any other field.
+  children?: FormField[];
   // media
   minPhotos?: number;
   maxFiles?: number;

@@ -4,11 +4,12 @@ import { db } from "@/lib/db";
 import { Role, JobType } from "@prisma/client";
 import { z } from "zod";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { formTemplateSchemaZ } from "@/lib/forms/template-schema";
 
 const updateTemplateSchema = z.object({
   name: z.string().optional(),
   serviceType: z.nativeEnum(JobType).optional(),
-  schema: z.record(z.unknown()).optional(),
+  schema: formTemplateSchemaZ.optional(),
   isActive: z.boolean().optional(),
 });
 

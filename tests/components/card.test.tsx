@@ -3,10 +3,10 @@ import { render } from "@testing-library/react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 describe("Card", () => {
-  it("uses rounded-lg (12px) and border", () => {
+  it("uses rounded-xl (14px) and border", () => {
     const { container } = render(<Card data-testid="c">x</Card>);
     const cls = container.querySelector("[data-testid=c]")!.className;
-    expect(cls).toMatch(/\brounded-lg\b/);
+    expect(cls).toMatch(/\brounded-xl\b/);
     expect(cls).toMatch(/\bborder\b/);
     expect(cls).toMatch(/bg-surface|bg-card/);
   });

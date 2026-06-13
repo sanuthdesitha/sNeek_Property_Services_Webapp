@@ -52,10 +52,29 @@ export async function GET(_req: NextRequest) {
       },
     });
 
+    // Running timers (stoppedAt: null) for the cleaners on these jobs, so the
+    // admin list can show "clocked in HH:mm · elapsed 1h 23m".
+    const jobIds = liveJobs.map((job) => job.id);
+    const runningLogs = jobIds.length
+      ? await db.timeLog.findMany({
+          where: { jobId: { in: jobIds }, stoppedAt: null },
+          orderBy: { startedAt: "desc" },
+          select: { jobId: true, userId: true, startedAt: true },
+        })
+      : [];
+    const runningLogByJob = new Map<string, { userId: string; startedAt: Date }>();
+    for (const log of runningLogs) {
+      if (!runningLogByJob.has(log.jobId)) {
+        runningLogByJob.set(log.jobId, { userId: log.userId, startedAt: log.startedAt });
+      }
+    }
+    const nowMs = Date.now();
+
     const results = await Promise.all(
       liveJobs.map(async (job) => {
         const ping = job.cleanerLocationPings[0] ?? null;
         const assignment = job.assignments[0];
+        const runningLog = runningLogByJob.get(job.id) ?? null;
         const propLat = job.property.latitude;
         const propLng = job.property.longitude;
         const propAddress = [job.property.address, job.property.suburb, job.property.state, "Australia"]
@@ -100,6 +119,10 @@ export async function GET(_req: NextRequest) {
           drivingDelayedReason: job.drivingDelayedReason,
           arrivedAt: job.arrivedAt,
           jobStatus: job.status,
+          clockInAt: runningLog?.startedAt ?? null,
+          elapsedMinutes: runningLog
+            ? Math.max(0, Math.round((nowMs - runningLog.startedAt.getTime()) / 60_000))
+            : null,
         };
       })
     );

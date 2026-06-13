@@ -2445,8 +2445,30 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                   disabled={readOnly}
                 />
               </div>
+              <div className="flex items-center justify-between rounded border p-2">
+                <div>
+                  <Label className="text-xs">Stop timer at the job&apos;s estimated duration</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Off by default — the timer keeps running past the estimate. Turn on to auto
+                    clock-out when the estimated hours are used up.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.autoClockOut.stopAtEstimatedDuration}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      autoClockOut: { ...prev.autoClockOut, stopAtEstimatedDuration: value },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label>Grace minutes after due time</Label>
+                <p className="text-xs text-muted-foreground">
+                  Timers auto-stop this many minutes after the job&apos;s due/end time.
+                </p>
                 <Input
                   type="number"
                   min={0}
@@ -2489,7 +2511,12 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                 </p>
               </div>
               <div className="flex items-center justify-between rounded border p-2">
-                <Label className="text-xs">Fallback auto clock-out at midnight</Label>
+                <div>
+                  <Label className="text-xs">Fallback auto clock-out at midnight</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Safety net when a job has no due or end time.
+                  </p>
+                </div>
                 <Switch
                   checked={settings.autoClockOut.fallbackAtMidnight}
                   onCheckedChange={(value) =>

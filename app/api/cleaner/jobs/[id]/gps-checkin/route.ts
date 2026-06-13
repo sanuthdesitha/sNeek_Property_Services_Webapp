@@ -12,9 +12,14 @@ function toNumber(value: unknown) {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = (await req.json().catch(() => ({}))) as { lat?: unknown; lng?: unknown };
+    const body = (await req.json().catch(() => ({}))) as {
+      lat?: unknown;
+      lng?: unknown;
+      accuracy?: unknown;
+    };
     const lat = toNumber(body.lat);
     const lng = toNumber(body.lng);
+    const accuracy = toNumber(body.accuracy);
     if (lat == null || lng == null) {
       return NextResponse.json({ error: "GPS coordinates are required." }, { status: 400 });
     }
@@ -48,7 +53,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    return NextResponse.json({ ok: true, distanceMeters });
+    // No schema change: accuracy is echoed back (not stored) so the client
+    // can show "±25 m" and flag unreliable fixes instead of presenting a
+    // misleading distance.
+    const lowAccuracy = accuracy != null && accuracy > 200;
+    return NextResponse.json({
+      ok: true,
+      distanceMeters,
+      accuracy,
+      lowAccuracy,
+      message: lowAccuracy
+        ? `Check-in recorded, but the GPS fix is only accurate to ±${Math.round(accuracy)}m — the distance to the property may be unreliable.`
+        : distanceMeters != null
+          ? `Check-in recorded ${distanceMeters}m from the property.`
+          : "Check-in recorded.",
+    });
   } catch (error: any) {
     const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not store GPS check-in." }, { status });

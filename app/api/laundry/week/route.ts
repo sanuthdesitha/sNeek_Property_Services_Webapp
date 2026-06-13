@@ -33,7 +33,10 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             name: true,
+            address: true,
             suburb: true,
+            latitude: true,
+            longitude: true,
             linenBufferSets: true,
             accessInfo: true,
             client: {

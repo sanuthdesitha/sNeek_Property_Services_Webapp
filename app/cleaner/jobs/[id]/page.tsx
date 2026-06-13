@@ -20,10 +20,17 @@ import { AccessInstructionsPanel } from "@/components/shared/access-instructions
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
-import { collectRequiredAnswerFields, isTemplateNodeVisible } from "@/lib/forms/visibility";
+import {
+  collectRequiredAnswerFields,
+  isTemplateNodeVisible,
+  flattenFieldsOneLevel,
+  isFlattenedFieldVisible,
+  fieldDetailsKey,
+} from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
-import { FieldInput } from "@/components/forms/field-input";
+import { FieldRenderer } from "@/components/forms/field-renderer";
 import { FieldReferences } from "@/components/forms/field-references";
+import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -31,6 +38,15 @@ import {
   type InventoryLocation,
 } from "@/lib/inventory/locations";
 import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
+import { formatDuration, elapsedSecondsSince, safeSeconds } from "@/lib/time/format-duration";
+import {
+  getAccuratePosition,
+  formatAccuracy,
+  GpsError,
+  POOR_ACCURACY_M,
+  type GpsFix,
+} from "@/lib/geo/get-position";
+import { haversineMeters } from "@/lib/jobs/gps";
 import {
   formatAssignmentResponseLabel,
   formatJobStatusLabel,
@@ -78,13 +94,6 @@ type UploadItemState = {
   error?: string;
   key?: string;
 };
-
-function formatDuration(seconds: number) {
-  const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
-  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0");
-  const s = (seconds % 60).toString().padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
 
 function formatMinutesLabel(minutes: number) {
   const safeMinutes = Math.max(0, Math.round(minutes));
@@ -285,6 +294,7 @@ export default function CleanerJobPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [uploads, setUploads] = useState<Record<string, string[]>>({});
   const [uploadStates, setUploadStates] = useState<Record<string, UploadItemState[]>>({});
+  const [guidedCaptureOpen, setGuidedCaptureOpen] = useState(false);
   const [laundryOutcome, setLaundryOutcome] = useState<LaundryOutcome | null>(null);
   const [laundrySkipReasonCode, setLaundrySkipReasonCode] = useState("LINEN_STILL_WASHING");
   const [laundrySkipReasonNote, setLaundrySkipReasonNote] = useState("");
@@ -351,11 +361,20 @@ export default function CleanerJobPage() {
   const [delayedReason, setDelayedReason] = useState("TRAFFIC");
   const [delayedReasonOther, setDelayedReasonOther] = useState("");
   const [manualEta, setManualEta] = useState("");
+  const [trackingActive, setTrackingActive] = useState(false);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [lastPingSentAt, setLastPingSentAt] = useState<number | null>(null);
+  const [lastPingAccuracy, setLastPingAccuracy] = useState<number | null>(null);
+  const [pingClock, setPingClock] = useState(() => Date.now());
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hydratedRef = useRef(false);
   const carryoverNoticeShownRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
+  const pendingPingsRef = useRef<Array<Record<string, number | null>>>([]);
+  const flushingPingsRef = useRef(false);
+  const lastUploadRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  const lastFixRef = useRef<GpsFix | null>(null);
   const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
   const editorSessionIdRef = useRef(createEditorSessionId());
   const lastKnownSharedDraftAtRef = useRef<string | null>(null);
@@ -374,16 +393,21 @@ export default function CleanerJobPage() {
 
   function startTimerFromState(completedSeconds: number, activeStartedAt?: string | null) {
     stopTicking();
-    if (!activeStartedAt) {
+    const banked = safeSeconds(completedSeconds);
+    // Guard: a missing or unparseable startedAt must never start a ticking
+    // interval (it used to compute NaN forever). Treat it as "not running".
+    const startedMs = activeStartedAt ? new Date(activeStartedAt).getTime() : Number.NaN;
+    if (!activeStartedAt || !Number.isFinite(startedMs)) {
       setIsRunning(false);
-      setElapsed(completedSeconds);
+      setElapsed(banked);
       return;
     }
 
-    const startedMs = new Date(activeStartedAt).getTime();
+    // Derive from the server startedAt on every tick (not an accumulating
+    // counter), so background-tab throttling / PWA suspends / reloads can't
+    // drift or corrupt the displayed time.
     const tick = () => {
-      const activeSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-      setElapsed(completedSeconds + activeSeconds);
+      setElapsed(elapsedSecondsSince(new Date(startedMs), banked));
     };
     tick();
     setIsRunning(true);
@@ -1206,6 +1230,35 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
+  // While en-route tracking is active: flush queued pings when connectivity
+  // returns, fire a final beacon ping on page hide, and tick the "last ping
+  // sent Xs ago" display every 5s.
+  useEffect(() => {
+    if (!trackingActive) return;
+
+    const onOnline = () => {
+      void flushQueuedPings();
+    };
+    const onPageHide = () => {
+      sendFinalPingBeacon();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") sendFinalPingBeacon();
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const clockId = window.setInterval(() => setPingClock(Date.now()), 5000);
+
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(clockId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingActive, jobId]);
+
   useEffect(() => {
     if (!hydratedRef.current || !payload?.job) return;
     if (Date.now() < suppressDraftSyncUntilRef.current) return;
@@ -1512,8 +1565,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         .filter((section) => isSectionVisible(section, formData, property))
         .map((section) => ({
           ...section,
-          fields: (section.fields ?? [])
-            .filter((field: any) => isFieldVisible(field, formData, property))
+          // Sub-fields (children) are flattened inline after their parent;
+          // a child is visible only when the parent is visible too.
+          fields: flattenFieldsOneLevel(section.fields ?? [])
+            .filter((field: any) => isFlattenedFieldVisible(field, formData, property))
             .map((field: any) => ({
               ...field,
               _resolvedStep: resolveFieldStep(field, section),
@@ -1592,6 +1647,70 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       (field: any, index: number, arr: any[]) => arr.findIndex((x: any) => x.id === field.id) === index
     );
   }, [visibleSections]);
+
+  // Ordered queue of every photo requirement across the form, driving the
+  // full-screen guided capture flow ("Inside the fridge" → shoot → auto-next).
+  const guidedCaptureItems = useMemo<GuidedCaptureItem[]>(() => {
+    const items = visibleSections.flatMap((section: any) =>
+      (section.fields ?? [])
+        .filter((field: any) => {
+          const type = String(field?.type ?? "").toLowerCase();
+          return (type === "photo" || type === "upload") && field?.id;
+        })
+        .map((field: any) => ({
+          fieldId: String(field.id),
+          label: typeof field.label === "string" && field.label.trim() ? field.label.trim() : String(field.id),
+          sectionLabel:
+            typeof section.label === "string" && section.label.trim()
+              ? section.label.trim()
+              : typeof section.title === "string"
+                ? section.title.trim()
+                : undefined,
+          description: typeof field.helpText === "string" ? field.helpText : undefined,
+          locationTag: typeof field.locationTag === "string" ? field.locationTag : undefined,
+          minPhotos: typeof field.minPhotos === "number" ? field.minPhotos : field.required ? 1 : 0,
+          maxFiles: typeof field.maxFiles === "number" ? field.maxFiles : undefined,
+        }))
+    );
+    return items.filter(
+      (item: GuidedCaptureItem, index: number, arr: GuidedCaptureItem[]) =>
+        arr.findIndex((x) => x.fieldId === item.fieldId) === index
+    );
+  }, [visibleSections]);
+
+  const guidedCaptureCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of guidedCaptureItems) {
+      const uploaded = uploads[item.fieldId]?.length ?? 0;
+      const pending = (uploadStates[item.fieldId] ?? []).filter(
+        (s) => s.status === "queued" || s.status === "uploading"
+      ).length;
+      counts[item.fieldId] = uploaded + pending;
+    }
+    return counts;
+  }, [guidedCaptureItems, uploads, uploadStates]);
+
+  const guidedCapturePending = useMemo(() => {
+    const pending: Record<string, number> = {};
+    for (const item of guidedCaptureItems) {
+      pending[item.fieldId] = (uploadStates[item.fieldId] ?? []).filter(
+        (s) => s.status === "queued" || s.status === "uploading"
+      ).length;
+    }
+    return pending;
+  }, [guidedCaptureItems, uploadStates]);
+
+  const guidedCaptureThumbnails = useMemo(() => {
+    const thumbs: Record<string, string[]> = {};
+    for (const item of guidedCaptureItems) {
+      thumbs[item.fieldId] = (uploads[item.fieldId] ?? [])
+        .filter((key) => isImageFileName(key))
+        .map((key) => uploadPreviewUrls[key])
+        .filter(Boolean);
+    }
+    return thumbs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guidedCaptureItems, uploads, uploadPreviewUrls]);
 
   const progressFields = useMemo(
     () =>
@@ -1686,16 +1805,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     });
   }
 
-  function startTimer() {
-    setIsRunning(true);
-    timerRef.current = setInterval(() => setElapsed((v) => v + 1), 1000);
-  }
-
-  function stopTimer() {
-    setIsRunning(false);
-    if (timerRef.current) clearInterval(timerRef.current);
-  }
-
   function resetClockReviewState() {
     setClockReviewOpen(false);
     setRequestClockAdjustment(false);
@@ -1704,62 +1813,156 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     setPendingSubmitPayload(null);
   }
 
-  function sendGpsSnapshot(path: string, successMessage?: (distanceMeters: number) => string) {
-    if (typeof window === "undefined" || !("geolocation" in navigator)) return;
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const res = await fetch(path, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-            }),
-          });
-          const body = await res.json().catch(() => ({}));
-          if (res.ok && typeof body?.distanceMeters === "number" && body.distanceMeters >= 500 && successMessage) {
-            showPopupNotification("GPS check-in recorded", successMessage(body.distanceMeters), "destructive");
-          }
-        } catch {
-          // Silent. GPS logging is advisory only.
+  async function sendGpsSnapshot(path: string, kind: "check-in" | "check-out" = "check-in") {
+    try {
+      const fix = await getAccuratePosition();
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const accuracyLabel = formatAccuracy(fix.accuracy);
+      const poorAccuracy = fix.accuracy != null && fix.accuracy > POOR_ACCURACY_M;
+      if (poorAccuracy) {
+        // Still recorded, but a coarse fix makes the distance meaningless —
+        // say so instead of alarming the cleaner with a wrong distance.
+        showPopupNotification(
+          `GPS ${kind} recorded (low accuracy)`,
+          `Location fix is only ${accuracyLabel}, so the distance to the property may be unreliable. Enable "Precise location" for your browser to improve this.`,
+          "destructive"
+        );
+      } else if (typeof body?.distanceMeters === "number" && body.distanceMeters >= 500) {
+        showPopupNotification(
+          `GPS ${kind} recorded`,
+          `You appear to be ${body.distanceMeters}m from the property (${accuracyLabel}). ${kind === "check-in" ? "Check-in" : "Check-out"} recorded.`,
+          "destructive"
+        );
+      } else {
+        showPopupNotification(`GPS ${kind} recorded`, `Location recorded (${accuracyLabel}).`);
+      }
+    } catch (error) {
+      if (error instanceof GpsError && error.code === "PERMISSION_DENIED") {
+        showPopupNotification("Location blocked", error.message, "destructive");
+      }
+      // Other GPS failures stay silent — GPS logging is advisory only.
+    }
+  }
+
+  const PING_MIN_INTERVAL_MS = 20_000;
+  const PING_MIN_MOVE_METERS = 50;
+  const PING_QUEUE_LIMIT = 30;
+
+  async function flushQueuedPings() {
+    if (flushingPingsRef.current) return;
+    const queue = pendingPingsRef.current;
+    if (queue.length === 0) return;
+    flushingPingsRef.current = true;
+    try {
+      while (queue.length > 0) {
+        const next = queue[0];
+        const res = await fetch(`/api/cleaner/jobs/${jobId}/location-ping`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-progress-toast": "off" },
+          body: JSON.stringify(next),
+        });
+        if (!res.ok) {
+          // 400 = job no longer en route — drop the queue; anything else
+          // (network blip, 5xx) keeps pings queued for the next flush.
+          if (res.status === 400 || res.status === 404) queue.length = 0;
+          return;
         }
-      },
-      () => {
-        // Silent. GPS logging is advisory only.
-      },
-      { timeout: 10000, enableHighAccuracy: true }
-    );
+        queue.shift();
+        setLastPingSentAt(Date.now());
+        setLastPingAccuracy(typeof next.accuracy === "number" ? next.accuracy : null);
+      }
+    } catch {
+      // Offline — pings stay queued; the `online` listener retries.
+    } finally {
+      flushingPingsRef.current = false;
+    }
+  }
+
+  function sendFinalPingBeacon() {
+    const fix = lastFixRef.current;
+    if (!fix) return;
+    const url = `/api/cleaner/jobs/${jobId}/location-ping`;
+    const payload = JSON.stringify({
+      lat: fix.lat,
+      lng: fix.lng,
+      accuracy: fix.accuracy,
+      heading: fix.heading,
+      speed: fix.speed,
+    });
+    try {
+      if (typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+      } else {
+        void fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch {
+      // Best-effort only.
+    }
   }
 
   function startLocationTracking() {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
-      showPopupNotification("GPS unavailable", "This device does not support location tracking.", "destructive");
+      setTrackingError("This device does not support location tracking.");
       return;
     }
     if (watchIdRef.current != null) return; // already watching
+    setTrackingError(null);
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        fetch(`/api/cleaner/jobs/${jobId}/location-ping`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-progress-toast": "off" },
-          body: JSON.stringify({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-            heading: pos.coords.heading,
-            speed: pos.coords.speed,
-          }),
-        }).catch(() => {});
+        setTrackingError(null);
+        setTrackingActive(true);
+        const fix: GpsFix = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+          heading: pos.coords.heading != null && Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
+          speed: pos.coords.speed != null && Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
+          timestamp: Date.now(),
+        };
+        lastFixRef.current = fix;
+        // Throttle uploads: one ping per ~20s, or sooner after >=50m movement.
+        const lastUpload = lastUploadRef.current;
+        const sinceMs = lastUpload ? Date.now() - lastUpload.at : Number.POSITIVE_INFINITY;
+        const movedMeters = lastUpload
+          ? haversineMeters(lastUpload.lat, lastUpload.lng, fix.lat, fix.lng)
+          : Number.POSITIVE_INFINITY;
+        if (sinceMs < PING_MIN_INTERVAL_MS && movedMeters < PING_MIN_MOVE_METERS) return;
+        lastUploadRef.current = { at: Date.now(), lat: fix.lat, lng: fix.lng };
+        pendingPingsRef.current.push({
+          lat: fix.lat,
+          lng: fix.lng,
+          accuracy: fix.accuracy,
+          heading: fix.heading,
+          speed: fix.speed,
+        });
+        if (pendingPingsRef.current.length > PING_QUEUE_LIMIT) {
+          pendingPingsRef.current.splice(0, pendingPingsRef.current.length - PING_QUEUE_LIMIT);
+        }
+        void flushQueuedPings();
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
-          showPopupNotification("Location access denied", "Please allow location access in your browser settings to enable live tracking.", "destructive");
+          setTrackingError(
+            "Location access is blocked. Allow location for this site in your browser settings, then tap Retry."
+          );
+          stopLocationTracking();
         }
-        watchIdRef.current = null;
+        // TIMEOUT / POSITION_UNAVAILABLE are transient — the watch keeps going.
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
+    setTrackingActive(true);
   }
 
   function stopLocationTracking() {
@@ -1767,32 +1970,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    setTrackingActive(false);
   }
 
   async function handleStartDriving() {
     setStartingDriving(true);
     try {
-      // Get current position first for initial ETA
-      const position = await new Promise<GeolocationPosition | null>((resolve) => {
-        if (typeof window === "undefined" || !("geolocation" in navigator)) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => resolve(pos),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-      });
+      // Get an accurate current position first for the initial ETA.
+      const position = await getAccuratePosition().catch(() => null);
 
       const res = await fetch(`/api/cleaner/jobs/${jobId}/start-driving`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          position
-            ? { lat: position.coords.latitude, lng: position.coords.longitude }
-            : {}
-        ),
+        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng } : {}),
       });
 
       if (!res.ok) {
@@ -1812,6 +2002,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   async function handleStopDriving() {
     setStoppingDriving(true);
     try {
+      sendFinalPingBeacon();
       stopLocationTracking();
       const res = await fetch(`/api/cleaner/jobs/${jobId}/stop-driving`, { method: "POST" });
       if (!res.ok) {
@@ -1854,22 +2045,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   async function handleResumeDriving() {
     setResumingDriving(true);
     try {
-      const position = await new Promise<GeolocationPosition | null>((resolve) => {
-        if (typeof window === "undefined" || !("geolocation" in navigator)) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => resolve(pos),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-      });
+      const position = await getAccuratePosition().catch(() => null);
 
       const res = await fetch(`/api/cleaner/jobs/${jobId}/resume-driving`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(position ? { lat: position.coords.latitude, lng: position.coords.longitude } : {}),
+        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng } : {}),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1889,6 +2070,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   async function handleArrivedDriving() {
     setArrivingDriving(true);
     try {
+      sendFinalPingBeacon();
       stopLocationTracking();
       const res = await fetch(`/api/cleaner/jobs/${jobId}/arrived-driving`, { method: "POST" });
       if (!res.ok) {
@@ -1961,7 +2143,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         return;
       }
       await load();
-      sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
+      void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, "check-in");
       showPopupNotification("Job started", "Timer is now running.");
       setStep("checklist");
       return;
@@ -1989,7 +2171,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
 
     await load();
-    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, (distanceMeters) => `You appear to be ${distanceMeters}m from the property. Check-in recorded.`);
+    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, "check-in");
     showPopupNotification("Job started", "Timer is now running.");
     setStep("checklist");
   }
@@ -2002,7 +2184,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
     await load();
-    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`);
+    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
     setConfirmOnSite(false);
     setConfirmChecklist(false);
     showPopupNotification("Timer stopped", "You can now start another assigned job.");
@@ -2204,7 +2386,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
     if (uploadedKeys.length > 0 && failedCount === 0) {
       showPopupNotification("Upload complete", `${uploadedKeys.length} file(s) uploaded.`);
-      return;
+      return { uploadedKeys, failedCount };
     }
     if (uploadedKeys.length > 0 && failedCount > 0) {
       toast({
@@ -2212,11 +2394,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         description: `${uploadedKeys.length} uploaded, ${failedCount} failed.`,
         variant: "destructive",
       });
-      return;
+      return { uploadedKeys, failedCount };
     }
     if (failedCount > 0) {
       toast({ title: "Upload failed", description: "No files uploaded.", variant: "destructive" });
     }
+    return { uploadedKeys, failedCount };
   }
 
   async function handleLaundryPhotoUpload(files: FileList | File[], source: UploadSource = "gallery") {
@@ -2647,10 +2830,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const normalizedField = field.type === "textarea" ? { ...field, type: "longtext" } : field;
 
     return (
-      <FieldInput
+      <FieldRenderer
         field={normalizedField}
-        value={formData[field.id]}
-        onChange={(value) => setFormData((prev) => ({ ...prev, [field.id]: value }))}
+        answers={formData}
+        onAnswer={(fieldId, value) => setFormData((prev) => ({ ...prev, [fieldId]: value }))}
       />
     );
   }
@@ -2755,7 +2938,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     clearDraftState();
     void clearSharedDraftState();
     stopTicking();
-    sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`);
+    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
     router.push("/cleaner");
     return true;
   }
@@ -2853,6 +3036,35 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         description: missingRequiredSignatures
           .map((field) =>
             field.sectionLabel && field.sectionLabel !== field.label ? `${field.sectionLabel}: ${field.label}` : field.label
+          )
+          .join(", "),
+        variant: "destructive",
+      });
+      return null;
+    }
+    // Yes/No fields configured with "details required when No".
+    const missingNoDetails = visibleSections
+      .flatMap((section: any) =>
+        (section.fields ?? []).map((field: any) => ({ field, sectionLabel: section.label ?? section.title }))
+      )
+      .filter(
+        ({ field }: any) =>
+          field?.type === "yesno" &&
+          field?.detailsWhenNo === true &&
+          formData[field.id] === false &&
+          !String(formData[fieldDetailsKey(field.id)] ?? "").trim()
+      );
+    if (missingNoDetails.length > 0) {
+      const first = missingNoDetails[0];
+      const targetStep = first.field?._resolvedStep;
+      if (targetStep === "checklist" || targetStep === "uploads" || targetStep === "laundry" || targetStep === "submit") {
+        setStep(targetStep);
+      }
+      toast({
+        title: "Details required",
+        description: missingNoDetails
+          .map(({ field, sectionLabel }: any) =>
+            sectionLabel && sectionLabel !== field.label ? `${sectionLabel}: ${field.label}` : field.label
           )
           .join(", "),
         variant: "destructive",
@@ -3519,10 +3731,32 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               <div className="rounded-lg border bg-background p-3">
                 <p className="text-xs text-muted-foreground">Tracking</p>
                 <p className="mt-1 text-sm font-semibold">
-                  {job?.drivingPausedAt || job?.arrivedAt ? "Stopped" : watchIdRef.current != null ? "Active" : "Starting"}
+                  {job?.drivingPausedAt || job?.arrivedAt ? "Stopped" : trackingActive ? "Active" : "Starting"}
                 </p>
+                {trackingActive ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {lastPingSentAt
+                      ? `Last ping sent ${Math.max(0, Math.round((pingClock - lastPingSentAt) / 1000))}s ago · ${formatAccuracy(lastPingAccuracy)}`
+                      : "Waiting for first GPS fix..."}
+                  </p>
+                ) : null}
               </div>
             </div>
+
+            {trackingError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
+                <p className="text-xs text-foreground">{trackingError}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => startLocationTracking()}
+                >
+                  Retry GPS
+                </Button>
+              </div>
+            ) : null}
 
             {job?.drivingPauseReason ? (
               <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-xs text-foreground/80">
@@ -3562,7 +3796,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full"
+                  className="h-11 w-full"
                   disabled={!canPauseDriving || pausingDriving}
                   onClick={handlePauseDriving}
                 >
@@ -3595,7 +3829,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full"
+                  className="h-11 w-full"
                   disabled={!canArriveDriving || markingDelayed}
                   onClick={handleMarkDelayed}
                 >
@@ -3605,18 +3839,22 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              {canResumeDriving ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 sm:flex-1"
+                  disabled={resumingDriving}
+                  onClick={handleResumeDriving}
+                >
+                  <TimerReset className="mr-2 h-4 w-4" />
+                  {resumingDriving ? "Resuming..." : "Resume driving"}
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                variant="outline"
-                disabled={!canResumeDriving || resumingDriving}
-                onClick={handleResumeDriving}
-              >
-                <TimerReset className="mr-2 h-4 w-4" />
-                {resumingDriving ? "Resuming..." : "Resume driving"}
-              </Button>
-              <Button
-                type="button"
+                className="h-11 sm:flex-1"
                 disabled={!canArriveDriving || arrivingDriving}
                 onClick={handleArrivedDriving}
               >
@@ -3626,7 +3864,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               <Button
                 type="button"
                 variant="ghost"
-                className="text-muted-foreground"
+                className="h-11 text-muted-foreground"
                 disabled={stoppingDriving}
                 onClick={handleStopDriving}
               >
@@ -3645,11 +3883,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             Heading to the property? Let the client know you&apos;re on the way.
           </p>
           <Button
-            size="sm"
+            className="h-11"
             disabled={startingDriving}
             onClick={handleStartDriving}
           >
-            {startingDriving ? "Starting..." : "Start driving"}
+            <Navigation className="mr-2 h-4 w-4" />
+            {startingDriving ? "Getting GPS..." : "Start driving"}
           </Button>
         </div>
       )}
@@ -4555,6 +4794,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           <p className="text-xs text-muted-foreground">
             Images are resized and compressed automatically. Videos must be under 150MB before upload and are compressed to a much smaller stored file on the server.
           </p>
+          {guidedCaptureItems.length > 0 ? (
+            <Button
+              type="button"
+              className="h-12 w-full text-base font-semibold"
+              onClick={() => setGuidedCaptureOpen(true)}
+            >
+              <Camera className="mr-2 h-5 w-5" />
+              Guided photo capture
+              <span className="ml-2 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-xs tabular-nums">
+                {guidedCaptureItems.length} fields
+              </span>
+            </Button>
+          ) : null}
           {hasPendingUploads ? (
             <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
               Uploading {pendingUploadCount} file(s). Please wait before continuing.
@@ -4633,6 +4885,20 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           </div>
         </div>
       )}
+
+      {guidedCaptureOpen && guidedCaptureItems.length > 0 ? (
+        <GuidedCapture
+          items={guidedCaptureItems}
+          counts={guidedCaptureCounts}
+          pendingCounts={guidedCapturePending}
+          thumbnails={guidedCaptureThumbnails}
+          onFiles={async (fieldId, files) => {
+            const result = await handleUpload(fieldId, files, "camera");
+            return { failedCount: result?.failedCount ?? 0 };
+          }}
+          onClose={() => setGuidedCaptureOpen(false)}
+        />
+      ) : null}
 
       {step === "laundry" && (
         <div className="space-y-4">

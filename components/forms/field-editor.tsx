@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Trash2, Settings } from "lucide-react";
+import { GripVertical, Trash2, Settings, Copy, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +38,7 @@ export interface FieldEditorProps {
   field: FormField;
   onUpdate: (field: FormField) => void;
   onRemove: () => void;
+  onDuplicate?: () => void;
   availableFields?: Array<{ id: string; label: string }>;
 }
 
@@ -51,7 +52,7 @@ function num(value: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-export function FieldEditor({ field, onUpdate, onRemove, availableFields = [] }: FieldEditorProps) {
+export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableFields = [] }: FieldEditorProps) {
   const {
     attributes,
     listeners,
@@ -120,12 +121,55 @@ export function FieldEditor({ field, onUpdate, onRemove, availableFields = [] }:
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor={`field-help-${field.id}`}>Help text</Label>
+              <Label htmlFor={`field-help-${field.id}`}>Help text / description</Label>
               <Textarea
                 id={`field-help-${field.id}`}
                 value={field.helpText ?? ""}
                 onChange={(e) => onUpdate({ ...field, helpText: e.target.value || undefined })}
               />
+            </div>
+
+            {!isReadOnly && !isUpload && (
+              <div className="space-y-1">
+                <Label htmlFor={`field-placeholder-${field.id}`}>Placeholder</Label>
+                <Input
+                  id={`field-placeholder-${field.id}`}
+                  value={field.placeholder ?? ""}
+                  onChange={(e) => onUpdate({ ...field, placeholder: e.target.value || undefined })}
+                  placeholder="Hint shown inside the input"
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor={`field-location-tag-${field.id}`}>Location tag</Label>
+                <Input
+                  id={`field-location-tag-${field.id}`}
+                  value={field.locationTag ?? ""}
+                  onChange={(e) => onUpdate({ ...field, locationTag: e.target.value || undefined })}
+                  placeholder="e.g. Kitchen"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor={`field-severity-${field.id}`}>Priority</Label>
+                <Select
+                  value={field.severity ?? "none"}
+                  onValueChange={(v) =>
+                    onUpdate({ ...field, severity: v === "none" ? undefined : (v as FormField["severity"]) })
+                  }
+                >
+                  <SelectTrigger id={`field-severity-${field.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-1">
@@ -204,14 +248,24 @@ export function FieldEditor({ field, onUpdate, onRemove, availableFields = [] }:
             )}
 
             {field.type === "yesno" && (
-              <div className="flex items-center justify-between">
-                <Label htmlFor={`field-na-${field.id}`}>Include &quot;N/A&quot; option</Label>
-                <Switch
-                  id={`field-na-${field.id}`}
-                  checked={Boolean(field.includeNa)}
-                  onCheckedChange={(checked) => onUpdate({ ...field, includeNa: checked || undefined })}
-                />
-              </div>
+              <>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`field-na-${field.id}`}>Include &quot;N/A&quot; option</Label>
+                  <Switch
+                    id={`field-na-${field.id}`}
+                    checked={Boolean(field.includeNa)}
+                    onCheckedChange={(checked) => onUpdate({ ...field, includeNa: checked || undefined })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`field-details-no-${field.id}`}>Require details when &quot;No&quot;</Label>
+                  <Switch
+                    id={`field-details-no-${field.id}`}
+                    checked={Boolean(field.detailsWhenNo)}
+                    onCheckedChange={(checked) => onUpdate({ ...field, detailsWhenNo: checked || undefined })}
+                  />
+                </div>
+              </>
             )}
 
             {hasRange && (
@@ -329,12 +383,149 @@ export function FieldEditor({ field, onUpdate, onRemove, availableFields = [] }:
                 availableFields={availableFields}
               />
             </div>
+
+            {!isReadOnly && (
+              <SubFieldsEditor
+                field={field}
+                onUpdate={onUpdate}
+                availableFields={availableFields}
+              />
+            )}
           </div>
         </DrawerContent>
       </Drawer>
 
+      {onDuplicate && (
+        <Button variant="ghost" size="icon" onClick={onDuplicate} aria-label="Duplicate field">
+          <Copy className="size-4" />
+        </Button>
+      )}
       <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Remove field">
         <Trash2 className="size-4 text-destructive" />
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * One-level-deep sub-fields. Each child is a regular FormField rendered
+ * indented under its parent on the cleaner form and counted in validation,
+ * conditions, and statistics.
+ */
+function SubFieldsEditor({
+  field,
+  onUpdate,
+  availableFields,
+}: {
+  field: FormField;
+  onUpdate: (field: FormField) => void;
+  availableFields: Array<{ id: string; label: string }>;
+}) {
+  const children = field.children ?? [];
+
+  function setChildren(next: FormField[]) {
+    onUpdate({ ...field, children: next.length ? next : undefined });
+  }
+
+  function updateChild(index: number, child: FormField) {
+    setChildren(children.map((c, i) => (i === index ? child : c)));
+  }
+
+  // Children may reference the parent (or any other field) in conditions.
+  const conditionFields = [{ id: field.id, label: `${field.label || field.id} (parent)` }, ...availableFields];
+
+  return (
+    <div className="space-y-2">
+      <Label>Sub-fields</Label>
+      {children.map((child, index) => {
+        const childDef = getFieldTypeDef(child.type);
+        return (
+          <div key={child.id} className="space-y-2 rounded-md border p-2">
+            <div className="flex items-center gap-2">
+              <Input
+                value={child.label}
+                onChange={(e) => updateChild(index, { ...child, label: e.target.value })}
+                placeholder="Sub-field label"
+                className="flex-1"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setChildren(children.filter((_, i) => i !== index))}
+                aria-label="Remove sub-field"
+              >
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                value={child.type}
+                onValueChange={(v) =>
+                  updateChild(index, {
+                    ...child,
+                    type: v as FormFieldType,
+                    ...(getFieldTypeDef(v)?.defaultConfig ?? {}),
+                  })
+                }
+              >
+                <SelectTrigger aria-label="Sub-field type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[40vh]">
+                  {Object.values(FIELD_TYPES).map((d) => (
+                    <SelectItem key={d.type} value={d.type}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex items-center justify-end gap-2">
+                <Label htmlFor={`subfield-required-${child.id}`} className="text-xs">
+                  Required
+                </Label>
+                <Switch
+                  id={`subfield-required-${child.id}`}
+                  checked={Boolean(child.required)}
+                  onCheckedChange={(checked) => updateChild(index, { ...child, required: checked || undefined })}
+                />
+              </div>
+            </div>
+            {childDef?.hasOptions ? (
+              <Textarea
+                value={(child.options ?? []).join("\n")}
+                onChange={(e) =>
+                  updateChild(index, {
+                    ...child,
+                    options: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean),
+                  })
+                }
+                placeholder="Options (one per line)"
+              />
+            ) : null}
+            <ConditionEditor
+              condition={child.conditional}
+              onChange={(conditional) => updateChild(index, { ...child, conditional })}
+              availableFields={conditionFields}
+            />
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          setChildren([
+            ...children,
+            {
+              id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: "text",
+              label: "New sub-field",
+            },
+          ])
+        }
+      >
+        <Plus className="mr-1 size-4" /> Add sub-field
       </Button>
     </div>
   );

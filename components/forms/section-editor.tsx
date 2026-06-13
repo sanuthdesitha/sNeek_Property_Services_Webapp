@@ -30,10 +30,12 @@ import type {
 export interface SectionEditorProps {
   section: FormSection;
   onUpdateTitle: (title: string) => void;
+  onUpdateDescription?: (description: string) => void;
   onRemove: () => void;
   onAddField: (field: FormField) => void;
   onUpdateField: (field: FormField) => void;
   onRemoveField: (fieldId: string) => void;
+  onDuplicateField?: (fieldId: string) => void;
   onReorderFields: (from: number, to: number) => void;
   availableFields?: Array<{ id: string; label: string }>;
 }
@@ -41,10 +43,12 @@ export interface SectionEditorProps {
 export function SectionEditor({
   section,
   onUpdateTitle,
+  onUpdateDescription,
   onRemove,
   onAddField,
   onUpdateField,
   onRemoveField,
+  onDuplicateField,
   onReorderFields,
   availableFields = [],
 }: SectionEditorProps) {
@@ -106,6 +110,18 @@ export function SectionEditor({
         </Button>
       </div>
 
+      {onUpdateDescription ? (
+        <div className="mb-3">
+          <Input
+            value={section.description ?? ""}
+            onChange={(e) => onUpdateDescription(e.target.value)}
+            className="text-sm"
+            placeholder="Section description shown to the cleaner (optional)"
+            aria-label="Section description"
+          />
+        </div>
+      ) : null}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -127,6 +143,7 @@ export function SectionEditor({
                 field={field}
                 onUpdate={onUpdateField}
                 onRemove={() => onRemoveField(field.id)}
+                onDuplicate={onDuplicateField ? () => onDuplicateField(field.id) : undefined}
                 availableFields={availableFields.filter((f) => f.id !== field.id)}
               />
             ))}

@@ -10,6 +10,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { toast } from "@/hooks/use-toast";
+import {
+  NextStopCard,
+  RouteShareControl,
+  TodayRouteMap,
+  type RouteStop,
+} from "@/components/laundry/today-live-map";
 
 type LaundryStatus = "PENDING" | "CONFIRMED" | "PICKED_UP" | "DROPPED" | "FLAGGED" | "SKIPPED_PICKUP";
 type StatusFilter = "all" | "pending" | "confirmed" | "flagged";
@@ -26,7 +32,10 @@ type LaundryTask = {
   property: {
     id: string;
     name: string;
+    address?: string | null;
     suburb?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     linenBufferSets?: number | null;
   };
   job?: { jobNumber?: string | null } | null;
@@ -73,26 +82,32 @@ export default function LaundryTodayPage() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(options?: { silent?: boolean }) {
+    if (!options?.silent) setLoading(true);
     try {
       const today = startOfDay(new Date()).toISOString();
       const res = await fetch(`/api/laundry/week?start=${today}&days=2`);
       const data = await res.json();
       setTasks(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      toast({
-        title: "Could not load laundry tasks",
-        description: err?.message ?? "Unknown error",
-        variant: "destructive",
-      });
+      if (!options?.silent) {
+        toast({
+          title: "Could not load laundry tasks",
+          description: err?.message ?? "Unknown error",
+          variant: "destructive",
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     load();
+    // Keep the board + route map live: silent refresh every 20s.
+    const interval = setInterval(() => load({ silent: true }), 20_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const buckets = useMemo(() => {
@@ -149,6 +164,46 @@ export default function LaundryTodayPage() {
     return out;
   }, [tasks, filter]);
 
+  // Suggested visit order for today's route: every pickup + drop-off stop,
+  // sorted by scheduled time then suburb.
+  const routeStops = useMemo<RouteStop[]>(() => {
+    const stops: RouteStop[] = [];
+    for (const task of buckets.today.pickups) {
+      stops.push({
+        taskId: task.id,
+        kind: "pickup",
+        propertyName: task.property?.name ?? "Unknown property",
+        address: task.property?.address ?? null,
+        suburb: task.property?.suburb ?? null,
+        lat: typeof task.property?.latitude === "number" ? task.property.latitude : null,
+        lng: typeof task.property?.longitude === "number" ? task.property.longitude : null,
+        status: task.status,
+        scheduledAt: task.pickupDate,
+        done: task.status === "PICKED_UP" || task.status === "DROPPED" || task.status === "SKIPPED_PICKUP",
+      });
+    }
+    for (const task of buckets.today.dropoffs) {
+      stops.push({
+        taskId: task.id,
+        kind: "dropoff",
+        propertyName: task.property?.name ?? "Unknown property",
+        address: task.property?.address ?? null,
+        suburb: task.property?.suburb ?? null,
+        lat: typeof task.property?.latitude === "number" ? task.property.latitude : null,
+        lng: typeof task.property?.longitude === "number" ? task.property.longitude : null,
+        status: task.status,
+        scheduledAt: task.dropoffDate,
+        done: task.status === "DROPPED",
+      });
+    }
+    stops.sort((a, b) => {
+      const timeDiff = new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return (a.suburb ?? "").localeCompare(b.suburb ?? "");
+    });
+    return stops;
+  }, [buckets]);
+
   async function quickConfirm(task: LaundryTask, kind: ActionKind) {
     setSubmittingId(task.id);
     try {
@@ -203,16 +258,20 @@ export default function LaundryTodayPage() {
                 <SelectItem value="flagged">Flagged</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
               <RefreshCw className={`mr-1.5 size-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/laundry">Full planner</Link>
             </Button>
+            <RouteShareControl />
           </>
         }
       />
+
+      <NextStopCard stops={routeStops} />
+      <TodayRouteMap stops={routeStops} />
 
       <DayBoard
         title="Today"

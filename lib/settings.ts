@@ -117,6 +117,12 @@ export interface ScheduledNotificationSettings {
 
 export interface AutoClockOutSettings {
   enabled: boolean;
+  /**
+   * When true, the legacy behaviour applies: a running timer is cut off at
+   * the job's estimated duration. Default false — the timer keeps running
+   * past the estimate; only due-time + grace / midnight / max-length apply.
+   */
+  stopAtEstimatedDuration: boolean;
   graceMinutes: number;
   fallbackAtMidnight: boolean;
   maxJobLengthHours: number;
@@ -392,6 +398,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   autoClockOut: {
     enabled: true,
+    stopAtEstimatedDuration: false,
     graceMinutes: 30,
     fallbackAtMidnight: true,
     maxJobLengthHours: 8,
@@ -692,6 +699,10 @@ function sanitizeAutoClockOut(
   const row = input as Record<string, unknown>;
   return {
     enabled: typeof row.enabled === "boolean" ? row.enabled : fallback.enabled,
+    stopAtEstimatedDuration:
+      typeof row.stopAtEstimatedDuration === "boolean"
+        ? row.stopAtEstimatedDuration
+        : fallback.stopAtEstimatedDuration,
     graceMinutes: clamp(Number(row.graceMinutes ?? fallback.graceMinutes), 0, 240),
     fallbackAtMidnight:
       typeof row.fallbackAtMidnight === "boolean"
