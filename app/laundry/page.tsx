@@ -20,6 +20,7 @@ import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
+import { ChartCard, KpiTile, DonutStat } from "@/components/charts";
 
 type ActionType =
   | "PICKED_UP"
@@ -1086,6 +1087,15 @@ export default function LaundryPortal() {
       return sum + (meta?.event === "DROPPED" && typeof meta.totalPrice === "number" ? Number(meta.totalPrice) : 0);
     }, 0);
 
+  // Real status composition for the donut — counts already derived above.
+  const statusSlices = [
+    { label: "Awaiting pickup", value: confirmedTasks.length, tone: "primary" as const },
+    { label: "At laundry", value: pickedUpCount, tone: "warning" as const },
+    { label: "Returned", value: returnedCount, tone: "success" as const },
+    { label: "Skipped", value: skippedTasks.length, tone: "destructive" as const },
+  ].filter((slice) => slice.value > 0);
+  const statusTotal = statusSlices.reduce((sum, slice) => sum + slice.value, 0);
+
   const STATUS_BADGE: Record<string, any> = {
     PENDING: "secondary",
     CONFIRMED: "default",
@@ -1297,51 +1307,43 @@ export default function LaundryPortal() {
         </CardContent>
       </Card>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <Shirt className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting pickup</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{confirmedTasks.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warning/10">
-              <Truck className="h-4 w-4 text-warning" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">At laundry</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{pickedUpCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-success/10">
-              <CheckCircle2 className="h-4 w-4 text-success" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Returned</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{returnedCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <AlertTriangle className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{laundryConfig.showCostTracking ? "Revenue tracked" : "Skipped pickups"}</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(0)}` : skippedTasks.length}</p>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <KpiTile
+            label="Awaiting pickup"
+            value={confirmedTasks.length}
+            icon={<Shirt />}
+            tone="primary"
+          />
+          <KpiTile
+            label="At laundry"
+            value={pickedUpCount}
+            icon={<Truck />}
+            tone="warning"
+          />
+          <KpiTile
+            label="Returned"
+            value={returnedCount}
+            icon={<CheckCircle2 />}
+            tone="success"
+          />
+          <KpiTile
+            label={laundryConfig.showCostTracking ? "Revenue tracked" : "Skipped pickups"}
+            value={laundryConfig.showCostTracking ? `$${trackedReturnCost.toFixed(0)}` : skippedTasks.length}
+            icon={<AlertTriangle />}
+            tone={laundryConfig.showCostTracking ? "accent" : "destructive"}
+          />
+        </div>
+        {statusTotal > 0 ? (
+          <ChartCard title="Status Mix" subtitle="Linen tasks in the current range by stage.">
+            <DonutStat
+              slices={statusSlices}
+              height={220}
+              centerValue={statusTotal}
+              centerLabel="Tasks"
+            />
+          </ChartCard>
+        ) : null}
       </section>
 
       {skippedTasks.length > 0 ? (

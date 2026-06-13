@@ -31,6 +31,7 @@ import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
 import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 import { formatAssignmentResponseLabel, formatJobStatusLabel } from "@/lib/jobs/assignment-workflow";
 import { CleanerJobOfferActions } from "@/components/cleaner/job-offer-actions";
+import { ChartCard, KpiTile, BarCompare } from "@/components/charts";
 
 const TZ = "Australia/Sydney";
 
@@ -324,6 +325,15 @@ export default async function CleanerDashboard() {
     return { date: d, label: i === 0 ? "Today" : format(toZonedTime(d, TZ), "EEE d") };
   });
 
+  // Real jobs-per-day series for the week (confirmed + awaiting offers), used by
+  // the workload chart and the "Jobs today" sparkline. No fabricated numbers.
+  const scheduledThisWeek = [...confirmedJobs, ...awaitingConfirmationJobs];
+  const weekChartData = weekDays.map(({ date, label }) => ({
+    day: label === "Today" ? "Today" : format(toZonedTime(date, TZ), "EEE"),
+    jobs: scheduledThisWeek.filter((j) => isSameLocalDay(toZonedTime(j.scheduledDate, TZ), date)).length,
+  }));
+  const weekHasJobs = weekChartData.some((d) => d.jobs > 0);
+
   return (
     <div className="space-y-5">
       {/* ── HERO ── */}
@@ -430,63 +440,57 @@ export default async function CleanerDashboard() {
       </Card>
 
       {/* ── STATS ROW ── */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <CalendarDays className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jobs today</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{todayJobs.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Clock className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Hours this month</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{totalHoursMonth.toFixed(1)}h</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <HandCoins className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending pay requests</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{pendingExtraRequests}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <CreditCard className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Approved extras</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{formatCurrency(approvedExtrasMonth)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/15">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting confirmation</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums">{awaitingConfirmationJobs.length}</p>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+        <KpiTile
+          label="Jobs today"
+          value={todayJobs.length}
+          icon={<CalendarDays />}
+          tone="primary"
+          spark={weekHasJobs ? weekChartData.map((d) => ({ value: d.jobs })) : undefined}
+        />
+        <KpiTile
+          label="Hours this month"
+          value={`${totalHoursMonth.toFixed(1)}h`}
+          icon={<Clock />}
+          tone="info"
+        />
+        <KpiTile
+          label="Pending pay requests"
+          value={pendingExtraRequests}
+          icon={<HandCoins />}
+          tone="accent"
+          href={visibility.showPayRequests ? "/cleaner/pay-requests" : undefined}
+        />
+        <KpiTile
+          label="Approved extras"
+          value={formatCurrency(approvedExtrasMonth)}
+          icon={<CreditCard />}
+          tone="success"
+        />
+        <KpiTile
+          label="Awaiting confirmation"
+          value={awaitingConfirmationJobs.length}
+          icon={<AlertTriangle />}
+          tone="warning"
+        />
       </section>
+
+      {/* ── WORKLOAD CHART ── */}
+      {visibility.showJobs && weekHasJobs && (
+        <ChartCard
+          title="This Week's Workload"
+          subtitle="Confirmed and offered jobs scheduled per day."
+        >
+          <BarCompare
+            data={weekChartData}
+            xKey="day"
+            dataKey="jobs"
+            height={220}
+            highlightIndex={0}
+            valueFormatter={(v) => `${v}`}
+          />
+        </ChartCard>
+      )}
 
       {/* ── ONGOING JOB (if any) ── */}
       {ongoingJob && visibility.showJobs && (

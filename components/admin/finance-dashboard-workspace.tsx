@@ -1,132 +1,205 @@
 "use client";
 
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DollarSign, TrendingUp, Users, Target, AlertTriangle, Gauge } from "lucide-react";
+import {
+  ChartCard,
+  KpiTile,
+  AreaTrend,
+  BarCompare,
+  DonutStat,
+  type DonutSlice,
+} from "@/components/charts";
 
-const COLORS = [
-  "hsl(var(--primary))",
-  "hsl(var(--info))",
-  "hsl(var(--warning))",
-  "hsl(var(--accent))",
-  "hsl(var(--success))",
-  "hsl(var(--destructive))",
-  "hsl(var(--secondary))",
-  "hsl(var(--muted-foreground))",
-];
+interface FinanceDashboardData {
+  metrics: {
+    mtdRevenue: number;
+    ytdRevenue: number;
+    avgJobValue: number;
+    activeClients: number;
+    churnRiskClients: number;
+    leadConversionRate: number;
+  };
+  revenueByMonth: Array<{ label: string; revenue: number }>;
+  revenueByServiceType: Array<{ label: string; revenue: number }>;
+  revenueByCleaner: Array<{ label: string; revenue: number }>;
+  jobsCompletedPerWeek: Array<{ label: string; jobs: number }>;
+  qaTrend: Array<{ label: string; score: number }>;
+}
 
 function money(value: number) {
-  return `$${Number(value ?? 0).toFixed(2)}`;
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }
 
-function tooltipMoney(value: number | string | readonly (number | string)[] | undefined) {
-  const numeric = Number(Array.isArray(value) ? value[0] : value ?? 0);
-  return money(numeric);
+function moneyAxis(value: number) {
+  const v = Number(value ?? 0);
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`;
+  return `$${Math.round(v)}`;
 }
 
-function tooltipPercent(value: number | string | readonly (number | string)[] | undefined) {
-  const numeric = Number(Array.isArray(value) ? value[0] : value ?? 0);
-  return `${numeric.toFixed(1)}%`;
+/** Percentage change between the last two points of a numeric series. */
+function pctDelta(values: number[]): number | null {
+  if (values.length < 2) return null;
+  const prev = values[values.length - 2];
+  const curr = values[values.length - 1];
+  if (!prev) return null;
+  return ((curr - prev) / prev) * 100;
 }
 
-export function FinanceDashboardWorkspace({ data }: { data: any }) {
+export function FinanceDashboardWorkspace({ data }: { data: FinanceDashboardData }) {
+  const revenueSeries = data.revenueByMonth.map((m) => ({ ...m }));
+  const revenueSpark = revenueSeries.map((m) => ({ value: m.revenue }));
+  const revenueDelta = pctDelta(revenueSeries.map((m) => m.revenue));
+
+  const jobsSpark = data.jobsCompletedPerWeek.map((w) => ({ value: w.jobs }));
+  const jobsDelta = pctDelta(data.jobsCompletedPerWeek.map((w) => w.jobs));
+
+  const qaSpark = data.qaTrend.map((q) => ({ value: q.score }));
+
+  // Real composition: paid-invoice revenue split by service type (top 8).
+  const serviceSlices: DonutSlice[] = data.revenueByServiceType.map((s) => ({
+    label: s.label,
+    value: s.revenue,
+  }));
+  const totalServiceRevenue = serviceSlices.reduce((sum, s) => sum + s.value, 0);
+
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <MetricCard label="MTD Revenue" value={money(data.metrics.mtdRevenue)} />
-        <MetricCard label="YTD Revenue" value={money(data.metrics.ytdRevenue)} />
-        <MetricCard label="Avg Job Value" value={money(data.metrics.avgJobValue)} />
-        <MetricCard label="Active Clients" value={String(data.metrics.activeClients)} />
-        <MetricCard label="Churn Risk" value={String(data.metrics.churnRiskClients)} />
-        <MetricCard label="Lead Conversion" value={`${Number(data.metrics.leadConversionRate ?? 0).toFixed(1)}%`} />
+      {/* KPI row — real deltas/sparklines derived from the trend arrays. */}
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiTile
+          label="MTD revenue"
+          value={money(data.metrics.mtdRevenue)}
+          icon={<DollarSign />}
+          tone="success"
+          delta={revenueDelta}
+          deltaLabel="vs last mo"
+          spark={revenueSpark}
+        />
+        <KpiTile
+          label="YTD revenue"
+          value={money(data.metrics.ytdRevenue)}
+          icon={<TrendingUp />}
+          tone="primary"
+          spark={revenueSpark}
+        />
+        <KpiTile
+          label="Avg job value"
+          value={money(data.metrics.avgJobValue)}
+          icon={<Gauge />}
+          tone="info"
+        />
+        <KpiTile
+          label="Lead conversion"
+          value={`${Number(data.metrics.leadConversionRate ?? 0).toFixed(1)}%`}
+          icon={<Target />}
+          tone="accent"
+        />
+        <KpiTile
+          label="Active clients"
+          value={String(data.metrics.activeClients)}
+          icon={<Users />}
+          tone="primary"
+        />
+        <KpiTile
+          label="Churn risk"
+          value={String(data.metrics.churnRiskClients)}
+          icon={<AlertTriangle />}
+          tone={data.metrics.churnRiskClients > 0 ? "warning" : "neutral"}
+          deltaLabel="no booking 60d+"
+        />
+        <KpiTile
+          label="Jobs / week"
+          value={String(data.jobsCompletedPerWeek.at(-1)?.jobs ?? 0)}
+          icon={<TrendingUp />}
+          tone="success"
+          delta={jobsDelta}
+          deltaLabel="vs last wk"
+          spark={jobsSpark}
+        />
+        <KpiTile
+          label="QA score · latest"
+          value={`${Math.round(data.qaTrend.at(-1)?.score ?? 0)}%`}
+          icon={<Gauge />}
+          tone="info"
+          spark={qaSpark}
+        />
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <ChartCard title="Revenue by Month">
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={data.revenueByMonth} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
-              <YAxis tickFormatter={(value) => `$${Math.round(value)}`} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
-              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[10, 10, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Revenue by Service Type">
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie data={data.revenueByServiceType} dataKey="revenue" nameKey="label" outerRadius={110} innerRadius={58} paddingAngle={3}>
-                {data.revenueByServiceType.map((entry: any, index: number) => (
-                  <Cell key={entry.label} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <ChartCard title="Revenue by Cleaner">
-          <ResponsiveContainer width="100%" height={340}>
-            <BarChart data={data.revenueByCleaner} layout="vertical" margin={{ top: 12, right: 24, left: 24, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis type="number" tickFormatter={(value) => `$${Math.round(value)}`} stroke="hsl(var(--muted-foreground))" />
-              <YAxis type="category" dataKey="label" width={120} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip formatter={tooltipMoney} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
-              <Bar dataKey="revenue" fill="hsl(var(--info))" radius={[0, 10, 10, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Jobs Completed per Week">
-          <ResponsiveContainer width="100%" height={340}>
-            <LineChart data={data.jobsCompletedPerWeek} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
-              <YAxis allowDecimals={false} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
-              <Line type="monotone" dataKey="jobs" stroke="hsl(var(--warning))" strokeWidth={3} dot={{ r: 4 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      <ChartCard title="Average QA Score Trend">
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={data.qaTrend} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" />
-            <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" />
-            <Tooltip formatter={tooltipPercent} contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6 }} />
-            <Line type="monotone" dataKey="score" stroke="hsl(var(--success))" strokeWidth={3} dot={{ r: 4 }} />
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Revenue trend — full-width gradient area. */}
+      <ChartCard
+        title="Revenue trend"
+        subtitle="Paid invoice revenue by month (rolling 24 months)"
+      >
+        <AreaTrend
+          data={revenueSeries}
+          xKey="label"
+          series={[{ dataKey: "revenue", label: "Revenue", tone: "primary" }]}
+          valueFormatter={moneyAxis}
+          height={300}
+        />
       </ChartCard>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ChartCard
+          title="Revenue by service type"
+          subtitle="Share of paid revenue · top 8"
+        >
+          <DonutStat
+            slices={serviceSlices}
+            centerValue={money(totalServiceRevenue)}
+            centerLabel="Total"
+            valueFormatter={money}
+            height={300}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Jobs completed per week"
+          subtitle="Completed + invoiced jobs"
+        >
+          <AreaTrend
+            data={data.jobsCompletedPerWeek}
+            xKey="label"
+            series={[{ dataKey: "jobs", label: "Jobs", tone: "accent" }]}
+            height={300}
+          />
+        </ChartCard>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ChartCard
+          title="Cleaner contribution"
+          subtitle="Revenue attributed by assignment · top 10"
+        >
+          <BarCompare
+            data={data.revenueByCleaner}
+            xKey="label"
+            dataKey="revenue"
+            horizontal
+            tone="info"
+            valueFormatter={moneyAxis}
+            highlightIndex={0}
+            height={340}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Average QA score trend"
+          subtitle="Weekly mean inspection score"
+        >
+          <AreaTrend
+            data={data.qaTrend}
+            xKey="label"
+            series={[{ dataKey: "score", label: "QA score", tone: "success" }]}
+            valueFormatter={(v) => `${Math.round(v)}%`}
+            height={340}
+          />
+        </ChartCard>
+      </div>
     </div>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardContent className="space-y-1 p-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-2xl font-semibold">{value}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
   );
 }

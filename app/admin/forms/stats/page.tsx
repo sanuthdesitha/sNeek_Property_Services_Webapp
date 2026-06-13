@@ -14,6 +14,11 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ChartCard, KpiTile } from "@/components/charts";
+import {
+  FormsWeeklyVolume,
+  FormsFieldCompletion,
+} from "@/components/admin/forms-stats-charts";
 import { flattenFieldsOneLevel, fieldDetailsKey } from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 
@@ -143,7 +148,6 @@ export default async function FormStatsPage({
     const bucket = weekBuckets.find((b) => b.label === label);
     if (bucket) bucket.count += 1;
   }
-  const maxWeekly = Math.max(1, ...weekBuckets.map((b) => b.count));
 
   // ---- per-field aggregation ----
   const fields = collectTemplateFields(template?.schema);
@@ -225,6 +229,23 @@ export default async function FormStatsPage({
 
   const pct = (num: number, den: number) => (den > 0 ? `${Math.round((num / den) * 100)}%` : "–");
 
+  // Per-field completion-rate series for the BarCompare (top 12 by completion).
+  const fieldCompletionData = fields
+    .map((meta) => {
+      const stat = statsByField.get(meta.id);
+      const completion = parsed > 0 && stat ? Math.round((stat.answered / parsed) * 100) : 0;
+      return { label: meta.label, completion };
+    })
+    .sort((a, b) => b.completion - a.completion)
+    .slice(0, 12);
+
+  const photosPerSubmission =
+    parsed > 0
+      ? Array.from(statsByField.values()).reduce((s, f) => s + f.photoTotal, 0) / parsed
+      : null;
+  const avgCompletionMin =
+    durationCount > 0 ? Math.round(durationSumMs / durationCount / 60000) : null;
+
   return (
     <div className="space-y-6 p-6">
       <PageHeader
@@ -291,53 +312,41 @@ export default async function FormStatsPage({
         </div>
       ) : (
         <>
-          {/* Headline numbers */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card className="rounded-xl">
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Submissions ({weeks} wks)</p>
-                <p className="text-2xl font-bold tabular-nums">{parsed}</p>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl">
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Photos per submission</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {parsed > 0
-                    ? (
-                        Array.from(statsByField.values()).reduce((s, f) => s + f.photoTotal, 0) / parsed
-                      ).toFixed(1)
-                    : "–"}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl">
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Avg completion time</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {durationCount > 0
-                    ? `${Math.round(durationSumMs / durationCount / 60000)} min`
-                    : "Not tracked"}
-                </p>
-              </CardContent>
-            </Card>
+          {/* Headline KPIs */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <KpiTile
+              tone="primary"
+              label={`Submissions · ${weeks} wks`}
+              value={parsed}
+              spark={weekBuckets.map((b) => ({ value: b.count }))}
+            />
+            <KpiTile
+              tone="info"
+              label="Photos per submission"
+              value={photosPerSubmission !== null ? photosPerSubmission.toFixed(1) : "–"}
+            />
+            <KpiTile
+              tone="accent"
+              label="Avg completion time"
+              value={avgCompletionMin !== null ? `${avgCompletionMin} min` : "Not tracked"}
+            />
           </div>
 
           {/* Weekly volume */}
-          <Card className="rounded-xl">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Submissions per week — {template.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5 p-4 pt-0">
-              {weekBuckets.map((bucket) => (
-                <div key={bucket.label} className="flex items-center gap-3 text-xs">
-                  <span className="w-14 shrink-0 text-muted-foreground tabular-nums">{bucket.label}</span>
-                  {intensityBar(bucket.count, maxWeekly)}
-                  <span className="w-8 shrink-0 text-right font-medium tabular-nums">{bucket.count}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <ChartCard
+            title="Submissions per week"
+            subtitle={template.name}
+          >
+            <FormsWeeklyVolume data={weekBuckets} />
+          </ChartCard>
+
+          {/* Per-field completion */}
+          <ChartCard
+            title="Field completion rate"
+            subtitle="Share of submissions answering each field · top 12"
+          >
+            <FormsFieldCompletion data={fieldCompletionData} />
+          </ChartCard>
 
           {/* Location tag rollup */}
           {locationRollup.size > 0 ? (

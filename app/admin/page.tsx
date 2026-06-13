@@ -30,6 +30,8 @@ import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import Link from "next/link";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
+import { KpiTile } from "@/components/charts";
+import { OpsAnalyticsRow } from "@/components/admin/ops-analytics-row";
 import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
@@ -167,8 +169,35 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
     };
   });
 
-  return { recentJobs, upcomingSevenDayLoad };
+  // Job-status composition over the same next-7-day window (donut source).
+  const statusCounts = new Map<JobStatus, number>();
+  for (const row of chartRows) {
+    statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
+  }
+  const statusBreakdown = Array.from(statusCounts.entries())
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return { recentJobs, upcomingSevenDayLoad, statusBreakdown };
 }
+
+// Maps a JobStatus to a chart-kit tone for the status donut.
+const STATUS_TONE: Record<
+  JobStatus,
+  "primary" | "accent" | "success" | "warning" | "info" | "destructive"
+> = {
+  UNASSIGNED: "warning",
+  OFFERED: "warning",
+  ASSIGNED: "primary",
+  EN_ROUTE: "info",
+  IN_PROGRESS: "info",
+  PAUSED: "info",
+  WAITING_CONTINUATION_APPROVAL: "destructive",
+  SUBMITTED: "accent",
+  QA_REVIEW: "accent",
+  COMPLETED: "success",
+  INVOICED: "success",
+};
 
 const STATUS_COLORS: Record<JobStatus, string> = {
   UNASSIGNED: "warning",
@@ -458,32 +487,20 @@ export default async function AdminDashboard() {
         </Card>
       ) : null}
 
-      {/* Row 1: Revenue / Tomorrow availability / Outstanding invoices */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <DashboardStatCard
+      {/* Row 1: headline KPI tiles */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiTile
           href="/admin/jobs"
-          icon={<DollarSign className="h-4 w-4" />}
-          accent="success"
-          label="Today's earnings"
+          icon={<DollarSign />}
+          tone="success"
+          label={`Today's earnings · ${metrics.today.completed} done, ${metrics.today.remaining} to go`}
           value={formatAud(metrics.today.revenueAud)}
-          sublabel={
-            <>
-              <span className="font-semibold text-foreground tabular-nums">
-                {metrics.today.completed}
-              </span>{" "}
-              done ·{" "}
-              <span className="font-semibold text-foreground tabular-nums">
-                {metrics.today.remaining}
-              </span>{" "}
-              still scheduled
-            </>
-          }
         />
-        <DashboardStatCard
+        <KpiTile
           href="/admin/workforce"
-          icon={<Users className="h-4 w-4" />}
-          accent="info"
-          label="Cleaners tomorrow"
+          icon={<Users />}
+          tone="info"
+          label={`Cleaners tomorrow · ${metrics.tomorrow.idle} idle`}
           value={
             <span className="tabular-nums">
               {metrics.tomorrow.scheduled}
@@ -492,34 +509,39 @@ export default async function AdminDashboard() {
               </span>
             </span>
           }
-          sublabel={
-            <>
-              <span className="font-semibold text-foreground tabular-nums">
-                {metrics.tomorrow.idle}
-              </span>{" "}
-              idle and available
-            </>
-          }
         />
-        <DashboardStatCard
+        <KpiTile
           href="/admin/invoices"
-          icon={<Receipt className="h-4 w-4" />}
-          accent={metrics.invoices.outstandingCount > 0 ? "warning" : "neutral"}
-          label="Outstanding invoices"
+          icon={<Receipt />}
+          tone={metrics.invoices.outstandingCount > 0 ? "warning" : "neutral"}
+          label={`Outstanding · ${metrics.invoices.outstandingCount} unpaid`}
           value={formatAud(metrics.invoices.outstandingAud)}
-          sublabel={
-            <>
-              <span className="font-semibold text-foreground tabular-nums">
-                {metrics.invoices.outstandingCount}
-              </span>{" "}
-              awaiting payment
-            </>
-          }
+        />
+        <KpiTile
+          href="/qa"
+          icon={<ClipboardCheck />}
+          tone={metrics.qaPending > 0 ? "warning" : "neutral"}
+          label="Pending QA inspections"
+          value={metrics.qaPending}
         />
       </div>
 
-      {/* Row 2: Top cleaner / Pending QA / Low stock */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {/* Analytics row: 7-day load trend + job-status mix (ops-flavoured) */}
+      <OpsAnalyticsRow
+        sevenDayLoad={chartData.upcomingSevenDayLoad}
+        statusSlices={chartData.statusBreakdown.map((s) => ({
+          label: s.status.replace(/_/g, " "),
+          value: s.count,
+          tone: STATUS_TONE[s.status],
+        }))}
+        totalUpcoming={chartData.statusBreakdown.reduce(
+          (sum, s) => sum + s.count,
+          0,
+        )}
+      />
+
+      {/* Row 2: Top cleaner / Low stock */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card className="border-border bg-surface transition hover:bg-surface-raised">
           <Link
             href={
@@ -568,30 +590,16 @@ export default async function AdminDashboard() {
           </Link>
         </Card>
 
-        <DashboardStatCard
-          href="/qa"
-          icon={<ClipboardCheck className="h-4 w-4" />}
-          accent={metrics.qaPending > 0 ? "warning" : "neutral"}
-          label="Pending QA inspections"
-          value={metrics.qaPending}
-          sublabel={
-            metrics.qaPending > 0
-              ? "Open or assigned reviews"
-              : "All caught up"
-          }
-        />
-
-        <DashboardStatCard
+        <KpiTile
           href="/admin/inventory/properties"
-          icon={<PackageMinus className="h-4 w-4" />}
-          accent={metrics.lowStockCount > 0 ? "warning" : "neutral"}
-          label="Low-stock items"
-          value={metrics.lowStockCount}
-          sublabel={
+          icon={<PackageMinus />}
+          tone={metrics.lowStockCount > 0 ? "warning" : "neutral"}
+          label={
             metrics.lowStockCount > 0
-              ? "Below reorder threshold"
-              : "Stock levels healthy"
+              ? "Low-stock items · below reorder threshold"
+              : "Low-stock items · stock healthy"
           }
+          value={metrics.lowStockCount}
         />
       </div>
 
@@ -1072,66 +1080,5 @@ function HealthRow({
         {count}
       </span>
     </Link>
-  );
-}
-
-type Accent = "success" | "warning" | "info" | "neutral";
-
-const ACCENT_STYLES: Record<Accent, { icon: string; ring: string }> = {
-  success: {
-    icon: "bg-success/10 text-success",
-    ring: "hover:border-success/40",
-  },
-  warning: {
-    icon: "bg-warning/10 text-warning",
-    ring: "hover:border-warning/40",
-  },
-  info: {
-    icon: "bg-primary/10 text-primary",
-    ring: "hover:border-primary/40",
-  },
-  neutral: {
-    icon: "bg-muted text-muted-foreground",
-    ring: "hover:border-border",
-  },
-};
-
-function DashboardStatCard({
-  href,
-  icon,
-  label,
-  value,
-  sublabel,
-  accent = "neutral",
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  sublabel?: React.ReactNode;
-  accent?: Accent;
-}) {
-  const styles = ACCENT_STYLES[accent];
-  return (
-    <Card className={`border-border bg-surface transition ${styles.ring}`}>
-      <Link href={href} className="block p-5">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {label}
-          </p>
-          <span
-            className={`flex h-8 w-8 items-center justify-center rounded-lg ${styles.icon}`}
-          >
-            {icon}
-          </span>
-        </div>
-        <p className="mt-3 text-3xl font-bold tabular-nums text-foreground">
-          {value}
-        </p>
-        {sublabel ? (
-          <p className="mt-1 text-xs text-muted-foreground">{sublabel}</p>
-        ) : null}
-      </Link>
-    </Card>
   );
 }

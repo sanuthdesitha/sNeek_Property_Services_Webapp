@@ -15,6 +15,7 @@ import { getClientImmediateAttention } from "@/lib/dashboard/immediate-attention
 import { ClientReportDownloadButton } from "@/components/client/report-download-button";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { KpiTile } from "@/components/charts";
 
 const TZ = "Australia/Sydney";
 
@@ -218,29 +219,23 @@ export default async function ClientDashboard() {
       />
 
       {/* ─── STAT CARDS ─── */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { icon: Building2, label: "Properties", value: client?.properties?.length ?? 0, href: visibility.showProperties ? "/client/properties" : null },
-          { icon: ClipboardList, label: "Active jobs", value: ongoingJobs.length, href: visibility.showJobs ? "/client/jobs" : null },
-          { icon: FileText, label: "Recent reports", value: reports.length, href: visibility.showReports ? "/client/reports" : null },
-          ...(visibility.showFinanceDetails ? [{ icon: CreditCard, label: "Pending charges", value: `$${pendingChargeTotal.toFixed(2)}`, href: "/client/finance" }] : [{ icon: Package, label: "Tracked items", value: propertyStocks.length, href: visibility.showInventory ? "/client/inventory" : null }]),
-        ].map((stat) => (
-          <Card key={stat.label} className="transition-all duration-200 hover:border-primary/30">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                  <stat.icon className="h-4.5 w-4.5 text-primary" />
-                </div>
-                {stat.href && (
-                  <Link href={stat.href} className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                    View <ArrowRight className="inline h-3 w-3" />
-                  </Link>
-                )}
-              </div>
-              <p className="mt-3 text-2xl font-bold tracking-tight tabular-nums">{stat.value}</p>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{stat.label}</p>
-            </CardContent>
-          </Card>
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {([
+          { icon: <Building2 />, label: "Properties", value: client?.properties?.length ?? 0, tone: "primary" as const, href: visibility.showProperties ? "/client/properties" : undefined },
+          { icon: <ClipboardList />, label: "Active jobs", value: ongoingJobs.length, tone: "info" as const, href: visibility.showJobs ? "/client/jobs" : undefined },
+          { icon: <FileText />, label: "Recent reports", value: reports.length, tone: "accent" as const, href: visibility.showReports ? "/client/reports" : undefined },
+          ...(visibility.showFinanceDetails
+            ? [{ icon: <CreditCard />, label: "Pending charges", value: `$${pendingChargeTotal.toFixed(2)}`, tone: "warning" as const, href: "/client/finance" }]
+            : [{ icon: <Package />, label: "Tracked items", value: propertyStocks.length, tone: "success" as const, href: visibility.showInventory ? "/client/inventory" : undefined }]),
+        ]).map((stat) => (
+          <KpiTile
+            key={stat.label}
+            label={stat.label}
+            value={stat.value}
+            icon={stat.icon}
+            tone={stat.tone}
+            href={stat.href}
+          />
         ))}
       </div>
 

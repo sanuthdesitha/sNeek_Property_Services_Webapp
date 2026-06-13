@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { ChartCard, KpiTile } from "@/components/charts";
 import {
   ArrowLeft,
   Star,
@@ -206,15 +207,47 @@ export default async function CleanerPerformanceDetailPage({
         </CardContent>
       </Card>
 
+      {/* Headline KPIs · last 30 days */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        <KpiTile
+          icon={<Star />}
+          tone="primary"
+          label="Quality · 30d"
+          value={fmtScore(m30.quality.score)}
+        />
+        <KpiTile
+          icon={<Clock />}
+          tone="info"
+          label="Reliability · 30d"
+          value={fmtPct(m30.reliability.onTimePercent)}
+        />
+        <KpiTile
+          icon={<CheckCircle2 />}
+          tone="success"
+          label="Attendance · 30d"
+          value={fmtPct(m30.attendance.percent)}
+        />
+        <KpiTile
+          icon={<Users />}
+          tone="accent"
+          label="Customer rating · 30d"
+          value={fmtRating(m30.customerSatisfaction.avgRating)}
+        />
+        <KpiTile
+          icon={<ShieldCheck />}
+          tone="warning"
+          label="Doc compliance"
+          value={fmtPct(m30.documentCompliance.percent)}
+        />
+      </div>
+
       {/* Trend chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Trend across windows</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PerformanceTrendChart data={trendData} />
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Trend across windows"
+        subtitle="Quality, reliability, attendance, docs & training (30 / 90 / 365 days)"
+      >
+        <PerformanceTrendChart data={trendData} />
+      </ChartCard>
 
       {/* 3-window side-by-side */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -224,14 +257,12 @@ export default async function CleanerPerformanceDetailPage({
       </div>
 
       {/* Customer satisfaction trend */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Customer satisfaction</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SatisfactionTrendChart data={trendData} />
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Customer satisfaction"
+        subtitle="Average client rating (0–5) by window"
+      >
+        <SatisfactionTrendChart data={trendData} />
+      </ChartCard>
 
       <p className="text-xs text-muted-foreground">
         Windows are rolling from today. Percentages with very small sample sizes

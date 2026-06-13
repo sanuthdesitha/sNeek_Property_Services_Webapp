@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Users, Star, Clock, CheckCircle2, ShieldCheck, FileCheck, Trophy } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { ChartCard, KpiTile } from "@/components/charts";
+import { PerformanceLeaderboardChart } from "./performance-leaderboard-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +92,15 @@ export default async function CleanerPerformancePage() {
     return bq - aq;
   });
 
+  // Leaderboard chart: only cleaners with a real quality score (top 12).
+  const leaderboardData = sorted
+    .filter((r) => r.metrics.quality.score !== null)
+    .slice(0, 12)
+    .map((r) => ({
+      label: r.cleaner.name ?? r.cleaner.email ?? "Cleaner",
+      score: Math.round(r.metrics.quality.score as number),
+    }));
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       <PageHeader
@@ -104,43 +115,51 @@ export default async function CleanerPerformancePage() {
         }
       />
 
-      {/* Roster rollup */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <RollupCard
-          icon={Star}
-          label="Roster quality"
+      {/* Roster rollup KPIs */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        <KpiTile
+          icon={<Star />}
+          tone="primary"
+          label={`Roster quality · ${qualityScores.length} scored`}
           value={rosterQuality !== null ? `${rosterQuality}%` : "—"}
-          sub={`${qualityScores.length} cleaners scored`}
         />
-        <RollupCard
-          icon={Clock}
-          label="Roster reliability"
+        <KpiTile
+          icon={<Clock />}
+          tone="info"
+          label="Roster reliability · on-time"
           value={rosterReliability !== null ? `${rosterReliability}%` : "—"}
-          sub="On-time arrivals"
         />
-        <RollupCard
-          icon={CheckCircle2}
-          label="Roster attendance"
+        <KpiTile
+          icon={<CheckCircle2 />}
+          tone="success"
+          label="Roster attendance · done/assigned"
           value={rosterAttendance !== null ? `${rosterAttendance}%` : "—"}
-          sub="Completed vs assigned"
         />
-        <RollupCard
-          icon={Users}
-          label="Customer rating"
+        <KpiTile
+          icon={<Users />}
+          tone="accent"
+          label="Customer rating · avg"
           value={
             rosterSatisfaction !== null
               ? `★ ${rosterSatisfaction.toFixed(2)}`
               : "—"
           }
-          sub="Avg of all ratings"
         />
-        <RollupCard
-          icon={ShieldCheck}
-          label="Doc compliance"
+        <KpiTile
+          icon={<ShieldCheck />}
+          tone="warning"
+          label="Doc compliance · current"
           value={rosterDocs !== null ? `${rosterDocs}%` : "—"}
-          sub="Current credentials"
         />
       </div>
+
+      {/* Quality leaderboard chart */}
+      <ChartCard
+        title="Quality leaderboard"
+        subtitle="QA-derived quality score · 30-day window · top 12"
+      >
+        <PerformanceLeaderboardChart data={leaderboardData} />
+      </ChartCard>
 
       <Card>
         <CardHeader>
@@ -308,27 +327,3 @@ export default async function CleanerPerformancePage() {
   );
 }
 
-function RollupCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  sub: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-          <Icon className="size-3.5" />
-          {label}
-        </div>
-        <div className="mt-2 text-2xl font-semibold">{value}</div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
-      </CardContent>
-    </Card>
-  );
-}

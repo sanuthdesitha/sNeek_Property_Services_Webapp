@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardCheck, RefreshCw, UserPlus } from "lucide-react";
+import { ClipboardCheck, Inbox, Loader2, RefreshCw, UserCheck, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
+import { ChartCard, KpiTile, DonutStat } from "@/components/charts";
 
 type Inspector = { id: string; name: string | null; email: string; role: string };
 
@@ -62,6 +63,27 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
     return [...assigned, ...unassigned];
   }, [data]);
 
+  // Real queue counts derived from the loaded rows — no fabricated metrics.
+  const stats = useMemo(() => {
+    const total = rows.length;
+    const unassigned = rows.filter((row) => !row.assigned).length;
+    const inProgress = rows.filter(
+      (row) => row.assignment?.pickedUpById || row.assignment?.status === "IN_PROGRESS"
+    ).length;
+    const assigned = total - unassigned - inProgress;
+    return { total, unassigned, assigned: Math.max(0, assigned), inProgress };
+  }, [rows]);
+
+  const statusSlices = useMemo(
+    () =>
+      [
+        { label: "Unassigned", value: stats.unassigned, tone: "warning" as const },
+        { label: "Assigned", value: stats.assigned, tone: "info" as const },
+        { label: "In progress", value: stats.inProgress, tone: "primary" as const },
+      ].filter((slice) => slice.value > 0),
+    [stats]
+  );
+
   async function bulkAssign() {
     if (!selectedInspector || selectedJobs.length === 0) return;
     const res = await fetch("/api/admin/qa/assignments", {
@@ -103,6 +125,27 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
           </Button>
         }
       />
+
+      {!loading && (
+        <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <KpiTile label="In queue" value={stats.total} icon={<Inbox />} tone="primary" />
+            <KpiTile label="Unassigned" value={stats.unassigned} icon={<ClipboardCheck />} tone="warning" />
+            <KpiTile label="Assigned" value={stats.assigned} icon={<UserCheck />} tone="info" />
+            <KpiTile label="In progress" value={stats.inProgress} icon={<Loader2 />} tone="accent" />
+          </div>
+          {statusSlices.length > 0 ? (
+            <ChartCard title="Queue Mix" subtitle="Submitted jobs awaiting QA by stage.">
+              <DonutStat
+                slices={statusSlices}
+                height={220}
+                centerValue={stats.total}
+                centerLabel="Jobs"
+              />
+            </ChartCard>
+          ) : null}
+        </section>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
