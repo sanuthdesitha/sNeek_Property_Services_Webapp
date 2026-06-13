@@ -9,6 +9,11 @@ async function main() {
       console.log(`[skip] ${theme.kind} ${theme.name}`);
       continue;
     }
+    // Idempotent + safe to re-run: when this seed should be the default, demote
+    // any current default first so exactly one theme stays isDefault.
+    if (theme.isDefault) {
+      await prisma.reportTheme.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+    }
     await prisma.reportTheme.create({
       data: {
         name: theme.name,

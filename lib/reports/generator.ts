@@ -5,6 +5,8 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
+import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
+import { publicUrl } from "@/lib/s3";
 
 const TZ = "Australia/Sydney";
 export const REPORT_TEMPLATE_VERSION = "v4-themeable-evidence-branding";
@@ -422,6 +424,97 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
   return { html, usedMediaIds };
 }
 
+/**
+ * Build the client-facing "Quality inspection" section from the latest QA
+ * submission. Deliberately client-appropriate: QA pass/fail + score, the QA
+ * inspector's client-safe notes, a compact damage-findings summary, and the
+ * inspector's section photos. Internal pay/rework $ and cleaner-blame details
+ * are intentionally EXCLUDED — those live only in the standalone QA report.
+ */
+function buildQaSummaryHtml(
+  qaSubmission: any,
+  qa: any,
+  photoDims: { w: number; h: number }
+): { html: string; photoKeys: string[] } {
+  const data =
+    qaSubmission?.data && typeof qaSubmission.data === "object"
+      ? (qaSubmission.data as Record<string, unknown>)
+      : {};
+  const tools =
+    data[QA_TOOLS_DATA_KEY] && typeof data[QA_TOOLS_DATA_KEY] === "object"
+      ? (data[QA_TOOLS_DATA_KEY] as Record<string, any>)
+      : null;
+
+  const score = qa?.score ?? qaSubmission?.score ?? null;
+  const passed = qa?.passed ?? qaSubmission?.passed ?? null;
+  const notes = String(qa?.notes ?? qaSubmission?.notes ?? "").trim();
+
+  // Section photos → flat key list for the gallery.
+  const sectionPhotos: Record<string, unknown> =
+    tools?.sectionPhotos && typeof tools.sectionPhotos === "object" ? tools.sectionPhotos : {};
+  const photoKeys: string[] = [];
+  for (const value of Object.values(sectionPhotos)) {
+    if (Array.isArray(value)) {
+      for (const k of value) if (typeof k === "string" && k.trim()) photoKeys.push(k);
+    }
+  }
+
+  // Compact damage findings (area + severity + short description). No costs.
+  const damage = Array.isArray(tools?.damage) ? tools.damage : [];
+  const damageRows = damage
+    .filter((d: any) => d && (d.area || d.description))
+    .map(
+      (d: any) => `
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.area || "—")}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(String(d.severity ?? ""))}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.description || "—")}</td>
+        </tr>`
+    )
+    .join("");
+
+  // Nothing meaningful to show → no section.
+  if (score == null && !notes && !damageRows && photoKeys.length === 0) {
+    return { html: "", photoKeys: [] };
+  }
+
+  const photoHtml = photoKeys.length
+    ? `<div class="media-grid" style="margin-top:12px;">${photoKeys
+        .map(
+          (key) =>
+            `<div class="media-item"><img src="${escapeHtml(publicUrl(key))}" alt="QA inspection photo" style="width:${photoDims.w}px;height:${photoDims.h}px;object-fit:cover;border-radius:8px;" /></div>`
+        )
+        .join("")}</div>`
+    : "";
+
+  const html = `
+    <div class="section">
+      <h3 style="margin:0 0 8px 0;">Quality inspection</h3>
+      ${
+        score != null
+          ? `<p>Result: <span class="badge ${passed ? "pass" : "fail"}">${Number(score).toFixed(0)}% — ${passed ? "PASSED" : "FAILED"}</span></p>`
+          : ""
+      }
+      ${notes ? `<div class="label">Inspector notes</div><div class="value" style="white-space:pre-wrap;">${escapeHtml(notes)}</div>` : ""}
+      ${
+        damageRows
+          ? `<div class="label" style="margin-top:12px;">Damage findings</div>
+             <table style="width:100%;border-collapse:collapse;margin-top:6px;">
+               <thead><tr>
+                 <th style="padding:6px 8px;border-bottom:2px solid #d1d5db;text-align:left;">Area</th>
+                 <th style="padding:6px 8px;border-bottom:2px solid #d1d5db;text-align:left;">Severity</th>
+                 <th style="padding:6px 8px;border-bottom:2px solid #d1d5db;text-align:left;">Detail</th>
+               </tr></thead>
+               <tbody>${damageRows}</tbody>
+             </table>`
+          : ""
+      }
+      ${photoHtml ? `<div class="label" style="margin-top:12px;">Inspection photos</div>${photoHtml}` : ""}
+    </div>`;
+
+  return { html, photoKeys };
+}
+
 /** Generate and store a job report HTML + PDF. */
 export async function generateJobReport(jobId: string, themeId?: string | null): Promise<void> {
   const job = await db.job.findUnique({
@@ -446,6 +539,11 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
         take: 1,
       },
       qaReviews: { orderBy: { createdAt: "desc" }, take: 1 },
+      qaFormSubmissions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { submittedBy: { select: { name: true } } },
+      },
     },
   });
 
@@ -453,11 +551,12 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
 
   const submission = job.formSubmissions[0];
   const qa = job.qaReviews[0];
+  const qaSubmission = job.qaFormSubmissions?.[0] ?? null;
   const localDate = format(toZonedTime(job.scheduledDate, TZ), "dd MMMM yyyy");
   const settings = await getAppSettings();
   const theme = await loadTheme(themeId);
 
-  const html = buildReportHtml({ job, submission, qa, localDate, settings, theme });
+  const html = buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme });
 
   const htmlKey = `reports/${jobId}/report.html`;
   let storedHtmlKey: string | null = null;
@@ -521,7 +620,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   logger.info({ jobId, pdfUrl }, "Job report generated");
 }
 
-function buildReportHtml({ job, submission, qa, localDate, settings, theme }: any): string {
+function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme }: any): string {
   const checklist = submission ? buildChecklistHtml(job, submission) : { html: "", usedMediaIds: new Set<string>() };
   const adminRequestedTasks = submission
     ? buildAdminRequestedTasksHtml(submission)
@@ -552,51 +651,18 @@ function buildReportHtml({ job, submission, qa, localDate, settings, theme }: an
   const showGallery = isSectionVisible(themeRec, "before-after-gallery");
   const showSignature = isSectionVisible(themeRec, "signature");
   const showFooter = isSectionVisible(themeRec, "footer");
+  const showQaSummary = isSectionVisible(themeRec, "qa-summary");
   const renderedTitle = renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`;
   const customFooter = themeRec?.footerHtml?.trim() || "";
+  const template = String(themeRec?.layout?.template ?? "classic");
 
   const densityPad = density === "compact" ? "24px" : density === "comfortable" ? "56px" : "40px";
   const sectionMargin = density === "compact" ? "14px" : density === "comfortable" ? "32px" : "24px";
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<!-- report-template:${REPORT_TEMPLATE_VERSION} -->
-<!-- report-theme:${escapeHtml(themeRec?.kind ?? "DEFAULT")}:${escapeHtml(themeRec?.id ?? "none")} -->
-<style>
-  :root {
-    --primary: hsl(${primaryHsl});
-    --accent: hsl(${accentHsl});
-  }
-  body { font-family: Arial, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: ${densityPad}; }
-  .brand { display:flex; align-items:center; gap:12px; margin-bottom: 10px; }
-  .brand img { max-width:180px; max-height:64px; width:auto; height:auto; object-fit:contain; }
-  .brand h1 { margin:0; color: var(--primary); }
-  h1, h3 { color: var(--primary); }
-  .section { margin: ${sectionMargin} 0; }
-  .label { font-size: 12px; color: #666; text-transform: uppercase; }
-  .value { font-size: 16px; margin-top: 4px; }
-  .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 12px; }
-  .pass { background: #dcfce7; color: #16a34a; }
-  .fail { background: #fee2e2; color: #dc2626; }
-  .media-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
-  .media-item img { width: ${photoDims.w}px; height: ${photoDims.h}px; object-fit: cover; border-radius: 8px; }
-  .media-item a { display: inline-block; padding: 8px; background: #f3f4f6; border-radius: 8px; font-size: 12px; }
-  /* theme-driven photo sizing inside field-media renders */
-  div[style*="display:flex"] img { width: ${photoDims.w}px !important; height: ${photoDims.h}px !important; }
-  .photo-${photoSize} img { width: ${photoDims.w}px; height: ${photoDims.h}px; }
-  .hero-banner { width: 100%; border-radius: 12px; overflow: hidden; margin: 0 0 ${sectionMargin}; border: 1px solid #e5e7eb; }
-  .hero-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  footer { margin-top: 40px; font-size: 12px; color: #999; }
-</style>
-</head>
-<body>
-${showHeader ? `<div class="brand">
-  ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(companyName)} logo" />` : ""}
-  <h1>${escapeHtml(renderedTitle)}</h1>
-</div>` : ""}
-${showSummary ? `<p><strong>${escapeHtml(job.property.name)}</strong> - ${escapeHtml(job.property.address)}, ${escapeHtml(job.property.suburb)}</p>
+  // Client-facing QA summary (gated by the "qa-summary" theme section).
+  const qaSummary = showQaSummary ? buildQaSummaryHtml(qaSubmission, qa, photoDims) : { html: "", photoKeys: [] };
+
+  const summaryInnerHtml = `<p><strong>${escapeHtml(job.property.name)}</strong> - ${escapeHtml(job.property.address)}, ${escapeHtml(job.property.suburb)}</p>
 <p>Job Number: ${escapeHtml(job.jobNumber ?? job.id)}</p>
 <p>Date: ${escapeHtml(localDate)} | Type: ${escapeHtml(job.jobType.replace(/_/g, " "))}</p>
 <p>Cleaners: ${escapeHtml(job.assignments.map((a: any) => a.user.name).join(", ") || "N/A")}</p>
@@ -617,19 +683,201 @@ ${
   ${submission.bagLocation ? `<div class="value">Bag location: ${escapeHtml(submission.bagLocation)}</div>` : ""}
 </div>`
     : ""
-}` : ""}
-${showTaskChecklist ? `${adminRequestedTasks.html}
-${unifiedJobTasks.html}` : ""}
-${showTaskChecklist ? (checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>") : ""}
-${
-  showGallery && remainingMedia.length > 0
-    ? `<div class="section">
+}`;
+
+  const tasksHtml = showTaskChecklist ? `${adminRequestedTasks.html}\n${unifiedJobTasks.html}` : "";
+  const checklistBodyHtml = showTaskChecklist
+    ? checklistHtml || "<div class=\"section\"><p>No checklist values captured.</p></div>"
+    : "";
+  const galleryHtml =
+    showGallery && remainingMedia.length > 0
+      ? `<div class="section">
   <div class="label">Additional Evidence</div>
   <div class="media-grid photo-${photoSize}">${remainingMediaHtml}</div>
 </div>`
-    : ""
+      : "";
+  const footerHtml = showFooter
+    ? `<footer>${customFooter || `Generated by ${escapeHtml(companyName)} Dashboard - ${new Date().toISOString()}`}</footer>`
+    : "";
+
+  const headTags = `<meta charset="UTF-8"/>
+<!-- report-template:${REPORT_TEMPLATE_VERSION} -->
+<!-- report-theme:${escapeHtml(themeRec?.kind ?? "DEFAULT")}:${escapeHtml(themeRec?.id ?? "none")} -->
+<!-- report-style:${escapeHtml(template)} -->`;
+
+  const ctx = {
+    headTags,
+    primaryHsl,
+    accentHsl,
+    densityPad,
+    sectionMargin,
+    photoDims,
+    photoSize,
+    companyName,
+    logoUrl,
+    renderedTitle,
+    showHeader,
+    showSummary,
+    summaryInnerHtml,
+    tasksHtml,
+    checklistBodyHtml,
+    galleryHtml,
+    qaSummaryHtml: qaSummary.html,
+    footerHtml,
+    job,
+  };
+
+  return template === "luxury" ? renderLuxuryReport(ctx) : renderClassicReport(ctx);
 }
-${showFooter ? `<footer>${customFooter || `Generated by ${escapeHtml(companyName)} Dashboard - ${new Date().toISOString()}`}</footer>` : ""}
+
+type ReportRenderCtx = {
+  headTags: string;
+  primaryHsl: string;
+  accentHsl: string;
+  densityPad: string;
+  sectionMargin: string;
+  photoDims: { w: number; h: number };
+  photoSize: string;
+  companyName: string;
+  logoUrl: string;
+  renderedTitle: string;
+  showHeader: boolean;
+  showSummary: boolean;
+  summaryInnerHtml: string;
+  tasksHtml: string;
+  checklistBodyHtml: string;
+  galleryHtml: string;
+  qaSummaryHtml: string;
+  footerHtml: string;
+  job: any;
+};
+
+/** The original "classic" report skin (unchanged markup, now QA-summary-aware). */
+function renderClassicReport(c: ReportRenderCtx): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+${c.headTags}
+<style>
+  :root {
+    --primary: hsl(${c.primaryHsl});
+    --accent: hsl(${c.accentHsl});
+  }
+  body { font-family: Arial, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: ${c.densityPad}; }
+  .brand { display:flex; align-items:center; gap:12px; margin-bottom: 10px; }
+  .brand img { max-width:180px; max-height:64px; width:auto; height:auto; object-fit:contain; }
+  .brand h1 { margin:0; color: var(--primary); }
+  h1, h3 { color: var(--primary); }
+  .section { margin: ${c.sectionMargin} 0; }
+  .label { font-size: 12px; color: #666; text-transform: uppercase; }
+  .value { font-size: 16px; margin-top: 4px; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 12px; }
+  .pass { background: #dcfce7; color: #16a34a; }
+  .fail { background: #fee2e2; color: #dc2626; }
+  .media-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+  .media-item img { width: ${c.photoDims.w}px; height: ${c.photoDims.h}px; object-fit: cover; border-radius: 8px; }
+  .media-item a { display: inline-block; padding: 8px; background: #f3f4f6; border-radius: 8px; font-size: 12px; }
+  /* theme-driven photo sizing inside field-media renders */
+  div[style*="display:flex"] img { width: ${c.photoDims.w}px !important; height: ${c.photoDims.h}px !important; }
+  .photo-${c.photoSize} img { width: ${c.photoDims.w}px; height: ${c.photoDims.h}px; }
+  .hero-banner { width: 100%; border-radius: 12px; overflow: hidden; margin: 0 0 ${c.sectionMargin}; border: 1px solid #e5e7eb; }
+  .hero-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  footer { margin-top: 40px; font-size: 12px; color: #999; }
+</style>
+</head>
+<body>
+${c.showHeader ? `<div class="brand">
+  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" />` : ""}
+  <h1>${escapeHtml(c.renderedTitle)}</h1>
+</div>` : ""}
+${c.showSummary ? c.summaryInnerHtml : ""}
+${c.tasksHtml}
+${c.checklistBodyHtml}
+${c.qaSummaryHtml}
+${c.galleryHtml}
+${c.footerHtml}
+</body>
+</html>`;
+}
+
+/**
+ * The "luxury" report skin — a premium, magazine-grade layout. Same data and
+ * sections as classic, just a far more refined presentation: serif display
+ * headings (system serif stack, no external fonts so it stays A4/print-safe in
+ * Playwright), a hero header band, hairline dividers, rounded soft-shadow photo
+ * grid, and an elegant footer. Inline CSS only — no JS or web-font fetches.
+ */
+function renderLuxuryReport(c: ReportRenderCtx): string {
+  const serif = `"Cormorant Garamond", "Hoefler Text", Garamond, "Times New Roman", Georgia, serif`;
+  const sans = `"Helvetica Neue", Helvetica, Arial, sans-serif`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+${c.headTags}
+<style>
+  :root {
+    --primary: hsl(${c.primaryHsl});
+    --accent: hsl(${c.accentHsl});
+    --ink: #1f2733;
+    --muted: #6b7280;
+    --hairline: rgba(31,39,51,0.12);
+  }
+  * { box-sizing: border-box; }
+  body { font-family: ${sans}; color: var(--ink); max-width: 920px; margin: 0 auto; padding: 0 ${c.densityPad} ${c.densityPad}; -webkit-print-color-adjust: exact; }
+  h1, h2, h3 { font-family: ${serif}; font-weight: 600; letter-spacing: 0.01em; color: var(--primary); }
+  p { line-height: 1.6; }
+
+  .lux-hero {
+    margin: 0 -${c.densityPad} ${c.sectionMargin};
+    padding: 48px ${c.densityPad} 40px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, #ffffff) 0%, #ffffff 70%);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .lux-hero .eyebrow { font-family: ${sans}; font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+  .lux-hero img { max-width: 200px; max-height: 70px; object-fit: contain; display: block; margin-bottom: 22px; }
+  .lux-hero h1 { margin: 0; font-size: 44px; line-height: 1.05; }
+  .lux-hero .sub { font-family: ${sans}; color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+
+  .section { margin: ${c.sectionMargin} 0; }
+  h3 { font-size: 24px; margin: 0 0 4px; }
+  h3 + * { margin-top: 12px; }
+  .rule { height: 1px; background: var(--hairline); border: 0; margin: 6px 0 16px; }
+  .label { font-family: ${sans}; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
+  .value { font-size: 16px; margin-top: 4px; color: var(--ink); }
+
+  .lux-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 40px; padding: 22px 26px; border: 1px solid var(--hairline); border-radius: 18px; background: #fff; }
+  .lux-summary .k { font-family: ${sans}; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  .lux-summary .v { font-family: ${serif}; font-size: 19px; color: var(--ink); margin-top: 2px; }
+
+  .badge { display: inline-block; padding: 5px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; }
+  .pass { background: #e7f6ec; color: #16794a; }
+  .fail { background: #fdeaea; color: #c53030; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { font-family: ${sans}; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--hairline); }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+
+  .media-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
+  .media-item img { width: ${c.photoDims.w}px; height: ${c.photoDims.h}px; object-fit: cover; border-radius: 14px; box-shadow: 0 6px 18px rgba(31,39,51,0.12); }
+  .media-item a { display: inline-block; padding: 8px 10px; background: #f5f6f8; border-radius: 12px; font-size: 12px; }
+  div[style*="display:flex"] img { width: ${c.photoDims.w}px !important; height: ${c.photoDims.h}px !important; border-radius: 14px !important; }
+  .photo-${c.photoSize} img { width: ${c.photoDims.w}px; height: ${c.photoDims.h}px; }
+
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--hairline); font-family: ${sans}; font-size: 11px; letter-spacing: 0.02em; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+${c.showHeader ? `<div class="lux-hero">
+  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" />` : `<p class="eyebrow">${escapeHtml(c.companyName)}</p>`}
+  <h1>${escapeHtml(c.job?.property?.name || c.renderedTitle)}</h1>
+  <p class="sub">${escapeHtml(c.renderedTitle)}</p>
+</div>` : ""}
+${c.showSummary ? `<div class="section"><div class="lux-summary">${c.summaryInnerHtml}</div></div>` : ""}
+${c.tasksHtml}
+${c.checklistBodyHtml}
+${c.qaSummaryHtml}
+${c.galleryHtml}
+${c.footerHtml}
 </body>
 </html>`;
 }

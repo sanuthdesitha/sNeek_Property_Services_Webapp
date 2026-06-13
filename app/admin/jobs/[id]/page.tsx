@@ -553,6 +553,18 @@ export default function JobDetailPage() {
     }
   }
 
+  async function downloadQaReport() {
+    try {
+      await downloadFromApi(`/api/qa/jobs/${params.id}/report`, `qa-report-${params.id}.pdf`);
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.message ?? "Could not download QA report.",
+        variant: "destructive",
+      });
+    }
+  }
+
   async function toggleClientReportVisibility() {
     setUpdatingReportVisibility(true);
     const res = await fetch(`/api/admin/reports/${params.id}/visibility`, {
@@ -1990,6 +2002,9 @@ export default function JobDetailPage() {
                       {job.qaReviews[0].passed ? "Passed" : "Failed"}
                     </Badge>
                     {job.qaReviews[0].notes && <p className="mt-2 text-xs text-muted-foreground">{job.qaReviews[0].notes}</p>}
+                    <Button size="sm" variant="outline" className="mt-3 h-11 w-full" onClick={downloadQaReport}>
+                      <FileText className="mr-2 h-4 w-4" /> Download QA report
+                    </Button>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No QA review yet.</p>

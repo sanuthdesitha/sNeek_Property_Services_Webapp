@@ -20,6 +20,7 @@ type Layout = {
   sections: Section[];
   photoSize: "small" | "medium" | "large" | "hero";
   density: "compact" | "default" | "comfortable";
+  template?: "classic" | "luxury";
 };
 
 type Theme = {
@@ -39,6 +40,7 @@ const SECTION_LABELS: Record<string, string> = {
   header: "Header (logo + title)",
   summary: "Job summary",
   "task-checklist": "Task checklist + admin tasks",
+  "qa-summary": "Quality inspection summary",
   "before-after-gallery": "Photo gallery",
   supplies: "Supplies / inventory",
   signature: "Signature block",
@@ -47,6 +49,7 @@ const SECTION_LABELS: Record<string, string> = {
 
 const PHOTO_SIZES: Array<Layout["photoSize"]> = ["small", "medium", "large", "hero"];
 const DENSITIES: Array<Layout["density"]> = ["compact", "default", "comfortable"];
+const TEMPLATE_STYLES: Array<NonNullable<Layout["template"]>> = ["classic", "luxury"];
 
 export function ThemeEditor({ initial }: { initial: Theme }) {
   const router = useRouter();
@@ -159,7 +162,26 @@ export function ThemeEditor({ initial }: { initial: Theme }) {
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <h3 className="text-lg font-semibold">Photo size</h3>
+          <h3 className="text-lg font-semibold">Template style</h3>
+          <p className="text-xs text-muted-foreground">
+            Classic is the standard report skin. Luxury renders a premium, magazine-grade layout.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {TEMPLATE_STYLES.map((style) => (
+              <Button
+                key={style}
+                type="button"
+                size="sm"
+                variant={(theme.layout.template ?? "classic") === style ? "default" : "outline"}
+                onClick={() => updateLayout({ template: style })}
+                className="capitalize"
+              >
+                {style}
+              </Button>
+            ))}
+          </div>
+
+          <h3 className="text-lg font-semibold mt-4">Photo size</h3>
           <div className="flex flex-wrap gap-2">
             {PHOTO_SIZES.map((size) => (
               <Button

@@ -17,6 +17,9 @@ import {
   Trash2,
   Play,
   Square,
+  ImagePlus,
+  X,
+  Download,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,6 +65,11 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [notes, setNotes] = useState("");
   const [tools, setTools] = useState<QaInspectionTools>(() => emptyInspectionTools());
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
+  // Display URLs for section photos, keyed by S3 key (seeded from GET, then
+  // augmented locally as the inspector uploads new ones this session).
+  const [sectionPhotoUrls, setSectionPhotoUrls] = useState<Record<string, string>>({});
+  // Which section headers currently have their uploader open.
+  const [openUploaders, setOpenUploaders] = useState<Record<string, boolean>>({});
 
   async function load() {
     setLoading(true);
@@ -78,6 +86,27 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   useEffect(() => {
     void load();
   }, [jobId]);
+
+  // Seed previously-saved per-section QA photos (keys + presigned display URLs)
+  // whenever a fresh payload arrives, so re-opening shows existing thumbnails.
+  useEffect(() => {
+    const saved = payload?.sectionPhotos as
+      | Record<string, Array<{ key: string; url: string }>>
+      | undefined;
+    if (!saved) return;
+    const keysBySection: Record<string, string[]> = {};
+    const urlByKey: Record<string, string> = {};
+    for (const [sectionId, entries] of Object.entries(saved)) {
+      const keys = (entries ?? []).map((e) => e.key).filter(Boolean);
+      if (keys.length === 0) continue;
+      keysBySection[sectionId] = keys;
+      for (const e of entries ?? []) {
+        if (e?.key && e?.url) urlByKey[e.key] = e.url;
+      }
+    }
+    setTools((prev) => ({ ...prev, sectionPhotos: keysBySection }));
+    setSectionPhotoUrls(urlByKey);
+  }, [payload]);
 
   const template = payload?.template;
   const job = payload?.job;
@@ -179,6 +208,41 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     });
   }
 
+  // ── Per-section QA photos ─────────────────────────────────────────────────
+  function addSectionPhoto(sectionId: string, key: string) {
+    setTools((prev) => {
+      const existing = prev.sectionPhotos[sectionId] ?? [];
+      if (existing.includes(key)) return prev;
+      return { ...prev, sectionPhotos: { ...prev.sectionPhotos, [sectionId]: [...existing, key] } };
+    });
+    // Resolve a short-lived presigned URL for the thumbnail (the upload result
+    // only carries the S3 key). Best-effort — the count still shows on failure.
+    void (async () => {
+      try {
+        const res = await fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`);
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.url) {
+          setSectionPhotoUrls((prev) => ({ ...prev, [key]: body.url }));
+        }
+      } catch {
+        // ignore — thumbnail just won't render until reload
+      }
+    })();
+  }
+  function removeSectionPhoto(sectionId: string, key: string) {
+    setTools((prev) => {
+      const existing = prev.sectionPhotos[sectionId] ?? [];
+      const next = existing.filter((k) => k !== key);
+      const sectionPhotos = { ...prev.sectionPhotos };
+      if (next.length > 0) sectionPhotos[sectionId] = next;
+      else delete sectionPhotos[sectionId];
+      return { ...prev, sectionPhotos };
+    });
+  }
+  function toggleUploader(sectionId: string) {
+    setOpenUploaders((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  }
+
   // ── Rework transfer ───────────────────────────────────────────────────────
   const rework = tools.rework ?? emptyReworkProposal();
   function setRework(patch: Partial<typeof rework>) {
@@ -218,6 +282,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           nextClean: tools.nextClean,
           restock: tools.restock,
           inventoryCount: tools.inventoryCount,
+          sectionPhotos: tools.sectionPhotos,
           onSite: { ...tools.onSite, minutes: onSiteMinutes },
           rework: rework.enabled ? rework : null,
         },
@@ -274,6 +339,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
 
   const restockByStock = new Map(tools.restock.map((l) => [l.propertyStockId, l.quantity]));
   const countByStock = new Map(tools.inventoryCount.map((l) => [l.propertyStockId, l.countedOnHand]));
+  const hasQaSubmission = (job?.qaFormSubmissions?.length ?? 0) > 0;
 
   return (
     <div className="space-y-4">
@@ -728,27 +794,86 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
-              {(template?.schema?.sections ?? []).map((section: any) => (
-                <div key={section.id} className="space-y-3">
-                  <p className="text-sm font-semibold">{section.label}</p>
-                  {(section.fields ?? []).map((field: any) => (
-                    <div key={field.id} className="space-y-1.5">
-                      {isUploadFieldType(field.type) ? (
-                        <div className="rounded-lg border border-border bg-surface-raised p-3 text-sm text-muted-foreground">
-                          <Camera className="mb-2 h-4 w-4" />
-                          Use the Damage report uploader above for QA photo evidence.
-                        </div>
-                      ) : (
-                        <FieldInput
-                          field={field}
-                          value={data[field.id]}
-                          onChange={(value) => setField(field.id, value)}
-                        />
-                      )}
+              {(template?.schema?.sections ?? []).map((section: any) => {
+                const sectionPhotoKeys = tools.sectionPhotos[section.id] ?? [];
+                const uploaderOpen = openUploaders[section.id] === true;
+                return (
+                  <div key={section.id} className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">{section.label}</p>
+                      <div className="flex items-center gap-2">
+                        {sectionPhotoKeys.length > 0 ? (
+                          <Badge variant="secondary" className="tabular-nums">
+                            {sectionPhotoKeys.length} photo{sectionPhotoKeys.length === 1 ? "" : "s"}
+                          </Badge>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-11"
+                          onClick={() => toggleUploader(section.id)}
+                        >
+                          <ImagePlus className="mr-2 h-4 w-4" />
+                          {uploaderOpen ? "Done" : "Add photos"}
+                        </Button>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              ))}
+                    {sectionPhotoKeys.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {sectionPhotoKeys.map((key) => (
+                          <div key={key} className="group relative">
+                            {sectionPhotoUrls[key] ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={sectionPhotoUrls[key]}
+                                alt="QA section photo"
+                                className="h-16 w-16 rounded-lg border border-border object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                                <Camera className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              aria-label="Remove photo"
+                              className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
+                              onClick={() => removeSectionPhoto(section.id, key)}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {uploaderOpen ? (
+                      <UploadDropzone
+                        jobId={jobId}
+                        accept="image/*"
+                        maxFiles={6}
+                        onUploaded={(r) => addSectionPhoto(section.id, r.key)}
+                      />
+                    ) : null}
+                    {(section.fields ?? []).map((field: any) => (
+                      <div key={field.id} className="space-y-1.5">
+                        {isUploadFieldType(field.type) ? (
+                          <div className="rounded-lg border border-border bg-surface-raised p-3 text-sm text-muted-foreground">
+                            <Camera className="mb-2 h-4 w-4" />
+                            Use &quot;Add photos&quot; on this section header (or the Damage report uploader) for QA photo evidence.
+                          </div>
+                        ) : (
+                          <FieldInput
+                            field={field}
+                            value={data[field.id]}
+                            onChange={(value) => setField(field.id, value)}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
 
               <div className="space-y-1.5">
                 <Label>QA notes</Label>
@@ -759,6 +884,13 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 {saving ? "Submitting..." : "Submit QA review"}
               </Button>
+              {hasQaSubmission ? (
+                <Button variant="outline" className="h-11 w-full" asChild>
+                  <a href={`/api/qa/jobs/${jobId}/report`} target="_blank" rel="noreferrer">
+                    <Download className="mr-2 h-4 w-4" /> Download QA report
+                  </a>
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         </div>

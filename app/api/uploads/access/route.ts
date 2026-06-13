@@ -20,8 +20,23 @@ export async function GET(req: NextRequest) {
     }
 
     const role = session.user.role as Role;
-    if (role !== Role.ADMIN && role !== Role.OPS_MANAGER && role !== Role.CLEANER) {
+    if (
+      role !== Role.ADMIN &&
+      role !== Role.OPS_MANAGER &&
+      role !== Role.CLEANER &&
+      role !== Role.QA_INSPECTOR
+    ) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    // QA inspectors can preview media they uploaded themselves (section/damage
+    // photos go to uploads/<userId>/... via the shared presign route), scoped
+    // to their own upload folder. Re-opening a saved submission resolves keys
+    // server-side in the QA GET handler, so this only covers fresh uploads.
+    if (role === Role.QA_INSPECTOR) {
+      if (!key.startsWith(`uploads/${session.user.id}/`)) {
+        return NextResponse.json({ error: "Preview key is outside your uploads." }, { status: 403 });
+      }
     }
 
     if (role === Role.CLEANER) {

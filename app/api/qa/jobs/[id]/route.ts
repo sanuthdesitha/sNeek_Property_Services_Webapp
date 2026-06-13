@@ -9,7 +9,7 @@ import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { QA_TOOLS_DATA_KEY, minutesBetween } from "@/lib/qa/inspection-tools";
-import { publicUrl } from "@/lib/s3";
+import { publicUrl, getPresignedDownloadUrl } from "@/lib/s3";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -58,6 +58,8 @@ const toolsSchema = z
     nextClean: z.array(nextCleanSchema).default([]),
     restock: z.array(restockLineSchema).default([]),
     inventoryCount: z.array(inventoryCountLineSchema).default([]),
+    // Per-section QA photos: sectionId → S3 keys.
+    sectionPhotos: z.record(z.array(z.string().trim().min(1)).max(24)).default({}),
     onSite: z
       .object({
         startedAt: z.string().datetime().nullable().optional(),
@@ -166,6 +168,32 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       .map((a) => a.user)
       .filter((u): u is { id: string; name: string | null; email: string } => Boolean(u));
 
+    // Resolve previously-saved per-section QA photos (keys → presigned URLs) so
+    // re-opening the QA job shows the existing thumbnails.
+    const latestQaSubmission = job.qaFormSubmissions?.[0];
+    const savedTools =
+      latestQaSubmission?.data && typeof latestQaSubmission.data === "object"
+        ? (latestQaSubmission.data as Record<string, unknown>)[QA_TOOLS_DATA_KEY]
+        : null;
+    const savedSectionPhotos =
+      savedTools && typeof savedTools === "object" && (savedTools as any).sectionPhotos
+        ? ((savedTools as any).sectionPhotos as Record<string, unknown>)
+        : {};
+    const sectionPhotos: Record<string, Array<{ key: string; url: string }>> = {};
+    for (const [sectionId, value] of Object.entries(savedSectionPhotos)) {
+      const keys = Array.isArray(value) ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0) : [];
+      if (keys.length === 0) continue;
+      sectionPhotos[sectionId] = await Promise.all(
+        keys.map(async (key) => {
+          try {
+            return { key, url: await getPresignedDownloadUrl(key, 600) };
+          } catch {
+            return { key, url: publicUrl(key) };
+          }
+        })
+      );
+    }
+
     return NextResponse.json({
       job,
       template,
@@ -173,6 +201,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       mediaOverrides,
       propertyStock,
       cleanerCandidates,
+      sectionPhotos,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

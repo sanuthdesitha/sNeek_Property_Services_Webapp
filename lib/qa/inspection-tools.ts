@@ -68,6 +68,13 @@ export interface QaInspectionTools {
   nextClean: QaNextCleanRequest[];
   restock: QaRestockLine[];
   inventoryCount: QaInventoryCountLine[];
+  /**
+   * Per-section QA photos keyed by the QA template section id. These are the
+   * inspector's own evidence shots attached to a specific checklist section —
+   * SEPARATE from the itemized damage photos (which live on each damage entry).
+   * The value is a list of S3 keys (resolved to URLs for display/PDF).
+   */
+  sectionPhotos: Record<string, string[]>;
   onSite: {
     startedAt: string | null;
     endedAt: string | null;
@@ -97,6 +104,7 @@ export function emptyInspectionTools(): QaInspectionTools {
     nextClean: [],
     restock: [],
     inventoryCount: [],
+    sectionPhotos: {},
     onSite: { startedAt: null, endedAt: null, minutes: null },
     rework: null,
   };
