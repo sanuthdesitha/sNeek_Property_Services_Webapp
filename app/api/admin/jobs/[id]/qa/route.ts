@@ -9,6 +9,7 @@ import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
 import { scheduleJobFollowUps } from "@/lib/ops/follow-up-sequences";
+import { logger } from "@/lib/logger";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -44,7 +45,8 @@ export async function POST(
 
     const passed = body.score >= settings.qaAutomation.failureThreshold;
 
-    let reworkJobId: string | null = null;
+    // CORE: the QA review + job status must always commit. A new review is
+    // appended each time (the latest supersedes any earlier quick/auto review).
     const qa = await db.$transaction(async (tx) => {
       const createdReview = await tx.qAReview.create({
         data: {
@@ -66,57 +68,78 @@ export async function POST(
         },
       });
 
-      let autoCaseCreated = false;
-      if (!passed) {
-        if (settings.qaAutomation.createIssueTicket) {
-          const existingIssue = await tx.issueTicket.findFirst({
-            where: {
-              jobId: params.id,
-              caseType: "OPS",
-              status: { not: "RESOLVED" },
-            },
-            select: { id: true },
-          });
-          if (!existingIssue) {
-            const jobNumber = await tx.job.findUnique({
-              where: { id: params.id },
-              select: { jobNumber: true },
-            });
-            await tx.issueTicket.create({
-              data: {
-                jobId: params.id,
-                title: `QA Below Threshold - ${jobNumber?.jobNumber ?? params.id.slice(-6)}`,
-                description: `Auto-generated from QA score of ${body.score}%.`,
-                caseType: "OPS",
-                source: "QA_AUTOMATION",
-                severity: "HIGH",
-                status: "OPEN",
-                clientVisible: false,
-              },
-            });
-            autoCaseCreated = true;
-          }
-        }
+      await tx.auditLog.create({
+        data: {
+          userId: session.user.id,
+          jobId: params.id,
+          action: "QA_REVIEW",
+          entity: "Job",
+          entityId: params.id,
+          after: {
+            score: body.score,
+            passed,
+            threshold: settings.qaAutomation.failureThreshold,
+          } as any,
+        },
+      });
 
-        if (settings.qaAutomation.autoCreateReworkJob) {
-          const reworkTag = `rework-of:${job.id}`;
-          const existingRework = await tx.job.findFirst({
-            where: {
-              propertyId: job.propertyId,
-              jobType: job.jobType,
-              internalNotes: { contains: reworkTag },
-              status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
-            },
-            select: { id: true },
+      return createdReview;
+    });
+
+    // BEST-EFFORT AUTOMATION: an issue-ticket or rework-job failure must never
+    // roll back the QA review itself, so these run outside the core transaction
+    // and each is individually guarded + logged.
+    let reworkJobId: string | null = null;
+    if (!passed && settings.qaAutomation.createIssueTicket) {
+      try {
+        const existingIssue = await db.issueTicket.findFirst({
+          where: { jobId: params.id, caseType: "OPS", status: { not: "RESOLVED" } },
+          select: { id: true },
+        });
+        if (!existingIssue) {
+          const jobNumber = await db.job.findUnique({
+            where: { id: params.id },
+            select: { jobNumber: true },
           });
-          if (!existingRework) {
-            const nextScheduledDate = new Date(
-              job.scheduledDate.getTime() + settings.qaAutomation.reworkDelayHours * 3600_000
-            );
-            const notes = serializeJobInternalNotes({
-              internalNoteText: `Auto-generated rework for job ${job.id}.`,
-              tags: ["auto-rework", reworkTag],
-            });
+          await db.issueTicket.create({
+            data: {
+              jobId: params.id,
+              title: `QA Below Threshold - ${jobNumber?.jobNumber ?? params.id.slice(-6)}`,
+              description: `Auto-generated from QA score of ${body.score}%.`,
+              caseType: "OPS",
+              source: "QA_AUTOMATION",
+              severity: "HIGH",
+              status: "OPEN",
+              clientVisible: false,
+            },
+          });
+        }
+      } catch (err) {
+        logger.error({ err, jobId: params.id }, "QA automation: issue-ticket creation failed (non-fatal)");
+      }
+    }
+
+    if (!passed && settings.qaAutomation.autoCreateReworkJob) {
+      try {
+        const reworkTag = `rework-of:${job.id}`;
+        const existingRework = await db.job.findFirst({
+          where: {
+            propertyId: job.propertyId,
+            jobType: job.jobType,
+            internalNotes: { contains: reworkTag },
+            status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+          },
+          select: { id: true },
+        });
+        if (!existingRework) {
+          const nextScheduledDate = new Date(
+            job.scheduledDate.getTime() + settings.qaAutomation.reworkDelayHours * 3600_000
+          );
+          const notes = serializeJobInternalNotes({
+            internalNoteText: `Auto-generated rework for job ${job.id}.`,
+            tags: ["auto-rework", reworkTag],
+          });
+          reworkJobId = await db.$transaction(async (tx) => {
             const jobNumber = await reserveJobNumber(tx);
             const reworkJob = await tx.job.create({
               data: {
@@ -132,29 +155,13 @@ export async function POST(
                 internalNotes: notes,
               },
             });
-            reworkJobId = reworkJob.id;
-          }
+            return reworkJob.id;
+          });
         }
+      } catch (err) {
+        logger.error({ err, jobId: params.id }, "QA automation: rework-job creation failed (non-fatal)");
       }
-
-      await tx.auditLog.create({
-        data: {
-          userId: session.user.id,
-          jobId: params.id,
-          action: "QA_REVIEW",
-          entity: "Job",
-          entityId: params.id,
-          after: {
-            score: body.score,
-            passed,
-            threshold: settings.qaAutomation.failureThreshold,
-            autoCaseCreated,
-          } as any,
-        },
-      });
-
-      return createdReview;
-    });
+    }
 
     if (passed) {
       await Promise.allSettled([

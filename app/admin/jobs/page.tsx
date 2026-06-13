@@ -445,6 +445,14 @@ export default function JobsPage() {
         throw new Error(body.error ?? "Could not submit QA review.");
       }
       setQaSelectedIds((prev) => prev.filter((id) => id !== jobId));
+      if (!options?.suppressToast) {
+        toast({
+          title: "QA review saved",
+          description: `Recorded ${Math.round(score)}%${
+            typeof body?.passed === "boolean" ? ` — ${body.passed ? "Passed" : "Flagged for rework"}` : ""
+          }.`,
+        });
+      }
       return true;
     } catch (err: any) {
       if (!options?.suppressToast) {
