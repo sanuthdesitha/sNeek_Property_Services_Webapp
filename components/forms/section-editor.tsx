@@ -15,12 +15,13 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { GripVertical, Trash2 } from "lucide-react";
+import { GripVertical, Heading, Minus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldEditor } from "./field-editor";
 import { FieldTypePicker } from "./field-type-picker";
+import { DIVIDER_LABEL } from "./form-blocks";
 import type {
   FormField,
   FormFieldType,
@@ -151,7 +152,7 @@ export function SectionEditor({
         </SortableContext>
       </DndContext>
 
-      <div className="mt-3">
+      <div className="mt-3 space-y-2">
         <FieldTypePicker
           onPick={(type) =>
             onAddField({
@@ -161,6 +162,37 @@ export function SectionEditor({
             })
           }
         />
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              onAddField({
+                id: `f-${Date.now()}`,
+                type: "instruction",
+                label: "Section heading",
+                helpText: "Add a short instruction or note here.",
+              })
+            }
+          >
+            <Heading className="mr-1 size-4" /> Header / text block
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              onAddField({
+                id: `f-${Date.now()}`,
+                type: "instruction",
+                label: DIVIDER_LABEL,
+              })
+            }
+          >
+            <Minus className="mr-1 size-4" /> Divider line
+          </Button>
+        </div>
       </div>
     </Card>
   );

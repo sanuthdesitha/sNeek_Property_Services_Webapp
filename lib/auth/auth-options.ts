@@ -3,8 +3,16 @@ import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/types";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import {
+  AUTHENTICATE_CHALLENGE_COOKIE,
+  decodeChallengeCookie,
+  getRelyingParty,
+  parseCookieHeader,
+  verifyAssertionAndGetUser,
+} from "@/lib/auth/webauthn";
 
 function getConfiguredAuthBaseUrl() {
   const raw =
@@ -173,6 +181,69 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             name: user.name,
             image: user.image,
             role: user.role,
+          };
+        },
+      }),
+      // Passwordless biometric / passkey sign-in. The browser runs the WebAuthn
+      // assertion ceremony then calls signIn("webauthn", { credential, email }).
+      // We re-run the full @simplewebauthn verification HERE against the stored
+      // public key + the challenge cookie, so there is no trust gap: a session is
+      // only minted after a genuine assertion is verified server-side.
+      CredentialsProvider({
+        id: "webauthn",
+        name: "Passkey",
+        credentials: {
+          credential: { label: "Credential", type: "text" },
+          email: { label: "Email", type: "text" },
+        },
+        async authorize(credentials, req) {
+          const raw = credentials?.credential;
+          if (!raw || typeof raw !== "string") return null;
+
+          let assertion: AuthenticationResponseJSON;
+          try {
+            assertion = JSON.parse(raw) as AuthenticationResponseJSON;
+          } catch {
+            return null;
+          }
+
+          const headers = (req?.headers ?? {}) as Record<string, unknown>;
+          const { rpID, origin } = getRelyingParty(headers as Record<string, string>);
+
+          const cookieHeader =
+            (typeof headers.cookie === "string" && headers.cookie) ||
+            (typeof headers.Cookie === "string" && (headers.Cookie as string)) ||
+            "";
+          const cookies = parseCookieHeader(cookieHeader);
+          const expectedChallenge = decodeChallengeCookie(cookies[AUTHENTICATE_CHALLENGE_COOKIE]);
+          if (!expectedChallenge) return null;
+
+          const verifiedUser = await verifyAssertionAndGetUser({
+            response: assertion,
+            expectedChallenge,
+            expectedOrigin: origin,
+            expectedRPID: rpID,
+          });
+          if (!verifiedUser) return null;
+
+          // Honour the same maintenance-mode gating as password login.
+          const settings = await getAppSettings();
+          const maintenanceMode = settings.websiteContent.maintenanceMode;
+          if (
+            maintenanceMode.enabled === true &&
+            maintenanceMode.allowLogin === false &&
+            verifiedUser.role !== Role.ADMIN &&
+            verifiedUser.role !== Role.OPS_MANAGER
+          ) {
+            return null;
+          }
+
+          return {
+            id: verifiedUser.id,
+            email: verifiedUser.email,
+            name: verifiedUser.name,
+            image: verifiedUser.image,
+            role: verifiedUser.role as Role,
           };
         },
       }),

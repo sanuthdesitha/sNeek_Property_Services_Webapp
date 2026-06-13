@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { updateSurveySchema } from "@/lib/validations/onboarding";
+import { buildFormMetaOverrides } from "@/lib/onboarding/form-meta";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 function buildNestedUpdate(body: Record<string, unknown>, existing: any) {
   const data: Record<string, unknown> = {};
 
-  // Scalar fields
+  // Scalar fields that map directly to survey columns.
   const scalarKeys = [
     "isNewClient", "clientData", "existingClientId",
     "propertyAddress", "propertySuburb", "propertyState", "propertyPostcode",
@@ -42,10 +43,19 @@ function buildNestedUpdate(body: Record<string, unknown>, existing: any) {
     "propertyType", "sizeSqm",
     "requestedCleanerCount", "estimatedCleanerCount", "estimatedHours", "estimatedPrice",
     "icalUrl", "icalProvider", "laundrySupplierId",
-    "adminNotes", "adminOverrides",
+    "adminNotes",
   ];
   for (const key of scalarKeys) {
     if (body[key] !== undefined) data[key] = body[key];
+  }
+
+  // formMeta envelope (geocode, selectedJobTypes, scenarios, schedule, …) is
+  // merged into adminOverrides without clobbering sibling admin override keys.
+  const mergedOverrides = buildFormMetaOverrides(body, existing.adminOverrides);
+  if (mergedOverrides !== undefined) {
+    data.adminOverrides = mergedOverrides;
+  } else if (body.adminOverrides !== undefined) {
+    data.adminOverrides = body.adminOverrides;
   }
 
   // Nested: appliances (full replace)
@@ -148,6 +158,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     });
     if (!existing) return NextResponse.json({ error: "Survey not found." }, { status: 404 });
     if (existing.status === "APPROVED") return NextResponse.json({ error: "Cannot modify approved survey." }, { status: 409 });
+    // PENDING_REVIEW surveys are locked for editing until reviewed/reopened to
+    // avoid a reviewer approving data that changed underneath them.
+    if (existing.status === "PENDING_REVIEW")
+      return NextResponse.json({ error: "Survey is pending review and cannot be edited. Reject it first to reopen for edits." }, { status: 409 });
 
     const data = buildNestedUpdate(body as Record<string, unknown>, existing);
 

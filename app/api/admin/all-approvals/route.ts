@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
-import { Role, PayAdjustmentStatus } from "@prisma/client";
+import { Role, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
+import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 
 export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks] =
+    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks, qaReworkTransfers] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
         listEarlyCheckoutRequests({ status: "PENDING" }),
@@ -91,6 +92,7 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           take: 50,
         }),
+        listQaReworkTransfers(QaReworkTransferStatus.PENDING),
       ]);
 
     // Filter to only reschedule requests (check metadata.type in JS to avoid JSON path issues)
@@ -159,6 +161,7 @@ export async function GET() {
       clientApprovals,
       flaggedLaundry,
       rescheduleRequests,
+      qaReworkTransfers,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -167,6 +170,7 @@ export async function GET() {
         clientApprovals: clientApprovals.length,
         flaggedLaundry: flaggedLaundry.length,
         rescheduleRequests: rescheduleRequests.length,
+        qaReworkTransfers: qaReworkTransfers.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -174,7 +178,8 @@ export async function GET() {
           timeAdjustments.length +
           clientApprovals.length +
           flaggedLaundry.length +
-          rescheduleRequests.length,
+          rescheduleRequests.length +
+          qaReworkTransfers.length,
       },
     });
   } catch (err: any) {

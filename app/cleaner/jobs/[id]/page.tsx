@@ -51,6 +51,7 @@ import {
   formatAssignmentResponseLabel,
   formatJobStatusLabel,
 } from "@/lib/jobs/assignment-workflow";
+import { ensureGoogleMaps, resolveBrowserMapsKey } from "@/lib/maps/loader";
 
 type Step = "briefing" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
@@ -366,6 +367,21 @@ export default function CleanerJobPage() {
   const [lastPingSentAt, setLastPingSentAt] = useState<number | null>(null);
   const [lastPingAccuracy, setLastPingAccuracy] = useState<number | null>(null);
   const [pingClock, setPingClock] = useState(() => Date.now());
+
+  // GPS check-in confirm/adjust popup state.
+  const [gpsCheckinOpen, setGpsCheckinOpen] = useState(false);
+  const [gpsCheckinSaving, setGpsCheckinSaving] = useState(false);
+  const [gpsCheckinAdjustMode, setGpsCheckinAdjustMode] = useState(false);
+  const [gpsCheckinNote, setGpsCheckinNote] = useState("");
+  const [gpsCheckinFix, setGpsCheckinFix] = useState<{
+    lat: number;
+    lng: number;
+    accuracy: number | null;
+    adjusted: boolean;
+  } | null>(null);
+  const gpsMapRef = useRef<HTMLDivElement | null>(null);
+  const gpsMarkerRef = useRef<any>(null);
+  const gpsMapInstanceRef = useRef<any>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hydratedRef = useRef(false);
@@ -1259,6 +1275,54 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackingActive, jobId]);
 
+  // Initialise the Google map with a draggable pin when the cleaner switches the
+  // check-in popup to "Adjust" mode. Falls back silently when no maps key is set.
+  useEffect(() => {
+    if (!gpsCheckinOpen || !gpsCheckinAdjustMode || !gpsCheckinFix) return;
+    let cancelled = false;
+    (async () => {
+      const key = await resolveBrowserMapsKey().catch(() => "");
+      if (!key) return;
+      await ensureGoogleMaps().catch(() => {});
+      if (cancelled) return;
+      const w = window as any;
+      const container = gpsMapRef.current;
+      if (!w.google?.maps || !container) return;
+      const center = { lat: gpsCheckinFix.lat, lng: gpsCheckinFix.lng };
+      const map = new w.google.maps.Map(container, {
+        center,
+        zoom: 18,
+        disableDefaultUI: true,
+        zoomControl: true,
+      });
+      const marker = new w.google.maps.Marker({
+        position: center,
+        map,
+        draggable: true,
+      });
+      marker.addListener("dragend", () => {
+        const pos = marker.getPosition();
+        if (!pos) return;
+        setGpsCheckinFix((prev) =>
+          prev ? { ...prev, lat: pos.lat(), lng: pos.lng(), adjusted: true } : prev
+        );
+      });
+      map.addListener("click", (event: any) => {
+        if (!event?.latLng) return;
+        marker.setPosition(event.latLng);
+        setGpsCheckinFix((prev) =>
+          prev ? { ...prev, lat: event.latLng.lat(), lng: event.latLng.lng(), adjusted: true } : prev
+        );
+      });
+      gpsMapInstanceRef.current = map;
+      gpsMarkerRef.current = marker;
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gpsCheckinOpen, gpsCheckinAdjustMode]);
+
   useEffect(() => {
     if (!hydratedRef.current || !payload?.job) return;
     if (Date.now() < suppressDraftSyncUntilRef.current) return;
@@ -1813,6 +1877,62 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     setPendingSubmitPayload(null);
   }
 
+  // Check-in capture: get a fix, then show the cleaner a confirm/adjust popup
+  // before recording. The popup posts the (possibly adjusted) coordinates.
+  async function beginGpsCheckin() {
+    try {
+      const fix = await getAccuratePosition();
+      setGpsCheckinFix({ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, adjusted: false });
+      setGpsCheckinNote("");
+      setGpsCheckinAdjustMode(false);
+      setGpsCheckinOpen(true);
+    } catch (error) {
+      if (error instanceof GpsError && error.code === "PERMISSION_DENIED") {
+        showPopupNotification("Location blocked", error.message, "destructive");
+      }
+      // Other GPS failures stay silent — GPS logging is advisory only.
+    }
+  }
+
+  async function submitGpsCheckin(confirmed: boolean) {
+    if (!gpsCheckinFix) return;
+    setGpsCheckinSaving(true);
+    try {
+      const res = await fetch(`/api/cleaner/jobs/${params.id}/gps-checkin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: gpsCheckinFix.lat,
+          lng: gpsCheckinFix.lng,
+          accuracy: gpsCheckinFix.accuracy,
+          confirmed,
+          adjusted: gpsCheckinFix.adjusted,
+          note: gpsCheckinNote.trim() || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showPopupNotification("Check-in failed", body?.error ?? "Could not record check-in.", "destructive");
+        return;
+      }
+      const accuracyLabel = formatAccuracy(gpsCheckinFix.accuracy);
+      if (gpsCheckinFix.adjusted) {
+        showPopupNotification("Check-in adjusted", "Your corrected location was recorded and admin was notified.");
+      } else if (typeof body?.distanceMeters === "number" && body.distanceMeters >= 500) {
+        showPopupNotification(
+          "Check-in recorded",
+          `You appear to be ${body.distanceMeters}m from the property (${accuracyLabel}).`,
+          "destructive"
+        );
+      } else {
+        showPopupNotification("Check-in recorded", `Location confirmed (${accuracyLabel}).`);
+      }
+      setGpsCheckinOpen(false);
+    } finally {
+      setGpsCheckinSaving(false);
+    }
+  }
+
   async function sendGpsSnapshot(path: string, kind: "check-in" | "check-out" = "check-in") {
     try {
       const fix = await getAccuratePosition();
@@ -2143,7 +2263,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         return;
       }
       await load();
-      void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, "check-in");
+      void beginGpsCheckin();
       showPopupNotification("Job started", "Timer is now running.");
       setStep("checklist");
       return;
@@ -2171,7 +2291,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
 
     await load();
-    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkin`, "check-in");
+    void beginGpsCheckin();
     showPopupNotification("Job started", "Timer is now running.");
     setStep("checklist");
   }
@@ -4332,6 +4452,29 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 </div>
               </div>
             ) : null}
+            {Array.isArray(briefing?.qaReworkNotes) && briefing.qaReworkNotes.length > 0 ? (
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-3" data-testid="qa-rework-notes">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">QA had to redo work on this job</p>
+                    {briefing.qaReworkNotes.map((note: any) => (
+                      <div key={note.id} className="space-y-0.5">
+                        <p className="text-xs font-medium">
+                          {String(note.severity).charAt(0) + String(note.severity).slice(1).toLowerCase()} ·
+                          {note.qaUser?.name ? ` ${note.qaUser.name}` : " QA inspector"}
+                          {note.minutesFromCleaner > 0 ? ` · ${note.minutesFromCleaner} min` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{note.reason}</p>
+                        {Array.isArray(note.areas) && note.areas.length > 0 ? (
+                          <p className="text-xs text-muted-foreground">Areas: {note.areas.join(", ")}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {briefing?.lastPhotos?.length ? (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Recent property photos</p>
@@ -5450,6 +5593,109 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md object-contain"
               />
             ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={gpsCheckinOpen}
+        onOpenChange={(open) => {
+          if (!open && !gpsCheckinSaving) setGpsCheckinOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-primary" />
+              Confirm your check-in location
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              We detected your location at the property. Confirm it&apos;s correct, or adjust the pin if it&apos;s off.
+            </p>
+            {gpsCheckinFix ? (
+              <div className="rounded-xl border border-border bg-surface-raised p-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Coordinates</span>
+                  <span className="font-medium tabular-nums">
+                    {gpsCheckinFix.lat.toFixed(5)}, {gpsCheckinFix.lng.toFixed(5)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Accuracy</span>
+                  <span className="font-medium tabular-nums">{formatAccuracy(gpsCheckinFix.accuracy)}</span>
+                </div>
+                {gpsCheckinFix.adjusted ? (
+                  <p className="mt-2 text-xs font-medium text-warning">Pin manually adjusted — admin will be notified.</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {gpsCheckinAdjustMode ? (
+              <div className="space-y-2">
+                <div
+                  ref={gpsMapRef}
+                  className="h-56 w-full overflow-hidden rounded-xl border border-border bg-muted"
+                  aria-label="Drag the pin to your real location"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Drag the pin or tap the map to set your real location. If the map can&apos;t load, your captured
+                  coordinates are still used.
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Why are you adjusting? (optional)</Label>
+                  <Textarea
+                    value={gpsCheckinNote}
+                    onChange={(event) => setGpsCheckinNote(event.target.value)}
+                    placeholder="e.g. GPS placed me on the wrong street"
+                    className="min-h-[64px]"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-2">
+              {gpsCheckinAdjustMode ? (
+                <Button
+                  className="h-11"
+                  disabled={gpsCheckinSaving}
+                  onClick={() => void submitGpsCheckin(false)}
+                >
+                  {gpsCheckinSaving ? "Saving..." : "Save adjusted location"}
+                </Button>
+              ) : (
+                <Button
+                  className="h-11"
+                  disabled={gpsCheckinSaving}
+                  onClick={() => void submitGpsCheckin(true)}
+                >
+                  {gpsCheckinSaving ? "Saving..." : "Confirm location"}
+                </Button>
+              )}
+              {!gpsCheckinAdjustMode ? (
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  disabled={gpsCheckinSaving}
+                  onClick={() => setGpsCheckinAdjustMode(true)}
+                >
+                  Adjust location
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  className="h-11"
+                  disabled={gpsCheckinSaving}
+                  onClick={() => {
+                    setGpsCheckinAdjustMode(false);
+                    setGpsCheckinFix((prev) => (prev ? { ...prev, adjusted: false } : prev));
+                  }}
+                >
+                  Cancel adjustment
+                </Button>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

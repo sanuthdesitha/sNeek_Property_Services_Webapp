@@ -2,13 +2,15 @@ import { describe, it, expect } from "vitest";
 import { ALL_SEED_TEMPLATES } from "@/lib/forms/seed-templates";
 
 describe("seed templates", () => {
-  it("exports 10 templates", () => {
-    expect(ALL_SEED_TEMPLATES).toHaveLength(10);
+  it("exports 15 templates", () => {
+    expect(ALL_SEED_TEMPLATES).toHaveLength(15);
   });
 
-  it("each template has a stable kind", () => {
-    const kinds = new Set(ALL_SEED_TEMPLATES.map((t) => t.kind));
-    expect(kinds.size).toBe(10);
+  it("each template has a unique (kind, version) pair", () => {
+    // Kinds may repeat across versions (e.g. AIRBNB_TURNOVER v2/v3/v4); the seed
+    // runner upserts by (kind, version), so that pair must be unique.
+    const pairs = new Set(ALL_SEED_TEMPLATES.map((t) => `${t.kind}@${t.version}`));
+    expect(pairs.size).toBe(ALL_SEED_TEMPLATES.length);
   });
 
   it("each template has at least one section with at least one field", () => {

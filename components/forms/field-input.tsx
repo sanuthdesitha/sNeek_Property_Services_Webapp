@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/select";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { FormField } from "@/lib/forms/types";
-import { FieldReferences } from "./field-references";
+import { ExampleOnTickReferences, FieldReferences } from "./field-references";
+import { useFormTheme } from "./form-theme";
+import { isDividerField } from "./form-blocks";
 
 export interface FieldInputProps {
   field: FormField;
@@ -27,12 +29,39 @@ export interface FieldInputProps {
 
 const OTHER = "__other__";
 
+/**
+ * Reference example media for a data-entry field. When the field opts into
+ * "show on tick" (default true whenever references exist), this renders the
+ * compact "See example" affordance and auto-pops the example image when the
+ * cleaner answers the item. When opted out, it falls back to static thumbnails.
+ */
+function FieldReferenceBlock({
+  field,
+  value,
+  className,
+}: {
+  field: FormField;
+  value: unknown;
+  className?: string;
+}) {
+  if (!field.references || field.references.length === 0) return null;
+  const onTick = field.showExampleOnTick !== false;
+  if (onTick) {
+    return (
+      <ExampleOnTickReferences references={field.references} value={value} className={className} />
+    );
+  }
+  return <FieldReferences references={field.references} className={className} />;
+}
+
 function FieldShell({
   field,
+  value,
   children,
   hideLabel,
 }: {
   field: FormField;
+  value?: unknown;
   children: React.ReactNode;
   hideLabel?: boolean;
 }) {
@@ -45,7 +74,7 @@ function FieldShell({
         </Label>
       )}
       {field.helpText ? <p className="text-xs text-muted-foreground">{field.helpText}</p> : null}
-      <FieldReferences references={field.references} />
+      <FieldReferenceBlock field={field} value={value} />
       {children}
     </div>
   );
@@ -58,12 +87,21 @@ function FieldShell({
  */
 export function FieldInput({ field, value, onChange }: FieldInputProps) {
   const id = `fi-${field.id}`;
+  const theme = useFormTheme();
+  const headingFontStyle: React.CSSProperties | undefined = theme?.headingFont
+    ? { fontFamily: theme.headingFont }
+    : undefined;
 
   switch (field.type) {
     case "instruction":
+      if (isDividerField(field)) {
+        return <hr className="my-2 border-t border-border" aria-hidden />;
+      }
       return (
         <div className="rounded-md border bg-muted/30 p-3">
-          <p className="text-sm font-medium">{field.label}</p>
+          <p className="text-sm font-medium" style={headingFontStyle}>
+            {field.label}
+          </p>
           {field.helpText ? <p className="mt-1 text-xs text-muted-foreground">{field.helpText}</p> : null}
           <FieldReferences references={field.references} className="mt-2" />
         </div>
@@ -71,7 +109,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "longtext":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Textarea
             id={id}
             placeholder={field.placeholder}
@@ -85,7 +123,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     case "number":
     case "currency": {
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="relative">
             {field.type === "currency" ? (
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -116,14 +154,14 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "email":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Input id={id} type="email" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );
 
     case "phone":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Input id={id} type="tel" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );
@@ -132,7 +170,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     case "time":
     case "datetime":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Input
             id={id}
             type={field.type === "datetime" ? "datetime-local" : field.type}
@@ -144,8 +182,8 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "checkbox":
       return (
-        <FieldShell field={field} hideLabel>
-          <FieldReferences references={field.references} />
+        <FieldShell field={field} value={value} hideLabel>
+          <FieldReferenceBlock field={field} value={value} />
           <label className="flex items-start gap-3 text-sm leading-snug">
             <Checkbox checked={value === true} onCheckedChange={(checked) => onChange(checked === true)} />
             <span>
@@ -167,7 +205,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         (val === false && value === false) ||
         (val === "na" && value === "na");
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="flex gap-2">
             {choices.map((c) => (
               <Button
@@ -191,7 +229,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const isOther = field.allowOther && typeof value === "string" && value !== "" && !options.includes(value);
       const selectValue = isOther ? OTHER : typeof value === "string" ? value : "";
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Select
             value={selectValue}
             onValueChange={(v) => onChange(v === OTHER ? "" : v)}
@@ -224,7 +262,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const options = field.options ?? [];
       const isOther = field.allowOther && typeof value === "string" && value !== "" && !options.includes(value);
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="space-y-1.5">
             {options.map((opt) => (
               <label key={opt} className="flex items-center gap-2 text-sm">
@@ -262,7 +300,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const toggle = (opt: string) =>
         onChange(selected.includes(opt) ? selected.filter((s) => s !== opt) : [...selected, opt]);
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="space-y-1.5">
             {options.map((opt) => (
               <label key={opt} className="flex items-center gap-2 text-sm">
@@ -279,7 +317,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const maxStars = Math.round(field.max ?? 5);
       const current = typeof value === "number" ? value : 0;
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="flex gap-1">
             {Array.from({ length: maxStars }, (_, i) => i + 1).map((star) => (
               <button key={star} type="button" onClick={() => onChange(star)} aria-label={`${star} star`}>
@@ -297,7 +335,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const step = field.step ?? 1;
       const current = typeof value === "number" ? value : min;
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -329,7 +367,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         onChange(n);
       };
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="flex items-center gap-3">
             <Button type="button" variant="outline" size="icon" onClick={() => set(current - step)}>
               <Minus className="size-4" />
@@ -349,7 +387,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const max = Math.round(field.max ?? 5);
       const points = Array.from({ length: Math.max(0, max - min + 1) }, (_, i) => min + i);
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <div className="flex flex-wrap gap-2">
             {points.map((p) => (
               <Button
@@ -370,22 +408,22 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "location":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <LocationCapture value={value} onChange={onChange} />
         </FieldShell>
       );
 
     case "barcode":
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <BarcodeCapture value={value} onChange={onChange} placeholder={field.placeholder} />
         </FieldShell>
       );
 
     case "signature":
       return (
-        <FieldShell field={field} hideLabel>
-          <FieldReferences references={field.references} />
+        <FieldShell field={field} value={value} hideLabel>
+          <FieldReferenceBlock field={field} value={value} />
           <SignaturePad
             label={field.label}
             value={typeof value === "string" ? value : ""}
@@ -398,7 +436,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     default:
       // text + any unknown type fall back to a text input.
       return (
-        <FieldShell field={field}>
+        <FieldShell field={field} value={value}>
           <Input id={id} type="text" placeholder={field.placeholder} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );

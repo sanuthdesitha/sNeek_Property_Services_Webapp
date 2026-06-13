@@ -375,6 +375,24 @@ export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableF
               }
             />
 
+            {field.references && field.references.length > 0 && (
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <Label htmlFor={`field-show-on-tick-${field.id}`}>Show example when ticked</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Pops the example image when the cleaner answers this item.
+                  </p>
+                </div>
+                <Switch
+                  id={`field-show-on-tick-${field.id}`}
+                  checked={field.showExampleOnTick !== false}
+                  onCheckedChange={(checked) =>
+                    onUpdate({ ...field, showExampleOnTick: checked ? undefined : false })
+                  }
+                />
+              </div>
+            )}
+
             <div className="space-y-1">
               <Label>Conditional visibility</Label>
               <ConditionEditor

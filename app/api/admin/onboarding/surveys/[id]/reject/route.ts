@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
-import { rejectSurvey } from "@/lib/onboarding/approval/workflow";
+import { rejectSurvey, OnboardingValidationError } from "@/lib/onboarding/approval/workflow";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -12,6 +12,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await rejectSurvey(params.id, session.user.id, body.reason.trim());
     return NextResponse.json({ ok: true });
   } catch (err: any) {
+    if (err instanceof OnboardingValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 422 });
+    }
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }

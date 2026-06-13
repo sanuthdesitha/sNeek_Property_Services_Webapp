@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
 import { getNegativeQaWarning } from "@/lib/qa/feedback-history";
+import { listConfirmedReworkForCleanerJob } from "@/lib/qa/rework-transfers";
 
 function pickLegacyAccessNote(accessInfo: unknown) {
   if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
@@ -117,8 +118,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       console.error("[briefing] prior QA warning lookup failed", err);
     }
 
+    // Confirmed QA rework notes for this cleaner on this job — so they can see
+    // exactly what QA flagged/redid and self-correct.
+    let qaReworkNotes: Awaited<ReturnType<typeof listConfirmedReworkForCleanerJob>> = [];
+    try {
+      qaReworkNotes = await listConfirmedReworkForCleanerJob(params.id, session.user.id);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[briefing] QA rework lookup failed", err);
+    }
+
     return NextResponse.json({
       lastPhotos,
+      qaReworkNotes,
       accessCode: decryptSecret(job.property.accessCode) ?? pickLegacyAccessCode(job.property.accessInfo),
       alarmCode: decryptSecret(job.property.alarmCode),
       keyLocation: job.property.keyLocation?.trim() || null,

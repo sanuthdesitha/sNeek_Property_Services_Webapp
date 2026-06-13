@@ -65,6 +65,29 @@ export interface FormFieldReference {
   caption?: string;
 }
 
+/**
+ * Optional appearance overrides stored on the template schema as
+ * `schema.theme`. Every field is optional and the form falls back to the app's
+ * default tokens when absent — themes only ever affect the form body, never the
+ * surrounding portal chrome. Colours are CSS colour strings (hex / rgb / hsl).
+ */
+export interface FormTheme {
+  /** Primary action / tick / progress colour for the form body. */
+  accentColor?: string;
+  /** Colour for section heading text. */
+  headerColor?: string;
+  /** Resolved (presigned / public) logo URL shown at the top of the form. */
+  logoUrl?: string;
+  /** S3 key for an uploaded logo; resolved to `logoUrl` at render time. */
+  logoKey?: string;
+  /** Draw a divider line between sections. */
+  showDividers?: boolean;
+  /** Font family applied to section headings (CSS font-family value). */
+  headingFont?: string;
+  /** Body / answer text font family (CSS font-family value). */
+  bodyFont?: string;
+}
+
 export type FieldSeverity = "low" | "medium" | "high";
 
 export interface FormField {
@@ -101,6 +124,10 @@ export interface FormField {
   includeNa?: boolean;
   // reference/example media shown to the person filling the form
   references?: FormFieldReference[];
+  // When this field has reference example images and is ticked/answered
+  // positively, surface the example media as a popup/inline preview. Defaults
+  // to true when references exist; set false to keep references collapsed.
+  showExampleOnTick?: boolean;
   // logic + scoring
   conditional?: FieldCondition;
   scoring?: { weight: number; max: number };
@@ -117,4 +144,6 @@ export interface FormSection {
 
 export interface FormSchema {
   sections: FormSection[];
+  /** Optional appearance overrides for the form body (see FormTheme). */
+  theme?: FormTheme;
 }

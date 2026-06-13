@@ -345,6 +345,28 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+/// A registered WebAuthn / passkey authenticator (platform biometric:
+/// fingerprint on Android, Face ID / Touch ID on iOS, Windows Hello). Lets a
+/// user sign in on a trusted device without a password. credentialId/publicKey
+/// are base64url strings; counter guards against cloned-authenticator replay.
+model WebAuthnCredential {
+  id            String    @id @default(cuid())
+  userId        String
+  credentialId  String    @unique
+  publicKey     String    @db.Text
+  counter       BigInt    @default(0)
+  transports    String?
+  deviceType    String?
+  backedUp      Boolean   @default(false)
+  deviceName    String?
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
 model UserInvitation {
   id          String    @id @default(cuid())
   userId      String    @unique
@@ -389,6 +411,10 @@ model User {
   qaAssignmentsPickedUp        QaAssignment[]              @relation("QaAssignmentPickedUpBy")
   qaFormSubmissions            QaFormSubmission[]          @relation("QaFormSubmissionSubmittedBy")
   qaReviews                    QAReview[]                  @relation("QAReviewReviewedBy")
+  qaReworkAsQa                 QaReworkTransfer[]          @relation("QaReworkQa")
+  qaReworkAsCleaner            QaReworkTransfer[]          @relation("QaReworkCleaner")
+  qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
+  webauthnCredentials          WebAuthnCredential[]
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
   mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")
@@ -713,6 +739,10 @@ model Job {
   gpsCheckOutLng        Float?
   gpsCheckOutAt         DateTime?
   gpsDistanceMeters      Int?
+  gpsCheckInAccuracyM    Float?
+  gpsCheckInConfirmed    Boolean   @default(false)
+  gpsCheckInAdjusted     Boolean   @default(false)
+  gpsCheckInNote         String?   @db.Text
   requiresSafetyCheckin  Boolean   @default(false)
   safetyCheckinAt        DateTime?
   manuallyRescheduledAt   DateTime?
@@ -739,6 +769,7 @@ model Job {
   qaReviews              QAReview[]
   qaAssignments           QaAssignment[]
   qaFormSubmissions       QaFormSubmission[]
+  qaReworkTransfers       QaReworkTransfer[]
   mediaOverrideRequests   MediaOverrideRequest[]
   laundryTask            LaundryTask?
   report                 Report?
@@ -974,6 +1005,9 @@ model QaAssignment {
   dueAt        DateTime?
   pickedUpAt   DateTime?
   completedAt  DateTime?
+  onSiteStartedAt DateTime?
+  onSiteEndedAt   DateTime?
+  onSiteMinutes   Int?
   notes        String?            @db.Text
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
@@ -983,10 +1017,58 @@ model QaAssignment {
   createdBy    User? @relation("QaAssignmentCreatedBy", fields: [createdById], references: [id])
   pickedUpBy   User? @relation("QaAssignmentPickedUpBy", fields: [pickedUpById], references: [id])
   submissions  QaFormSubmission[]
+  reworkTransfers QaReworkTransfer[]
 
   @@index([status, dueAt])
   @@index([assignedToId, status])
   @@index([jobId, status])
+}
+
+/// A QA-initiated correction record: the inspector flags work the cleaner
+/// missed and (optionally) had to redo. With admin approval, billable minutes
+/// and/or pay can be moved from the cleaner to the QA inspector, and the
+/// cleaner's quality stats reflect the miss. Mirrors the existing pay/time
+/// adjustment + approval-gate patterns.
+model QaReworkTransfer {
+  id              String                 @id @default(cuid())
+  jobId           String
+  assignmentId    String?
+  qaUserId        String
+  cleanerUserId   String
+  severity        QaReworkSeverity       @default(MINOR)
+  reason          String                 @db.Text
+  areas           Json?                  // list of areas/items redone
+  minutesFromCleaner Int                 @default(0)
+  amountFromCleaner  Float               @default(0)
+  affectsCleanerStats Boolean            @default(true)
+  status          QaReworkTransferStatus @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  adminNote       String?                @db.Text
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  job         Job           @relation(fields: [jobId], references: [id])
+  assignment  QaAssignment? @relation(fields: [assignmentId], references: [id])
+  qaUser      User          @relation("QaReworkQa", fields: [qaUserId], references: [id])
+  cleaner     User          @relation("QaReworkCleaner", fields: [cleanerUserId], references: [id])
+  reviewedBy  User?         @relation("QaReworkReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([jobId, status])
+  @@index([cleanerUserId, status])
+  @@index([qaUserId, status])
+}
+
+enum QaReworkSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+}
+
+enum QaReworkTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model QaFormSubmission {

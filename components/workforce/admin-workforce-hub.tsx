@@ -28,6 +28,7 @@ import {
   Pencil,
   Pin,
   RefreshCw,
+  Share2,
   Sparkles,
   Trash2,
   Users,
@@ -120,7 +121,37 @@ const DEFAULT_POSITION_FORM = {
   location: "Greater Sydney",
   employmentType: "Casual / Contract",
   isPublished: true,
+  requireKnowledgeTest: true,
+  passThreshold: 65,
 };
+
+function scoreBadgeVariant(score: number, threshold = 65): "success" | "warning" | "destructive" {
+  if (score >= Math.max(threshold + 15, 80)) return "success";
+  if (score >= threshold) return "warning";
+  return "destructive";
+}
+
+function applicationThreshold(application: any): number {
+  const t = Number(application?.evaluation?.assessment?.passThreshold);
+  return Number.isFinite(t) && t > 0 ? t : 65;
+}
+
+function positionRequiresTest(position: any): boolean {
+  const schema = position?.screeningSchema;
+  if (schema && typeof schema === "object" && !Array.isArray(schema)) {
+    return (schema as any).requireKnowledgeTest !== false;
+  }
+  return true;
+}
+
+function positionThreshold(position: any): number {
+  const schema = position?.screeningSchema;
+  if (schema && typeof schema === "object" && !Array.isArray(schema)) {
+    const t = Number((schema as any).passThreshold);
+    if (Number.isFinite(t) && t > 0) return t;
+  }
+  return 65;
+}
 
 export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) {
   const [data, setData] = useState<any>(null);
@@ -181,6 +212,7 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
   });
   const [positionForm, setPositionForm] = useState(DEFAULT_POSITION_FORM);
   const [applicationReview, setApplicationReview] = useState<Record<string, { status: string; notes: string; interviewNotes: string; interviewDate: string; rejectionReason: string; offerRole: string; offerRate: string; offerStartDate: string }>>({});
+  const [hiringFilters, setHiringFilters] = useState({ status: "ALL", positionId: "ALL", sort: "scoreDesc" });
 
   async function load(options?: { silent?: boolean }) {
     const silent = options?.silent === true;
@@ -324,7 +356,38 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
       location: position.location ?? "",
       employmentType: position.employmentType ?? "",
       isPublished: position.isPublished !== false,
+      requireKnowledgeTest: positionRequiresTest(position),
+      passThreshold: positionThreshold(position),
     });
+  }
+
+  async function shareLink(url: string, title: string) {
+    if (typeof navigator !== "undefined" && typeof (navigator as any).share === "function") {
+      try {
+        await (navigator as any).share({ title, text: title, url });
+        return;
+      } catch {
+        // cancelled / unsupported — fall through to copy
+      }
+    }
+    await copyText(url, "Public link copied");
+  }
+
+  async function quickSetStatus(application: any, status: string, successTitle: string) {
+    const current = applicationReview[application.id];
+    await runAction(
+      {
+        action: "REVIEW_APPLICATION",
+        applicationId: application.id,
+        status,
+        notes: current?.notes ?? String(application.evaluation?.adminNotes ?? ""),
+        interviewNotes: current?.interviewNotes ?? application.interviewNotes ?? null,
+        interviewDate: current?.interviewDate || application.interviewDate || null,
+        rejectionReason: current?.rejectionReason ?? application.rejectionReason ?? null,
+        offerDetails: null,
+      },
+      successTitle
+    );
   }
 
   function resolvePublicPositionUrl(position: any) {
@@ -364,6 +427,21 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
     () => (data?.channels ?? []).find((channel: any) => channel.id === selectedChannelId) ?? null,
     [data, selectedChannelId]
   );
+
+  const filteredApplications = useMemo(() => {
+    const all: any[] = data?.hiring?.applications ?? [];
+    let rows = all;
+    if (hiringFilters.status !== "ALL") rows = rows.filter((a) => a.status === hiringFilters.status);
+    if (hiringFilters.positionId !== "ALL") rows = rows.filter((a) => a.position?.id === hiringFilters.positionId);
+    const sorted = [...rows];
+    const score = (a: any) => (typeof a.screeningScore === "number" ? a.screeningScore : -1);
+    const time = (a: any) => new Date(a.createdAt ?? 0).getTime();
+    if (hiringFilters.sort === "scoreDesc") sorted.sort((a, b) => score(b) - score(a) || time(b) - time(a));
+    else if (hiringFilters.sort === "scoreAsc") sorted.sort((a, b) => score(a) - score(b) || time(b) - time(a));
+    else if (hiringFilters.sort === "newest") sorted.sort((a, b) => time(b) - time(a));
+    else if (hiringFilters.sort === "oldest") sorted.sort((a, b) => time(a) - time(b));
+    return sorted;
+  }, [data, hiringFilters]);
 
   useEffect(() => {
     void load();
@@ -1413,6 +1491,25 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
               </div>
               <div className="space-y-2"><Label>Employment type</Label><Input value={positionForm.employmentType} onChange={(event) => setPositionForm((current) => ({ ...current, employmentType: event.target.value }))} /></div>
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={positionForm.isPublished} onCheckedChange={(checked) => setPositionForm((current) => ({ ...current, isPublished: checked === true }))} />Publish immediately</label>
+              <div className="rounded-2xl border bg-muted/20 p-4 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox checked={positionForm.requireKnowledgeTest} onCheckedChange={(checked) => setPositionForm((current) => ({ ...current, requireKnowledgeTest: checked === true }))} />
+                  Require the short-stay knowledge test
+                </label>
+                <p className="text-xs text-muted-foreground">Applicants take a scored Airbnb-cleaning assessment during application. Auto-scored questions set the screening score; free-text answers are flagged for review.</p>
+                <div className="space-y-2">
+                  <Label>Pass threshold (%)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="tabular-nums"
+                    value={positionForm.passThreshold}
+                    disabled={!positionForm.requireKnowledgeTest}
+                    onChange={(event) => setPositionForm((current) => ({ ...current, passThreshold: Math.max(0, Math.min(100, Number(event.target.value) || 0)) }))}
+                  />
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={saving || !positionForm.title.trim()}
@@ -1451,10 +1548,20 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                       </Button>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">{position.location || "Location not set"} · {position.department || "Department not set"}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {positionRequiresTest(position) ? (
+                        <Badge variant="outline">Knowledge test · pass {positionThreshold(position)}%</Badge>
+                      ) : (
+                        <Badge variant="secondary">No knowledge test</Badge>
+                      )}
+                    </div>
                     <code className="mt-3 block rounded-xl bg-muted px-3 py-2 text-xs break-all">{resolvePublicPositionUrl(position)}</code>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => void copyText(resolvePublicPositionUrl(position), "Public link copied")}>
                         <Copy className="mr-2 h-4 w-4" />Copy link
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => void shareLink(resolvePublicPositionUrl(position), `${position.title} — apply now`)}>
+                        <Share2 className="mr-2 h-4 w-4" />Share
                       </Button>
                       <Button variant="outline" size="sm" asChild>
                         <a href={resolvePublicPositionUrl(position)} target="_blank" rel="noreferrer">
@@ -1479,7 +1586,11 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                           <div key={application.id} className="rounded-xl border bg-white dark:bg-surface-raised p-3 text-sm shadow-sm">
                             <p className="font-medium">{application.fullName}</p>
                             <p className="text-xs text-muted-foreground">{application.position?.title}</p>
-                            {typeof application.screeningScore === "number" ? <Badge className="mt-2" variant="warning">Score {Math.round(application.screeningScore)}</Badge> : null}
+                            {typeof application.screeningScore === "number" ? (
+                              <Badge className="mt-2 tabular-nums" variant={scoreBadgeVariant(application.screeningScore, applicationThreshold(application))}>
+                                Score {Math.round(application.screeningScore)}
+                              </Badge>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -1488,7 +1599,45 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                 </div>
               </div>
               <div className="space-y-4">
-                {(data?.hiring?.applications ?? []).map((application: any) => {
+                <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-muted/20 p-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Status</Label>
+                    <Select value={hiringFilters.status} onValueChange={(value) => setHiringFilters((c) => ({ ...c, status: value }))}>
+                      <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All statuses</SelectItem>
+                        {hiringStatuses.map((s) => <SelectItem key={s} value={s}>{prettifyLabel(s)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Position</Label>
+                    <Select value={hiringFilters.positionId} onValueChange={(value) => setHiringFilters((c) => ({ ...c, positionId: value }))}>
+                      <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All positions</SelectItem>
+                        {(data?.hiring?.positions ?? []).map((p: any) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Sort</Label>
+                    <Select value={hiringFilters.sort} onValueChange={(value) => setHiringFilters((c) => ({ ...c, sort: value }))}>
+                      <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="scoreDesc">Score (high → low)</SelectItem>
+                        <SelectItem value="scoreAsc">Score (low → high)</SelectItem>
+                        <SelectItem value="newest">Newest first</SelectItem>
+                        <SelectItem value="oldest">Oldest first</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Badge variant="outline" className="ml-auto tabular-nums">{filteredApplications.length} shown</Badge>
+                </div>
+                {filteredApplications.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">No applications match these filters.</p>
+                ) : null}
+                {filteredApplications.map((application: any) => {
                   const review = applicationReview[application.id] ?? {
                     status: application.status,
                     notes: String(application.evaluation?.adminNotes ?? ""),
@@ -1505,11 +1654,71 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
                         <p className="font-semibold">{application.fullName}</p>
                         <Badge variant="outline">{application.position?.title}</Badge>
                         <Badge variant={application.status === "HIRED" ? "success" : application.status === "REJECTED" ? "destructive" : "secondary"}>{application.status}</Badge>
-                        {typeof application.screeningScore === "number" ? <Badge variant="warning">Screening {Math.round(application.screeningScore)}</Badge> : null}
+                        {typeof application.screeningScore === "number" ? (
+                          <Badge variant={scoreBadgeVariant(application.screeningScore, applicationThreshold(application))} className="tabular-nums">
+                            Score {Math.round(application.screeningScore)}
+                          </Badge>
+                        ) : null}
+                        {application.evaluation?.assessment ? (
+                          <Badge variant={application.evaluation.assessment.passed ? "success" : "destructive"}>
+                            {application.evaluation.assessment.passed ? "Passed" : "Below"} threshold {application.evaluation.assessment.passThreshold}%
+                          </Badge>
+                        ) : null}
                         {application.hiredUser ? <Badge variant="success">Linked user: {application.hiredUser.name || application.hiredUser.email}</Badge> : null}
                       </div>
                       <p className="mt-2 text-sm text-muted-foreground">{application.email}{application.phone ? ` · ${application.phone}` : ""}</p>
-                      <p className="mt-2 text-sm">{application.evaluation?.fitBand || "Awaiting review"}</p>
+                      <p className="mt-2 text-sm">{application.evaluation?.fitBand || application.evaluation?.assessment?.band || "Awaiting review"}</p>
+
+                      {/* Quick shortlist / reject actions */}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={saving} onClick={() => void quickSetStatus(application, "INTERVIEW", "Shortlisted")}>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />Shortlist
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={saving} onClick={() => void quickSetStatus(application, "REJECTED", "Application rejected")}>
+                          <X className="mr-2 h-4 w-4" />Reject
+                        </Button>
+                      </div>
+
+                      {/* Knowledge-test breakdown */}
+                      {application.evaluation?.assessment ? (
+                        <div className="mt-3 rounded-2xl border bg-muted/20 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold">Knowledge test breakdown</p>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {application.evaluation.assessment.autoScoredCount}/{application.evaluation.assessment.totalAutoScored} auto-scored correct
+                            </span>
+                          </div>
+                          {Array.isArray(application.evaluation.assessment.categoryScores) && application.evaluation.assessment.categoryScores.length > 0 ? (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {application.evaluation.assessment.categoryScores.map((cat: any) => (
+                                <div key={cat.category} className="space-y-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-muted-foreground">{cat.label}</span>
+                                    <span className="font-medium tabular-nums">{cat.score}%</span>
+                                  </div>
+                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                    <div
+                                      className={cat.score >= 80 ? "h-full bg-emerald-500" : cat.score >= 60 ? "h-full bg-amber-500" : "h-full bg-red-500"}
+                                      style={{ width: `${Math.max(4, Math.min(100, cat.score))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {Array.isArray(application.evaluation.assessment.flagged) && application.evaluation.assessment.flagged.length > 0 ? (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Free-text answers (human review)</p>
+                              {application.evaluation.assessment.flagged.map((item: any) => (
+                                <div key={item.id} className="rounded-xl border bg-white dark:bg-surface-raised p-3">
+                                  <p className="text-xs text-muted-foreground">{item.prompt}</p>
+                                  <p className="mt-1 text-sm">{item.answer}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {application.coverLetter ? <p className="mt-2 rounded-xl border bg-muted/20 p-3 text-sm">{application.coverLetter}</p> : null}
                       {application.resumeUrl ? <a href={application.resumeUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-full border px-3 py-2 text-xs font-medium">Open resume</a> : null}
                       {application.answers && typeof application.answers === "object" ? (

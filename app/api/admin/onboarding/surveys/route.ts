@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { createSurveySchema } from "@/lib/validations/onboarding";
 import { generateSurveyNumber } from "@/lib/onboarding/survey-number";
+import { buildFormMetaOverrides } from "@/lib/onboarding/form-meta";
 
 export async function GET(req: NextRequest) {
   try {
@@ -47,12 +48,17 @@ export async function POST(req: NextRequest) {
     const body = createSurveySchema.parse(await req.json());
 
     const surveyNumber = await generateSurveyNumber();
+    const adminOverrides = buildFormMetaOverrides(body as Record<string, unknown>);
 
     const survey = await db.propertyOnboardingSurvey.create({
       data: {
         surveyNumber,
         sourceType: "ADMIN_CREATED",
         submittedById: session.user.id,
+        estimatedCleanerCount: body.estimatedCleanerCount ?? undefined,
+        estimatedHours: body.estimatedHours ?? undefined,
+        estimatedPrice: body.estimatedPrice ?? undefined,
+        adminOverrides: adminOverrides ? (adminOverrides as any) : undefined,
         isNewClient: body.isNewClient ?? false,
         clientData: body.clientData ? (body.clientData as any) : undefined,
         existingClientId: body.existingClientId || undefined,

@@ -48,9 +48,25 @@ const sectionZ = z
   })
   .passthrough();
 
+// Optional appearance overrides (schema.theme). All fields optional so legacy
+// templates and forward-compatible props keep validating; passthrough lets new
+// theme keys land without a schema bump.
+const themeZ = z
+  .object({
+    accentColor: z.string().optional(),
+    headerColor: z.string().optional(),
+    logoUrl: z.string().optional(),
+    logoKey: z.string().optional(),
+    showDividers: z.boolean().optional(),
+    headingFont: z.string().optional(),
+    bodyFont: z.string().optional(),
+  })
+  .passthrough();
+
 export const formTemplateSchemaZ = z
   .object({
     sections: z.array(sectionZ),
+    theme: themeZ.optional(),
   })
   .passthrough();
 

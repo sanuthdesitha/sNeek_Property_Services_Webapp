@@ -229,6 +229,8 @@ export async function POST(req: NextRequest) {
           location: body.location ? String(body.location) : null,
           employmentType: body.employmentType ? String(body.employmentType) : null,
           isPublished: body.isPublished !== false,
+          requireKnowledgeTest: body.requireKnowledgeTest !== false,
+          passThreshold: Number.isFinite(Number(body.passThreshold)) ? Number(body.passThreshold) : null,
           createdById: session.user.id,
         });
         return NextResponse.json({ ok: true, result });
@@ -244,6 +246,8 @@ export async function POST(req: NextRequest) {
           location: body.location ? String(body.location) : null,
           employmentType: body.employmentType ? String(body.employmentType) : null,
           isPublished: body.isPublished !== false,
+          requireKnowledgeTest: body.requireKnowledgeTest !== false,
+          passThreshold: Number.isFinite(Number(body.passThreshold)) ? Number(body.passThreshold) : null,
         });
         return NextResponse.json({ ok: true, result });
       }

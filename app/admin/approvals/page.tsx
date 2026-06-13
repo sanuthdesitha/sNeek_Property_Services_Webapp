@@ -11,6 +11,7 @@ import {
   Clock,
   DollarSign,
   RefreshCw,
+  RotateCcw,
   Shirt,
   XCircle,
 } from "lucide-react";
@@ -34,6 +35,7 @@ type AllApprovals = {
   clientApprovals: any[];
   flaggedLaundry: any[];
   rescheduleRequests: any[];
+  qaReworkTransfers: any[];
   counts: Record<string, number>;
 };
 
@@ -45,6 +47,7 @@ const TABS = [
   { key: "clientApprovals",    label: "Client Approvals",    icon: CheckCircle2 },
   { key: "flaggedLaundry",     label: "Flagged Laundry",     icon: Shirt },
   { key: "rescheduleRequests", label: "Reschedule Requests", icon: CalendarClock },
+  { key: "qaReworkTransfers",  label: "QA Reworks",          icon: RotateCcw },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -647,6 +650,80 @@ export default function AdminApprovalsPage() {
                     {row.job?.id && (
                       <Button asChild size="sm" variant="ghost">
                         <Link href={`/admin/jobs/${row.job.id}`}>View job</Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── QA Rework Transfers ── */}
+          {activeTab === "qaReworkTransfers" && (
+            (data.qaReworkTransfers?.length ?? 0) === 0 ? <Empty /> : data.qaReworkTransfers.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <RotateCcw className="h-4 w-4 text-amber-500" />
+                      <p className="font-semibold">
+                        QA rework — {row.job?.property?.name ?? `Job #${row.job?.jobNumber ?? row.jobId?.slice(0, 8)}`}
+                      </p>
+                      <StatusBadge status={row.status} />
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {row.severity}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb}
+                      {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">{row.cleaner?.name ?? "Cleaner"}</span>
+                      {" → "}
+                      <span className="font-medium">{row.qaUser?.name ?? "QA inspector"}</span>
+                    </p>
+                    <p className="text-sm tabular-nums">
+                      <span className="font-medium">Proposed transfer:</span> {row.minutesFromCleaner} min · $
+                      {Number(row.amountFromCleaner ?? 0).toFixed(2)}
+                      {row.affectsCleanerStats ? " · affects cleaner stats" : ""}
+                    </p>
+                    {row.reason && <p className="text-sm text-muted-foreground">{row.reason}</p>}
+                    {Array.isArray(row.areas) && row.areas.length > 0 ? (
+                      <p className="text-xs text-muted-foreground">Areas: {row.areas.join(", ")}</p>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">Filed: {fmt(row.createdAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() =>
+                        act(
+                          `/api/admin/qa/rework-transfers/${row.id}`,
+                          "PATCH",
+                          { status: "APPROVED" },
+                          "Rework approved — time/pay moved to QA"
+                        )
+                      }
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() =>
+                        act(`/api/admin/qa/rework-transfers/${row.id}`, "PATCH", { status: "REJECTED" }, "Rework rejected")
+                      }
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    {row.jobId && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
                       </Button>
                     )}
                   </div>

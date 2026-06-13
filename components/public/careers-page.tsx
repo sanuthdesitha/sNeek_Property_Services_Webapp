@@ -1,12 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, MapPin, Briefcase } from "lucide-react";
+import { ArrowRight, MapPin, Briefcase, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+async function sharePosition(position: { slug: string; title: string }) {
+  const url = typeof window !== "undefined" ? `${window.location.origin}/apply/${position.slug}` : `/apply/${position.slug}`;
+  const data = { title: `${position.title} — apply now`, text: `Join the team: ${position.title}`, url };
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    try {
+      await navigator.share(data);
+      return;
+    } catch {
+      // cancelled / unsupported — fall through to copy
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast({ title: "Link copied", description: "Application link copied to clipboard." });
+  } catch {
+    toast({ title: "Could not share", description: url, variant: "destructive" });
+  }
+}
 
 type CareerPosition = {
   id: string;
@@ -71,12 +91,21 @@ export function CareersPage({ positions }: { positions: CareerPosition[] }) {
                     <p className="line-clamp-4 text-sm leading-7 text-muted-foreground">{position.description || "View the role to see full expectations, requirements, and application steps."}</p>
                   </div>
 
-                  <div className="mt-auto pt-2">
+                  <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
                     <Button asChild className="rounded-full">
                       <Link href={`/apply/${position.slug}`}>
                         View & Apply
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => void sharePosition(position)}
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      Share
                     </Button>
                   </div>
                 </CardContent>

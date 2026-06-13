@@ -13,20 +13,22 @@ import { StepNotes } from "@/components/onboarding/step-notes";
 import { StepStaffing } from "@/components/onboarding/step-staffing";
 import { StepIcal } from "@/components/onboarding/step-ical";
 import { StepJobTypeQuestions } from "@/components/onboarding/step-job-type-questions";
+import { StepScenarios } from "@/components/onboarding/step-scenarios";
 import { StepReview } from "@/components/onboarding/step-review";
 import { toast } from "@/hooks/use-toast";
 
 const STEPS = [
-  { id: "client", label: "Client Info" },
+  { id: "client", label: "Client" },
   { id: "property", label: "Property Basics" },
-  { id: "appliances", label: "Appliances" },
-  { id: "requests", label: "Special Requests" },
-  { id: "laundry", label: "Laundry" },
   { id: "access", label: "Access" },
-  { id: "notes", label: "Notes" },
-  { id: "staffing", label: "Staffing" },
-  { id: "ical", label: "iCal" },
   { id: "jobtypes", label: "Cleaning Types" },
+  { id: "appliances", label: "Rooms & Appliances" },
+  { id: "laundry", label: "Laundry" },
+  { id: "scenarios", label: "Scenarios & Consumables" },
+  { id: "requests", label: "Special Requests" },
+  { id: "notes", label: "Notes" },
+  { id: "staffing", label: "Staffing & Estimate" },
+  { id: "ical", label: "Schedule / iCal" },
   { id: "review", label: "Review" },
 ];
 
@@ -68,6 +70,17 @@ export default function NewOnboardingPage() {
             if (data.laundryDetail) mapped.laundryDetail = data.laundryDetail;
             if (data.accessDetails) mapped.accessDetails = data.accessDetails;
             if (data.jobTypeAnswers) mapped.jobTypeAnswers = data.jobTypeAnswers;
+            // Re-hydrate the structured formMeta envelope back to top-level keys
+            // (geocode, selectedJobTypes, scenarios, schedule, contact, times)
+            // so the wizard steps repopulate when editing a draft.
+            const formMeta = (data.adminOverrides && typeof data.adminOverrides === "object"
+              ? (data.adminOverrides as Record<string, unknown>).formMeta
+              : null) as Record<string, unknown> | null;
+            if (formMeta && typeof formMeta === "object") {
+              for (const [k, v] of Object.entries(formMeta)) {
+                if (v !== undefined && v !== null) mapped[k] = v;
+              }
+            }
             setFormData(mapped);
           } else {
             toast({ title: "Survey not found", variant: "destructive" });
@@ -135,6 +148,7 @@ export default function NewOnboardingPage() {
     requests: <StepSpecialRequests data={formData} onChange={setFormData} />,
     laundry: <StepLaundry data={formData} onChange={setFormData} />,
     access: <StepAccess data={formData} onChange={setFormData} />,
+    scenarios: <StepScenarios data={formData} onChange={setFormData} />,
     notes: <StepNotes data={formData} onChange={setFormData} />,
     staffing: <StepStaffing data={formData} onChange={setFormData} />,
     ical: <StepIcal data={formData} onChange={setFormData} />,

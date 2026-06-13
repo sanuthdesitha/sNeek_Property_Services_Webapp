@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getCleanerReworkStats } from "@/lib/qa/rework-transfers";
 
 /**
  * Wrap a Prisma promise so a failure logs (instead of silently producing `null`
@@ -55,6 +56,19 @@ export interface PerformanceMetrics {
   trainingCompletion: {
     completed: number;
     assigned: number;
+    percent: number | null;
+  };
+  /**
+   * Confirmed QA rework / miss rate — admin-approved QaReworkTransfer records
+   * where the cleaner missed work the QA had to redo. `percent` is reworks per
+   * assigned job (×100). Surfaces the cleaner's mistakes in their stats.
+   */
+  reworkRate: {
+    reworks: number;
+    majorReworks: number;
+    minutesLost: number;
+    amountLost: number;
+    totalJobs: number;
     percent: number | null;
   };
 }
@@ -211,14 +225,26 @@ export async function getPerformanceMetrics(
     ),
   ]);
 
-  // 1. Quality score — average QA submission score for jobs cleaner was assigned to
+  // Confirmed QA reworks for this cleaner in the window (used for the rework
+  // rate and to dampen the quality score so misses show up in their stats).
+  const reworkStats = await safeQuery(
+    "qaReworkTransfer",
+    getCleanerReworkStats(userId, windowStart),
+    { count: 0, minutes: 0, amount: 0, major: 0 },
+  );
+
+  // 1. Quality score — average QA submission score for jobs cleaner was assigned
+  //    to, dampened by confirmed reworks (each rework removes 5 pts, majors 10).
   const qaScores = qaSubmissions
     .map((q) => q.score)
     .filter((s): s is number => typeof s === "number");
-  const qualityAvg =
+  const qualityRaw =
     qaScores.length > 0
       ? qaScores.reduce((a, b) => a + b, 0) / qaScores.length
       : null;
+  const reworkPenalty = reworkStats.count * 5 + reworkStats.major * 5;
+  const qualityAvg =
+    qualityRaw != null ? Math.max(0, qualityRaw - reworkPenalty) : null;
 
   // 2. Reliability — arrived within 15 min of scheduled start
   const arrivalRows = assignmentRows.filter((a: any) => {
@@ -398,6 +424,17 @@ export async function getPerformanceMetrics(
       completed: completedLearning,
       assigned: learningRows.length,
       percent: trainingPct,
+    },
+    reworkRate: {
+      reworks: reworkStats.count,
+      majorReworks: reworkStats.major,
+      minutesLost: reworkStats.minutes,
+      amountLost: reworkStats.amount,
+      totalJobs: assignedJobs,
+      percent:
+        assignedJobs > 0
+          ? Math.round((reworkStats.count / assignedJobs) * 100 * 10) / 10
+          : null,
     },
   };
 }

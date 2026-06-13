@@ -17,13 +17,16 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, LayoutList, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card } from "@/components/ui/card";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { SectionEditor } from "./section-editor";
 import { FormPreview } from "./form-preview";
+import { ThemeEditor } from "./theme-editor";
 import type { FormField, FormSchema } from "@/lib/forms/types";
 
 export interface FormBuilderProps {
@@ -48,6 +51,7 @@ type Action =
   | { type: "UPDATE_FIELD"; sectionId: string; field: FormField }
   | { type: "REMOVE_FIELD"; sectionId: string; fieldId: string }
   | { type: "REORDER_FIELDS"; sectionId: string; from: number; to: number }
+  | { type: "SET_THEME"; theme: FormSchema["theme"] }
   | { type: "MARK_CLEAN" };
 
 interface State {
@@ -177,6 +181,12 @@ function reducer(state: State, action: Action): State {
               : s,
           ),
         },
+      };
+    case "SET_THEME":
+      return {
+        ...state,
+        dirty: true,
+        schema: { ...state.schema, theme: action.theme },
       };
     case "MARK_CLEAN":
       return { ...state, dirty: false };
@@ -365,86 +375,110 @@ export function FormBuilder({
 
       <div className={showPreview ? "grid items-start gap-6 lg:grid-cols-2" : undefined}>
         <div className="space-y-6">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleSectionDragEnd}
-          >
-            <SortableContext
-              items={state.schema.sections.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-3">
-                {state.schema.sections.map((section) => (
-                  <SectionEditor
-                    key={section.id}
-                    section={section}
-                    onUpdateTitle={(title) =>
-                      dispatch({
-                        type: "UPDATE_SECTION_TITLE",
-                        sectionId: section.id,
-                        title,
-                      })
-                    }
-                    onUpdateDescription={(description) =>
-                      dispatch({
-                        type: "UPDATE_SECTION_DESCRIPTION",
-                        sectionId: section.id,
-                        description,
-                      })
-                    }
-                    onRemove={() =>
-                      dispatch({ type: "REMOVE_SECTION", sectionId: section.id })
-                    }
-                    onAddField={(field) =>
-                      dispatch({
-                        type: "ADD_FIELD",
-                        sectionId: section.id,
-                        field,
-                      })
-                    }
-                    onUpdateField={(field) =>
-                      dispatch({
-                        type: "UPDATE_FIELD",
-                        sectionId: section.id,
-                        field,
-                      })
-                    }
-                    onRemoveField={(fieldId) =>
-                      dispatch({
-                        type: "REMOVE_FIELD",
-                        sectionId: section.id,
-                        fieldId,
-                      })
-                    }
-                    onDuplicateField={(fieldId) =>
-                      dispatch({
-                        type: "DUPLICATE_FIELD",
-                        sectionId: section.id,
-                        fieldId,
-                      })
-                    }
-                    onReorderFields={(from, to) =>
-                      dispatch({
-                        type: "REORDER_FIELDS",
-                        sectionId: section.id,
-                        from,
-                        to,
-                      })
-                    }
-                    availableFields={allFields}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <Tabs defaultValue="sections">
+            <TabsList>
+              <TabsTrigger value="sections">
+                <LayoutList className="mr-1.5 size-4" />
+                Sections
+              </TabsTrigger>
+              <TabsTrigger value="theme">
+                <Palette className="mr-1.5 size-4" />
+                Theme
+              </TabsTrigger>
+            </TabsList>
 
-          <Button
-            variant="outline"
-            onClick={() => dispatch({ type: "ADD_SECTION" })}
-          >
-            + Add section
-          </Button>
+            <TabsContent value="sections" className="space-y-6">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleSectionDragEnd}
+              >
+                <SortableContext
+                  items={state.schema.sections.map((s) => s.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-3">
+                    {state.schema.sections.map((section) => (
+                      <SectionEditor
+                        key={section.id}
+                        section={section}
+                        onUpdateTitle={(title) =>
+                          dispatch({
+                            type: "UPDATE_SECTION_TITLE",
+                            sectionId: section.id,
+                            title,
+                          })
+                        }
+                        onUpdateDescription={(description) =>
+                          dispatch({
+                            type: "UPDATE_SECTION_DESCRIPTION",
+                            sectionId: section.id,
+                            description,
+                          })
+                        }
+                        onRemove={() =>
+                          dispatch({ type: "REMOVE_SECTION", sectionId: section.id })
+                        }
+                        onAddField={(field) =>
+                          dispatch({
+                            type: "ADD_FIELD",
+                            sectionId: section.id,
+                            field,
+                          })
+                        }
+                        onUpdateField={(field) =>
+                          dispatch({
+                            type: "UPDATE_FIELD",
+                            sectionId: section.id,
+                            field,
+                          })
+                        }
+                        onRemoveField={(fieldId) =>
+                          dispatch({
+                            type: "REMOVE_FIELD",
+                            sectionId: section.id,
+                            fieldId,
+                          })
+                        }
+                        onDuplicateField={(fieldId) =>
+                          dispatch({
+                            type: "DUPLICATE_FIELD",
+                            sectionId: section.id,
+                            fieldId,
+                          })
+                        }
+                        onReorderFields={(from, to) =>
+                          dispatch({
+                            type: "REORDER_FIELDS",
+                            sectionId: section.id,
+                            from,
+                            to,
+                          })
+                        }
+                        availableFields={allFields}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+
+              <Button
+                variant="outline"
+                onClick={() => dispatch({ type: "ADD_SECTION" })}
+              >
+                + Add section
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="theme">
+              <Card className="p-4">
+                <ThemeEditor
+                  theme={state.schema.theme}
+                  onChange={(theme) => dispatch({ type: "SET_THEME", theme })}
+                />
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {showPreview ? (

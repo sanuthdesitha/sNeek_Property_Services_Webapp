@@ -43,6 +43,10 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
 
   const clientData = (data.clientData as Record<string, unknown>) ?? {};
   const laundryDetail = (data.laundryDetail as Record<string, unknown>) ?? {};
+  const scenarios = (data.scenarios as Record<string, any>) ?? {};
+  const schedule = (data.recurringSchedule as Record<string, any>) ?? {};
+  const contact = (data.emergencyContact as Record<string, any>) ?? {};
+  const hasGeo = typeof data.propertyLatitude === "number" && typeof data.propertyLongitude === "number";
 
   const sections: { title: string; items: (string | null)[] }[] = [
     {
@@ -60,6 +64,8 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
         `${data.bedrooms} bed, ${data.bathrooms} bath`,
         data.propertyType,
         data.sizeSqm ? `${data.sizeSqm} sqm` : null,
+        scenarios.bedConfig ? `Beds: ${scenarios.bedConfig}` : null,
+        hasGeo ? "Location pinned for maps/GPS" : "Address will be geocoded on approval",
       ].filter(Boolean)) as (string | null)[],
     },
     {
@@ -96,8 +102,33 @@ export function StepReview({ surveyId, data, onComplete }: StepReviewProps) {
       items: ((data.selectedJobTypes as string[]) ?? []).map((jt) => jt.replace(/_/g, " ")),
     },
     {
-      title: "iCal",
-      items: data.icalUrl ? [`URL: ${data.icalUrl}`] : ["Not provided"],
+      title: "Scenarios & Consumables",
+      items: [
+        scenarios.hasPets ? `Pets: ${scenarios.petDetails ?? "yes"}` : null,
+        scenarios.hasAlarm ? "Has alarm" : null,
+        scenarios.wifiNetwork ? `Wifi: ${scenarios.wifiNetwork}` : null,
+        scenarios.binDay ? `Bins: ${scenarios.binDay}` : null,
+        scenarios.consumablesProvided ? "We restock consumables" : null,
+        scenarios.linenSets != null ? `Linen sets: ${scenarios.linenSets}` : null,
+        scenarios.noGoAreas ? `No-go: ${scenarios.noGoAreas}` : null,
+      ].filter(Boolean) as (string | null)[],
+    },
+    {
+      title: "Schedule & iCal",
+      items: [
+        data.defaultCheckinTime ? `Check-in ${data.defaultCheckinTime}` : null,
+        data.defaultCheckoutTime ? `Check-out ${data.defaultCheckoutTime}` : null,
+        schedule.enabled ? `Recurring: ${schedule.cadence ?? "—"}` : null,
+        data.icalUrl ? `iCal: ${data.icalUrl}` : "No iCal feed",
+      ].filter(Boolean) as (string | null)[],
+    },
+    {
+      title: "Emergency / Owner Contact",
+      items: [
+        contact.name ? `${contact.name}${contact.relation ? ` (${contact.relation})` : ""}` : null,
+        contact.phone ?? null,
+        contact.email ?? null,
+      ].filter(Boolean) as (string | null)[],
     },
   ];
 

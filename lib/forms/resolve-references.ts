@@ -29,6 +29,23 @@ async function resolveFieldReferences(field: any): Promise<any> {
   return { ...field, references };
 }
 
+// Resolves the optional `schema.theme.logoKey` (uploaded logo) into a viewable
+// presigned `logoUrl` so the cleaner-facing form can render the logo without
+// hitting the admin-scoped access endpoint. Themes without an uploaded logo
+// (or with an external `logoUrl` already set) pass through untouched.
+async function resolveThemeLogo(theme: any): Promise<any> {
+  if (!theme || typeof theme !== "object") return theme;
+  if (theme.logoKey && !theme.logoUrl) {
+    try {
+      const logoUrl = await getPresignedDownloadUrl(theme.logoKey, 3600);
+      return { ...theme, logoUrl };
+    } catch {
+      return theme;
+    }
+  }
+  return theme;
+}
+
 export async function resolveTemplateReferenceUrls<T extends { schema?: any } | null>(
   template: T
 ): Promise<T> {
@@ -43,5 +60,6 @@ export async function resolveTemplateReferenceUrls<T extends { schema?: any } | 
         : section?.fields,
     }))
   );
-  return { ...template, schema: { ...template.schema, sections } };
+  const theme = await resolveThemeLogo(template.schema.theme);
+  return { ...template, schema: { ...template.schema, sections, theme } };
 }

@@ -15,11 +15,17 @@ import {
   buildCleanerAssessmentSchema,
   buildCleanerOnboardingSchema,
   buildDefaultCleanerHiringDescription,
-  buildDefaultHiringSchema,
   type LearningModule,
   type LearningQuestion,
   type LearningSchema,
 } from "@/lib/workforce/learning-defaults";
+import {
+  buildScreeningSchemaForStorage,
+  buildStructuredApplicationSchema,
+  parseScreeningSchema,
+  scoreAssessment,
+  type AssessmentResult,
+} from "@/lib/workforce/assessment";
 
 const STAFF_ROLES = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER, Role.LAUNDRY] as const;
 const FRONTLINE_ROLES: Role[] = [Role.CLEANER, Role.LAUNDRY];
@@ -2197,42 +2203,52 @@ function evaluateHiringAnswers(answersRaw: unknown) {
   const strengths: string[] = [];
   const risks: string[] = [];
 
+  // Supports both the new structured field ids and the legacy applicationSchema ids.
   const rightToWork = String(answers.rightToWork ?? "");
-  if (rightToWork === "Yes") {
+  if (/^yes/i.test(rightToWork)) {
     score += 20;
     strengths.push("Work rights confirmed");
   } else {
     risks.push("Work rights not confirmed");
   }
 
-  const vehicle = String(answers.hasVehicle ?? "");
-  if (vehicle === "Own vehicle") score += 15;
-  else if (vehicle === "Depends on location") score += 7;
-  else risks.push("Transport flexibility may be limited");
+  const vehicle = String(answers.hasCar ?? answers.hasVehicle ?? "");
+  if (/^yes|own vehicle/i.test(vehicle)) score += 15;
+  else if (/sometimes|depends|shared/i.test(vehicle)) score += 7;
+  else risks.push("Transport may be limited");
 
-  const licence = String(answers.licenseStatus ?? "");
-  if (licence === "Full licence") score += 12;
-  else if (licence === "Provisional licence") score += 6;
+  const licence = String(answers.licence ?? answers.licenseStatus ?? "");
+  if (/full/i.test(licence)) score += 12;
+  else if (/provisional/i.test(licence)) score += 6;
+  else if (/learner/i.test(licence)) score += 3;
   else risks.push("No licence");
 
-  const experience = String(answers.cleaningExperience ?? "");
+  const experience = String(answers.yearsExperience ?? answers.cleaningExperience ?? "");
   if (experience === "3+ years") score += 18;
   else if (experience === "1-3 years") score += 12;
   else if (experience === "Less than 1 year") score += 6;
   else risks.push("No formal cleaning experience");
 
-  const propertyTypes = Array.isArray(answers.propertyTypes) ? answers.propertyTypes.map(String) : [];
+  const propertyTypes = Array.isArray(answers.experienceTypes)
+    ? answers.experienceTypes.map(String)
+    : Array.isArray(answers.propertyTypes)
+      ? answers.propertyTypes.map(String)
+      : [];
   if (propertyTypes.includes("Airbnb / short-stay")) score += 10;
   if (propertyTypes.includes("Deep cleans")) score += 6;
   if (propertyTypes.includes("Laundry / linen")) score += 4;
 
-  const scenarioLateGuest = String(answers.scenarioLateGuest ?? "");
-  if (/admin|escalat|notify|report|guest|late/i.test(scenarioLateGuest)) score += 9;
-  else risks.push("Late-checkout scenario answer lacks escalation detail");
+  const hasAbn = String(answers.hasAbn ?? "");
+  if (/^yes/i.test(hasAbn)) score += 6;
+  else if (/willing/i.test(hasAbn)) score += 3;
 
-  const scenarioMissingStock = String(answers.scenarioMissingStock ?? "");
-  if (/stock|shop|notify|admin|restock|report/i.test(scenarioMissingStock)) score += 9;
-  else risks.push("Missing-stock scenario answer lacks readiness process");
+  const availabilityDays = Array.isArray(answers.availabilityDays) ? answers.availabilityDays.length : 0;
+  if (availabilityDays >= 5) score += 6;
+  else if (availabilityDays >= 3) score += 3;
+  else if (availabilityDays > 0) risks.push("Limited day availability");
+
+  const whyYou = String(answers.whyYou ?? "");
+  if (whyYou.trim().split(/\s+/).filter(Boolean).length >= 12) score += 4;
 
   const fitBand = score >= 75 ? "Strong fit" : score >= 55 ? "Worth interviewing" : "Needs screening review";
   return {
@@ -2259,8 +2275,8 @@ export async function ensureDefaultHiringPosition(createdById: string) {
       department: "Cleaning",
       location: "Greater Sydney",
       employmentType: "Casual / Contract",
-      applicationSchema: buildDefaultHiringSchema() as Prisma.InputJsonValue,
-      screeningSchema: { model: "default_cleaner_screening_v1" } as Prisma.InputJsonValue,
+      applicationSchema: buildStructuredApplicationSchema() as Prisma.InputJsonValue,
+      screeningSchema: buildScreeningSchemaForStorage({ requireKnowledgeTest: true }) as Prisma.InputJsonValue,
       isPublished: true,
       createdById,
     },
@@ -2368,6 +2384,8 @@ export async function createHiringPosition(input: {
   location?: string | null;
   employmentType?: string | null;
   isPublished?: boolean;
+  requireKnowledgeTest?: boolean;
+  passThreshold?: number | null;
   createdById: string;
 }) {
   const slug = await ensureUniqueHiringSlug(input.slug?.trim() || input.title);
@@ -2379,8 +2397,11 @@ export async function createHiringPosition(input: {
       department: input.department?.trim() || null,
       location: input.location?.trim() || null,
       employmentType: input.employmentType?.trim() || null,
-      applicationSchema: buildDefaultHiringSchema() as Prisma.InputJsonValue,
-      screeningSchema: { model: "default_cleaner_screening_v1" } as Prisma.InputJsonValue,
+      applicationSchema: buildStructuredApplicationSchema() as Prisma.InputJsonValue,
+      screeningSchema: buildScreeningSchemaForStorage({
+        requireKnowledgeTest: input.requireKnowledgeTest !== false,
+        passThreshold: input.passThreshold ?? null,
+      }) as Prisma.InputJsonValue,
       isPublished: input.isPublished !== false,
       createdById: input.createdById,
     },
@@ -2396,8 +2417,14 @@ export async function updateHiringPosition(input: {
   location?: string | null;
   employmentType?: string | null;
   isPublished?: boolean;
+  requireKnowledgeTest?: boolean;
+  passThreshold?: number | null;
 }) {
   const slug = await ensureUniqueHiringSlug(input.slug?.trim() || input.title, input.positionId);
+  const current = await db.hiringPosition.findUnique({ where: { id: input.positionId }, select: { screeningSchema: true } });
+  const existingThreshold = current?.screeningSchema && typeof current.screeningSchema === "object" && !Array.isArray(current.screeningSchema)
+    ? Number((current.screeningSchema as Record<string, unknown>).passThreshold)
+    : NaN;
   return db.hiringPosition.update({
     where: { id: input.positionId },
     data: {
@@ -2407,6 +2434,10 @@ export async function updateHiringPosition(input: {
       department: input.department?.trim() || null,
       location: input.location?.trim() || null,
       employmentType: input.employmentType?.trim() || null,
+      screeningSchema: buildScreeningSchemaForStorage({
+        requireKnowledgeTest: input.requireKnowledgeTest !== false,
+        passThreshold: input.passThreshold ?? (Number.isFinite(existingThreshold) ? existingThreshold : null),
+      }) as Prisma.InputJsonValue,
       isPublished: input.isPublished !== false,
     },
   });
@@ -2465,7 +2496,7 @@ export async function updateHiringApplication(input: {
 }
 
 export async function getPublicHiringPosition(slug: string) {
-  return db.hiringPosition.findUnique({
+  const position = await db.hiringPosition.findUnique({
     where: { slug },
     select: {
       id: true,
@@ -2477,8 +2508,32 @@ export async function getPublicHiringPosition(slug: string) {
       employmentType: true,
       isPublished: true,
       applicationSchema: true,
+      screeningSchema: true,
     },
   });
+  if (!position) return null;
+  // Resolve the assessment the applicant should take (null when the knowledge
+  // test is switched off for this position). Strip correct answers before it
+  // ever reaches the public client.
+  const assessment = parseScreeningSchema(position.screeningSchema);
+  const publicAssessment = assessment
+    ? {
+        title: assessment.title,
+        intro: assessment.intro,
+        questions: assessment.questions.map((q) => ({
+          id: q.id,
+          prompt: q.prompt,
+          type: q.type,
+          category: q.category,
+          categoryLabel: q.categoryLabel,
+          options: q.options,
+          placeholder: q.placeholder,
+          allowExplain: q.allowExplain === true,
+        })),
+      }
+    : null;
+  const { screeningSchema: _omit, ...rest } = position;
+  return { ...rest, assessment: publicAssessment };
 }
 
 export async function submitHiringApplication(input: {
@@ -2494,7 +2549,46 @@ export async function submitHiringApplication(input: {
   const position = await db.hiringPosition.findUnique({ where: { slug: input.slug } });
   if (!position || !position.isPublished) throw new Error("NOT_FOUND");
 
-  const evaluation = evaluateHiringAnswers(input.answers);
+  // Reliability heuristic on the structured application fields.
+  const profile = evaluateHiringAnswers(input.answers);
+
+  // Knowledge / IQ test: auto-score the multiple-choice portion of the quiz
+  // stored on the position's screeningSchema (null when the test is disabled).
+  const assessmentSchema = parseScreeningSchema(position.screeningSchema);
+  const assessment: AssessmentResult | null =
+    assessmentSchema && assessmentSchema.questions.length > 0 ? scoreAssessment(assessmentSchema, input.answers) : null;
+
+  // screeningScore (0-100) is the knowledge-test result when a test was taken,
+  // otherwise it falls back to the reliability heuristic so existing positions
+  // without a quiz still rank applicants.
+  const screeningScore = assessment && assessment.hasAutoScored ? assessment.score : profile.score;
+
+  const evaluation = {
+    // Knowledge assessment (headline)
+    assessment: assessment
+      ? {
+          score: assessment.score,
+          passThreshold: assessment.passThreshold,
+          passed: assessment.passed,
+          band: assessment.band,
+          categoryScores: assessment.categoryScores,
+          strengths: assessment.strengths,
+          weakAreas: assessment.weakAreas,
+          flagged: assessment.flagged,
+          autoScoredCount: assessment.autoScoredCount,
+          totalAutoScored: assessment.totalAutoScored,
+          answeredCount: assessment.answeredCount,
+          totalQuestions: assessment.totalQuestions,
+        }
+      : null,
+    knowledgeScore: assessment && assessment.hasAutoScored ? assessment.score : null,
+    // Reliability/profile heuristic from the application form.
+    profileScore: profile.score,
+    fitBand: assessment ? assessment.band : profile.fitBand,
+    strengths: profile.strengths,
+    risks: profile.risks,
+  };
+
   const application = await db.hiringApplication.create({
     data: {
       positionId: position.id,
@@ -2502,7 +2596,7 @@ export async function submitHiringApplication(input: {
       email: input.email.trim().toLowerCase(),
       phone: input.phone?.trim() || null,
       answers: input.answers as Prisma.InputJsonValue,
-      screeningScore: evaluation.score,
+      screeningScore,
       evaluation: evaluation as Prisma.InputJsonValue,
       resumeUrl: input.resumeUrl?.trim() || null,
       resumeKey: input.resumeKey?.trim() || null,

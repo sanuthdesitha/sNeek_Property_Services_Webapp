@@ -63,7 +63,13 @@ export default async function FormEditPage({
       }))
     : [];
 
-  const initialSchema: FormSchema = { sections };
+  // Preserve the optional appearance theme (schema.theme) so the builder can
+  // edit + re-save it. Unknown keys are dropped by the normalizer above, so
+  // theme must be carried through explicitly.
+  const theme =
+    rawSchema?.theme && typeof rawSchema.theme === "object" ? rawSchema.theme : undefined;
+
+  const initialSchema: FormSchema = { sections, ...(theme ? { theme } : {}) };
 
   return (
     <FormBuilder

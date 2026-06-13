@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BiometricSignInButton } from "@/components/auth/biometric-sign-in-button";
 import { ADMIN_RECOVERY_LOGIN_URL } from "@/lib/public-site/routing";
 
 async function signInWithCredentials(input: { email: string; password: string; callbackUrl: string }) {
@@ -213,6 +214,17 @@ export default function LoginPage() {
               {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
             </Button>
           </form>
+
+          {!signInBlocked ? (
+            <div className="mt-4">
+              <BiometricSignInButton
+                email={form.email}
+                callbackUrl={adminRecoveryMode ? `${typeof window !== "undefined" ? window.location.origin : ""}/admin` : "/"}
+                disabled={loading}
+                onError={(message) => setError(message || null)}
+              />
+            </div>
+          ) : null}
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Need an account?{" "}
