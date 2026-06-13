@@ -29,7 +29,7 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_minmax(520px,1fr)] xl:items-center xl:gap-14">
           <div className="space-y-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.eyebrow}</p>
+            <p className="marketing-eyebrow">{content.eyebrow}</p>
             <h1 className="text-3xl font-semibold sm:text-4xl xl:text-5xl">{content.title}</h1>
             <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{content.subtitle}</p>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -56,10 +56,10 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
       </section>
 
       {/* ── Feature cards ── */}
-      <div className="public-section-full bg-primary/4">
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           <div className="mb-8 max-w-2xl space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.featuresTitle}</p>
+            <p className="marketing-eyebrow">{content.featuresTitle}</p>
             <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{content.featuresIntro}</p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -85,7 +85,7 @@ export function AirbnbHostingPage({ content }: AirbnbHostingPageProps) {
         <div className="grid gap-5 lg:grid-cols-2">
           <Card className="rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)]">
             <CardContent className="space-y-4 p-7">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.reportsTitle}</p>
+              <p className="marketing-eyebrow">{content.reportsTitle}</p>
               <p className="text-sm leading-7 text-muted-foreground">{content.reportsBody}</p>
             </CardContent>
           </Card>

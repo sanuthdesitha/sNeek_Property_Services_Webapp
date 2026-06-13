@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Cormorant_Garamond } from "next/font/google";
 import { kickWebScheduledOps } from "@/lib/ops/web-scheduler";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -24,6 +24,16 @@ const fontMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   weight: ["400", "500"],
+  display: "swap",
+});
+
+// Luxury display serif for the PUBLIC marketing site only. Applied via the
+// `.marketing-only` scope in globals.css so the admin/portal apps keep Inter.
+const fontDisplaySerif = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-display-serif",
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
@@ -94,7 +104,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
-      <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} antialiased`}>
+      <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontMono.variable} antialiased`}>
         <Providers>{children}</Providers>
       </body>
     </html>

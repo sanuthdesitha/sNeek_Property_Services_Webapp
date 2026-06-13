@@ -18,7 +18,7 @@ export default function PublicSuburbLandingPage({ params }: { params: { suburb: 
     <div>
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="max-w-3xl space-y-4">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Sydney service area</p>
+          <p className="marketing-eyebrow">Sydney service area</p>
           <h1 className="text-3xl font-semibold sm:text-4xl">Cleaning services in {suburb.name}</h1>
           <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{suburb.intro}</p>
           <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">

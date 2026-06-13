@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Quote, ShieldCheck, Star, Zap, Camera, BadgeCheck, Leaf, MapPin } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
@@ -31,15 +30,13 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
       {/* ─── HERO ─── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-10 xl:grid-cols-[minmax(0,1.08fr)_minmax(520px,0.92fr)] xl:items-center xl:gap-14 2xl:gap-20">
-          <div className="space-y-7 animate-fade-up">
-            <Badge className="w-fit rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.2em] sm:text-xs">
-              Why sNeek
-            </Badge>
-            <div className="space-y-4">
-              <h1 className="max-w-2xl text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+          <div className="space-y-7">
+            <p className="marketing-eyebrow lux-rise">Why sNeek</p>
+            <div className="space-y-5">
+              <h1 className="lux-rise lux-rise-d1 max-w-2xl text-balance text-4xl text-foreground sm:text-5xl lg:text-6xl">
                 {content.whyChooseUs.title}
               </h1>
-              <p className="max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+              <p className="lux-rise lux-rise-d2 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
                 {content.whyChooseUs.intro}
               </p>
             </div>
@@ -124,10 +121,10 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
       </section>
 
       {/* ─── FULL-BLEED: WHY ITEMS GRID ─── */}
-      <div className="public-section-full bg-primary/4">
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           <div className="scroll-reveal mb-10 max-w-2xl space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">What sets us apart</p>
+            <p className="marketing-eyebrow">What sets us apart</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">
               Built around reliable, low-friction property care.
             </h2>
@@ -180,7 +177,7 @@ export function WhyUsPage({ content }: { content: WebsiteContent }) {
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
           <div className="space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Ready to get started?</p>
+            <p className="marketing-eyebrow">Ready to get started?</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">
               Book a clean, or ask us anything first.
             </h2>

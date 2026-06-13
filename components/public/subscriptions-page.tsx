@@ -24,7 +24,7 @@ export function SubscriptionsPage({ plans, content }: SubscriptionsPageProps) {
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
           <div className="max-w-3xl space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.eyebrow}</p>
+            <p className="marketing-eyebrow">{content.eyebrow}</p>
             <h1 className="text-3xl font-semibold sm:text-4xl xl:text-5xl">{content.title}</h1>
             <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{content.intro}</p>
           </div>
@@ -37,7 +37,7 @@ export function SubscriptionsPage({ plans, content }: SubscriptionsPageProps) {
       </section>
 
       {/* ── Plan cards ── */}
-      <div className="public-section-full bg-primary/4">
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           {plans.length === 0 ? (
             <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-10 text-center text-muted-foreground shadow-sm">

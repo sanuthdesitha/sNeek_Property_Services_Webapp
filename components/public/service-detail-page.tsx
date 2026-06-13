@@ -54,10 +54,10 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
               loading="eager"
             />
           )}
-          <div className="relative z-10 p-8 sm:p-12">
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary-foreground/60">{service.family.replace("_", " ")}</p>
-            <h1 className="mb-3 text-3xl font-semibold text-white sm:text-4xl xl:text-5xl">{service.label}</h1>
-            <p className="mb-6 max-w-xl text-base leading-7 text-white/75">{service.summary}</p>
+          <div className="relative z-10 p-8 sm:p-14">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.32em] text-white/55">{service.family.replace("_", " ")}</p>
+            <h1 className="mb-4 max-w-2xl text-4xl text-white sm:text-5xl xl:text-6xl">{service.label}</h1>
+            <p className="mb-7 max-w-xl text-base leading-8 text-white/75">{service.summary}</p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg" className="rounded-full bg-white text-primary hover:bg-white/90 transition-transform duration-200 hover:-translate-y-0.5">
                 <Link href={`/quote?serviceType=${service.jobType}`}>
@@ -83,7 +83,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
             {pageContent.whatIncluded.length > 0 && (
               <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
-                  <p className="mb-5 text-sm font-semibold uppercase tracking-[0.18em] text-primary">What&apos;s included</p>
+                  <p className="mb-5 marketing-eyebrow">What&apos;s included</p>
                   <ul className="space-y-3">
                     {pageContent.whatIncluded.map((item) => (
                       <li key={item} className="flex items-start gap-3 text-sm leading-6">
@@ -121,7 +121,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
             {pageContent.idealFor && (
               <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
-                  <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Who is this for?</p>
+                  <p className="mb-3 marketing-eyebrow">Who is this for?</p>
                   <p className="text-sm leading-7 text-foreground/80">{pageContent.idealFor}</p>
                 </CardContent>
               </Card>
@@ -129,7 +129,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
             {pageContent.priceGuide && (
               <Card className="rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.28)]">
                 <CardContent className="p-6 sm:p-7">
-                  <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Price guide</p>
+                  <p className="mb-3 marketing-eyebrow">Price guide</p>
                   <p className="text-sm leading-7 text-foreground/80">{pageContent.priceGuide}</p>
                   <p className="mt-3 text-xs text-muted-foreground">Estimates vary based on property size, condition, and add-ons. Use the quote tool for an accurate figure.</p>
                 </CardContent>
@@ -142,7 +142,7 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
       {/* ── How It Works ── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} py-8 sm:py-10`}>
         <div className="rounded-[2rem] border border-white/70 bg-white/75 dark:border-white/10 dark:bg-white/5 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.28)] sm:p-8">
-          <p className="mb-6 text-sm font-semibold uppercase tracking-[0.18em] text-primary">How it works</p>
+          <p className="mb-6 marketing-eyebrow">How it works</p>
           <div className="grid gap-4 sm:grid-cols-3">
             {HOW_IT_WORKS.map((step, idx) => (
               <div key={step} className="flex gap-4">
@@ -190,13 +190,13 @@ export function ServiceDetailPage({ service, pageContent }: ServiceDetailPagePro
       {/* ── Related Services ── */}
       {related.length > 0 && (
         <section className={`${PUBLIC_PAGE_CONTAINER} py-8 sm:py-10`}>
-          <p className="mb-6 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Related services</p>
+          <p className="mb-6 marketing-eyebrow">Related services</p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {related.map((rel) => (
               <Link key={rel.slug} href={`/services/${rel.slug}`} className="group">
-                <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1">
+                <Card className="h-full rounded-3xl border border-border/50 bg-card/70 shadow-none transition-all duration-500 hover:-translate-y-1 hover:border-primary/40">
                   <CardContent className="space-y-3 p-6">
-                    <div className={`inline-flex rounded-xl bg-gradient-to-br ${rel.cardColor} p-2.5 text-white`}>
+                    <div className="inline-flex rounded-full border border-primary/25 p-2.5 text-primary">
                       <Quote className="h-4 w-4" />
                     </div>
                     <p className="font-semibold">{rel.label}</p>

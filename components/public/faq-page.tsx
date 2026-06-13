@@ -38,7 +38,7 @@ export function FaqPage({ content }: FaqPageProps) {
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-10 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,0.9fr)] xl:items-start xl:gap-14">
           <div className="space-y-6 animate-fade-up">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Frequently asked questions</p>
+            <p className="marketing-eyebrow">Frequently asked questions</p>
             <h1 className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
               {content.faq?.title ?? "Got questions? We have answers."}
             </h1>
@@ -80,7 +80,7 @@ export function FaqPage({ content }: FaqPageProps) {
       </section>
 
       {/* ─── FULL-BLEED: CATEGORY TABS + ACCORDION ─── */}
-      <div className="public-section-full bg-primary/4">
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           {/* Category tabs */}
           <div className="mb-8 flex flex-wrap gap-2">

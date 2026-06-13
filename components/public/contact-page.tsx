@@ -32,7 +32,7 @@ export function ContactPage({ content }: ContactPageProps) {
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         {/* Page heading */}
         <div className="mb-8 max-w-2xl space-y-3">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.eyebrow}</p>
+          <p className="marketing-eyebrow">{content.eyebrow}</p>
           <h1 className="text-3xl font-semibold sm:text-4xl xl:text-5xl">{content.title}</h1>
           <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{content.intro}</p>
         </div>

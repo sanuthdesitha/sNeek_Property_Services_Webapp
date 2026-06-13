@@ -8,17 +8,14 @@ import {
   BadgeCheck,
   Camera,
   CheckCircle2,
-  ChevronDown,
   Leaf,
   Loader2,
   MapPin,
-  Quote,
   ShieldCheck,
   Sparkles,
   Star,
   Zap,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,6 +28,7 @@ import {
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { WebsiteContent, WebsiteWhyItem } from "@/lib/public-site/content";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
+import { ScrollVacuum } from "@/components/public/scroll-vacuum";
 import type { ServiceSuburb } from "@/lib/public-site/suburbs";
 import { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/public-site/widgets-types";
 
@@ -58,17 +56,6 @@ function WhyIcon({ iconName, className }: { iconName: string; className?: string
   const Icon = ICON_MAP[iconName] ?? ShieldCheck;
   return <Icon className={className} />;
 }
-
-const TRUST_PILLS = [
-  "$5M Public Liability Insured",
-  "Photo Reports Included",
-  "100% Satisfaction Guarantee",
-  "Police Checked Team",
-  "Eco-Friendly Products",
-  "Parramatta-Based",
-  "Same-Day Service Available",
-  "Airbnb Turnovers Covered",
-];
 
 const featuredServices = MARKETED_SERVICES.slice(0, 6);
 
@@ -127,10 +114,7 @@ export function HomePage({
   widgetFlags?: PublicWidgetFlags;
 }) {
   const faqPreview = content.faq?.items?.slice(0, 6) ?? [];
-  const whyItems = content.whyChooseUs?.items ?? [];
-  const galleryItems = content.gallery?.items ?? [];
-  const partnerItems = content.partners?.items ?? [];
-  const hasPartners = partnerItems.some((p) => p.name || p.logoUrl);
+  const whyItems = (content.whyChooseUs?.items ?? []).slice(0, 6);
   const estimatorOptions = useMemo(
     () => MARKETED_SERVICES.filter((service) => service.autoPricingMode === "estimate"),
     []
@@ -148,7 +132,6 @@ export function HomePage({
   const [availabilitySuggestions, setAvailabilitySuggestions] = useState<ServiceSuburb[]>([]);
   const [nextSlot, setNextSlot] = useState<string | null>(null);
   const [reviews, setReviews] = useState<GoogleReviewsState>(null);
-  const [compareIndex, setCompareIndex] = useState(-1);
   const [hostingPreviewIndex, setHostingPreviewIndex] = useState<number | null>(null);
   const scrollRef = useScrollReveal();
   const activeHostingFeature =
@@ -296,713 +279,488 @@ export function HomePage({
   return (
     <div ref={scrollRef as React.RefObject<HTMLDivElement>}>
       {/* ─────────────────────────────────────────────────
-          SECTION 1 — HERO
+          HERO — calm, editorial. WHO WE ARE.
+          The scroll-vacuum travels right → left behind the copy.
       ───────────────────────────────────────────────── */}
-      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-10 xl:grid-cols-[minmax(0,1.08fr)_minmax(540px,0.92fr)] xl:items-center xl:gap-14 2xl:gap-20">
-          {/* Left column */}
-          <div className="space-y-7 animate-fade-up">
-            <Badge className="w-fit rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.2em] sm:text-xs">
-              {content.home.eyebrow}
-            </Badge>
-            <div className="space-y-4">
-              <h1 className="max-w-2xl text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-                {content.home.title}
-              </h1>
-              <p className="max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
-                {content.home.subtitle}
-              </p>
-              <p className="max-w-xl text-sm leading-7 text-foreground/75">
-                {content.home.brandIdea}
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="rounded-full px-6 shadow-sm transition-transform duration-200 hover:-translate-y-0.5">
-                <Link href="/quote">
-                  <Quote className="mr-2 h-4 w-4" />
-                  {content.home.primaryCtaLabel}
-                </Link>
+      <section className="relative overflow-hidden">
+        {/* Signature scroll-driven vacuum (image-sequence ready, SVG fallback now) */}
+        <ScrollVacuum />
+
+        <div className={`${PUBLIC_PAGE_CONTAINER} relative z-10`}>
+          <div className="mx-auto max-w-3xl py-24 text-center sm:py-32 lg:py-40">
+            <p className="marketing-eyebrow lux-rise">{content.home.eyebrow}</p>
+            <h1 className="lux-rise lux-rise-d1 mt-7 text-balance text-[2.6rem] leading-[1.05] text-foreground sm:text-6xl lg:text-7xl">
+              {content.home.title}
+            </h1>
+            <p className="lux-rise lux-rise-d2 mx-auto mt-8 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
+              {content.home.subtitle}
+            </p>
+            <div className="lux-rise lux-rise-d3 mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Button asChild size="lg" className="min-w-[200px] rounded-full px-8 py-6 text-sm tracking-wide shadow-sm transition-transform duration-300 hover:-translate-y-0.5">
+                <Link href="/quote">{content.home.primaryCtaLabel}</Link>
               </Button>
-              <a
-                href={WHATSAPP_HREF}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-transform duration-200 hover:-translate-y-0.5 hover:opacity-90"
-              >
-                <WhatsAppIcon className="h-4 w-4" />
-                WhatsApp Us
-              </a>
-              <Button asChild size="lg" variant="outline" className="rounded-full px-6 transition-transform duration-200 hover:-translate-y-0.5">
+              <Button asChild size="lg" variant="outline" className="min-w-[200px] rounded-full border-foreground/15 px-8 py-6 text-sm tracking-wide transition-transform duration-300 hover:-translate-y-0.5">
                 <Link href="/contact">
                   {content.home.secondaryCtaLabel}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/6 px-3 py-1.5 font-medium text-primary">
-                <CheckCircle2 className="h-4 w-4" />
-                {nextSlot ? `Next available: ${nextSlot}` : "Next available slots refreshed live"}
-              </span>
-              <span className="text-muted-foreground">Fast quote for standard jobs. Tailored review for unusual scope.</span>
-            </div>
-
-            {/* Stats */}
-            <div className="grid gap-3 sm:grid-cols-3">
-              {content.home.stats.map((item) => (
-                <Card key={item.label} className="rounded-3xl border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.35)] transition-transform duration-300 hover:-translate-y-1">
-                  <CardContent className="space-y-1 p-5">
-                    <p className="text-2xl font-semibold">{item.value}</p>
-                    <p className="text-sm font-medium">{item.label}</p>
-                    <p className="text-xs leading-5 text-muted-foreground">{item.note}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          {/* Right column — hero image */}
-          <div className="relative">
-            <div className="absolute -left-6 top-10 hidden h-16 w-16 rounded-full bg-accent/80 blur-2xl lg:block motion-safe:animate-float-slow" />
-            <div className="absolute -right-8 bottom-8 hidden h-24 w-24 rounded-full bg-primary/15 blur-3xl lg:block motion-safe:animate-float-slower" />
-            <Card className="overflow-hidden rounded-[2rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_24px_70px_-34px_rgba(26,67,74,0.38)]">
-              <div className="relative">
-                <img
-                  src={content.home.heroImageUrl}
-                  alt={content.home.heroImageAlt}
-                  className="h-[280px] w-full object-cover transition-transform duration-700 hover:scale-[1.03] sm:h-[360px] lg:h-[440px]"
-                  loading="eager"
-                  onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; }}
-                />
-                {/* Floating trust pills over image */}
-                <div className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 dark:border-white/10 bg-white/96 dark:bg-neutral-900/80 dark:text-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                  500+ Cleans Completed
-                </div>
-                <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full border border-black/5 dark:border-white/10 bg-white/96 dark:bg-neutral-900/80 dark:text-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-[0_12px_28px_-14px_rgba(0,0,0,0.28)] backdrop-blur-sm">
-                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                  4.9 Rated
-                </div>
-              </div>
-              <CardContent className="grid gap-4 p-5 sm:p-6 md:grid-cols-2">
-                <div className="flex gap-3">
-                  <div className="rounded-2xl bg-primary/10 p-3 shrink-0">
-                    <ShieldCheck className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">Trusted presentation standards</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">Guest-ready finishing, clear evidence, and less back-and-forth after the clean.</p>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="rounded-2xl bg-accent p-3 shrink-0">
-                    <Sparkles className="h-5 w-5 text-accent-foreground" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">Stay guest-ready without the admin drag</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">Turnovers, linen, restocks, reports, and follow-ups stay coordinated without chasing five people.</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 2 — TRUST STRIP (marquee)
-      ───────────────────────────────────────────────── */}
-      {(widgetFlags.instantQuoteEstimator || widgetFlags.availabilityChecker) && (
-      <section className={`${PUBLIC_PAGE_CONTAINER} -mt-2 pb-4`}>
-        <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          {widgetFlags.instantQuoteEstimator && (
-          <Card className="rounded-[1.9rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
-            <CardContent className="space-y-4 p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Instant estimator</p>
-                  <h2 className="mt-1 text-xl font-semibold">Get a live price guide before you enquire.</h2>
-                </div>
-                <Badge variant="outline" className="rounded-full border-primary/20 bg-primary/6 text-primary">
-                  Estimate only
-                </Badge>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="space-y-1.5 text-sm">
-                  <span className="text-muted-foreground">Service</span>
-                  <select
-                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
-                    value={estimator.serviceType}
-                    onChange={(event) =>
-                      setEstimator((current) => ({ ...current, serviceType: event.target.value }))
-                    }
-                  >
-                    {estimatorOptions.map((service) => (
-                      <option key={service.jobType} value={service.jobType}>
-                        {service.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1.5 text-sm">
-                  <span className="text-muted-foreground">Bedrooms</span>
-                  <select
-                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
-                    value={estimator.bedrooms}
-                    onChange={(event) =>
-                      setEstimator((current) => ({ ...current, bedrooms: Number(event.target.value) }))
-                    }
-                  >
-                    {Array.from({ length: 6 }).map((_, index) => (
-                      <option key={`bed-${index + 1}`} value={index + 1}>
-                        {index + 1}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1.5 text-sm">
-                  <span className="text-muted-foreground">Bathrooms</span>
-                  <select
-                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-3 text-sm"
-                    value={estimator.bathrooms}
-                    onChange={(event) =>
-                      setEstimator((current) => ({ ...current, bathrooms: Number(event.target.value) }))
-                    }
-                  >
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <option key={`bath-${index + 1}`} value={index + 1}>
-                        {index + 1}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="rounded-[1.4rem] border border-primary/12 bg-primary/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Live result</p>
-                {quoteLoading ? (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Calculating estimate...
-                  </div>
-                ) : liveQuote ? (
-                  <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                      <p className="text-3xl font-semibold text-foreground">From ${liveQuote.total.toFixed(2)}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {liveQuote.gst > 0 ? "GST included." : "GST not applied."}{" "}
-                        {liveQuote.pricingMode === "exact" ? "Matched from active pricing." : "Condition-based guide pending final review."}
-                      </p>
-                    </div>
-                    <Button asChild className="rounded-full">
-                      <Link href="/quote">Open full instant quote</Link>
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    Choose the service and room counts above to load a live starting estimate.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          )}
-
-          {widgetFlags.availabilityChecker && (
-          <Card className="rounded-[1.9rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_54px_-32px_rgba(22,63,70,0.38)]">
-            <CardContent className="space-y-4 p-6">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Availability checker</p>
-                <h2 className="mt-1 text-xl font-semibold">Check your suburb and see the next likely slot.</h2>
-              </div>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="relative flex-1">
-                  <input
-                    value={suburb}
-                    onChange={(event) => setSuburb(event.target.value)}
-                    placeholder="Enter suburb or postcode"
-                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary"
-                  />
-                  {availabilitySuggestions.length > 0 ? (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/70 bg-white dark:bg-surface-raised shadow-[0_18px_48px_-28px_rgba(22,63,70,0.32)]">
-                      {availabilitySuggestions.map((item) => (
-                        <button
-                          key={`${item.slug}-${item.postcode}`}
-                          type="button"
-                          onClick={() => {
-                            setSuburb(item.name);
-                            setAvailabilitySuggestions([]);
-                          }}
-                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-primary/6"
-                        >
-                          <span className="font-medium text-foreground">
-                            {item.name} <span className="font-normal text-muted-foreground">{item.postcode}</span>
-                          </span>
-                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.coverage === "standard" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-900"}`}>
-                            {item.coverage === "standard" ? "Within 50km" : "Contact team"}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  onClick={handleAvailabilityCheck}
-                  disabled={availabilityLoading}
-                  className="rounded-full"
-                >
-                  {availabilityLoading ? "Checking..." : "Check availability"}
-                </Button>
-              </div>
-              <div className="rounded-[1.4rem] border border-border/70 bg-muted/20 p-4">
-                {hasAvailabilityError(availability) ? (
-                  <p className="text-sm text-destructive">{availability?.error}</p>
-                ) : availability ? (
-                  <div className="space-y-2 text-sm">
-                    <p className={`font-medium ${availability?.available === false ? "text-amber-900" : "text-foreground"}`}>
-                      {availability?.message || "We cover your area and can review the next suitable window."}
-                    </p>
-                    {availability?.nextSlot ? (
-                      <p className="text-muted-foreground">Next likely slot: {availability.nextSlot}</p>
-                    ) : null}
-                    <p className="text-muted-foreground">
-                      {availability?.available === false
-                        ? "Your suburb is outside our main Parramatta service radius, so call or message the team for a manual availability check."
-                        : "If the job is urgent, use WhatsApp or call for the fastest response."}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Enter your suburb or postcode to check local coverage and likely next availability.
-                  </p>
-                )}
-              </div>
-              <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Good for short notice</p>
-                <p className="mt-1 text-sm text-amber-900">
-                  Airbnb turnovers, inspection prep, move cleans, and recovery work can be triaged quickly when you send the address and required outcome.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          )}
-        </div>
-      </section>
-      )}
-
-      <div className="public-section-full border-y border-primary/8 bg-primary/4 py-4 overflow-hidden">
-        <div className="flex" aria-hidden="true">
-          <div className="flex shrink-0 gap-4 animate-marquee pr-4">
-            {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 dark:border-white/10 bg-white dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-                {pill}
-              </span>
-            ))}
-          </div>
-          <div className="flex shrink-0 gap-4 animate-marquee pr-4" aria-hidden="true">
-            {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
-              <span key={i} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/80 dark:border-white/10 bg-white dark:bg-surface-raised px-4 py-2 text-sm font-medium text-foreground shadow-sm">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-                {pill}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 3 — SERVICES GRID
-      ───────────────────────────────────────────────── */}
-      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-8 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
-          <div className="scroll-reveal-left space-y-5 xl:sticky xl:top-28 xl:self-start">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Why clients book sNeek</p>
-            <h2 className="text-2xl font-semibold sm:text-3xl">{content.home.servicesTitle}</h2>
-            <p className="text-sm leading-7 text-muted-foreground">{content.home.servicesIntro}</p>
-            <Button asChild variant="outline" className="rounded-full">
-              <Link href="/services">View all services</Link>
-            </Button>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {content.home.serviceBenefits.map((card, i) => (
-              <Card key={card.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} overflow-hidden rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]`}>
-                <img
-                  src={card.imageUrl}
-                  alt={card.imageAlt}
-                  className="h-48 w-full object-cover"
-                  loading="lazy"
-                  onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; e.currentTarget.style.minHeight = "12rem"; }}
-                />
-                <CardContent className="space-y-3 p-6">
-                  <h3 className="text-lg font-semibold">{card.title}</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">{card.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 4 — WHY CHOOSE US
-      ───────────────────────────────────────────────── */}
-      <div className="public-section-full bg-primary/4">
-        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-          <div className="grid gap-10 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14 lg:items-start">
-            <div className="scroll-reveal-left space-y-5">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Why choose sNeek</p>
-              <h2 className="text-2xl font-semibold sm:text-3xl">
-                {content.whyChooseUs?.title ?? "The sNeek difference"}
-              </h2>
-              <p className="text-sm leading-7 text-muted-foreground">
-                {content.whyChooseUs?.intro ?? "Here's what makes working with us different from the next cleaning company you'll find on Google."}
-              </p>
-              <Button asChild className="rounded-full shadow-sm transition-transform duration-200 hover:-translate-y-0.5">
-                <Link href="/quote">
-                  <Quote className="mr-2 h-4 w-4" />
-                  Get a free quote
-                </Link>
-              </Button>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {whyItems.map((item: WebsiteWhyItem, idx: number) => (
-                <div
-                  key={item.id}
-                  className={`scroll-reveal scroll-delay-${[100, 200, 300, 400][idx % 4] ?? 100} rounded-[1.6rem] border border-white/80 dark:border-white/10 bg-white/80 dark:bg-white/5 p-5 shadow-[0_12px_36px_-20px_rgba(22,63,70,0.28)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_-24px_rgba(22,63,70,0.34)]`}
-                >
-                  <div className={`mb-4 inline-flex rounded-2xl p-3 ${idx % 2 === 0 ? "bg-primary/10 text-primary" : "bg-accent text-accent-foreground"}`}>
-                    <WhyIcon iconName={item.icon} className="h-5 w-5" />
-                  </div>
-                  <p className="mb-2 font-semibold">{item.title}</p>
-                  <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 5 — AIRBNB HOSTING
-      ───────────────────────────────────────────────── */}
-      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-6 rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 p-6 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.34)] sm:p-8 lg:grid-cols-[1fr_1.05fr] lg:gap-10 lg:items-center">
-          <div className="space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Airbnb &amp; managed properties</p>
-            <h2 className="text-2xl font-semibold sm:text-3xl">{content.home.hostingTitle}</h2>
-            <p className="text-sm leading-7 text-muted-foreground">{content.home.hostingIntro}</p>
-            {/* Trust badge strip */}
-            <div className="flex flex-wrap gap-2">
-              {["Photo Reports", "Laundry Handled", "Same-Day Turnovers"].map((badge) => (
-                <span key={badge} className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/6 px-3 py-1.5 text-xs font-medium text-primary">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {badge}
-                </span>
-              ))}
-            </div>
-            <Button asChild className="rounded-full">
-              <Link href="/airbnb-hosting">
-                See hosting support
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {content.home.hostingFeatures.map((card, index) => (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => setHostingPreviewIndex(index)}
-                className="rounded-[1.5rem] border border-border/70 bg-white dark:bg-surface-raised p-4 text-left transition-transform duration-300 hover:-translate-y-1"
-              >
-                <img
-                  src={card.imageUrl}
-                  alt={card.imageAlt}
-                  className="mb-4 h-28 w-full rounded-2xl object-cover"
-                  loading="lazy"
-                  onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; e.currentTarget.style.minHeight = "7rem"; }}
-                />
-                <p className="font-semibold text-sm">{card.title}</p>
-                <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{card.description}</p>
-                <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Tap to expand</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 6 — POPULAR SERVICES (cards linking to /services/slug)
-      ───────────────────────────────────────────────── */}
-      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-8 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
-          <div className="scroll-reveal-left space-y-5 xl:sticky xl:top-28 xl:self-start">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Popular services</p>
-            <h2 className="text-2xl font-semibold sm:text-3xl">
-              Book the clean you need now, then scale into recurring care.
-            </h2>
-            <p className="text-sm leading-7 text-muted-foreground">
-              Start with the services most clients book, then move into a recurring plan when you want consistent property presentation without rebooking every time.
+            <p className="lux-rise lux-rise-d4 mt-8 text-xs uppercase tracking-[0.22em] text-muted-foreground/80">
+              {nextSlot ? `Next available · ${nextSlot}` : "Quiet, dependable property care across Sydney"}
             </p>
-            <Button asChild variant="outline" className="rounded-full">
-              <Link href="/subscriptions">Explore subscriptions</Link>
-            </Button>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {featuredServices.map((service) => (
-              <Link key={service.jobType} href={`/services/${service.slug}`} className="group">
-                <Card className="h-full rounded-[1.7rem] border-white/70 dark:border-white/10 bg-white/75 dark:bg-white/5 shadow-[0_16px_45px_-30px_rgba(22,63,70,0.38)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.42)]">
-                  <CardContent className="space-y-4 p-6">
-                    <div className={`inline-flex rounded-2xl bg-gradient-to-br ${service.cardColor} p-3 text-white shadow-sm`}>
-                      <Sparkles className="h-5 w-5" />
-                    </div>
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-semibold">{service.label}</h3>
-                      <p className="text-sm font-medium text-primary">{service.tagline}</p>
-                      <p className="text-sm leading-6 text-muted-foreground">{service.summary}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {service.highlights.map((h) => (
-                        <span key={h} className="rounded-full border border-border/70 px-3 py-1">{h}</span>
-                      ))}
-                    </div>
-                    <p className="text-xs font-medium text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                      View details →
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
           </div>
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────────
-          SECTION 7 — GALLERY
-      ───────────────────────────────────────────────── */}
-      <div className="public-section-full bg-primary/3">
-        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-          <div className="scroll-reveal space-y-2 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Our work</p>
-            <h2 className="text-2xl font-semibold sm:text-3xl">{content.gallery?.title ?? "Before &amp; after results"}</h2>
-            <p className="mx-auto max-w-xl text-sm leading-7 text-muted-foreground">{content.gallery?.intro ?? "Real results from real jobs across residential, Airbnb, and specialty cleaning projects."}</p>
+      {/* Hero image — large, editorial, full-bleed band */}
+      <div className="public-section-full">
+        <div className={`${PUBLIC_PAGE_CONTAINER}`}>
+          <div className="lux-fade relative overflow-hidden rounded-[2rem]">
+            <img
+              src={content.home.heroImageUrl}
+              alt={content.home.heroImageAlt}
+              className="h-[340px] w-full object-cover sm:h-[480px] lg:h-[620px]"
+              loading="eager"
+              onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-8 gap-y-2 p-6 text-xs uppercase tracking-[0.22em] text-white/90 sm:p-8">
+              <span className="flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> $5M Insured</span>
+              <span className="flex items-center gap-2"><Camera className="h-3.5 w-3.5" /> Photo Reports</span>
+              <span className="flex items-center gap-2"><Star className="h-3.5 w-3.5" /> 4.9 Rated</span>
+              <span className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5" /> Parramatta</span>
+            </div>
           </div>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {galleryItems.length > 0
-              ? galleryItems.slice(0, 6).map((item, index) => {
-                  const beforeUrl = item.beforeImageUrl || item.imageUrl;
-                  const afterUrl = item.afterImageUrl || item.imageUrl;
-                  const showingAfter = compareIndex === index;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="group relative overflow-hidden rounded-[1.6rem] bg-muted text-left shadow-sm"
-                      onClick={() => setCompareIndex((current) => (current === index ? -1 : index))}
-                    >
-                      {showingAfter ? (
-                        afterUrl ? (
-                          <img
-                            src={afterUrl}
-                            alt={item.imageAlt || item.caption}
-                            className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                            loading="lazy"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
-                        )
-                      ) : beforeUrl ? (
-                        <img
-                          src={beforeUrl}
-                          alt={item.imageAlt || item.caption}
-                          className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                          }}
-                        />
-                      ) : (
-                        <div className="h-56 w-full bg-gradient-to-br from-muted to-secondary/50" />
-                      )}
-                      <div className="absolute left-4 top-4 inline-flex rounded-full bg-white/90 dark:bg-neutral-900/80 dark:text-white px-3 py-1 text-xs font-semibold text-foreground shadow-sm">
-                        {showingAfter ? "After" : "Before"}
-                      </div>
-                      <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/10 to-transparent p-4 opacity-100 transition-opacity duration-300">
-                        <p className="text-sm font-semibold text-white">{item.caption}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          {item.serviceType ? (
-                            <span className="w-fit rounded-full bg-white/20 px-2.5 py-0.5 text-xs text-white backdrop-blur-sm">{item.serviceType}</span>
-                          ) : null}
-                          {(item.beforeImageUrl || item.afterImageUrl) ? (
-                            <span className="w-fit rounded-full bg-black/35 px-2.5 py-0.5 text-xs text-white backdrop-blur-sm">
-                              Click to compare
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
-              : Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-56 rounded-[1.6rem] bg-gradient-to-br from-muted/60 to-secondary/40 skeleton" />
-                ))}
-          </div>
-          <div className="mt-8 text-center">
-            <Button asChild variant="outline" className="rounded-full">
-              <Link href="/quote">Request a quote →</Link>
-            </Button>
-          </div>
-        </section>
+        </div>
       </div>
 
       {/* ─────────────────────────────────────────────────
-          SECTION 8 — PARTNERS (only render if has data)
-      ───────────────────────────────────────────────── */}
-      {hasPartners && (
-        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-          <div className="space-y-2 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Trusted by &amp; working with</p>
-            <h2 className="text-xl font-semibold sm:text-2xl">{content.partners?.title ?? "Our partners"}</h2>
-          </div>
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 sm:gap-8">
-            {partnerItems.map((partner) => (
-              partner.url ? (
-                <a
-                  key={partner.id}
-                  href={partner.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 dark:bg-white/5 px-4 grayscale transition-all duration-300 hover:grayscale-0 hover:shadow-md"
-                >
-                  {partner.logoUrl ? (
-                    <img src={partner.logoUrl} alt={partner.name} className="max-h-10 w-auto object-contain" loading="lazy" />
-                  ) : (
-                    <span className="text-sm font-medium text-muted-foreground">{partner.name}</span>
-                  )}
-                </a>
-              ) : (
-                <div
-                  key={partner.id}
-                  className="flex h-16 w-36 items-center justify-center rounded-2xl border border-border/60 bg-white/80 dark:bg-white/5 px-4 grayscale transition-all duration-300 hover:grayscale-0"
-                >
-                  {partner.logoUrl ? (
-                    <img src={partner.logoUrl} alt={partner.name} className="max-h-10 w-auto object-contain" loading="lazy" />
-                  ) : (
-                    <span className="text-sm font-medium text-muted-foreground">{partner.name}</span>
-                  )}
-                </div>
-              )
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ─────────────────────────────────────────────────
-          SECTION 8/9 — TESTIMONIALS
+          BRAND STATEMENT + STATS — quiet, generous whitespace
       ───────────────────────────────────────────────── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div className="scroll-reveal space-y-2">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">What clients say</p>
-            <h2 className="text-2xl font-semibold sm:text-3xl">Trusted by clients across Sydney.</h2>
-          </div>
-          {reviews?.rating ? (
-            <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm shadow-sm">
-              <p className="font-semibold text-amber-900">
-                {reviews.rating.toFixed(1)} stars
-                {reviews.user_ratings_total ? ` from ${reviews.user_ratings_total}+ reviews` : ""}
-              </p>
-              <p className="text-amber-800">Live Google review snapshot</p>
-            </div>
-          ) : null}
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="scroll-reveal text-balance text-2xl leading-[1.5] text-foreground/90 sm:text-[1.75rem] sm:leading-[1.55]">
+            {content.home.brandIdea}
+          </p>
         </div>
-        <div className="grid gap-5 md:grid-cols-3">
-          {displayedTestimonials.map((item, i) => (
-            <Card key={`${item.author}-${item.meta}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} rounded-[1.8rem] border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-[0_14px_40px_-24px_rgba(22,63,70,0.32)] transition-transform duration-300 hover:-translate-y-1`}>
-              <CardContent className="space-y-4 p-6">
-                {/* Stars */}
-                <div className="flex gap-0.5">
-                  {Array.from({ length: Math.max(1, Math.min(5, Number((item as any).rating ?? 5))) }).map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <p className="text-base leading-7 text-foreground/85">"{item.quote}"</p>
-                <div>
-                  <p className="font-semibold">{item.author}</p>
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{item.meta}</p>
-                </div>
-              </CardContent>
-            </Card>
+        <div className="mx-auto mt-16 grid max-w-4xl gap-px overflow-hidden rounded-3xl border border-border/60 bg-border/40 sm:grid-cols-3">
+          {content.home.stats.map((item, i) => (
+            <div key={item.label} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3]} bg-card/80 px-8 py-10 text-center backdrop-blur-sm`}>
+              <p className="text-4xl font-light text-primary sm:text-5xl">{item.value}</p>
+              <p className="mt-3 text-sm font-medium text-foreground">{item.label}</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.note}</p>
+            </div>
           ))}
         </div>
       </section>
 
       {/* ─────────────────────────────────────────────────
-          SECTION 9/10 — FAQ ACCORDION
+          WHY CHOOSE US — second core message, calm grid
       ───────────────────────────────────────────────── */}
-      {content.pageVisibility.blog !== false && latestBlogPosts.length > 0 ? (
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-          <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-10">
-            <div className="scroll-reveal-left min-w-0 space-y-4">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Latest from the blog</p>
-              <h2 className="text-2xl font-semibold sm:text-3xl">Helpful cleaning, hosting, and property-care notes.</h2>
-              <p className="text-sm leading-7 text-muted-foreground">
-                Practical articles for owners, hosts, and property managers who want cleaner operations and fewer surprises.
-              </p>
-              <Button asChild variant="outline" className="rounded-full">
-                <Link href="/blog">Visit the blog</Link>
+          <div className="mx-auto mb-16 max-w-2xl text-center">
+            <p className="marketing-eyebrow scroll-reveal">Why choose sNeek</p>
+            <h2 className="scroll-reveal mt-5 text-4xl text-foreground sm:text-5xl">
+              {content.whyChooseUs?.title ?? "The sNeek difference"}
+            </h2>
+            <p className="scroll-reveal mt-6 text-base leading-8 text-muted-foreground">
+              {content.whyChooseUs?.intro ??
+                "What makes working with us different from the next cleaning company you will find online."}
+            </p>
+          </div>
+          <div className="grid gap-x-12 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+            {whyItems.map((item: WebsiteWhyItem, idx: number) => (
+              <div key={item.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][idx % 3]} text-center sm:text-left`}>
+                <div className="mx-auto mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full border border-primary/25 text-primary sm:mx-0">
+                  <WhyIcon iconName={item.icon} className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-2.5 text-sm leading-7 text-muted-foreground">{item.description}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-16 flex justify-center">
+            <Button asChild size="lg" className="rounded-full px-8 py-6 text-sm tracking-wide">
+              <Link href="/why-us">More about our approach</Link>
+            </Button>
+          </div>
+        </section>
+      </div>
+
+      {/* ─────────────────────────────────────────────────
+          WHAT WE OFFER — third core message, editorial list
+      ───────────────────────────────────────────────── */}
+      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+        <div className="mx-auto mb-16 max-w-2xl text-center">
+          <p className="marketing-eyebrow scroll-reveal">What we offer</p>
+          <h2 className="scroll-reveal mt-5 text-4xl text-foreground sm:text-5xl">{content.home.servicesTitle}</h2>
+          <p className="scroll-reveal mt-6 text-base leading-8 text-muted-foreground">{content.home.servicesIntro}</p>
+        </div>
+
+        {/* Three primary capability cards */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {content.home.serviceBenefits.map((card, i) => (
+            <div key={card.id} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3]} group overflow-hidden rounded-3xl border border-border/50 bg-card/70`}>
+              <div className="relative h-60 overflow-hidden">
+                <img
+                  src={card.imageUrl}
+                  alt={card.imageAlt}
+                  className="h-full w-full object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-105"
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; }}
+                />
+              </div>
+              <div className="space-y-3 p-8">
+                <h3 className="text-xl font-semibold text-foreground">{card.title}</h3>
+                <p className="text-sm leading-7 text-muted-foreground">{card.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Popular services — quiet linked list */}
+        <div className="mt-16">
+          <div className="lux-rule mb-10" />
+          <div className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredServices.map((service) => (
+              <Link
+                key={service.jobType}
+                href={`/services/${service.slug}`}
+                className="scroll-reveal group flex items-start gap-4 border-b border-border/40 pb-6 transition-colors hover:border-primary/40"
+              >
+                <Sparkles className="mt-1 h-4 w-4 shrink-0 text-primary/70" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-foreground transition-colors group-hover:text-primary">{service.label}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{service.tagline}</p>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 -translate-x-1 text-primary opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100" />
+              </Link>
+            ))}
+          </div>
+          <div className="mt-12 flex flex-wrap justify-center gap-3">
+            <Button asChild variant="outline" className="rounded-full px-7">
+              <Link href="/services">View all services</Link>
+            </Button>
+            <Button asChild variant="outline" className="rounded-full px-7">
+              <Link href="/subscriptions">Explore subscriptions</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────
+          AIRBNB HOSTING — editorial split
+      ───────────────────────────────────────────────── */}
+      <div className="public-section-full bg-secondary/30">
+        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
+            <div className="scroll-reveal-left space-y-6">
+              <p className="marketing-eyebrow">Airbnb &amp; managed properties</p>
+              <h2 className="text-4xl text-foreground sm:text-5xl">{content.home.hostingTitle}</h2>
+              <p className="text-base leading-8 text-muted-foreground">{content.home.hostingIntro}</p>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-foreground/80">
+                {["Photo Reports", "Laundry Handled", "Same-Day Turnovers"].map((badge) => (
+                  <span key={badge} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    {badge}
+                  </span>
+                ))}
+              </div>
+              <Button asChild className="rounded-full px-7">
+                <Link href="/airbnb-hosting">
+                  See hosting support
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
               </Button>
             </div>
-            <div className="min-w-0 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {latestBlogPosts.map((post, i) => (
-                <Link key={post.id} href={`/blog/${post.slug}`} className="group block min-w-0">
-                  <Card className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3] ?? 100} h-full overflow-hidden rounded-[1.5rem] border-white/70 dark:border-white/10 bg-white/85 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(22,63,70,0.32)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(22,63,70,0.4)] sm:rounded-[1.8rem]`}>
-                    {post.coverImageUrl ? (
-                      <img src={post.coverImageUrl} alt={post.title} className="h-40 w-full object-cover sm:h-48" loading="lazy" />
-                    ) : null}
-                    <CardContent className="space-y-3 p-5 sm:p-6">
-                      <p className="line-clamp-2 text-base font-semibold group-hover:text-primary sm:text-lg">{post.title}</p>
-                      <p className="line-clamp-3 text-sm leading-6 text-muted-foreground sm:line-clamp-4">{post.excerpt}</p>
-                      <span className="inline-flex items-center text-sm font-medium text-primary">
-                        Read article
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </span>
-                    </CardContent>
-                  </Card>
-                </Link>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {content.home.hostingFeatures.map((card, index) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => setHostingPreviewIndex(index)}
+                  className="scroll-reveal group overflow-hidden rounded-2xl border border-border/50 bg-card/70 text-left transition-transform duration-500 hover:-translate-y-1"
+                >
+                  <img
+                    src={card.imageUrl}
+                    alt={card.imageAlt}
+                    className="h-28 w-full object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-105"
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.background = "hsl(var(--muted))"; e.currentTarget.style.minHeight = "7rem"; }}
+                  />
+                  <div className="p-4">
+                    <p className="text-sm font-semibold text-foreground">{card.title}</p>
+                    <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{card.description}</p>
+                  </div>
+                </button>
               ))}
             </div>
           </div>
         </section>
+      </div>
+
+      {/* ─────────────────────────────────────────────────
+          QUOTE + AVAILABILITY TOOLS — restyled containers, same wiring
+      ───────────────────────────────────────────────── */}
+      {(widgetFlags.instantQuoteEstimator || widgetFlags.availabilityChecker) && (
+        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+          <div className="mx-auto mb-14 max-w-2xl text-center">
+            <p className="marketing-eyebrow scroll-reveal">Begin the conversation</p>
+            <h2 className="scroll-reveal mt-5 text-4xl text-foreground sm:text-5xl">A clear price, before you enquire.</h2>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {widgetFlags.instantQuoteEstimator && (
+              <div className="scroll-reveal rounded-3xl border border-border/50 bg-card/70 p-8">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-foreground">Instant estimator</h3>
+                  <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Estimate only</span>
+                </div>
+                <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                  <label className="space-y-1.5 text-sm">
+                    <span className="text-muted-foreground">Service</span>
+                    <select
+                      className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                      value={estimator.serviceType}
+                      onChange={(event) =>
+                        setEstimator((current) => ({ ...current, serviceType: event.target.value }))
+                      }
+                    >
+                      {estimatorOptions.map((service) => (
+                        <option key={service.jobType} value={service.jobType}>
+                          {service.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="text-muted-foreground">Bedrooms</span>
+                    <select
+                      className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                      value={estimator.bedrooms}
+                      onChange={(event) =>
+                        setEstimator((current) => ({ ...current, bedrooms: Number(event.target.value) }))
+                      }
+                    >
+                      {Array.from({ length: 6 }).map((_, index) => (
+                        <option key={`bed-${index + 1}`} value={index + 1}>
+                          {index + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="text-muted-foreground">Bathrooms</span>
+                    <select
+                      className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                      value={estimator.bathrooms}
+                      onChange={(event) =>
+                        setEstimator((current) => ({ ...current, bathrooms: Number(event.target.value) }))
+                      }
+                    >
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <option key={`bath-${index + 1}`} value={index + 1}>
+                          {index + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-6 rounded-2xl border border-border/50 bg-secondary/40 p-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Live result</p>
+                  {quoteLoading ? (
+                    <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Calculating estimate...
+                    </div>
+                  ) : liveQuote ? (
+                    <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <p className="text-3xl font-light text-foreground">From ${liveQuote.total.toFixed(2)}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {liveQuote.gst > 0 ? "GST included." : "GST not applied."}{" "}
+                          {liveQuote.pricingMode === "exact" ? "Matched from active pricing." : "Condition-based guide pending review."}
+                        </p>
+                      </div>
+                      <Button asChild className="rounded-full">
+                        <Link href="/quote">Open full quote</Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Choose the service and room counts above to load a live starting estimate.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {widgetFlags.availabilityChecker && (
+              <div className="scroll-reveal rounded-3xl border border-border/50 bg-card/70 p-8">
+                <h3 className="text-lg font-semibold text-foreground">Availability checker</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Check your suburb and see the next likely slot.</p>
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <div className="relative flex-1">
+                    <input
+                      value={suburb}
+                      onChange={(event) => setSuburb(event.target.value)}
+                      placeholder="Enter suburb or postcode"
+                      className="flex h-11 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary"
+                    />
+                    {availabilitySuggestions.length > 0 ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-[0_18px_48px_-28px_rgba(22,63,70,0.32)]">
+                        {availabilitySuggestions.map((item) => (
+                          <button
+                            key={`${item.slug}-${item.postcode}`}
+                            type="button"
+                            onClick={() => {
+                              setSuburb(item.name);
+                              setAvailabilitySuggestions([]);
+                            }}
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-primary/6"
+                          >
+                            <span className="font-medium text-foreground">
+                              {item.name} <span className="font-normal text-muted-foreground">{item.postcode}</span>
+                            </span>
+                            <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.coverage === "standard" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-900"}`}>
+                              {item.coverage === "standard" ? "Within 50km" : "Contact team"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleAvailabilityCheck}
+                    disabled={availabilityLoading}
+                    className="rounded-full"
+                  >
+                    {availabilityLoading ? "Checking..." : "Check"}
+                  </Button>
+                </div>
+                <div className="mt-5 rounded-2xl border border-border/50 bg-secondary/40 p-5">
+                  {hasAvailabilityError(availability) ? (
+                    <p className="text-sm text-destructive">{availability?.error}</p>
+                  ) : availability ? (
+                    <div className="space-y-2 text-sm">
+                      <p className={`font-medium ${availability?.available === false ? "text-amber-900" : "text-foreground"}`}>
+                        {availability?.message || "We cover your area and can review the next suitable window."}
+                      </p>
+                      {availability?.nextSlot ? (
+                        <p className="text-muted-foreground">Next likely slot: {availability.nextSlot}</p>
+                      ) : null}
+                      <p className="text-muted-foreground">
+                        {availability?.available === false
+                          ? "Your suburb is outside our main Parramatta service radius, so call or message the team for a manual check."
+                          : "If the job is urgent, use WhatsApp or call for the fastest response."}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Enter your suburb or postcode to check local coverage and likely next availability.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ─────────────────────────────────────────────────
+          TESTIMONIALS — quiet, generous
+      ───────────────────────────────────────────────── */}
+      <div className="public-section-full bg-secondary/30">
+        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+          <div className="mx-auto mb-16 max-w-2xl text-center">
+            <p className="marketing-eyebrow scroll-reveal">What clients say</p>
+            <h2 className="scroll-reveal mt-5 text-4xl text-foreground sm:text-5xl">Trusted across Sydney.</h2>
+            {reviews?.rating ? (
+              <p className="scroll-reveal mt-4 text-sm text-muted-foreground">
+                {reviews.rating.toFixed(1)} stars
+                {reviews.user_ratings_total ? ` from ${reviews.user_ratings_total}+ Google reviews` : ""}
+              </p>
+            ) : null}
+          </div>
+          <div className="grid gap-10 md:grid-cols-3">
+            {displayedTestimonials.slice(0, 3).map((item, i) => (
+              <figure key={`${item.author}-${item.meta}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3]} flex flex-col`}>
+                <div className="mb-4 flex gap-0.5">
+                  {Array.from({ length: Math.max(1, Math.min(5, Number((item as any).rating ?? 5))) }).map((_, s) => (
+                    <Star key={s} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                  ))}
+                </div>
+                <blockquote className="flex-1 font-display-serif text-xl leading-[1.6] text-foreground/90">
+                  &ldquo;{item.quote}&rdquo;
+                </blockquote>
+                <figcaption className="mt-6">
+                  <p className="font-semibold text-foreground">{item.author}</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{item.meta}</p>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* ─────────────────────────────────────────────────
+          BLOG (optional)
+      ───────────────────────────────────────────────── */}
+      {content.pageVisibility.blog !== false && latestBlogPosts.length > 0 ? (
+        <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+          <div className="mb-12 flex flex-wrap items-end justify-between gap-4">
+            <div className="scroll-reveal max-w-xl space-y-3">
+              <p className="marketing-eyebrow">From the journal</p>
+              <h2 className="text-4xl text-foreground sm:text-5xl">Notes on cleaning &amp; hosting.</h2>
+            </div>
+            <Button asChild variant="outline" className="rounded-full px-7">
+              <Link href="/blog">Visit the blog</Link>
+            </Button>
+          </div>
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {latestBlogPosts.map((post, i) => (
+              <Link key={post.id} href={`/blog/${post.slug}`} className={`scroll-reveal scroll-delay-${[100, 200, 300][i % 3]} group block`}>
+                {post.coverImageUrl ? (
+                  <div className="mb-5 overflow-hidden rounded-2xl">
+                    <img src={post.coverImageUrl} alt={post.title} className="h-52 w-full object-cover transition-transform duration-[1400ms] ease-out group-hover:scale-105" loading="lazy" />
+                  </div>
+                ) : null}
+                <p className="text-lg font-semibold text-foreground transition-colors group-hover:text-primary">{post.title}</p>
+                <p className="mt-2 line-clamp-3 text-sm leading-7 text-muted-foreground">{post.excerpt}</p>
+                <span className="mt-4 inline-flex items-center text-sm font-medium text-primary">
+                  Read article
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
       ) : null}
 
+      {/* ─────────────────────────────────────────────────
+          FAQ
+      ───────────────────────────────────────────────── */}
       {faqPreview.length > 0 && (
-        <div className="public-section-full bg-primary/4">
+        <div className="public-section-full bg-secondary/30">
           <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-            <div className="grid gap-10 xl:grid-cols-[360px_minmax(0,1fr)] xl:gap-14 xl:items-start">
-              <div className="scroll-reveal-left space-y-4">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Frequently asked</p>
-                <h2 className="text-2xl font-semibold sm:text-3xl">{content.faq?.title ?? "Got questions?"}</h2>
-                <p className="text-sm leading-7 text-muted-foreground">{content.faq?.intro ?? "Everything you need to know before booking."}</p>
-                <Button asChild variant="outline" className="rounded-full">
+            <div className="grid gap-12 lg:grid-cols-[0.8fr_minmax(0,1fr)] lg:gap-20">
+              <div className="scroll-reveal-left space-y-5">
+                <p className="marketing-eyebrow">Frequently asked</p>
+                <h2 className="text-4xl text-foreground sm:text-5xl">{content.faq?.title ?? "Got questions?"}</h2>
+                <p className="text-base leading-8 text-muted-foreground">{content.faq?.intro ?? "Everything you need to know before booking."}</p>
+                <Button asChild variant="outline" className="rounded-full px-7">
                   <Link href="/faq">See all FAQs</Link>
                 </Button>
               </div>
-              <Accordion type="single" collapsible className="space-y-3">
+              <Accordion type="single" collapsible className="divide-y divide-border/50">
                 {faqPreview.map((item) => (
-                  <AccordionItem
-                    key={item.id}
-                    value={item.id}
-                    className="rounded-2xl border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 px-5 shadow-sm data-[state=open]:shadow-md"
-                  >
-                    <AccordionTrigger className="py-4 text-sm font-medium hover:no-underline [&[data-state=open]>svg]:rotate-180">
+                  <AccordionItem key={item.id} value={item.id} className="border-none">
+                    <AccordionTrigger className="py-5 text-left text-base font-medium hover:no-underline [&[data-state=open]>svg]:rotate-180">
                       {item.question}
                     </AccordionTrigger>
-                    <AccordionContent className="pb-4 text-sm leading-7 text-muted-foreground">
+                    <AccordionContent className="pb-5 text-sm leading-7 text-muted-foreground">
                       {item.answer}
                     </AccordionContent>
                   </AccordionItem>
@@ -1013,9 +771,7 @@ export function HomePage({
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────
-          SECTION 10 — FINAL CTA
-      ───────────────────────────────────────────────── */}
+      {/* Hosting feature dialog (preserved) */}
       <Dialog open={hostingPreviewIndex != null} onOpenChange={(open) => !open && setHostingPreviewIndex(null)}>
         <DialogContent className="max-w-4xl">
           {activeHostingFeature ? (
@@ -1036,37 +792,31 @@ export function HomePage({
         </DialogContent>
       </Dialog>
 
-      <section className={`${PUBLIC_PAGE_CONTAINER} pb-12 pt-2 sm:pt-4 lg:pb-24`}>
-        <Card className="overflow-hidden rounded-[2rem] border-white/70 bg-gradient-to-br from-primary/95 to-[#163b41] text-white shadow-[0_24px_70px_-36px_rgba(15,77,84,0.6)]">
-          <CardContent className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="space-y-3">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/60">Next step</p>
-              <h2 className="text-2xl font-semibold sm:text-3xl">{content.home.finalCtaTitle}</h2>
-              <p className="max-w-2xl text-sm leading-7 text-white/75">{content.home.finalCtaBody}</p>
-              <p className="text-2xl font-semibold text-white/90">+61 451 217 210</p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <Button asChild size="lg" className="rounded-full bg-white text-primary hover:bg-white/90 transition-transform duration-200 hover:-translate-y-0.5">
-                <Link href="/quote">Start your quote</Link>
-              </Button>
-              <a
-                href={WHATSAPP_HREF}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5 hover:opacity-90"
-              >
-                <WhatsAppIcon className="h-4 w-4" />
-                Chat on WhatsApp
-              </a>
-              <Button asChild size="lg" variant="outline" className="rounded-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
-                <Link href="/contact">Email / call us</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ─────────────────────────────────────────────────
+          FINAL CTA — calm, confident
+      ───────────────────────────────────────────────── */}
+      <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="marketing-eyebrow scroll-reveal">Next step</p>
+          <h2 className="scroll-reveal mt-5 text-4xl text-foreground sm:text-6xl">{content.home.finalCtaTitle}</h2>
+          <p className="scroll-reveal mx-auto mt-6 max-w-xl text-base leading-8 text-muted-foreground">{content.home.finalCtaBody}</p>
+          <div className="scroll-reveal mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Button asChild size="lg" className="min-w-[200px] rounded-full px-8 py-6 text-sm tracking-wide">
+              <Link href="/quote">Start your quote</Link>
+            </Button>
+            <a
+              href={WHATSAPP_HREF}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-w-[200px] items-center justify-center gap-2 rounded-full border border-foreground/15 px-8 py-[1.15rem] text-sm font-medium tracking-wide text-foreground transition-transform duration-300 hover:-translate-y-0.5"
+            >
+              <WhatsAppIcon className="h-4 w-4 text-[#25D366]" />
+              WhatsApp us
+            </a>
+          </div>
+          <p className="scroll-reveal mt-8 text-2xl font-light text-foreground/80">+61 451 217 210</p>
+        </div>
       </section>
     </div>
   );
 }
-
-

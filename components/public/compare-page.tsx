@@ -6,7 +6,6 @@ import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
 const COMPARISON_ROWS = [
   { key: "idealFor", label: "Ideal for" },
@@ -24,15 +23,13 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
       {/* ─── HERO ─── */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="grid gap-10 xl:grid-cols-[minmax(0,1.08fr)_minmax(440px,0.92fr)] xl:items-center xl:gap-14 2xl:gap-20">
-          <div className="space-y-7 animate-fade-up">
-            <Badge className="w-fit rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.2em] sm:text-xs">
-              Compare services
-            </Badge>
-            <div className="space-y-4">
-              <h1 className="max-w-2xl text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+          <div className="space-y-7">
+            <p className="marketing-eyebrow lux-rise">Compare services</p>
+            <div className="space-y-5">
+              <h1 className="lux-rise lux-rise-d1 max-w-2xl text-balance text-4xl text-foreground sm:text-5xl lg:text-6xl">
                 Choose the right cleaning scope before you book
               </h1>
-              <p className="max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+              <p className="lux-rise lux-rise-d2 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
                 Compare the most requested service types side by side so you can book the right level of detail the first time.
               </p>
             </div>
@@ -100,10 +97,10 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
       </section>
 
       {/* ─── FULL-BLEED: COMPARISON CARDS ─── */}
-      <div className="public-section-full bg-primary/4">
+      <div className="public-section-full bg-secondary/30">
         <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
           <div className="mb-10 space-y-2">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Side-by-side comparison</p>
+            <p className="marketing-eyebrow">Side-by-side comparison</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">What is included in each service type</h2>
           </div>
           {services.length > 0 ? (
@@ -173,7 +170,7 @@ export function ComparePage({ servicePages }: { readonly servicePages: Record<st
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
         <div className="rounded-[2rem] border border-white/70 dark:border-white/10 bg-white/80 dark:bg-white/5 p-7 shadow-[0_20px_60px_-32px_rgba(25,67,74,0.30)] sm:p-10 lg:flex lg:items-center lg:justify-between lg:gap-10">
           <div className="space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Not sure which service fits?</p>
+            <p className="marketing-eyebrow">Not sure which service fits?</p>
             <h2 className="text-2xl font-semibold sm:text-3xl">
               Get a quote and let us recommend the right scope.
             </h2>

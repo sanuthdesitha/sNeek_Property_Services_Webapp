@@ -12,7 +12,7 @@ export default async function PrivacyPage() {
     <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
       <div className="public-page-frame">
         <div className="max-w-4xl space-y-4">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Privacy policy</p>
+          <p className="marketing-eyebrow">Privacy policy</p>
           <h1 className="text-4xl font-semibold">{content.title}</h1>
           <p className="text-base leading-8 text-muted-foreground">{content.intro}</p>
         </div>

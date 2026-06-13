@@ -32,10 +32,10 @@ interface PublicSiteShellProps {
 const WHATSAPP_FALLBACK_NUMBER = "61451217210";
 const SERVICE_FAMILIES: ServiceFamily[] = ["short_stay", "residential", "specialty", "exterior", "commercial"];
 const ANNOUNCEMENT_BAR_THEME_CLASSES: Record<WebsiteContent["announcementBar"]["bgStyle"], string> = {
-  subtle: "border-primary/30 bg-gradient-to-r from-primary via-[#1b727c] to-[#d9a848] text-white shadow-[0_14px_36px_-22px_rgba(15,77,84,0.8)]",
-  accent: "border-amber-300 bg-gradient-to-r from-amber-500 via-[#f0a53a] to-[#f97316] text-white shadow-[0_14px_36px_-22px_rgba(180,108,20,0.65)]",
-  dark: "border-white/10 bg-gradient-to-r from-[#0c2329] via-[#163b41] to-[#24545d] text-white shadow-[0_14px_36px_-22px_rgba(8,20,24,0.85)]",
-  warning: "border-red-300 bg-gradient-to-r from-red-600 via-[#e04f4f] to-rose-500 text-white shadow-[0_14px_36px_-22px_rgba(153,27,27,0.75)]",
+  subtle: "border-primary/20 bg-[#0c2c30] text-white/90",
+  accent: "border-amber-300/40 bg-[#1d3b1f] text-white/90",
+  dark: "border-white/10 bg-[#0c2329] text-white/90",
+  warning: "border-red-300/40 bg-[#3a1414] text-white/90",
 };
 
 const familyFirstSlug: Record<ServiceFamily, string> = SERVICE_FAMILIES.reduce(
@@ -187,10 +187,6 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
       className="relative min-h-screen overflow-x-hidden bg-background text-foreground"
       style={{ "--container-max-w": content.containerWidth || "1320px" } as React.CSSProperties}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_12%,rgba(255,177,95,0.16),transparent_28%),radial-gradient(circle_at_92%_6%,rgba(37,169,184,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.95),rgba(249,246,240,0.94))] dark:hidden" />
-      <div className="pointer-events-none absolute left-[4%] top-24 h-40 w-40 rounded-full bg-primary/10 blur-3xl motion-safe:animate-float-slow" />
-      <div className="pointer-events-none absolute right-[5%] top-52 h-56 w-56 rounded-full bg-accent/70 blur-3xl motion-safe:animate-float-slower" />
-
       {announcementBar.enabled ? (
         <div className={cn("border-b backdrop-blur-sm", announcementBarThemeClass)}>
           {announcementBar.promoMessage ? (
@@ -235,7 +231,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
         </div>
       ) : null}
 
-      <header className={cn("sticky top-0 z-50 border-b transition-all duration-300", scrolled ? "border-border bg-surface-raised/92 shadow-[0_4px_24px_-8px_rgba(23,73,78,0.15)] backdrop-blur-xl" : "border-border/60 bg-surface-raised/80 backdrop-blur-lg")}>
+      <header className={cn("sticky top-0 z-50 border-b transition-all duration-500", scrolled ? "border-border/70 bg-background/85 backdrop-blur-xl" : "border-transparent bg-background/60 backdrop-blur-md")}>
         <div className={cn(PUBLIC_PAGE_CONTAINER, "flex items-center justify-between gap-3 py-3 sm:gap-4 sm:py-3.5")}>
           <div className="flex min-w-0 items-center gap-4 lg:gap-6 xl:gap-8">
             <Link href="/" className="flex min-w-0 items-center gap-3">
@@ -247,8 +243,8 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                 </div>
               )}
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold sm:text-base">{companyName}</p>
-                <p className="hidden truncate text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:block">Property cleaning &amp; hosting support</p>
+                <p className="truncate text-sm font-semibold tracking-tight sm:text-base">{companyName}</p>
+                <p className="hidden truncate text-[10px] uppercase tracking-[0.28em] text-muted-foreground sm:block">Property Care · Sydney</p>
               </div>
             </Link>
 
@@ -261,8 +257,8 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                       <Link
                         href="/services"
                         className={cn(
-                          "flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5",
-                          isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-white/10"
+                          "flex items-center gap-1 rounded-full px-4 py-2 text-sm whitespace-nowrap transition-colors duration-300",
+                          isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
                         )}
                         aria-expanded={servicesOpen}
                       >
@@ -328,8 +324,8 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5",
-                      active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-white/10"
+                      "rounded-full px-4 py-2 text-sm whitespace-nowrap transition-colors duration-300",
+                      active ? "text-primary" : "text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {item.label}
@@ -352,7 +348,7 @@ export function PublicSiteShell({ children, companyName, logoUrl, content }: Pub
             ) : null}
             <Button
               asChild
-              className="rounded-full bg-gradient-to-r from-primary to-[#e9a349] px-5 text-white shadow-[0_14px_36px_-14px_rgba(18,120,128,0.68)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_44px_-16px_rgba(18,120,128,0.78)]"
+              className="rounded-full px-6 text-sm tracking-wide transition-transform duration-300 hover:-translate-y-0.5"
               size="sm"
             >
               <Link href="/quote">Instant Quote</Link>

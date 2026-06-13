@@ -21,6 +21,8 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-sans)", "Segoe UI", "sans-serif"],
         display: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
+        // Luxury display serif — public marketing site only (see globals.css).
+        "display-serif": ["var(--font-display-serif)", "Georgia", "serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {

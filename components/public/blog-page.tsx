@@ -33,11 +33,11 @@ export function BlogIndexPage({ posts }: { readonly posts: any[] }) {
       {/* ── PAGE HEADER ── */}
       <div className="border-b border-border/60 bg-white/60 dark:bg-white/5 backdrop-blur-sm">
         <div className={`${PUBLIC_PAGE_CONTAINER} py-10 sm:py-14`}>
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-primary">Journal</p>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          <p className="marketing-eyebrow mb-3">Journal</p>
+          <h1 className="text-4xl tracking-tight sm:text-5xl">
             Cleaning tips, hosting notes &amp; property advice
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+          <p className="mt-4 max-w-2xl text-base leading-8 text-muted-foreground">
             Practical articles from the sNeek team — turnovers, bond cleans, linen, and keeping properties consistently guest-ready.
           </p>
         </div>

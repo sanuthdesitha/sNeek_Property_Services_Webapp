@@ -17,7 +17,7 @@ export function MaintenancePage({ content }: { content: WebsiteContent }) {
             </div>
             <div className="space-y-4">
               <div className="space-y-2">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Website maintenance</p>
+                <p className="marketing-eyebrow">Website maintenance</p>
                 <h1 className="text-3xl font-semibold sm:text-4xl">{content.maintenanceMode.message}</h1>
                 <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
                   {content.maintenanceMode.supportMessage}

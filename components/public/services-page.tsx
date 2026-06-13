@@ -33,14 +33,12 @@ export function ServicesPage({ content }: ServicesPageProps) {
     <div>
       {/* Hero */}
       <section className={`${PUBLIC_PAGE_CONTAINER} section-gap`}>
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-          <div className="max-w-3xl space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{content.eyebrow}</p>
-            <h1 className="text-3xl font-semibold sm:text-4xl xl:text-5xl">{content.title}</h1>
-            <p className="text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">{content.intro}</p>
-          </div>
-          <div className="hidden xl:flex">
-            <Button asChild className="rounded-full shadow-sm transition-transform duration-200 hover:-translate-y-0.5">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="marketing-eyebrow lux-rise">{content.eyebrow}</p>
+          <h1 className="lux-rise lux-rise-d1 mt-6 text-4xl text-foreground sm:text-5xl xl:text-6xl">{content.title}</h1>
+          <p className="lux-rise lux-rise-d2 mx-auto mt-6 max-w-2xl text-base leading-8 text-muted-foreground">{content.intro}</p>
+          <div className="lux-rise lux-rise-d3 mt-8 flex justify-center">
+            <Button asChild size="lg" className="rounded-full px-8 py-6 text-sm tracking-wide transition-transform duration-300 hover:-translate-y-0.5">
               <Link href="/quote">Get an instant quote</Link>
             </Button>
           </div>
@@ -48,7 +46,7 @@ export function ServicesPage({ content }: ServicesPageProps) {
       </section>
 
       {/* Trust strip */}
-      <div className="public-section-full border-y border-primary/8 bg-primary/4 py-4 overflow-hidden">
+      <div className="public-section-full border-y border-primary/8 bg-secondary/30 py-4 overflow-hidden">
         <div className="flex" aria-hidden="true">
           <div className="flex shrink-0 gap-4 animate-marquee pr-4">
             {[...TRUST_PILLS, ...TRUST_PILLS].map((pill, i) => (
@@ -80,7 +78,7 @@ export function ServicesPage({ content }: ServicesPageProps) {
                 {/* Family header */}
                 <div className="mb-6 grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-8">
                   <div className="space-y-2 xl:sticky xl:top-28 xl:self-start">
-                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">{family.label}</p>
+                    <p className="marketing-eyebrow">{family.label}</p>
                     <p className="text-sm leading-7 text-muted-foreground">{family.description}</p>
                   </div>
                   <div className="hidden xl:block" />
@@ -88,26 +86,27 @@ export function ServicesPage({ content }: ServicesPageProps) {
                 {/* Service cards */}
                 <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-8">
                   <div className="hidden xl:block" />
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                     {services.map((service) => (
                       <Link key={service.jobType} href={`/services/${service.slug}`} className="group">
-                        <Card className="h-full rounded-[1.8rem] border-white/70 bg-white/80 dark:border-white/10 dark:bg-white/5 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-32px_rgba(25,67,74,0.4)]">
-                          <CardContent className="space-y-4 p-6">
-                            <div className={`inline-flex rounded-2xl bg-gradient-to-br ${service.cardColor} p-3 text-white shadow-sm`}>
+                        <Card className="h-full rounded-3xl border border-border/50 bg-card/70 shadow-none transition-all duration-500 hover:-translate-y-1 hover:border-primary/40">
+                          <CardContent className="space-y-4 p-7">
+                            <div className="inline-flex rounded-full border border-primary/25 p-3 text-primary">
                               <Sparkles className="h-5 w-5" />
                             </div>
                             <div className="space-y-2">
-                              <h2 className="text-lg font-semibold">{service.label}</h2>
+                              <h2 className="text-xl font-semibold">{service.label}</h2>
                               <p className="text-sm font-medium text-primary">{service.tagline}</p>
                               <p className="text-sm leading-6 text-muted-foreground">{service.summary}</p>
                             </div>
                             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                               {service.highlights.map((highlight) => (
-                                <span key={highlight} className="rounded-full border border-border/70 px-3 py-1">{highlight}</span>
+                                <span key={highlight} className="rounded-full border border-border/60 px-3 py-1">{highlight}</span>
                               ))}
                             </div>
-                            <p className="text-xs font-medium text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                              View details →
+                            <p className="inline-flex items-center text-xs font-medium text-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                              View details
+                              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                             </p>
                           </CardContent>
                         </Card>

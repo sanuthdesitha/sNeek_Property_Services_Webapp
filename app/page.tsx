@@ -9,6 +9,8 @@ import { listPublishedBlogPosts } from "@/lib/public-site/blog";
 import { isWebsiteInMaintenance } from "@/lib/public-site/routing";
 import { MaintenancePage } from "@/components/public/maintenance-page";
 import { getPublicWidgetFlags } from "@/lib/public-site/widgets";
+import { PublicThemeProvider } from "@/components/public/public-theme";
+import { SmoothScroll } from "@/components/public/smooth-scroll";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
@@ -90,17 +92,25 @@ export default async function HomePage() {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
         />
-        <PublicSiteShell companyName={companyName} logoUrl={settings.logoUrl} content={settings.websiteContent}>
-          {isWebsiteInMaintenance(settings.websiteContent) ? (
-            <MaintenancePage content={settings.websiteContent} />
-          ) : (
-            <MarketingHomePage
-              content={settings.websiteContent}
-              latestBlogPosts={latestBlogPosts.slice(0, 3)}
-              widgetFlags={widgetFlags}
-            />
-          )}
-        </PublicSiteShell>
+        <PublicThemeProvider>
+          {/* Lenis smooth scroll + the public theme/serif scope, mirroring the
+              (public) route group layout so the home page reads identically. */}
+          <SmoothScroll>
+            <div className="marketing-only" data-portal-theme="public">
+              <PublicSiteShell companyName={companyName} logoUrl={settings.logoUrl} content={settings.websiteContent}>
+                {isWebsiteInMaintenance(settings.websiteContent) ? (
+                  <MaintenancePage content={settings.websiteContent} />
+                ) : (
+                  <MarketingHomePage
+                    content={settings.websiteContent}
+                    latestBlogPosts={latestBlogPosts.slice(0, 3)}
+                    widgetFlags={widgetFlags}
+                  />
+                )}
+              </PublicSiteShell>
+            </div>
+          </SmoothScroll>
+        </PublicThemeProvider>
       </>
     );
   }
