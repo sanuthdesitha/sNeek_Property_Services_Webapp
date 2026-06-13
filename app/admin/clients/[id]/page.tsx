@@ -84,7 +84,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/admin/clients" aria-label="Back to clients">
+          <Link href="/admin/accounts?tab=clients" aria-label="Back to accounts">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
@@ -93,9 +93,9 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           <p className="text-sm text-muted-foreground">Review contact info, leads, quotes, jobs, cases, and properties in one place.</p>
         </div>
         <Button variant="outline" asChild>
-          <Link href={`/admin/clients/${client.id}/hub`}>
+          <Link href={`/admin/accounts/clients/${client.id}`}>
             <RadioTower className="mr-2 h-4 w-4" />
-            Open client hub
+            Account summary
           </Link>
         </Button>
       </div>

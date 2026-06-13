@@ -147,7 +147,7 @@ export default async function CleanerPerformanceDetailPage({
     <div className="mx-auto w-full max-w-6xl space-y-6 p-6">
       <div>
         <Button asChild variant="ghost" size="sm">
-          <Link href="/admin/workforce/performance">
+          <Link href="/admin/workforce?tab=performance">
             <ArrowLeft className="mr-2 size-4" />
             Back to leaderboard
           </Link>

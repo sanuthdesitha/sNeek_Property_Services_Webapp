@@ -46,6 +46,7 @@ const SECTION_REGISTRY: SettingsSectionMeta[] = [
   { value: "editor", label: "Core settings", category: "operations", keywords: "company branding logo timezone gst pricing core" },
   { value: "overview", label: "Overview", category: "system", keywords: "overview project name app url timezone" },
   { value: "integrations", label: "Integrations", category: "integrations", adminOnly: true, keywords: "stripe resend google maps hospitable api credentials" },
+  { value: "ical-sync", label: "iCal Sync", category: "integrations", adminOnly: true, keywords: "ical calendar sync reservations airbnb hospitable property feed runs" },
   { value: "payment-gateways", label: "Payment Gateways", category: "finance", adminOnly: true, keywords: "stripe square paypal payments gateway" },
   { value: "xero", label: "Xero", category: "finance", adminOnly: true, keywords: "xero accounting invoice sync" },
   { value: "finance-notifications", label: "Finance Notifications", category: "communications", adminOnly: true, keywords: "finance invoice payment notification" },
@@ -82,6 +83,10 @@ const FinanceNotificationsSettings = dynamic(
 const IntegrationsSettings = dynamic(
   () => import("@/components/admin/integrations-settings").then((mod) => mod.IntegrationsSettings),
   { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading integration settings...</div> }
+);
+const IcalSyncOps = dynamic(
+  () => import("@/components/admin/ical-sync-ops").then((mod) => mod.IcalSyncOps),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading iCal sync ops...</div> }
 );
 const PaymentGatewaysTab = dynamic(
   () => import("@/components/admin/payment-gateways-page").then((mod) => ({ default: mod.PaymentGatewaysPage })),
@@ -236,6 +241,7 @@ export function SettingsWorkspace({
         {visibleValues.has("editor") ? <TabsTrigger value="editor">Core settings</TabsTrigger> : null}
         {visibleValues.has("overview") ? <TabsTrigger value="overview">Overview</TabsTrigger> : null}
         {isAdmin && visibleValues.has("integrations") ? <TabsTrigger value="integrations">Integrations</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("ical-sync") ? <TabsTrigger value="ical-sync">iCal Sync</TabsTrigger> : null}
         {isAdmin && visibleValues.has("payment-gateways") ? <TabsTrigger value="payment-gateways">Payment Gateways</TabsTrigger> : null}
         {isAdmin && visibleValues.has("xero") ? <TabsTrigger value="xero">Xero</TabsTrigger> : null}
         {isAdmin && visibleValues.has("finance-notifications") ? <TabsTrigger value="finance-notifications">Finance Notifications</TabsTrigger> : null}
@@ -288,6 +294,12 @@ export function SettingsWorkspace({
       {isAdmin ? (
         <TabsContent value="integrations">
           <IntegrationsSettings />
+        </TabsContent>
+      ) : null}
+
+      {isAdmin ? (
+        <TabsContent value="ical-sync">
+          <IcalSyncOps />
         </TabsContent>
       ) : null}
 

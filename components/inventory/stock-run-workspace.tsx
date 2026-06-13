@@ -65,10 +65,14 @@ export function StockRunWorkspace({
   apiBase,
   title,
   description,
+  hideHeader = false,
 }: {
   apiBase: string;
   title: string;
   description: string;
+  /** When embedded in a hub that already renders a PageHeader, hide the
+   * workspace's own header and surface the Refresh action inline instead. */
+  hideHeader?: boolean;
 }) {
   const [listing, setListing] = useState<ListingResponse>({ properties: [], runs: [], canEditThresholds: false, canApply: false });
   const [selectedRunId, setSelectedRunId] = useState("");
@@ -220,17 +224,27 @@ export function StockRunWorkspace({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={<ClipboardList />}
-        title={title}
-        description={description}
-        actions={
+      {hideHeader ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">{description}</p>
           <Button variant="outline" onClick={() => void loadListing()}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
-        }
-      />
+        </div>
+      ) : (
+        <PageHeader
+          icon={<ClipboardList />}
+          title={title}
+          description={description}
+          actions={
+            <Button variant="outline" onClick={() => void loadListing()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          }
+        />
+      )}
 
       <Card>
         <CardHeader>

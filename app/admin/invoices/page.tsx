@@ -1,8 +1,6 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { ClientInvoicesPage } from "@/components/admin/client-invoices-page";
+import { redirect } from "next/navigation";
 
-export default async function AdminInvoicesPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  return <ClientInvoicesPage />;
+// Invoices now live under the "Invoices" tab of the Finance hub.
+export default function AdminInvoicesRedirect() {
+  redirect("/admin/finance?tab=invoices");
 }

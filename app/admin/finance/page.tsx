@@ -1,232 +1,108 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import Link from "next/link";
+import { Role } from "@prisma/client";
+import { Banknote, FileWarning, TrendingUp, Wallet } from "lucide-react";
+import { requireRole } from "@/lib/auth/session";
+import { getFinanceDashboardData } from "@/lib/finance/dashboard";
+import { getFinanceHubSummary } from "@/lib/finance/hub";
+import { PageHeader } from "@/components/ui/page-header";
+import { KpiTile } from "@/components/charts";
+import { FinanceDashboardWorkspace } from "@/components/admin/finance-dashboard-workspace";
+import { ClientInvoicesPage } from "@/components/admin/client-invoices-page";
+import { PayrollRunsList } from "@/components/payroll/payroll-runs-list";
+import { FinanceTabNav, type FinanceTabKey } from "@/components/admin/finance-tab-nav";
 
-type Summary = {
-  start: string;
-  end: string;
-  totals: {
-    revenue: number;
-    cleanerCost: number;
-    laundryCost: number;
-    suppliesCost: number;
-    totalCost: number;
-    grossMargin: number;
-    marginPct: number | null;
-  };
-  byClient: Array<{
-    clientId: string;
-    clientName: string;
-    revenue: number;
-    cleanerCost: number;
-    laundryCost: number;
-    suppliesCost: number;
-    totalCost: number;
-    grossMargin: number;
-    marginPct: number | null;
-  }>;
-  counts: {
-    quotesCount: number;
-    jobsCount: number;
-    laundryJobsCount: number;
-    stockTransactionsCount: number;
-  };
-};
+const TAB_KEYS: FinanceTabKey[] = ["overview", "invoices", "payroll"];
 
-function money(value: number) {
-  return `$${value.toFixed(2)}`;
+function normalizeTab(value: string | undefined): FinanceTabKey {
+  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as FinanceTabKey) : "overview";
 }
 
-export default function FinancePage() {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const [startDate, setStartDate] = useState(
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
-  );
-  const [endDate, setEndDate] = useState(today);
-  const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState<Summary | null>(null);
+function money(value: number) {
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
 
-  async function load() {
-    setLoading(true);
-    const query = new URLSearchParams({
-      startDate,
-      endDate,
-    });
-    const res = await fetch(`/api/admin/finance/summary?${query.toString()}`);
-    const body = await res.json().catch(() => null);
-    setSummary(res.ok ? (body as Summary) : null);
-    setLoading(false);
-  }
+export default async function FinanceHubPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string };
+}) {
+  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  useEffect(() => {
-    load();
-  }, []);
+  const tab = normalizeTab(searchParams?.tab);
+
+  // KPI strip metrics — all from existing finance/payroll/invoice queries.
+  const summary = await getFinanceHubSummary();
+  // The Overview tab reuses the Sphere-UI dashboard data; fetch it only when
+  // that tab is active so Invoices/Payroll don't pay for the heavy roll-up.
+  const dashboardData = tab === "overview" ? await getFinanceDashboardData() : null;
+
+  const lastRunLabel = summary.lastRun
+    ? `${format(new Date(summary.lastRun.periodStart), "dd MMM")} – ${format(new Date(summary.lastRun.periodEnd), "dd MMM")}`
+    : "No runs yet";
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Cost and Margin Dashboard</h2>
-        <p className="text-sm text-muted-foreground">
-          Revenue, operational costs, and gross margin by client.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Banknote />}
+        title="Finance"
+        description="Revenue analytics, client invoices, and cleaner payroll — all in one place."
+      />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link href="/admin/finance/dashboard" className="block">
-          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
-            <CardContent className="p-4">
-              <p className="text-sm font-medium">Finance Analytics</p>
-              <p className="text-xs text-muted-foreground">Revenue, costs &amp; margin by client</p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/admin/payroll" className="block">
-          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
-            <CardContent className="p-4">
-              <p className="text-sm font-medium">Payroll</p>
-              <p className="text-xs text-muted-foreground">Run payroll &amp; process payouts</p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/admin/settings?tab=payment-gateways" className="block">
-          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
-            <CardContent className="p-4">
-              <p className="text-sm font-medium">Payment Gateways</p>
-              <p className="text-xs text-muted-foreground">Stripe, Square, PayPal config</p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/admin/settings?tab=xero" className="block">
-          <Card className="h-full cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all">
-            <CardContent className="p-4">
-              <p className="text-sm font-medium">Xero Integration</p>
-              <p className="text-xs text-muted-foreground">Connect &amp; push invoices to Xero</p>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+      {/* KPI summary strip — real metrics only. */}
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiTile
+          label="Revenue MTD"
+          value={money(summary.revenueMtd)}
+          icon={<TrendingUp />}
+          tone="success"
+          href="/admin/finance?tab=overview"
+        />
+        <KpiTile
+          label={`Outstanding · ${summary.outstandingCount} sent`}
+          value={money(summary.outstandingReceivables)}
+          icon={<FileWarning />}
+          tone={summary.outstandingReceivables > 0 ? "warning" : "neutral"}
+          href="/admin/finance?tab=invoices"
+        />
+        <KpiTile
+          label="Payroll due (MTD)"
+          value={money(summary.payrollDue)}
+          icon={<Wallet />}
+          tone={summary.payrollDue > 0 ? "info" : "neutral"}
+          href="/admin/finance?tab=payroll"
+        />
+        <KpiTile
+          label={`Last run · ${lastRunLabel}`}
+          value={summary.lastRun ? money(summary.lastRun.grandTotal) : "—"}
+          icon={<Banknote />}
+          tone="primary"
+          href="/admin/finance?tab=payroll"
+        />
+      </section>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div>
-            <label className="text-xs text-muted-foreground">Start date</label>
-            <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+      <FinanceTabNav active={tab} />
+
+      <div className="min-w-0">
+        {tab === "overview" && dashboardData ? (
+          <FinanceDashboardWorkspace data={dashboardData} />
+        ) : null}
+        {tab === "invoices" ? <ClientInvoicesPage /> : null}
+        {tab === "payroll" ? (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Payroll runs</h2>
+              <p className="text-sm text-muted-foreground">
+                Create a payroll run for a period, then review and process cleaner payouts.
+              </p>
+            </div>
+            <PayrollRunsList />
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground">End date</label>
-            <Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-          </div>
-          <Button onClick={load} disabled={loading}>
-            {loading ? "Loading..." : "Apply"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {!summary ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            {loading ? "Loading finance summary..." : "No data available for this period."}
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Revenue</p>
-                <p className="text-2xl font-semibold">{money(summary.totals.revenue)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Cleaner Cost</p>
-                <p className="text-2xl font-semibold">{money(summary.totals.cleanerCost)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Laundry Cost</p>
-                <p className="text-2xl font-semibold">{money(summary.totals.laundryCost)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Supplies Cost</p>
-                <p className="text-2xl font-semibold">{money(summary.totals.suppliesCost)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Gross Margin</p>
-                <p className="text-2xl font-semibold">{money(summary.totals.grossMargin)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Margin %</p>
-                <p className="text-2xl font-semibold">
-                  {summary.totals.marginPct == null ? "-" : `${summary.totals.marginPct.toFixed(1)}%`}
-                </p>
-              </CardContent>
-            </Card>
-          </section>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                By Client ({format(new Date(summary.start), "dd MMM yyyy")} to{" "}
-                {format(new Date(summary.end), "dd MMM yyyy")})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b bg-muted/30">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Client</th>
-                      <th className="px-3 py-2 text-right">Revenue</th>
-                      <th className="px-3 py-2 text-right">Cleaner</th>
-                      <th className="px-3 py-2 text-right">Laundry</th>
-                      <th className="px-3 py-2 text-right">Supplies</th>
-                      <th className="px-3 py-2 text-right">Total Cost</th>
-                      <th className="px-3 py-2 text-right">Margin</th>
-                      <th className="px-3 py-2 text-right">Margin %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.byClient.map((row) => (
-                      <tr key={row.clientId} className="border-b last:border-0">
-                        <td className="px-3 py-2">{row.clientName}</td>
-                        <td className="px-3 py-2 text-right">{money(row.revenue)}</td>
-                        <td className="px-3 py-2 text-right">{money(row.cleanerCost)}</td>
-                        <td className="px-3 py-2 text-right">{money(row.laundryCost)}</td>
-                        <td className="px-3 py-2 text-right">{money(row.suppliesCost)}</td>
-                        <td className="px-3 py-2 text-right">{money(row.totalCost)}</td>
-                        <td className="px-3 py-2 text-right">{money(row.grossMargin)}</td>
-                        <td className="px-3 py-2 text-right">
-                          {row.marginPct == null ? "-" : `${row.marginPct.toFixed(1)}%`}
-                        </td>
-                      </tr>
-                    ))}
-                    {summary.byClient.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-4 text-center text-muted-foreground" colSpan={8}>
-                          No client-level finance data in this range.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      )}
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -153,7 +153,18 @@ function positionThreshold(position: any): number {
   return 65;
 }
 
-export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) {
+export function AdminWorkforceHub({
+  appBaseUrl = "",
+  embedded = false,
+}: {
+  appBaseUrl?: string;
+  /**
+   * When rendered inside the unified Workforce hub page (which supplies its own
+   * "Workforce" PageHeader), suppress this component's PageHeader to avoid a
+   * doubled title. The Refresh action is surfaced as a compact toolbar instead.
+   */
+  embedded?: boolean;
+}) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -578,16 +589,27 @@ export function AdminWorkforceHub({ appBaseUrl = "" }: { appBaseUrl?: string }) 
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={<Users />}
-        title="Workforce Hub"
-        description="Groups, chat, updates, onboarding, staff docs, recognition, and hiring."
-        actions={
+      {embedded ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            Groups, chat, updates, onboarding, staff docs, recognition, and hiring.
+          </p>
           <Button variant="outline" onClick={() => void load({ silent: true })}>
             <RefreshCw className="mr-2 h-4 w-4" />Refresh
           </Button>
-        }
-      />
+        </div>
+      ) : (
+        <PageHeader
+          icon={<Users />}
+          title="Workforce Hub"
+          description="Groups, chat, updates, onboarding, staff docs, recognition, and hiring."
+          actions={
+            <Button variant="outline" onClick={() => void load({ silent: true })}>
+              <RefreshCw className="mr-2 h-4 w-4" />Refresh
+            </Button>
+          }
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon={Users} label="Active staff" value={String(staff.length)} />

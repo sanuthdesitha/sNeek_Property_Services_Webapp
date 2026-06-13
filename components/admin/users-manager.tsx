@@ -69,7 +69,7 @@ const MANAGED_ROLES: AccountRole[] = [
   "LAUNDRY",
 ];
 
-export function UsersManager({ canManage }: { canManage: boolean }) {
+export function UsersManager({ canManage, embedded = false }: { canManage: boolean; embedded?: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -491,21 +491,25 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={<Users />}
-        title="User Accounts"
-        description={
-          canManage
-            ? "Create, edit, disable, reset, and manage account access."
-            : "View accounts and verification state. Admin access is required for changes."
-        }
-      />
+      {embedded ? null : (
+        <>
+          <PageHeader
+            icon={<Users />}
+            title="User Accounts"
+            description={
+              canManage
+                ? "Create, edit, disable, reset, and manage account access."
+                : "View accounts and verification state. Admin access is required for changes."
+            }
+          />
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total accounts</p><p className="text-2xl font-bold">{users.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active</p><p className="text-2xl font-bold">{counts.active}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Admins</p><p className="text-2xl font-bold">{counts.admins}</p></CardContent></Card>
-      </section>
+          <section className="grid gap-4 sm:grid-cols-3">
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total accounts</p><p className="text-2xl font-bold">{users.length}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active</p><p className="text-2xl font-bold">{counts.active}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Admins</p><p className="text-2xl font-bold">{counts.admins}</p></CardContent></Card>
+          </section>
+        </>
+      )}
 
       <Tabs defaultValue="list">
         <TabsList className="flex w-full flex-wrap justify-start gap-2 overflow-x-auto">
@@ -585,6 +589,14 @@ export function UsersManager({ canManage }: { canManage: boolean }) {
                         {user.profileEditOverride ? <p className="text-xs text-primary">Custom profile permission override active</p> : null}
                       </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        {user.role !== "CLIENT" ? (
+                          <Button size="sm" variant="outline" asChild>
+                            <Link href={`/admin/accounts/users/${user.id}`}>
+                              <BarChart2 className="mr-2 h-4 w-4" />
+                              View profile
+                            </Link>
+                          </Button>
+                        ) : null}
                         {(!user.emailVerified || !user.isActive) ? (
                           <Button size="sm" variant="secondary" disabled={busyUserId === user.id} onClick={() => resendOtp(user.id)}>
                             <Mail className="mr-2 h-4 w-4" />
