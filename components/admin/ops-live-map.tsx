@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ensureGoogleMaps } from "@/lib/maps/loader";
 
 export interface PropertyMarker {
   id: string;
@@ -57,15 +58,15 @@ export function OpsLiveMap({
 
     (async () => {
       try {
-        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-        if (!apiKey) {
-          setMapError("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY missing — map is disabled.");
+        // Resolve the key at runtime via /api/public/maps-config (works in
+        // production where NEXT_PUBLIC_* build-time env vars are not inlined
+        // into client bundles). ensureGoogleMaps injects the script once.
+        await ensureGoogleMaps();
+        const google = (window as any).google;
+        if (!google?.maps?.Map) {
+          setMapError("Google Maps key not configured — set it in Settings → Integrations.");
           return;
         }
-
-        const { Loader } = await import("@googlemaps/js-api-loader");
-        const loader = new Loader({ apiKey, version: "weekly" });
-        const google = await loader.load();
         if (cancelled || !mapRef.current) return;
 
         // Default to Sydney center; refine via bounds when properties exist.

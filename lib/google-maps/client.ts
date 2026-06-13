@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader } from "@googlemaps/js-api-loader";
+import { resolveBrowserMapsKey } from "@/lib/maps/loader";
 import type { AddressResult } from "./types";
 
 // We do not depend on @types/google.maps; the SDK is loaded at runtime and
@@ -22,21 +23,23 @@ if (typeof window !== "undefined") {
 
 function getLoader(): Promise<any> {
   if (loaderPromise) return loaderPromise;
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!apiKey) {
-    return Promise.reject(
-      new Error(
-        "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set in the browser environment. " +
-          "Confirm the key is in .env and that the dev server was restarted after adding it."
-      )
-    );
-  }
-  const loader = new Loader({
-    apiKey,
-    version: "weekly",
-    libraries: ["places", "marker"],
-  });
-  loaderPromise = loader.load();
+  loaderPromise = (async () => {
+    // Build-time key first, then the runtime /api/public/maps-config fallback
+    // so address autocomplete + maps work in production builds.
+    const apiKey = await resolveBrowserMapsKey();
+    if (!apiKey) {
+      throw new Error(
+        "Google Maps key not configured. Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (or the " +
+          "server-side GOOGLE_MAPS_API_KEY used by /api/public/maps-config)."
+      );
+    }
+    const loader = new Loader({
+      apiKey,
+      version: "weekly",
+      libraries: ["places", "marker"],
+    });
+    return loader.load();
+  })();
   return loaderPromise;
 }
 

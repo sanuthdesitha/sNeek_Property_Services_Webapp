@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Loader } from "@googlemaps/js-api-loader";
+import { resolveBrowserMapsKey } from "@/lib/maps/loader";
 
 export interface PropertyMarker {
   id: string;
@@ -24,9 +25,9 @@ export function PropertiesMap({ properties }: { properties: PropertyMarker[] }) 
 
     (async () => {
       try {
-        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+        const apiKey = await resolveBrowserMapsKey();
         if (!apiKey) {
-          throw new Error("Google Maps API key not configured (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY).");
+          throw new Error("Google Maps key not configured — set it in Settings → Integrations.");
         }
         const loader = new Loader({ apiKey, version: "weekly" });
         const google = (await loader.load()) as any;

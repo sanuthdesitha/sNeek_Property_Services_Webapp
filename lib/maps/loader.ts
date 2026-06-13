@@ -30,6 +30,17 @@ async function resolveApiKey(): Promise<string> {
   return _apiKey as string;
 }
 
+/**
+ * Resolve the browser Google Maps key. Prefers the build-time
+ * NEXT_PUBLIC_GOOGLE_MAPS_API_KEY, then falls back to the runtime
+ * /api/public/maps-config endpoint (which reads the server-side key) so maps
+ * work in production where NEXT_PUBLIC_* is not inlined into client bundles.
+ * Returns "" when no key is configured.
+ */
+export async function resolveBrowserMapsKey(): Promise<string> {
+  return resolveApiKey();
+}
+
 function gw(): any {
   return typeof window !== "undefined" ? (window as any) : null;
 }
