@@ -111,7 +111,31 @@ export default function LoginPage() {
       const returnedError = returnedUrl?.searchParams.get("error");
 
       if (!res.ok || returnedError) {
-        setError("Invalid email or password.");
+        // Turn the generic failure into an actionable reason where we can — the
+        // usual culprits for staff (cleaners etc.) are an invited account that
+        // never set a password, a deactivated account, or maintenance lockout.
+        let message = "Invalid email or password.";
+        try {
+          const help = await fetch("/api/auth/login-help", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: form.email }),
+          })
+            .then((r) => r.json())
+            .catch(() => null);
+          if (help?.reason === "no-password") {
+            message =
+              "This account doesn't have a password set yet. Open the invite link we emailed you, or ask your admin to send a password reset.";
+          } else if (help?.reason === "inactive") {
+            message = "This account is inactive. Please contact your administrator.";
+          } else if (help?.reason === "maintenance") {
+            message =
+              siteStatus.message || "Sign-in is temporarily disabled while we carry out maintenance.";
+          }
+        } catch {
+          /* fall back to the generic message */
+        }
+        setError(message);
         setLoading(false);
         return;
       }

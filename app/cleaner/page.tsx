@@ -487,7 +487,6 @@ export default async function CleanerDashboard() {
             dataKey="jobs"
             height={220}
             highlightIndex={0}
-            valueFormatter={(v) => `${v}`}
           />
         </ChartCard>
       )}

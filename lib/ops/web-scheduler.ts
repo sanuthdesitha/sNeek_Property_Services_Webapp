@@ -137,7 +137,7 @@ async function isDedicatedWorkerActive(): Promise<boolean> {
     const rows = await db.$queryRawUnsafe<{ schedules: number; recent: number }[]>(
       `SELECT
          (SELECT count(*)::int FROM pgboss.schedule) AS schedules,
-         (SELECT count(*)::int FROM pgboss.job WHERE created_on > now() - interval '90 minutes') AS recent`,
+         (SELECT count(*)::int FROM pgboss.job WHERE createdon > now() - interval '90 minutes') AS recent`,
     );
     const row = rows?.[0];
     if (!row) return false;
