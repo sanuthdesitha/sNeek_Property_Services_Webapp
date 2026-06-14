@@ -302,24 +302,24 @@ export function getDefaultNotificationTemplates(): AppNotificationTemplates {
     jobAssigned: {
       webSubject: "Job assignment updated ({jobNumber})",
       webBody: "{jobNumber}: Assigned to {jobType} at {propertyName} on {when}. {timingFlags}",
-      smsBody: "{jobNumber} assigned: {jobType} at {propertyName} on {when}. {timingFlags}",
+      smsBody: "{companyName}: New job {jobNumber} — {jobType} at {propertyName}, {when}. Open the app to confirm.",
     },
     jobRemoved: {
       webSubject: "Job removed from schedule ({jobNumber})",
       webBody: "{jobNumber}: Removed from {jobType} at {propertyName} on {when}. {timingFlags}",
-      smsBody: "{jobNumber} removed: {jobType} at {propertyName} on {when}. {timingFlags}",
+      smsBody: "{companyName}: Job {jobNumber} ({jobType} at {propertyName}, {when}) has been removed from your schedule. No action needed.",
     },
     jobUpdated: {
       webSubject: "Job updated ({jobNumber}){immediateAttention}",
       webBody: "{jobNumber} updated for {propertyName}. {changeSummary}",
-      smsBody: "{jobNumber} updated for {propertyName}. {immediateAttention}{changeSummary}",
+      smsBody: "{companyName}: Job {jobNumber} at {propertyName} was updated. {changeSummary} Open the app for details.",
     },
     laundryReady: {
       webSubject: "Laundry ready - {jobNumber}",
       webBody:
         "{jobNumber} ready for pickup at {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Drop-off {scheduledDropoffDate}. Location: {bagLocation}",
       smsBody:
-        "{jobNumber}: Laundry ready for {propertyName} on {cleanDate}. Pickup {scheduledPickupDate}. Drop-off {scheduledDropoffDate}. Location: {bagLocation}.",
+        "{companyName}: Laundry ready at {propertyName} ({jobNumber}). Pickup {scheduledPickupDate}, drop-off {scheduledDropoffDate}. Bag location: {bagLocation}.",
     },
     laundrySkipRequested: {
       webSubject: "Laundry update - {jobNumber}",
@@ -333,12 +333,12 @@ export function getDefaultNotificationTemplates(): AppNotificationTemplates {
       webBody:
         "{jobNumber}: {cleanerName} requested {requestType} extra pay for {propertyName} ({requestedAmount}).",
       smsBody:
-        "{jobNumber}: {cleanerName} requested {requestType} extra pay for {propertyName} ({requestedAmount}).",
+        "{companyName}: {cleanerName} requested {requestType} extra pay of {requestedAmount} for {propertyName} ({jobNumber}). Review in the app.",
     },
     caseCreated: {
       webSubject: "Case created",
       webBody: "{caseTitle} opened for {propertyName}. Job {jobNumber}. Priority: {priority}.",
-      smsBody: "Case opened: {caseTitle} at {propertyName}. Job {jobNumber}. Priority: {priority}.",
+      smsBody: "{companyName}: Case opened — {caseTitle} at {propertyName} (job {jobNumber}, {priority} priority).",
     },
     caseUpdated: {
       webSubject: "Case updated",

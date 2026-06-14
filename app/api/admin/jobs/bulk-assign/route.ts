@@ -10,7 +10,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
-import { renderEmailTemplate } from "@/lib/email-templates";
+import { buildBulkAssignedEmail, type BulkAssignedJobLine } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
@@ -121,83 +121,101 @@ export async function POST(req: NextRequest) {
 
     const companyName = settings.companyName || "sNeek Property Services";
     const jobUrlBase = resolveAppUrl("/cleaner/jobs", req).replace(/\/cleaner\/jobs$/, "");
-    for (const job of jobs) {
+    const cleanerJobsUrl = `${jobUrlBase}/cleaner/jobs`;
+
+    // Per-job context, computed once and reused for both the in-app feed rows
+    // (which stay one-per-job, like elsewhere) and the combined digest.
+    const jobLines = jobs.map((job) => {
       const jobReference = getJobReference(job as any);
       const jobLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
-      const timingText = "Please review and confirm this job offer.";
-      const openUrl = `${jobUrlBase}/cleaner/jobs/${job.id}`;
+      const when = `${job.scheduledDate.toISOString().slice(0, 10)}${job.startTime ? ` ${job.startTime}` : ""}${job.dueTime ? ` - ${job.dueTime}` : ""}`;
+      const jobType = job.jobType.replace(/_/g, " ");
+      return { job, jobReference, jobLabel, when, jobType };
+    });
+
+    // 1) In-app feed: one PUSH notification per job (unchanged behaviour — these
+    //    are individual feed items the cleaner taps through to each job).
+    for (const line of jobLines) {
       const notificationTemplate = renderNotificationTemplate(settings, "jobAssigned", {
-        jobNumber: jobReference,
-        jobType: job.jobType.replace(/_/g, " "),
-        propertyName: jobLabel,
-        when: `${job.scheduledDate.toISOString().slice(0, 10)}${job.startTime ? ` ${job.startTime}` : ""}${job.dueTime ? ` - ${job.dueTime}` : ""}`,
+        jobNumber: line.jobReference,
+        jobType: line.jobType,
+        propertyName: line.jobLabel,
+        when: line.when,
         timingFlags: "Awaiting confirmation",
       });
       await db.notification.create({
         data: {
           userId: cleaner.id,
-          jobId: job.id,
+          jobId: line.job.id,
           channel: NotificationChannel.PUSH,
-          subject: `${companyName}: New job offer (${jobReference})`,
+          subject: `${companyName}: New job offer (${line.jobReference})`,
           body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
       });
+    }
 
-      if (cleaner.email) {
-        const emailTemplate = renderEmailTemplate(
-          {
-            companyName,
-            logoUrl: settings.logoUrl,
-            emailTemplates: settings.emailTemplates,
-          },
-          "jobAssigned",
-          {
-            userName: cleaner.name ?? cleaner.email,
-            jobType: job.jobType.replace(/_/g, " "),
-            propertyName: jobLabel,
-            jobNumber: jobReference,
-            when: "Review the offered schedule in the portal",
-            jobUrl: openUrl,
-            timingFlags: timingText,
-          }
-        );
-        const emailResult = await sendEmailDetailed({
-          to: cleaner.email,
-          subject: emailTemplate.subject,
-          html: emailTemplate.html,
-        });
+    // 2) Email + SMS: ONE combined digest per recipient for the whole bulk
+    //    action, instead of N separate messages. Every job is still listed.
+    const digestJobLines: BulkAssignedJobLine[] = jobLines.map((line) => ({
+      jobReference: line.jobReference,
+      jobType: line.jobType,
+      propertyName: line.jobLabel,
+      when: line.when,
+    }));
+    const jobCount = digestJobLines.length;
+    const jobWord = jobCount === 1 ? "job" : "jobs";
+    const digestJobId = jobCount === 1 ? jobLines[0].job.id : null;
+
+    if (cleaner.email) {
+      const digest = buildBulkAssignedEmail(
+        { companyName, logoUrl: settings.logoUrl },
+        {
+          userName: cleaner.name ?? cleaner.email,
+          jobs: digestJobLines,
+          actionUrl: jobCount === 1 ? `${jobUrlBase}/cleaner/jobs/${jobLines[0].job.id}` : cleanerJobsUrl,
+        }
+      );
+      const emailResult = await sendEmailDetailed({
+        to: cleaner.email,
+        subject: digest.subject,
+        html: digest.html,
+      });
+      await db.notification.create({
+        data: {
+          userId: cleaner.id,
+          jobId: digestJobId,
+          channel: NotificationChannel.EMAIL,
+          subject: digest.subject,
+          body: `Combined assignment email (${jobCount} ${jobWord}) sent to ${cleaner.email}`,
+          status: emailResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+          sentAt: emailResult.ok ? new Date() : undefined,
+          errorMsg: emailResult.ok ? undefined : emailResult.error,
+        },
+      });
+    }
+
+    if (cleaner.phone) {
+      const refs = digestJobLines.map((line) => line.jobReference).join(", ");
+      const smsBody =
+        jobCount === 1
+          ? `${companyName}: New job offer ${digestJobLines[0].jobReference} — ${digestJobLines[0].propertyName} on ${digestJobLines[0].when}. Open the app to confirm.`
+          : `${companyName}: ${jobCount} new jobs assigned (${refs}). Open the app to review and confirm.`;
+      const smsResult = await sendSmsDetailed(cleaner.phone, smsBody);
+      if (smsResult.status === "sent" || smsResult.status === "failed") {
         await db.notification.create({
           data: {
             userId: cleaner.id,
-            jobId: job.id,
-            channel: NotificationChannel.EMAIL,
-            subject: emailTemplate.subject,
-            body: `Assignment email sent to ${cleaner.email}`,
-            status: emailResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
-            sentAt: emailResult.ok ? new Date() : undefined,
-            errorMsg: emailResult.ok ? undefined : emailResult.error,
+            jobId: digestJobId,
+            channel: NotificationChannel.SMS,
+            subject: `${companyName}: ${jobCount} new ${jobWord} assigned`,
+            body: smsBody,
+            status: smsResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
+            sentAt: smsResult.ok ? new Date() : undefined,
+            errorMsg: smsResult.ok ? undefined : smsResult.error ?? "SMS provider failed.",
           },
         });
-      }
-
-      if (cleaner.phone) {
-        const smsResult = await sendSmsDetailed(cleaner.phone, notificationTemplate.smsBody);
-        if (smsResult.status === "sent" || smsResult.status === "failed") {
-          await db.notification.create({
-            data: {
-              userId: cleaner.id,
-              jobId: job.id,
-              channel: NotificationChannel.SMS,
-              subject: `${companyName}: New job offer (${jobReference})`,
-              body: notificationTemplate.smsBody,
-              status: smsResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
-              sentAt: smsResult.ok ? new Date() : undefined,
-              errorMsg: smsResult.ok ? undefined : smsResult.error ?? "SMS provider failed.",
-            },
-          });
-        }
       }
     }
 
