@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { AlertTriangle, Briefcase, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, UserPlus } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Briefcase, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialo
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
 import { JobRow, STATUS_COLORS, STATUS_LABELS } from "./job-row";
+import { BoardCard } from "./board-card";
 
 const TZ = "Australia/Sydney";
 
@@ -84,8 +85,22 @@ function dateFilterRange(filter: DateFilter): { dateFrom: string; dateTo: string
   return { dateFrom: "", dateTo: "" };
 }
 
+// Sort options for the jobs list/board. "soonest" (the nearest upcoming
+// scheduled date first) is the default the owner asked for.
+type JobSort = "soonest" | "latest" | "created" | "property" | "status";
+const SORT_OPTIONS: { id: JobSort; label: string }[] = [
+  { id: "soonest", label: "Soonest scheduled" },
+  { id: "latest", label: "Latest scheduled" },
+  { id: "created", label: "Recently created" },
+  { id: "property", label: "Property A–Z" },
+  { id: "status", label: "Status" },
+];
+
 const JOB_FILTER_DEFAULTS = {
-  status: "all",
+  // Default view = Active. The user can switch to any other status / All; this
+  // only seeds the initial filter state on load (nothing is persisted server-side).
+  status: "active",
+  sort: "soonest" as JobSort,
   search: "",
   cleanerName: "",
   jobType: "all",
@@ -109,8 +124,18 @@ function parseJobFilters(params: { get(name: string): string | null }): JobFilte
     rawDateFilter === "today" || rawDateFilter === "tomorrow" || rawDateFilter === "week"
       ? rawDateFilter
       : "all";
+  const rawSort = params.get("sort");
+  const sort: JobSort =
+    rawSort === "soonest" ||
+    rawSort === "latest" ||
+    rawSort === "created" ||
+    rawSort === "property" ||
+    rawSort === "status"
+      ? rawSort
+      : JOB_FILTER_DEFAULTS.sort;
   return {
     status: params.get("status") || JOB_FILTER_DEFAULTS.status,
+    sort,
     search: params.get("search") || JOB_FILTER_DEFAULTS.search,
     cleanerName: params.get("cleanerName") || JOB_FILTER_DEFAULTS.cleanerName,
     jobType: params.get("jobType") || JOB_FILTER_DEFAULTS.jobType,
@@ -182,6 +207,8 @@ export default function JobsPage() {
     if (filters.jobType !== "all") params.set("jobType", filters.jobType);
     if (filters.clientId !== "all") params.set("clientId", filters.clientId);
     if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
+    // Server-side ordering. "soonest" puts the nearest scheduled date first.
+    params.set("sort", filters.sort);
 
     // Quick date chip wins; fall back to the explicit date-range inputs.
     const quickRange = dateFilterRange(filters.dateFilter);
@@ -242,7 +269,7 @@ export default function JobsPage() {
   useEffect(() => {
     loadJobs(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.status, filters.jobType, filters.clientId, filters.propertyId, filters.dateFilter, filters.dateFrom, filters.dateTo]);
+  }, [filters.status, filters.sort, filters.jobType, filters.clientId, filters.propertyId, filters.dateFilter, filters.dateFrom, filters.dateTo]);
 
   useEffect(() => {
     setKanbanVisibleCounts({});
@@ -692,6 +719,17 @@ export default function JobsPage() {
     acc[status] = filteredJobs.filter((job) => job.status === status);
     return acc;
   }, {} as Record<string, any[]>);
+  // Board columns derive from the SAME active status filter as the list, so the
+  // board only ever shows statuses the filter allows. The cards inside each
+  // column come straight from filteredJobs (search/cleaner/invoiced + the
+  // server-side date/property/client filters already applied), in the server's
+  // sort order — so the board respects every active filter and the sort.
+  const boardColumns = useMemo(() => {
+    if (filters.status === "all") return JOB_STATUSES;
+    if (filters.status === "active") return JOB_STATUSES.filter((status) => !COMPLETED_STATUSES.includes(status));
+    if (filters.status === "completed") return JOB_STATUSES.filter((status) => COMPLETED_STATUSES.includes(status));
+    return JOB_STATUSES.filter((status) => status === filters.status);
+  }, [filters.status]);
   const statusCounts = useMemo(
     () =>
       JOB_STATUSES.reduce<Record<string, number>>((acc, status) => {
@@ -708,10 +746,6 @@ export default function JobsPage() {
           .filter(Boolean)
       : [];
     return Array.from(new Set(names));
-  }
-
-  function hasActiveDamageCase(job: any) {
-    return Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   }
 
   const allFilteredSelected =
@@ -882,26 +916,47 @@ export default function JobsPage() {
           })}
         </div>
 
-        {/* Status filter chips replace the old Active/Completed tabs. */}
-        <div className="-mx-1 flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1">
-          {STATUS_CHIPS.map((chip) => {
-            const isActive = filters.status === chip.id;
-            return (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => applyStatusChip(chip.id)}
-                className={
-                  "inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
-                  (isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
-                }
-              >
-                {chip.label}
-              </button>
-            );
-          })}
+        {/* Status filter chips replace the old Active/Completed tabs. Defaults to
+            Active; the Sort control sits alongside them and applies to both views. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="-mx-1 flex flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1">
+            {STATUS_CHIPS.map((chip) => {
+              const isActive = filters.status === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => applyStatusChip(chip.id)}
+                  className={
+                    "inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+                    (isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                  }
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <ArrowUpDown className="hidden h-4 w-4 text-muted-foreground sm:block" />
+            <Select
+              value={filters.sort}
+              onValueChange={(value: JobSort) => setFilters((current) => ({ ...current, sort: value }))}
+            >
+              <SelectTrigger className="h-10 w-full sm:w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -1325,119 +1380,39 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {["UNASSIGNED", "OFFERED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED"].map((status) => (
-            <div key={status} className="min-w-[260px] flex-shrink-0">
-              <div className="mb-3 flex items-center gap-2">
-                <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>
-                <span className="text-xs text-muted-foreground">{groupedByStatus[status]?.length}</span>
-              </div>
-              <div className="space-y-2">
-                  {(groupedByStatus[status] ?? [])
-                    .slice(0, kanbanVisibleCounts[status] ?? (status === "UNASSIGNED" ? KANBAN_COLUMN_PREVIEW : groupedByStatus[status]?.length ?? 0))
-                    .map((job) => (
-                    (() => {
-                    const assignmentNames = getAssignmentNames(job);
-                    const slaStatus = getSlaStatus(job);
-                    return (
-                  <Card
-                    key={job.id}
-                    className={`transition-colors hover:border-primary/50 ${
-                      pendingContinuationJobIds.has(job.id) ? "border-warning/40 bg-warning/10" : ""
-                    }`}
-                  >
-                    <CardContent className="p-3">
-                      <div className="mb-2 flex items-center gap-2">
-                        <Checkbox
-                          checked={selectedIds.includes(job.id)}
-                          onCheckedChange={() => toggleSelectedJob(job.id)}
-                        />
-                        <span className="text-xs text-muted-foreground">Select</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
-                          {job.property?.name ?? "Unknown property"}
-                        </Link>
-                        {job.jobNumber ? (
-                          <Badge
-                            variant="warning"
-                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950 tabular-nums"
-                          >
-                            {job.jobNumber}
-                          </Badge>
-                        ) : null}
-                        {hasActiveDamageCase(job) ? (
-                          <Button size="sm" variant="outline" asChild className="h-6 border-red-300 px-2 text-red-700 hover:bg-red-50 hover:text-red-800">
-                            <Link href={`/admin/cases?jobId=${job.id}`}>
-                              <AlertTriangle className="mr-1 h-3 w-3" />
-                              Damage
-                            </Link>
-                          </Button>
-                        ) : null}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{job.property?.suburb ?? ""}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {job.jobType ? String(job.jobType).replace(/_/g, " ") : "Job"}
-                      </p>
-                      <p className="mt-1 text-xs font-medium tabular-nums">
-                        {job.scheduledDate && !Number.isNaN(new Date(job.scheduledDate).getTime())
-                          ? format(toZonedTime(new Date(job.scheduledDate), TZ), "dd MMM")
-                          : "No date"}
-                      </p>
-                      {pendingContinuationJobIds.has(job.id) ? (
-                        <Badge variant="destructive" className="mt-2">
-                          Continuation pending
-                        </Badge>
-                      ) : null}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {job.gpsDistanceMeters != null ? (
-                          <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
-                            {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
-                          </Badge>
-                        ) : null}
-                        {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
-                        {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
-                      </div>
-                      {assignmentNames.length > 0 ? (
-                        <p className="mt-1 text-xs text-muted-foreground">- {assignmentNames.join(", ")}</p>
-                      ) : null}
-                      <div className="mt-3 flex gap-2">
-                        {status === "UNASSIGNED" ? (
-                          <Button
-                            size="sm"
-                            onClick={() => openQuickAssign(job)}
-                            className="flex-1"
-                            disabled={Boolean(quickAssigningByJob[job.id])}
-                          >
-                            <UserPlus className="mr-1 h-4 w-4" />
-                            {quickAssigningByJob[job.id] ? "Assigning..." : "Quick Assign"}
-                          </Button>
-                        ) : null}
-                        <Button size="sm" variant="outline" asChild className="flex-1">
-                          <Link href={`/admin/jobs/${job.id}`}>View</Link>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="flex-1"
-                          onClick={() => {
-                            setJobToDelete(job);
-                            setDeleteOpen(true);
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                    );
-                  })()
-                ))}
-                  {groupedByStatus[status]?.length === 0 ? (
+          {boardColumns.map((status) => {
+            const columnJobs = groupedByStatus[status] ?? [];
+            const visibleCount = kanbanVisibleCounts[status] ?? KANBAN_COLUMN_PREVIEW;
+            const visibleJobs = columnJobs.slice(0, visibleCount);
+            return (
+              <div key={status} className="min-w-[260px] flex-shrink-0">
+                <div className="mb-3 flex items-center gap-2">
+                  <Badge variant={STATUS_COLORS[status] as any}>{STATUS_LABELS[status]}</Badge>
+                  <span className="text-xs text-muted-foreground tabular-nums">{columnJobs.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {visibleJobs.map((job) => (
+                    <BoardCard
+                      key={job.id}
+                      job={job}
+                      selected={selectedIds.includes(job.id)}
+                      onToggleSelect={toggleSelectedJob}
+                      onQuickAssign={openQuickAssign}
+                      onDelete={(j) => {
+                        setJobToDelete(j);
+                        setDeleteOpen(true);
+                      }}
+                      quickAssigning={Boolean(quickAssigningByJob[job.id])}
+                      pendingContinuation={pendingContinuationJobIds.has(job.id)}
+                      slaStatus={getSlaStatus(job)}
+                    />
+                  ))}
+                  {columnJobs.length === 0 ? (
                     <div className="rounded-lg border-2 border-dashed p-4 text-center text-xs text-muted-foreground">
                       Empty
                     </div>
                   ) : null}
-                  {status === "UNASSIGNED" && (groupedByStatus[status]?.length ?? 0) > (kanbanVisibleCounts[status] ?? KANBAN_COLUMN_PREVIEW) ? (
+                  {columnJobs.length > visibleCount ? (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1449,12 +1424,16 @@ export default function JobsPage() {
                         }))
                       }
                     >
-                      Load more unassigned
+                      Load more ({columnJobs.length - visibleCount})
                     </Button>
                   ) : null}
                 </div>
               </div>
-            ))}
+            );
+          })}
+          {boardColumns.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-muted-foreground">No jobs match filters.</p>
+          ) : null}
         </div>
       )}
       </div>

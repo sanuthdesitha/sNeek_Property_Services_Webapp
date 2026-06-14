@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { AlertTriangle, CalendarClock, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, CalendarClock, Trash2, User, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -153,6 +153,16 @@ export function JobRow({
             {jobType} - <span className="tabular-nums">{formatScheduled(job?.scheduledDate)}</span>
             {job?.startTime ? <span className="tabular-nums"> - {job.startTime}</span> : ""}
           </p>
+          {/* Assigned cleaner — visible at ALL breakpoints (the right-hand copy
+              below is hidden on mobile, so this is the mobile source of truth). */}
+          <p className="mt-1 flex items-center gap-1.5 text-xs sm:hidden">
+            <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+            {assignmentNames.length > 0 ? (
+              <span className="font-medium text-foreground">{assignmentNames.join(", ")}</span>
+            ) : (
+              <span className="text-muted-foreground/70">Unassigned</span>
+            )}
+          </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {job?.gpsDistanceMeters != null ? (
               <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
@@ -171,9 +181,15 @@ export function JobRow({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {assignmentNames.length > 0 ? (
-          <span className="hidden text-xs text-muted-foreground sm:block">{assignmentNames.join(", ")}</span>
+          <span className="hidden items-center gap-1.5 text-xs font-medium text-foreground sm:inline-flex">
+            <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+            {assignmentNames.join(", ")}
+          </span>
         ) : (
-          <span className="hidden text-xs text-muted-foreground/70 sm:block">Unassigned</span>
+          <span className="hidden items-center gap-1.5 text-xs text-muted-foreground/70 sm:inline-flex">
+            <User className="h-3 w-3 shrink-0" />
+            Unassigned
+          </span>
         )}
         {pendingContinuation ? (
           <Badge variant="destructive">

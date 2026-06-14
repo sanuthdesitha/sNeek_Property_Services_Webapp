@@ -85,7 +85,44 @@ const JOB_INCLUDE = {
   _count: { select: { formSubmissions: true } },
 };
 
-function buildOrderBy(statusGroup: string | null) {
+// Supported sort modes for the jobs list/board. "soonest" (default) puts the
+// nearest scheduled date first; the rest map to explicit Prisma orderBy lists.
+type JobSort = "soonest" | "latest" | "created" | "property" | "status";
+
+function buildOrderBy(statusGroup: string | null, sort: JobSort | null) {
+  if (sort === "latest") {
+    return [
+      { scheduledDate: "desc" as const },
+      { priorityBucket: "asc" as const },
+      { dueTime: "desc" as const },
+      { startTime: "desc" as const },
+    ];
+  }
+  if (sort === "created") {
+    return [{ createdAt: "desc" as const }];
+  }
+  if (sort === "property") {
+    return [
+      { property: { name: "asc" as const } },
+      { scheduledDate: "asc" as const },
+    ];
+  }
+  if (sort === "status") {
+    return [
+      { status: "asc" as const },
+      { scheduledDate: "asc" as const },
+    ];
+  }
+  if (sort === "soonest") {
+    return [
+      { scheduledDate: "asc" as const },
+      { priorityBucket: "asc" as const },
+      { dueTime: "asc" as const },
+      { startTime: "asc" as const },
+    ];
+  }
+  // No explicit sort: fall back to the legacy statusGroup-aware default so older
+  // callers keep their previous ordering.
   if (statusGroup === "completed") {
     return [
       { scheduledDate: "desc" as const },
@@ -115,6 +152,15 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date");
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
+    const rawSort = searchParams.get("sort");
+    const sort: JobSort | null =
+      rawSort === "soonest" ||
+      rawSort === "latest" ||
+      rawSort === "created" ||
+      rawSort === "property" ||
+      rawSort === "status"
+        ? rawSort
+        : null;
 
     const page = Math.max(1, Math.floor(Number(searchParams.get("page") ?? "1")));
     const limit = Math.min(5000, Math.max(10, Math.floor(Number(searchParams.get("limit") ?? "50"))));
@@ -139,7 +185,7 @@ export async function GET(req: NextRequest) {
       userId: session.user.id,
     });
 
-    const orderBy = buildOrderBy(statusGroup);
+    const orderBy = buildOrderBy(statusGroup, sort);
 
     if (wantsPaginatedPayload) {
       const [totalCount, jobs] = await Promise.all([
