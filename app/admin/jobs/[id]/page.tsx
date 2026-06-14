@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2, Upload, MapPin, Shirt } from "lucide-react";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
@@ -1069,6 +1069,20 @@ export default function JobDetailPage() {
       })()
     : "Date not set";
 
+  const laundryTask = job.laundryTask ?? null;
+  const propertyName = job.property?.name ?? "";
+  // Deep-link to the laundry planner. View/Edit open the planner (edit is an
+  // inline dialog there, no per-task route); "live" pre-selects the planner's
+  // Live tab via its persisted tab key, using existing routes only.
+  function openLaundryLive() {
+    try {
+      window.localStorage.setItem("sneek_admin_laundry_tab_v1", "live");
+    } catch {
+      /* storage may be blocked — planner still opens */
+    }
+    router.push("/admin/laundry");
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -1087,891 +1101,96 @@ export default function JobDetailPage() {
         </div>
         {jobMeta.isDraft ? <Badge variant="outline">Draft</Badge> : null}
         <Badge variant={STATUS_COLORS[job.status]}>{job.status.replace(/_/g, " ")}</Badge>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={openAssignDialog}>
-          <UserPlus className="mr-2 h-4 w-4" /> Assign Cleaners
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-            onClick={() => {
-              setEarlyCheckoutForm({
-                requestType: "EARLY_CHECKIN",
-                requestedTime: editForm.dueTime || job.dueTime || "",
-                note: "",
-              });
-              setEarlyCheckoutDialogOpen(true);
-            }}
-          >
-            Request Timing Update
-          </Button>
-        {(job.status === "SUBMITTED" ||
-          job.status === "QA_REVIEW" ||
-          job.status === "COMPLETED") && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              const latest = job.qaReviews[0];
-              if (latest) {
-                setQaScore(String(Math.round(latest.score)));
-                setQaNotes(latest.notes ?? "");
-              }
-              setQaOpen(true);
-            }}
-          >
-            <Star className="mr-2 h-4 w-4" />{" "}
-            {job.qaReviews.length > 0 ? "Re-review QA" : "QA Review"}
-          </Button>
-        )}
-        {(job.status === "SUBMITTED" || job.status === "QA_REVIEW" || job.status === "COMPLETED") && (
-          <Button size="sm" variant="outline" onClick={inviteClientToReview}>
-            <Send className="mr-2 h-4 w-4" /> Invite Client to Review
-          </Button>
-        )}
-        <Button size="sm" variant="outline" onClick={downloadReport}>
-          <FileText className="mr-2 h-4 w-4" /> Download Report
-        </Button>
-          <Button size="sm" variant="outline" onClick={toggleClientReportVisibility} disabled={!job.report || updatingReportVisibility}>
-            {updatingReportVisibility
-              ? "Updating..."
-              : job.report?.clientVisible !== false
-                ? "Hide From Client"
-                : "Show To Client"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={shareReport} disabled={sharing}>
-            <Send className="mr-2 h-4 w-4" /> {sharing ? "Sharing..." : "Share To Client"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
-            Reset Job
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setRescheduleForm({
-                date: job.scheduledDate ? toLocalDateInput(job.scheduledDate) : "",
-                startTime: job.startTime ?? "",
-                dueTime: job.dueTime ?? "",
-                reason: "",
-              });
-              setRescheduleOpen(true);
-            }}
-          >
-            <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
-            Reschedule
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setDeleteOpen(true)}>
-            Delete Job
-          </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
 
-      {/* Skip / don't clean control */}
-      {(() => {
-        const skipStatus = String(job.cleanSkipStatus ?? "NONE");
-        const skipBadge =
-          skipStatus === "SKIPPED"
-            ? { variant: "destructive" as const, label: "Skipped — no clean" }
-            : skipStatus === "REQUESTED"
-              ? { variant: "warning" as const, label: "Skip requested" }
-              : skipStatus === "DECLINED"
-                ? { variant: "secondary" as const, label: "Skip declined" }
-                : null;
-        return (
-          <Card
-            className={
-              skipStatus === "SKIPPED"
-                ? "border-destructive/40 bg-destructive/5"
-                : skipStatus === "REQUESTED"
-                  ? "border-warning/40 bg-warning/10"
-                  : undefined
-            }
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-                Skip / don&apos;t clean
-                {skipBadge ? <Badge variant={skipBadge.variant}>{skipBadge.label}</Badge> : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {skipStatus === "REQUESTED" ? (
-                <p className="text-sm text-muted-foreground">
-                  A skip was requested{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} Approve to
-                  stop this clean (won&apos;t be dispatched, billed, or paid), or decline to keep it.
-                </p>
-              ) : skipStatus === "SKIPPED" ? (
-                <p className="text-sm text-muted-foreground">
-                  This clean is skipped{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} It is excluded
-                  from dispatch, billing, and payroll. Un-skip to restore it.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Mark this turnover so it is not cleaned. Skipped jobs are excluded from dispatch,
-                  billing, and payroll.
-                </p>
-              )}
-              <div className="space-y-1">
-                <Label className="text-xs">Reason (optional)</Label>
-                <Input
-                  value={skipReason}
-                  onChange={(e) => setSkipReason(e.target.value)}
-                  placeholder="Reason for skipping / decision note"
-                  maxLength={500}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {skipStatus === "REQUESTED" ? (
-                  <>
-                    <Button size="sm" disabled={skipBusy} onClick={() => runSkipAction("approve")}>
-                      <Check className="mr-1.5 h-4 w-4" /> Approve skip
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("decline")}>
-                      <X className="mr-1.5 h-4 w-4" /> Decline
-                    </Button>
-                  </>
-                ) : skipStatus === "SKIPPED" ? (
-                  <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
-                    <RefreshCw className="mr-1.5 h-4 w-4" /> Un-skip (restore clean)
-                  </Button>
-                ) : (
-                  <>
-                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("set")}>
-                      Skip this clean
-                    </Button>
-                    {skipStatus === "DECLINED" ? (
-                      <Button size="sm" variant="ghost" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
-                        Clear declined state
-                      </Button>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
-
-      {/* Manually rescheduled notice */}
-      {job.manuallyRescheduledAt && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-warning">
-            <CalendarClock className="h-4 w-4 shrink-0" />
-            <span>
-              Manually rescheduled on{" "}
-              {format(new Date(job.manuallyRescheduledAt), "dd MMM yyyy")} — iCal sync will not overwrite this date.
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-warning/40 text-warning hover:bg-warning/20"
-            disabled={clearingReschedule}
-            onClick={async () => {
-              setClearingReschedule(true);
-              const res = await fetch(`/api/admin/jobs/${job.id}/manual-reschedule`, { method: "DELETE" });
-              setClearingReschedule(false);
-              if (res.ok) {
-                toast({ title: "Reset — iCal sync will update this job's dates again." });
-                load();
-              } else {
-                const b = await res.json().catch(() => ({}));
-                toast({ title: "Failed", description: b.error ?? "Could not reset.", variant: "destructive" });
-              }
-            }}
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            {clearingReschedule ? "Resetting…" : "Reset to iCal"}
-          </Button>
-        </div>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Early Checkout Requests</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {earlyCheckoutLoading ? (
-            <p className="text-sm text-muted-foreground">Loading requests...</p>
-            ) : earlyCheckoutRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No timing updates sent for this job.</p>
-            ) : (
-              <div className="space-y-2">
-                {earlyCheckoutRows.map((row) => (
-                <div key={row.id} className="rounded-md border p-3 text-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium">
-                          {row.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"} request{" "}
-                          {row.requestedTime ? `for ${row.requestedTime}` : ""} on{" "}
-                          {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
-                        </p>
-                        {row.note ? <p className="mt-1 text-xs text-muted-foreground">{row.note}</p> : null}
-                        {row.decidedAt ? (
-                          <p className="mt-1 text-xs text-emerald-700">
-                            {row.status === "APPROVED" ? "Approved" : row.status === "DECLINED" ? "Declined" : "Updated"}{" "}
-                            {format(new Date(row.decidedAt), "dd MMM yyyy HH:mm")}
-                          </p>
-                        ) : null}
-                        {row.cancelledAt ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Cancelled {format(new Date(row.cancelledAt), "dd MMM yyyy HH:mm")}
-                        </p>
-                      ) : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant={
-                            row.status === "PENDING"
-                              ? ("warning" as any)
-                              : row.status === "APPROVED"
-                                ? "success"
-                                : "secondary"
-                          }
-                        >
-                          {row.status}
-                        </Badge>
-                        {row.status === "PENDING" ? (
-                        <Button size="sm" variant="ghost" onClick={() => cancelEarlyCheckoutRequest(row.id)}>
-                          Cancel
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {hasServiceContext ? (
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Operational Context</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            {serviceContext.scopeOfWork ? <div><p className="text-xs text-muted-foreground">Scope of work</p><p className="text-sm">{serviceContext.scopeOfWork}</p></div> : null}
-            {serviceContext.accessInstructions ? <div><p className="text-xs text-muted-foreground">Access instructions</p><p className="text-sm">{serviceContext.accessInstructions}</p></div> : null}
-            {serviceContext.parkingInstructions ? <div><p className="text-xs text-muted-foreground">Parking / arrival</p><p className="text-sm">{serviceContext.parkingInstructions}</p></div> : null}
-            {serviceContext.hazardNotes ? <div><p className="text-xs text-muted-foreground">Hazards / safety</p><p className="text-sm">{serviceContext.hazardNotes}</p></div> : null}
-            {serviceContext.equipmentNotes ? <div><p className="text-xs text-muted-foreground">Equipment / utilities</p><p className="text-sm">{serviceContext.equipmentNotes}</p></div> : null}
-            {serviceContext.siteContactName || serviceContext.siteContactPhone ? (
-              <div>
-                <p className="text-xs text-muted-foreground">On-site contact</p>
-                <p className="text-sm">{[serviceContext.siteContactName, serviceContext.siteContactPhone].filter(Boolean).join(" · ")}</p>
-              </div>
-            ) : null}
-            {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p className="text-sm">{serviceContext.serviceAreaSqm} sqm</p></div> : null}
-            {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p className="text-sm">{serviceContext.floorCount}</p></div> : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {hasReservationContext ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">
-              {preparationSource === "PROPERTY_MAX" ? "Preparation Details" : "Incoming Booking Details"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            {reservationContext.guestName ? <div><p className="text-xs text-muted-foreground">Guest name</p><p className="text-sm">{reservationContext.guestName}</p></div> : null}
-            {reservationContext.reservationCode ? <div><p className="text-xs text-muted-foreground">Reservation code</p><p className="text-sm">{reservationContext.reservationCode}</p></div> : null}
-            {preparationGuestCount > 0 ? (
-              <div>
-                <p className="text-xs text-muted-foreground">Preparation guest count</p>
-                <p className="text-sm">
-                  {preparationGuestCount} guest{preparationGuestCount === 1 ? "" : "s"}
-                  {preparationSource === "PROPERTY_MAX" ? " · property max fallback" : ""}
-                  {preparationSource !== "PROPERTY_MAX" && reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
-                  {preparationSource !== "PROPERTY_MAX" && reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
-                  {preparationSource !== "PROPERTY_MAX" && reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
-                </p>
-              </div>
-            ) : null}
-            {preparationSource === "PROPERTY_MAX" ? (
-              <div>
-                <p className="text-xs text-muted-foreground">Booking status</p>
-                <p className="text-sm">No same-day incoming booking linked. Prepare for maximum occupancy.</p>
-              </div>
-            ) : null}
-            {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p className="text-sm">{reservationContext.guestPhone}</p></div> : null}
-            {reservationContext.guestEmail ? <div><p className="text-xs text-muted-foreground">Guest email</p><p className="text-sm">{reservationContext.guestEmail}</p></div> : null}
-            {reservationContext.checkinAtLocal ? <div><p className="text-xs text-muted-foreground">Check-in</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkinAtLocal)}</p></div> : null}
-            {reservationContext.checkoutAtLocal ? <div><p className="text-xs text-muted-foreground">Checkout</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkoutAtLocal)}</p></div> : null}
-            {reservationContext.locationText ? <div><p className="text-xs text-muted-foreground">Location / booking details</p><p className="text-sm">{reservationContext.locationText}</p></div> : null}
-            {reservationContext.guestProfileUrl ? (
-              <div>
-                <p className="text-xs text-muted-foreground">Guest profile</p>
-                <a className="text-sm text-primary underline underline-offset-4" href={reservationContext.guestProfileUrl} target="_blank" rel="noreferrer">
-                  Open profile
-                </a>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Edit Job</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Status</Label>
-              <select
-                className="h-10 w-full rounded-xl border border-input/80 bg-surface/80 px-3 text-sm"
-                value={editForm.status}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
-              >
-                {Object.keys(STATUS_COLORS).map((status) => (
-                  <option key={status} value={status}>
-                    {status.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Scheduled date</Label>
-              <Input
-                type="date"
-                value={editForm.scheduledDate}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, scheduledDate: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Completion date</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="date"
-                  value={editForm.completedAt}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, completedAt: e.target.value }))}
-                />
-                {editForm.scheduledDate ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() =>
-                      setEditForm((prev) => {
-                        const base = prev.completedAt || prev.scheduledDate;
-                        const next = new Date(`${base}T00:00:00`);
-                        next.setDate(next.getDate() + 1);
-                        return { ...prev, completedAt: toLocalDateInput(next) };
-                      })
-                    }
-                  >
-                    +1 day
-                  </Button>
-                ) : null}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Defaults to when QA passes. Set a next-day/custom date to count this job in that pay &amp; invoice period.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label>Fixed / allocated pay hours</Label>
-              <Input
-                type="number"
-                step="0.25"
-                min="0"
-                value={editForm.estimatedHours}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, estimatedHours: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Leave empty to pay from cleaner clocked timer.
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Start time</Label>
-              <Input
-                type="time"
-                value={editForm.startTime}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, startTime: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Due time</Label>
-              <Input
-                type="time"
-                value={editForm.dueTime}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, dueTime: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>End time</Label>
-              <Input
-                type="time"
-                value={editForm.endTime}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, endTime: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <Label>Tags</Label>
-            <Input
-              value={editForm.tagsText}
-              onChange={(e) => setEditForm((prev) => ({ ...prev, tagsText: e.target.value }))}
-              placeholder="priority, VIP guest"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={editForm.isDraft}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, isDraft: e.target.checked }))}
-              />
-              Draft
-            </Label>
-          </div>
-          <div className="space-y-1">
-            <Label>Job notes</Label>
-            <Textarea value={editForm.notes} onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <Label>Internal notes</Label>
-            <Textarea
-              value={editForm.internalNotes}
-              onChange={(e) => setEditForm((prev) => ({ ...prev, internalNotes: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-sm">Admin requested tasks</Label>
-                <p className="text-xs text-muted-foreground">
-                  These appear only on this job as required high-priority cleaner tasks.
-                </p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setEditForm((prev) => ({
-                    ...prev,
-                    specialRequestTasks: [...prev.specialRequestTasks, createSpecialRequestTask()],
-                  }))
-                }
-              >
-                Add task
-              </Button>
-            </div>
-            {editForm.specialRequestTasks.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No job-specific special request tasks added.</p>
-            ) : (
-              <div className="space-y-3">
-                {editForm.specialRequestTasks.map((task, index) => (
-                  <div key={task.id} className="space-y-3 rounded-md border bg-background p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">Task {index + 1}</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            specialRequestTasks: prev.specialRequestTasks.filter((row) => row.id !== task.id),
-                          }))
-                        }
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Task title</Label>
-                      <Input
-                        value={task.title}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            specialRequestTasks: prev.specialRequestTasks.map((row) =>
-                              row.id === task.id ? { ...row, title: e.target.value } : row
-                            ),
-                          }))
-                        }
-                        placeholder="Example: Photograph inside oven after deep clean"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Instructions</Label>
-                      <Textarea
-                        value={task.description ?? ""}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            specialRequestTasks: prev.specialRequestTasks.map((row) =>
-                              row.id === task.id ? { ...row, description: e.target.value } : row
-                            ),
-                          }))
-                        }
-                        placeholder="Explain exactly what must be checked or completed"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-4">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={task.requiresPhoto}
-                          onChange={(e) =>
-                            setEditForm((prev) => ({
-                              ...prev,
-                              specialRequestTasks: prev.specialRequestTasks.map((row) =>
-                                row.id === task.id ? { ...row, requiresPhoto: e.target.checked } : row
-                              ),
-                            }))
-                          }
-                        />
-                        Require image proof
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={task.requiresNote}
-                          onChange={(e) =>
-                            setEditForm((prev) => ({
-                              ...prev,
-                              specialRequestTasks: prev.specialRequestTasks.map((row) =>
-                                row.id === task.id ? { ...row, requiresNote: e.target.checked } : row
-                              ),
-                            }))
-                          }
-                        />
-                        Require cleaner note
-                      </label>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm">Transport allowance (optional)</Label>
-              <p className="text-xs text-muted-foreground">Shown only when amount is set</p>
-            </div>
-            {transportAllowanceCleanerIds.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Assign cleaners first to set allowance per cleaner.</p>
-            ) : (
-              <div className="space-y-2">
-                {transportAllowanceCleanerIds.map((cleanerId) => (
-                  <div key={cleanerId} className="grid grid-cols-[1fr_140px_auto] items-center gap-2">
-                    <p className="truncate text-sm">{cleanerLookup.get(cleanerId) ?? cleanerId}</p>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={editForm.transportAllowances[cleanerId] ?? ""}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          transportAllowances: {
-                            ...prev.transportAllowances,
-                            [cleanerId]: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="0.00"
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        setEditForm((prev) => {
-                          const next = { ...prev.transportAllowances };
-                          delete next[cleanerId];
-                          return { ...prev, transportAllowances: next };
-                        })
-                      }
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3 rounded-md border p-3">
-            <Label className="text-sm font-semibold">Client billing</Label>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-sm">Fixed price (optional)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editForm.fixedPrice}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, fixedPrice: e.target.value }))}
-                  placeholder="Use property rate"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Agreed price for this job. Overrides the property rate on the client invoice (and lets it be invoiced without a set rate).
-                </p>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-sm">Invoice note (optional)</Label>
-                <Textarea
-                  rows={2}
-                  value={editForm.invoiceNote}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, invoiceNote: e.target.value }))}
-                  placeholder="Prints on the client invoice line"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm">Custom cleaner payout (optional)</Label>
-              <p className="text-xs text-muted-foreground">Replaces hours &times; rate for that cleaner</p>
-            </div>
-            {cleanerPayoutCleanerIds.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Assign cleaners first to set a custom payout per cleaner.</p>
-            ) : (
-              <div className="space-y-2">
-                {cleanerPayoutCleanerIds.map((cleanerId) => (
-                  <div key={cleanerId} className="grid grid-cols-[1fr_140px_auto] items-center gap-2">
-                    <p className="truncate text-sm">{cleanerLookup.get(cleanerId) ?? cleanerId}</p>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={editForm.cleanerPayouts[cleanerId] ?? ""}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          cleanerPayouts: {
-                            ...prev.cleanerPayouts,
-                            [cleanerId]: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="Auto"
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        setEditForm((prev) => {
-                          const next = { ...prev.cleanerPayouts };
-                          delete next[cleanerId];
-                          return { ...prev, cleanerPayouts: next };
-                        })
-                      }
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                ))}
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to pay normally. Enter 0 to pay nothing. Transport allowance and approved adjustments still add on top.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {isAirbnbTurnover ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Early check-in</Label>
-              <Select
-                value={editForm.earlyCheckin.preset}
-                onValueChange={(value) =>
-                  setEditForm((prev) => {
-                    const next = {
-                      ...prev,
-                      earlyCheckin: {
-                        enabled: value !== "none",
-                        preset: value as JobTimingPreset,
-                        time: value === "custom" ? prev.earlyCheckin.time : value !== "none" ? value : "",
-                      },
-                    };
-                    const nextDue = value === "custom" ? prev.earlyCheckin.time : value !== "none" ? value : "";
-                    if (nextDue) {
-                      next.dueTime = nextDue;
-                    }
-                    if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
-                      next.dueTime = next.startTime;
-                    }
-                    return next;
-                  })
-                }
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="11:00">Before 11:00 AM</SelectItem>
-                  <SelectItem value="12:30">Before 12:30 PM</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-              {editForm.earlyCheckin.preset === "custom" ? (
-                <Input
-                  type="time"
-                  value={editForm.earlyCheckin.time}
-                  onChange={(e) =>
-                    setEditForm((prev) => {
-                      const next = {
-                        ...prev,
-                        earlyCheckin: { ...prev.earlyCheckin, enabled: true, time: e.target.value },
-                      };
-                      if (e.target.value) {
-                        next.dueTime = e.target.value;
-                      }
-                      if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
-                        next.dueTime = next.startTime;
-                      }
-                      return next;
-                    })
-                  }
-                />
-              ) : null}
-            </div>
-            <div className="space-y-1">
-              <Label>Late checkout</Label>
-              <Select
-                value={editForm.lateCheckout.preset}
-                onValueChange={(value) =>
-                  setEditForm((prev) => {
-                    const next = {
-                      ...prev,
-                      lateCheckout: {
-                        enabled: value !== "none",
-                        preset: value as JobTimingPreset,
-                        time: value === "custom" ? prev.lateCheckout.time : value !== "none" ? value : "",
-                      },
-                    };
-                    const nextStart = value === "custom" ? prev.lateCheckout.time : value !== "none" ? value : "";
-                    if (nextStart) {
-                      next.startTime = nextStart;
-                    }
-                    if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
-                      next.dueTime = next.startTime;
-                    }
-                    return next;
-                  })
-                }
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="12:30">Start after 12:30 PM</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-              {editForm.lateCheckout.preset === "custom" ? (
-                <Input
-                  type="time"
-                  value={editForm.lateCheckout.time}
-                  onChange={(e) =>
-                    setEditForm((prev) => {
-                      const next = {
-                        ...prev,
-                        lateCheckout: { ...prev.lateCheckout, enabled: true, time: e.target.value },
-                      };
-                      if (e.target.value) {
-                        next.startTime = e.target.value;
-                      }
-                      if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
-                        next.dueTime = next.startTime;
-                      }
-                      return next;
-                    })
-                  }
-                />
-              ) : null}
-            </div>
-          </div>
-          ) : null}
-          <JobAttachmentsInput
-            value={editForm.attachments}
-            onChange={(attachments) => setEditForm((prev) => ({ ...prev, attachments }))}
-          />
-
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={saveJobChanges} disabled={savingJob}>
-              {savingJob ? "Saving..." : "Save Changes"}
-            </Button>
-            <Input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              placeholder="Template name"
-              className="max-w-xs"
-            />
-            <Button size="sm" variant="outline" onClick={saveAsTemplate} disabled={savingTemplate}>
-              {savingTemplate ? "Saving..." : "Save as Template"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue={initialTab}>
-        <TabsList>
+      <Tabs defaultValue={initialTab} className="space-y-4">
+        <TabsList className="flex flex-wrap h-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="submission">Submission</TabsTrigger>
+          <TabsTrigger value="schedule">Schedule &amp; Assignment</TabsTrigger>
+          <TabsTrigger value="time">Cleaner &amp; Time</TabsTrigger>
+          <TabsTrigger value="qa">QA</TabsTrigger>
           <TabsTrigger value="laundry">Laundry</TabsTrigger>
-          <TabsTrigger value="timelogs">Time Logs</TabsTrigger>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="money">Money</TabsTrigger>
+          <TabsTrigger value="forms">Forms &amp; Report</TabsTrigger>
+          <TabsTrigger value="status">Status flags</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
 
+        {/* ─────────────── OVERVIEW ─────────────── */}
         <TabsContent value="overview" className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Property &amp; Client</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <p className="font-medium">{job.property.name}</p>
+                <p className="text-muted-foreground">
+                  {job.property.address}
+                  {job.property.suburb ? `, ${job.property.suburb}` : ""}
+                </p>
+                {job.property.client ? (
+                  <p className="text-muted-foreground">
+                    Client: {job.property.client.name ?? job.property.client.email ?? "-"}
+                  </p>
+                ) : null}
+                <p className="text-muted-foreground">Type: {job.jobType.replace(/_/g, " ")}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Status &amp; Schedule</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={STATUS_COLORS[job.status]}>{job.status.replace(/_/g, " ")}</Badge>
+                  {jobMeta.isDraft ? <Badge variant="outline">Draft</Badge> : null}
+                </div>
+                <p className="text-muted-foreground">{scheduledDateLabel}</p>
+                {job.startTime ? (
+                  <p className="text-muted-foreground">
+                    {job.startTime}
+                    {job.dueTime ? ` to ${job.dueTime}` : ""}
+                    {job.endTime ? ` (ended ${job.endTime})` : ""}
+                  </p>
+                ) : null}
+                {job.estimatedHours != null ? (
+                  <p className="text-muted-foreground">Allocated hours: {job.estimatedHours}</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Continuation Requests</CardTitle>
+              <CardTitle className="text-sm">Assigned Cleaners</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {continuationLoading ? (
-                <p className="text-sm text-muted-foreground">Loading requests...</p>
-              ) : continuationRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No continuation requests for this job.</p>
-              ) : (
-                continuationRows.map((row) => (
-                  <div key={row.id} className="rounded-md border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">
-                          {row.requestedBy?.name ?? row.requestedBy?.email ?? row.requestedByUserId}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Requested {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
-                        </p>
-                      </div>
-                      <Badge variant={row.status === "PENDING" ? "warning" : row.status === "APPROVED" ? "success" : "outline"}>
-                        {row.status}
+            <CardContent>
+              {job.assignments.length > 0 ? (
+                <ul className="space-y-1">
+                  {job.assignments.map((a: any) => (
+                    <li key={a.id} className="flex items-center gap-2 text-sm">
+                      {a.isPrimary && (
+                        <Badge variant="outline" className="text-xs">
+                          Primary
+                        </Badge>
+                      )}
+                      {a.user.name} - {a.user.email}
+                      <Badge variant={a.responseStatus === "PENDING" ? "warning" : "outline"}>
+                        {formatAssignmentResponseLabel(a.responseStatus)}
                       </Badge>
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{row.reason}</p>
-                    <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                      <p>Preferred date: {row.preferredDate || "-"}</p>
-                      <p>Remaining hours: {row.estimatedRemainingHours ?? "-"}</p>
-                      <p>
-                        Snapshot cleaners: {Array.isArray(row.snapshot?.loggedMinutesByCleaner) ? row.snapshot.loggedMinutesByCleaner.length : 0}
-                      </p>
-                    </div>
-                    {row.status === "APPROVED" && row.continuationJobId ? (
-                      <p className="mt-2 text-xs text-emerald-600">Continuation job: {row.continuationJobId}</p>
-                    ) : null}
-                    {row.status === "PENDING" ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => openContinuationDialog(row, "APPROVE")}>
-                          Approve & schedule continuation
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => openContinuationDialog(row, "REJECT")}>
-                          Reject
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))
+                      {Number(jobMeta.transportAllowances?.[a.userId] ?? 0) > 0 ? (
+                        <Badge variant="secondary">
+                          Transport ${Number(jobMeta.transportAllowances[a.userId]).toFixed(2)}
+                        </Badge>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No cleaners assigned yet.</p>
               )}
             </CardContent>
           </Card>
@@ -2087,61 +1306,71 @@ export default function JobDetailPage() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          {hasServiceContext ? (
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Assigned Cleaners</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {job.assignments.length > 0 ? (
-                  <ul className="space-y-1">
-                    {job.assignments.map((a: any) => (
-                      <li key={a.id} className="flex items-center gap-2 text-sm">
-                        {a.isPrimary && (
-                          <Badge variant="outline" className="text-xs">
-                            Primary
-                          </Badge>
-                        )}
-                        {a.user.name} - {a.user.email}
-                        <Badge variant={a.responseStatus === "PENDING" ? "warning" : "outline"}>
-                          {formatAssignmentResponseLabel(a.responseStatus)}
-                        </Badge>
-                        {Number(jobMeta.transportAllowances?.[a.userId] ?? 0) > 0 ? (
-                          <Badge variant="secondary">
-                            Transport ${Number(jobMeta.transportAllowances[a.userId]).toFixed(2)}
-                          </Badge>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No cleaners assigned yet.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">QA</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {job.qaReviews.length > 0 ? (
+              <CardHeader><CardTitle className="text-sm">Operational Context</CardTitle></CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {serviceContext.scopeOfWork ? <div><p className="text-xs text-muted-foreground">Scope of work</p><p className="text-sm">{serviceContext.scopeOfWork}</p></div> : null}
+                {serviceContext.accessInstructions ? <div><p className="text-xs text-muted-foreground">Access instructions</p><p className="text-sm">{serviceContext.accessInstructions}</p></div> : null}
+                {serviceContext.parkingInstructions ? <div><p className="text-xs text-muted-foreground">Parking / arrival</p><p className="text-sm">{serviceContext.parkingInstructions}</p></div> : null}
+                {serviceContext.hazardNotes ? <div><p className="text-xs text-muted-foreground">Hazards / safety</p><p className="text-sm">{serviceContext.hazardNotes}</p></div> : null}
+                {serviceContext.equipmentNotes ? <div><p className="text-xs text-muted-foreground">Equipment / utilities</p><p className="text-sm">{serviceContext.equipmentNotes}</p></div> : null}
+                {serviceContext.siteContactName || serviceContext.siteContactPhone ? (
                   <div>
-                    <p className="text-2xl font-bold">{job.qaReviews[0].score.toFixed(0)}%</p>
-                    <Badge variant={job.qaReviews[0].passed ? "success" : "destructive"}>
-                      {job.qaReviews[0].passed ? "Passed" : "Failed"}
-                    </Badge>
-                    {job.qaReviews[0].notes && <p className="mt-2 text-xs text-muted-foreground">{job.qaReviews[0].notes}</p>}
-                    <Button size="sm" variant="outline" className="mt-3 h-11 w-full" onClick={downloadQaReport}>
-                      <FileText className="mr-2 h-4 w-4" /> Download QA report
-                    </Button>
+                    <p className="text-xs text-muted-foreground">On-site contact</p>
+                    <p className="text-sm">{[serviceContext.siteContactName, serviceContext.siteContactPhone].filter(Boolean).join(" · ")}</p>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No QA review yet.</p>
-                )}
+                ) : null}
+                {serviceContext.serviceAreaSqm ? <div><p className="text-xs text-muted-foreground">Service area</p><p className="text-sm">{serviceContext.serviceAreaSqm} sqm</p></div> : null}
+                {serviceContext.floorCount ? <div><p className="text-xs text-muted-foreground">Floors / levels</p><p className="text-sm">{serviceContext.floorCount}</p></div> : null}
               </CardContent>
             </Card>
-          </div>
+          ) : null}
+
+          {hasReservationContext ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  {preparationSource === "PROPERTY_MAX" ? "Preparation Details" : "Incoming Booking Details"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {reservationContext.guestName ? <div><p className="text-xs text-muted-foreground">Guest name</p><p className="text-sm">{reservationContext.guestName}</p></div> : null}
+                {reservationContext.reservationCode ? <div><p className="text-xs text-muted-foreground">Reservation code</p><p className="text-sm">{reservationContext.reservationCode}</p></div> : null}
+                {preparationGuestCount > 0 ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Preparation guest count</p>
+                    <p className="text-sm">
+                      {preparationGuestCount} guest{preparationGuestCount === 1 ? "" : "s"}
+                      {preparationSource === "PROPERTY_MAX" ? " · property max fallback" : ""}
+                      {preparationSource !== "PROPERTY_MAX" && reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
+                      {preparationSource !== "PROPERTY_MAX" && reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
+                      {preparationSource !== "PROPERTY_MAX" && reservationContext.infants != null ? ` · ${reservationContext.infants} infants` : ""}
+                    </p>
+                  </div>
+                ) : null}
+                {preparationSource === "PROPERTY_MAX" ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Booking status</p>
+                    <p className="text-sm">No same-day incoming booking linked. Prepare for maximum occupancy.</p>
+                  </div>
+                ) : null}
+                {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p className="text-sm">{reservationContext.guestPhone}</p></div> : null}
+                {reservationContext.guestEmail ? <div><p className="text-xs text-muted-foreground">Guest email</p><p className="text-sm">{reservationContext.guestEmail}</p></div> : null}
+                {reservationContext.checkinAtLocal ? <div><p className="text-xs text-muted-foreground">Check-in</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkinAtLocal)}</p></div> : null}
+                {reservationContext.checkoutAtLocal ? <div><p className="text-xs text-muted-foreground">Checkout</p><p className="text-sm">{formatDateTimeLabel(reservationContext.checkoutAtLocal)}</p></div> : null}
+                {reservationContext.locationText ? <div><p className="text-xs text-muted-foreground">Location / booking details</p><p className="text-sm">{reservationContext.locationText}</p></div> : null}
+                {reservationContext.guestProfileUrl ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Guest profile</p>
+                    <a className="text-sm text-primary underline underline-offset-4" href={reservationContext.guestProfileUrl} target="_blank" rel="noreferrer">
+                      Open profile
+                    </a>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {job.notes && (
             <Card>
@@ -2169,7 +1398,1085 @@ export default function JobDetailPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="submission">
+        {/* ─────────────── SCHEDULE & ASSIGNMENT ─────────────── */}
+        <TabsContent value="schedule" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Assignment &amp; scheduling actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={openAssignDialog}>
+                  <UserPlus className="mr-2 h-4 w-4" /> Assign Cleaners
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEarlyCheckoutForm({
+                      requestType: "EARLY_CHECKIN",
+                      requestedTime: editForm.dueTime || job.dueTime || "",
+                      note: "",
+                    });
+                    setEarlyCheckoutDialogOpen(true);
+                  }}
+                >
+                  Request Timing Update
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setRescheduleForm({
+                      date: job.scheduledDate ? toLocalDateInput(job.scheduledDate) : "",
+                      startTime: job.startTime ?? "",
+                      dueTime: job.dueTime ?? "",
+                      reason: "",
+                    });
+                    setRescheduleOpen(true);
+                  }}
+                >
+                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                  Reschedule
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
+                  Reset Job
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setDeleteOpen(true)}>
+                  Delete Job
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Manually rescheduled notice */}
+          {job.manuallyRescheduledAt && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-warning">
+                <CalendarClock className="h-4 w-4 shrink-0" />
+                <span>
+                  Manually rescheduled on{" "}
+                  {format(new Date(job.manuallyRescheduledAt), "dd MMM yyyy")} — iCal sync will not overwrite this date.
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-warning/40 text-warning hover:bg-warning/20"
+                disabled={clearingReschedule}
+                onClick={async () => {
+                  setClearingReschedule(true);
+                  const res = await fetch(`/api/admin/jobs/${job.id}/manual-reschedule`, { method: "DELETE" });
+                  setClearingReschedule(false);
+                  if (res.ok) {
+                    toast({ title: "Reset — iCal sync will update this job's dates again." });
+                    load();
+                  } else {
+                    const b = await res.json().catch(() => ({}));
+                    toast({ title: "Failed", description: b.error ?? "Could not reset.", variant: "destructive" });
+                  }
+                }}
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                {clearingReschedule ? "Resetting…" : "Reset to iCal"}
+              </Button>
+            </div>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Early Checkout Requests</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {earlyCheckoutLoading ? (
+                <p className="text-sm text-muted-foreground">Loading requests...</p>
+                ) : earlyCheckoutRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No timing updates sent for this job.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {earlyCheckoutRows.map((row) => (
+                    <div key={row.id} className="rounded-md border p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium">
+                              {row.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"} request{" "}
+                              {row.requestedTime ? `for ${row.requestedTime}` : ""} on{" "}
+                              {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
+                            </p>
+                            {row.note ? <p className="mt-1 text-xs text-muted-foreground">{row.note}</p> : null}
+                            {row.decidedAt ? (
+                              <p className="mt-1 text-xs text-emerald-700">
+                                {row.status === "APPROVED" ? "Approved" : row.status === "DECLINED" ? "Declined" : "Updated"}{" "}
+                                {format(new Date(row.decidedAt), "dd MMM yyyy HH:mm")}
+                              </p>
+                            ) : null}
+                            {row.cancelledAt ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Cancelled {format(new Date(row.cancelledAt), "dd MMM yyyy HH:mm")}
+                            </p>
+                          ) : null}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                row.status === "PENDING"
+                                  ? ("warning" as any)
+                                  : row.status === "APPROVED"
+                                    ? "success"
+                                    : "secondary"
+                              }
+                            >
+                              {row.status}
+                            </Badge>
+                            {row.status === "PENDING" ? (
+                            <Button size="sm" variant="ghost" onClick={() => cancelEarlyCheckoutRequest(row.id)}>
+                              Cancel
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Continuation Requests</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {continuationLoading ? (
+                <p className="text-sm text-muted-foreground">Loading requests...</p>
+              ) : continuationRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No continuation requests for this job.</p>
+              ) : (
+                continuationRows.map((row) => (
+                  <div key={row.id} className="rounded-md border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {row.requestedBy?.name ?? row.requestedBy?.email ?? row.requestedByUserId}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Requested {format(new Date(row.requestedAt), "dd MMM yyyy HH:mm")}
+                        </p>
+                      </div>
+                      <Badge variant={row.status === "PENDING" ? "warning" : row.status === "APPROVED" ? "success" : "outline"}>
+                        {row.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">{row.reason}</p>
+                    <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                      <p>Preferred date: {row.preferredDate || "-"}</p>
+                      <p>Remaining hours: {row.estimatedRemainingHours ?? "-"}</p>
+                      <p>
+                        Snapshot cleaners: {Array.isArray(row.snapshot?.loggedMinutesByCleaner) ? row.snapshot.loggedMinutesByCleaner.length : 0}
+                      </p>
+                    </div>
+                    {row.status === "APPROVED" && row.continuationJobId ? (
+                      <p className="mt-2 text-xs text-emerald-600">Continuation job: {row.continuationJobId}</p>
+                    ) : null}
+                    {row.status === "PENDING" ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => openContinuationDialog(row, "APPROVE")}>
+                          Approve & schedule continuation
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => openContinuationDialog(row, "REJECT")}>
+                          Reject
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Edit Job</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Status</Label>
+                  <select
+                    className="h-10 w-full rounded-xl border border-input/80 bg-surface/80 px-3 text-sm"
+                    value={editForm.status}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                  >
+                    {Object.keys(STATUS_COLORS).map((status) => (
+                      <option key={status} value={status}>
+                        {status.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Scheduled date</Label>
+                  <Input
+                    type="date"
+                    value={editForm.scheduledDate}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, scheduledDate: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Completion date</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={editForm.completedAt}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, completedAt: e.target.value }))}
+                    />
+                    {editForm.scheduledDate ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          setEditForm((prev) => {
+                            const base = prev.completedAt || prev.scheduledDate;
+                            const next = new Date(`${base}T00:00:00`);
+                            next.setDate(next.getDate() + 1);
+                            return { ...prev, completedAt: toLocalDateInput(next) };
+                          })
+                        }
+                      >
+                        +1 day
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Defaults to when QA passes. Set a next-day/custom date to count this job in that pay &amp; invoice period.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label>Fixed / allocated pay hours</Label>
+                  <Input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    value={editForm.estimatedHours}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, estimatedHours: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to pay from cleaner clocked timer.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Start time</Label>
+                  <Input
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Due time</Label>
+                  <Input
+                    type="time"
+                    value={editForm.dueTime}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, dueTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>End time</Label>
+                  <Input
+                    type="time"
+                    value={editForm.endTime}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, endTime: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Tags</Label>
+                <Input
+                  value={editForm.tagsText}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, tagsText: e.target.value }))}
+                  placeholder="priority, VIP guest"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={editForm.isDraft}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, isDraft: e.target.checked }))}
+                  />
+                  Draft
+                </Label>
+              </div>
+              <div className="space-y-1">
+                <Label>Job notes</Label>
+                <Textarea value={editForm.notes} onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Internal notes</Label>
+                <Textarea
+                  value={editForm.internalNotes}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, internalNotes: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">Admin requested tasks</Label>
+                    <p className="text-xs text-muted-foreground">
+                      These appear only on this job as required high-priority cleaner tasks.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        specialRequestTasks: [...prev.specialRequestTasks, createSpecialRequestTask()],
+                      }))
+                    }
+                  >
+                    Add task
+                  </Button>
+                </div>
+                {editForm.specialRequestTasks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No job-specific special request tasks added.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {editForm.specialRequestTasks.map((task, index) => (
+                      <div key={task.id} className="space-y-3 rounded-md border bg-background p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Task {index + 1}</p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setEditForm((prev) => ({
+                                ...prev,
+                                specialRequestTasks: prev.specialRequestTasks.filter((row) => row.id !== task.id),
+                              }))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Task title</Label>
+                          <Input
+                            value={task.title}
+                            onChange={(e) =>
+                              setEditForm((prev) => ({
+                                ...prev,
+                                specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                  row.id === task.id ? { ...row, title: e.target.value } : row
+                                ),
+                              }))
+                            }
+                            placeholder="Example: Photograph inside oven after deep clean"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Instructions</Label>
+                          <Textarea
+                            value={task.description ?? ""}
+                            onChange={(e) =>
+                              setEditForm((prev) => ({
+                                ...prev,
+                                specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                  row.id === task.id ? { ...row, description: e.target.value } : row
+                                ),
+                              }))
+                            }
+                            placeholder="Explain exactly what must be checked or completed"
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-4">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={task.requiresPhoto}
+                              onChange={(e) =>
+                                setEditForm((prev) => ({
+                                  ...prev,
+                                  specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                    row.id === task.id ? { ...row, requiresPhoto: e.target.checked } : row
+                                  ),
+                                }))
+                              }
+                            />
+                            Require image proof
+                          </label>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={task.requiresNote}
+                              onChange={(e) =>
+                                setEditForm((prev) => ({
+                                  ...prev,
+                                  specialRequestTasks: prev.specialRequestTasks.map((row) =>
+                                    row.id === task.id ? { ...row, requiresNote: e.target.checked } : row
+                                  ),
+                                }))
+                              }
+                            />
+                            Require cleaner note
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Transport allowance (optional)</Label>
+                  <p className="text-xs text-muted-foreground">Shown only when amount is set</p>
+                </div>
+                {transportAllowanceCleanerIds.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Assign cleaners first to set allowance per cleaner.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {transportAllowanceCleanerIds.map((cleanerId) => (
+                      <div key={cleanerId} className="grid grid-cols-[1fr_140px_auto] items-center gap-2">
+                        <p className="truncate text-sm">{cleanerLookup.get(cleanerId) ?? cleanerId}</p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editForm.transportAllowances[cleanerId] ?? ""}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              transportAllowances: {
+                                ...prev.transportAllowances,
+                                [cleanerId]: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder="0.00"
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setEditForm((prev) => {
+                              const next = { ...prev.transportAllowances };
+                              delete next[cleanerId];
+                              return { ...prev, transportAllowances: next };
+                            })
+                          }
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <Label className="text-sm font-semibold">Client billing</Label>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-sm">Fixed price (optional)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.fixedPrice}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, fixedPrice: e.target.value }))}
+                      placeholder="Use property rate"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Agreed price for this job. Overrides the property rate on the client invoice (and lets it be invoiced without a set rate).
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm">Invoice note (optional)</Label>
+                    <Textarea
+                      rows={2}
+                      value={editForm.invoiceNote}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, invoiceNote: e.target.value }))}
+                      placeholder="Prints on the client invoice line"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Custom cleaner payout (optional)</Label>
+                  <p className="text-xs text-muted-foreground">Replaces hours &times; rate for that cleaner</p>
+                </div>
+                {cleanerPayoutCleanerIds.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Assign cleaners first to set a custom payout per cleaner.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {cleanerPayoutCleanerIds.map((cleanerId) => (
+                      <div key={cleanerId} className="grid grid-cols-[1fr_140px_auto] items-center gap-2">
+                        <p className="truncate text-sm">{cleanerLookup.get(cleanerId) ?? cleanerId}</p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editForm.cleanerPayouts[cleanerId] ?? ""}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              cleanerPayouts: {
+                                ...prev.cleanerPayouts,
+                                [cleanerId]: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder="Auto"
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setEditForm((prev) => {
+                              const next = { ...prev.cleanerPayouts };
+                              delete next[cleanerId];
+                              return { ...prev, cleanerPayouts: next };
+                            })
+                          }
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to pay normally. Enter 0 to pay nothing. Transport allowance and approved adjustments still add on top.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {isAirbnbTurnover ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Early check-in</Label>
+                  <Select
+                    value={editForm.earlyCheckin.preset}
+                    onValueChange={(value) =>
+                      setEditForm((prev) => {
+                        const next = {
+                          ...prev,
+                          earlyCheckin: {
+                            enabled: value !== "none",
+                            preset: value as JobTimingPreset,
+                            time: value === "custom" ? prev.earlyCheckin.time : value !== "none" ? value : "",
+                          },
+                        };
+                        const nextDue = value === "custom" ? prev.earlyCheckin.time : value !== "none" ? value : "";
+                        if (nextDue) {
+                          next.dueTime = nextDue;
+                        }
+                        if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
+                          next.dueTime = next.startTime;
+                        }
+                        return next;
+                      })
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="11:00">Before 11:00 AM</SelectItem>
+                      <SelectItem value="12:30">Before 12:30 PM</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {editForm.earlyCheckin.preset === "custom" ? (
+                    <Input
+                      type="time"
+                      value={editForm.earlyCheckin.time}
+                      onChange={(e) =>
+                        setEditForm((prev) => {
+                          const next = {
+                            ...prev,
+                            earlyCheckin: { ...prev.earlyCheckin, enabled: true, time: e.target.value },
+                          };
+                          if (e.target.value) {
+                            next.dueTime = e.target.value;
+                          }
+                          if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
+                            next.dueTime = next.startTime;
+                          }
+                          return next;
+                        })
+                      }
+                    />
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  <Label>Late checkout</Label>
+                  <Select
+                    value={editForm.lateCheckout.preset}
+                    onValueChange={(value) =>
+                      setEditForm((prev) => {
+                        const next = {
+                          ...prev,
+                          lateCheckout: {
+                            enabled: value !== "none",
+                            preset: value as JobTimingPreset,
+                            time: value === "custom" ? prev.lateCheckout.time : value !== "none" ? value : "",
+                          },
+                        };
+                        const nextStart = value === "custom" ? prev.lateCheckout.time : value !== "none" ? value : "";
+                        if (nextStart) {
+                          next.startTime = nextStart;
+                        }
+                        if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
+                          next.dueTime = next.startTime;
+                        }
+                        return next;
+                      })
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="12:30">Start after 12:30 PM</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {editForm.lateCheckout.preset === "custom" ? (
+                    <Input
+                      type="time"
+                      value={editForm.lateCheckout.time}
+                      onChange={(e) =>
+                        setEditForm((prev) => {
+                          const next = {
+                            ...prev,
+                            lateCheckout: { ...prev.lateCheckout, enabled: true, time: e.target.value },
+                          };
+                          if (e.target.value) {
+                            next.startTime = e.target.value;
+                          }
+                          if (next.startTime && next.dueTime && next.dueTime < next.startTime) {
+                            next.dueTime = next.startTime;
+                          }
+                          return next;
+                        })
+                      }
+                    />
+                  ) : null}
+                </div>
+              </div>
+              ) : null}
+              <JobAttachmentsInput
+                value={editForm.attachments}
+                onChange={(attachments) => setEditForm((prev) => ({ ...prev, attachments }))}
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={saveJobChanges} disabled={savingJob}>
+                  {savingJob ? "Saving..." : "Save Changes"}
+                </Button>
+                <Input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  className="max-w-xs"
+                />
+                <Button size="sm" variant="outline" onClick={saveAsTemplate} disabled={savingTemplate}>
+                  {savingTemplate ? "Saving..." : "Save as Template"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─────────────── CLEANER & TIME ─────────────── */}
+        <TabsContent value="time" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Assigned Cleaners</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {job.assignments.length > 0 ? (
+                <ul className="space-y-1">
+                  {job.assignments.map((a: any) => (
+                    <li key={a.id} className="flex items-center gap-2 text-sm">
+                      {a.isPrimary && (
+                        <Badge variant="outline" className="text-xs">
+                          Primary
+                        </Badge>
+                      )}
+                      {a.user.name} - {a.user.email}
+                      <Badge variant={a.responseStatus === "PENDING" ? "warning" : "outline"}>
+                        {formatAssignmentResponseLabel(a.responseStatus)}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No cleaners assigned yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Time Logs</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {job.timeLogs.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="border-b">
+                    <tr className="text-xs text-muted-foreground">
+                      <th className="p-4 text-left">Cleaner</th>
+                      <th className="p-4 text-left">Start</th>
+                      <th className="p-4 text-left">Stop</th>
+                      <th className="p-4 text-right">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {job.timeLogs.map((log: any) => (
+                      <tr key={log.id}>
+                        <td className="p-4">{log.user.name}</td>
+                        <td className="p-4">{format(new Date(log.startedAt), "HH:mm")}</td>
+                        <td className="p-4">{log.stoppedAt ? format(new Date(log.stoppedAt), "HH:mm") : "-"}</td>
+                        <td className="p-4 text-right">{log.durationM ? `${log.durationM}m` : "Active"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="p-4 text-sm text-muted-foreground">No time logs recorded.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─────────────── QA ─────────────── */}
+        <TabsContent value="qa" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">QA actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {(job.status === "SUBMITTED" ||
+                  job.status === "QA_REVIEW" ||
+                  job.status === "COMPLETED") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const latest = job.qaReviews[0];
+                      if (latest) {
+                        setQaScore(String(Math.round(latest.score)));
+                        setQaNotes(latest.notes ?? "");
+                      }
+                      setQaOpen(true);
+                    }}
+                  >
+                    <Star className="mr-2 h-4 w-4" />{" "}
+                    {job.qaReviews.length > 0 ? "Re-review QA" : "QA Review"}
+                  </Button>
+                )}
+                {(job.status === "SUBMITTED" || job.status === "QA_REVIEW" || job.status === "COMPLETED") && (
+                  <Button size="sm" variant="outline" onClick={inviteClientToReview}>
+                    <Send className="mr-2 h-4 w-4" /> Invite Client to Review
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">QA</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {job.qaReviews.length > 0 ? (
+                <div>
+                  <p className="text-2xl font-bold">{job.qaReviews[0].score.toFixed(0)}%</p>
+                  <Badge variant={job.qaReviews[0].passed ? "success" : "destructive"}>
+                    {job.qaReviews[0].passed ? "Passed" : "Failed"}
+                  </Badge>
+                  {job.qaReviews[0].notes && <p className="mt-2 text-xs text-muted-foreground">{job.qaReviews[0].notes}</p>}
+                  <Button size="sm" variant="outline" className="mt-3 h-11 w-full" onClick={downloadQaReport}>
+                    <FileText className="mr-2 h-4 w-4" /> Download QA report
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No QA review yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─────────────── LAUNDRY ─────────────── */}
+        <TabsContent value="laundry" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Laundry links</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {laundryTask ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{String(laundryTask.status).replace(/_/g, " ")}</Badge>
+                  <span className="text-muted-foreground">
+                    {propertyName} · Pickup {format(new Date(laundryTask.pickupDate), "EEE dd MMM")} → Drop{" "}
+                    {format(new Date(laundryTask.dropoffDate), "EEE dd MMM")}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">
+                  No laundry task linked to this job yet. Open the laundry planner to generate or create one for{" "}
+                  {propertyName || "this property"}.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/admin/laundry">
+                    <Shirt className="mr-2 h-4 w-4" /> View laundry task
+                  </Link>
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/admin/laundry">
+                    <Pencil className="mr-2 h-4 w-4" /> Edit laundry task
+                  </Link>
+                </Button>
+                <Button size="sm" variant="outline" onClick={openLaundryLive}>
+                  <MapPin className="mr-2 h-4 w-4" /> See live tracking
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Links open the laundry planner for {propertyName || "this property"}; the planner lists the linked task,
+                its inline editor, and the live driver map.
+              </p>
+            </CardContent>
+          </Card>
+
+          {laundryTask ? (
+            <Card>
+              <CardContent className="space-y-4 pt-4 text-sm">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <div className="mt-1">
+                      <Badge>{job.laundryTask.status.replace(/_/g, " ")}</Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Pickup</p>
+                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.pickupDate), "EEE dd MMM yyyy")}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Drop-off</p>
+                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.dropoffDate), "EEE dd MMM yyyy")}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">Supplier</p>
+                    <p className="mt-1 font-medium">{job.laundryTask.supplier?.name || "Not assigned"}</p>
+                  </div>
+                </div>
+
+                {job.laundryTask.flagReason || job.laundryTask.status === "SKIPPED_PICKUP" ? (
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      job.laundryTask.status === "SKIPPED_PICKUP"
+                        ? "border-warning/40 bg-warning/10"
+                        : "border-destructive/30 bg-destructive/10"
+                    }`}
+                  >
+                    {job.laundryTask.flagReason ? (
+                      <p className="font-medium text-destructive">{job.laundryTask.flagReason.replace(/_/g, " ")}</p>
+                    ) : null}
+                    {job.laundryTask.flagNotes ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{job.laundryTask.flagNotes}</p>
+                    ) : null}
+                    {job.laundryTask.status === "SKIPPED_PICKUP" ? (
+                      <div className="mt-2 space-y-1 text-xs text-warning">
+                        <p>
+                          Skip reason: {String(job.laundryTask.skipReasonCode || "Not set").replace(/_/g, " ")}
+                        </p>
+                        {job.laundryTask.skipReasonNote ? <p>Cleaner note: {job.laundryTask.skipReasonNote}</p> : null}
+                        {job.laundryTask.adminOverrideNote ? <p>Admin note: {job.laundryTask.adminOverrideNote}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {(job.laundryTask.bagWeightKg != null ||
+                  job.laundryTask.dropoffCostAud != null ||
+                  job.laundryTask.receiptImageUrl) ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Bag weight</p>
+                      <p className="mt-1 font-medium">
+                        {job.laundryTask.bagWeightKg != null ? `${Number(job.laundryTask.bagWeightKg).toFixed(2)} kg` : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Drop-off cost</p>
+                      <p className="mt-1 font-medium">
+                        {job.laundryTask.dropoffCostAud != null ? `$${Number(job.laundryTask.dropoffCostAud).toFixed(2)}` : "-"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">Receipt</p>
+                      {job.laundryTask.receiptImageUrl ? (
+                        <a href={job.laundryTask.receiptImageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-primary hover:underline">
+                          Open receipt image
+                        </a>
+                      ) : (
+                        <p className="mt-1 font-medium">-</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {buildLaundryMediaItems(job.laundryTask).length > 0 ? (
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry evidence</p>
+                    <MediaGallery
+                      items={buildLaundryMediaItems(job.laundryTask)}
+                      emptyText="No laundry evidence yet."
+                      title="Laundry Evidence"
+                      className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="rounded-lg border p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry timeline</p>
+                  {Array.isArray(job.laundryTask.confirmations) && job.laundryTask.confirmations.length > 0 ? (
+                    <div className="space-y-2">
+                      {job.laundryTask.confirmations.map((confirmation: any) => {
+                        const meta = parseLaundryConfirmationMeta(confirmation?.notes) as Record<string, unknown>;
+                        return (
+                          <div key={confirmation.id} className="rounded-md border bg-muted/20 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium">{getLaundryConfirmationLabel(confirmation)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}
+                              </p>
+                            </div>
+                            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                              {confirmation.bagLocation ? <p>Bag location: {confirmation.bagLocation}</p> : null}
+                              {confirmation.notes && !meta?.event ? <p>Note: {confirmation.notes}</p> : null}
+                              {typeof meta.dropoffLocation === "string" && meta.dropoffLocation.trim() ? <p>Drop-off location: {meta.dropoffLocation}</p> : null}
+                              {meta.bagCount != null ? <p>Bag count: {String(meta.bagCount)}</p> : null}
+                              {typeof meta?.totalPrice === "number" ? <p>Total price: ${Number(meta.totalPrice).toFixed(2)}</p> : null}
+                              {typeof meta.reason === "string" && meta.reason.trim() ? <p>Reason: {meta.reason}</p> : null}
+                              {typeof meta.resolutionNotes === "string" && meta.resolutionNotes.trim() ? <p>Resolution: {meta.resolutionNotes}</p> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No laundry confirmations recorded yet.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <p className="py-6 text-sm text-muted-foreground">No laundry task generated yet. Run the laundry planner.</p>
+          )}
+        </TabsContent>
+
+        {/* ─────────────── MONEY (read-only) ─────────────── */}
+        <TabsContent value="money" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Billing &amp; Pay (read-only)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">Client fixed price</p>
+                  <p className="mt-1 font-medium">
+                    {job.fixedPrice != null ? `$${Number(job.fixedPrice).toFixed(2)}` : "Uses property rate"}
+                  </p>
+                  {job.invoiceNote ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Invoice note: {job.invoiceNote}</p>
+                  ) : null}
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">Allocated pay hours</p>
+                  <p className="mt-1 font-medium">
+                    {job.estimatedHours != null ? `${job.estimatedHours} h` : "From clocked timer"}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Per-cleaner pay summary</p>
+                {job.assignments.length > 0 ? (
+                  <ul className="space-y-1">
+                    {job.assignments.map((a: any) => {
+                      const payout = jobMeta.cleanerPayouts?.[a.userId];
+                      const transport = Number(jobMeta.transportAllowances?.[a.userId] ?? 0);
+                      return (
+                        <li key={a.id} className="flex flex-wrap items-center justify-between gap-2">
+                          <span>
+                            {a.user.name}
+                            {a.isPrimary ? " (primary)" : ""}
+                          </span>
+                          <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                            <span>
+                              {payout != null && String(payout) !== ""
+                                ? `Custom payout $${Number(payout).toFixed(2)}`
+                                : "Auto (hours × rate)"}
+                            </span>
+                            {transport > 0 ? (
+                              <Badge variant="secondary">Transport ${transport.toFixed(2)}</Badge>
+                            ) : null}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground">No cleaners assigned.</p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Display only. Edit billing and payout values in Schedule &amp; Assignment → Edit Job.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─────────────── FORMS & REPORT ─────────────── */}
+        <TabsContent value="forms" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Report actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={downloadReport}>
+                  <FileText className="mr-2 h-4 w-4" /> Download Report
+                </Button>
+                <Button size="sm" variant="outline" onClick={toggleClientReportVisibility} disabled={!job.report || updatingReportVisibility}>
+                  {updatingReportVisibility
+                    ? "Updating..."
+                    : job.report?.clientVisible !== false
+                      ? "Hide From Client"
+                      : "Show To Client"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={shareReport} disabled={sharing}>
+                  <Send className="mr-2 h-4 w-4" /> {sharing ? "Sharing..." : "Share To Client"}
+                </Button>
+                {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
+              </div>
+            </CardContent>
+          </Card>
+
           {job.formSubmissions.length > 0 ? (
             <div className="space-y-4">
               {job.formSubmissions.map((sub: any) => {
@@ -2450,168 +2757,96 @@ export default function JobDetailPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="laundry">
-          {job.laundryTask ? (
-            <Card>
-              <CardContent className="space-y-4 pt-4 text-sm">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-md border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <div className="mt-1">
-                      <Badge>{job.laundryTask.status.replace(/_/g, " ")}</Badge>
-                    </div>
-                  </div>
-                  <div className="rounded-md border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Pickup</p>
-                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.pickupDate), "EEE dd MMM yyyy")}</p>
-                  </div>
-                  <div className="rounded-md border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Drop-off</p>
-                    <p className="mt-1 font-medium">{format(new Date(job.laundryTask.dropoffDate), "EEE dd MMM yyyy")}</p>
-                  </div>
-                  <div className="rounded-md border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Supplier</p>
-                    <p className="mt-1 font-medium">{job.laundryTask.supplier?.name || "Not assigned"}</p>
-                  </div>
-                </div>
-
-                {job.laundryTask.flagReason || job.laundryTask.status === "SKIPPED_PICKUP" ? (
-                  <div
-                    className={`rounded-lg border p-3 ${
-                      job.laundryTask.status === "SKIPPED_PICKUP"
-                        ? "border-warning/40 bg-warning/10"
-                        : "border-destructive/30 bg-destructive/10"
-                    }`}
-                  >
-                    {job.laundryTask.flagReason ? (
-                      <p className="font-medium text-destructive">{job.laundryTask.flagReason.replace(/_/g, " ")}</p>
+        {/* ─────────────── STATUS FLAGS ─────────────── */}
+        <TabsContent value="status" className="space-y-4">
+          {/* Skip / don't clean control */}
+          {(() => {
+        const skipStatus = String(job.cleanSkipStatus ?? "NONE");
+        const skipBadge =
+          skipStatus === "SKIPPED"
+            ? { variant: "destructive" as const, label: "Skipped — no clean" }
+            : skipStatus === "REQUESTED"
+              ? { variant: "warning" as const, label: "Skip requested" }
+              : skipStatus === "DECLINED"
+                ? { variant: "secondary" as const, label: "Skip declined" }
+                : null;
+        return (
+          <Card
+            className={
+              skipStatus === "SKIPPED"
+                ? "border-destructive/40 bg-destructive/5"
+                : skipStatus === "REQUESTED"
+                  ? "border-warning/40 bg-warning/10"
+                  : undefined
+            }
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                Skip / don&apos;t clean
+                {skipBadge ? <Badge variant={skipBadge.variant}>{skipBadge.label}</Badge> : null}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {skipStatus === "REQUESTED" ? (
+                <p className="text-sm text-muted-foreground">
+                  A skip was requested{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} Approve to
+                  stop this clean (won&apos;t be dispatched, billed, or paid), or decline to keep it.
+                </p>
+              ) : skipStatus === "SKIPPED" ? (
+                <p className="text-sm text-muted-foreground">
+                  This clean is skipped{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} It is excluded
+                  from dispatch, billing, and payroll. Un-skip to restore it.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Mark this turnover so it is not cleaned. Skipped jobs are excluded from dispatch,
+                  billing, and payroll.
+                </p>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">Reason (optional)</Label>
+                <Input
+                  value={skipReason}
+                  onChange={(e) => setSkipReason(e.target.value)}
+                  placeholder="Reason for skipping / decision note"
+                  maxLength={500}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {skipStatus === "REQUESTED" ? (
+                  <>
+                    <Button size="sm" disabled={skipBusy} onClick={() => runSkipAction("approve")}>
+                      <Check className="mr-1.5 h-4 w-4" /> Approve skip
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("decline")}>
+                      <X className="mr-1.5 h-4 w-4" /> Decline
+                    </Button>
+                  </>
+                ) : skipStatus === "SKIPPED" ? (
+                  <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
+                    <RefreshCw className="mr-1.5 h-4 w-4" /> Un-skip (restore clean)
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("set")}>
+                      Skip this clean
+                    </Button>
+                    {skipStatus === "DECLINED" ? (
+                      <Button size="sm" variant="ghost" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
+                        Clear declined state
+                      </Button>
                     ) : null}
-                    {job.laundryTask.flagNotes ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{job.laundryTask.flagNotes}</p>
-                    ) : null}
-                    {job.laundryTask.status === "SKIPPED_PICKUP" ? (
-                      <div className="mt-2 space-y-1 text-xs text-warning">
-                        <p>
-                          Skip reason: {String(job.laundryTask.skipReasonCode || "Not set").replace(/_/g, " ")}
-                        </p>
-                        {job.laundryTask.skipReasonNote ? <p>Cleaner note: {job.laundryTask.skipReasonNote}</p> : null}
-                        {job.laundryTask.adminOverrideNote ? <p>Admin note: {job.laundryTask.adminOverrideNote}</p> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {(job.laundryTask.bagWeightKg != null ||
-                  job.laundryTask.dropoffCostAud != null ||
-                  job.laundryTask.receiptImageUrl) ? (
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-md border p-3">
-                      <p className="text-xs text-muted-foreground">Bag weight</p>
-                      <p className="mt-1 font-medium">
-                        {job.laundryTask.bagWeightKg != null ? `${Number(job.laundryTask.bagWeightKg).toFixed(2)} kg` : "-"}
-                      </p>
-                    </div>
-                    <div className="rounded-md border p-3">
-                      <p className="text-xs text-muted-foreground">Drop-off cost</p>
-                      <p className="mt-1 font-medium">
-                        {job.laundryTask.dropoffCostAud != null ? `$${Number(job.laundryTask.dropoffCostAud).toFixed(2)}` : "-"}
-                      </p>
-                    </div>
-                    <div className="rounded-md border p-3">
-                      <p className="text-xs text-muted-foreground">Receipt</p>
-                      {job.laundryTask.receiptImageUrl ? (
-                        <a href={job.laundryTask.receiptImageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-primary hover:underline">
-                          Open receipt image
-                        </a>
-                      ) : (
-                        <p className="mt-1 font-medium">-</p>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-
-                {buildLaundryMediaItems(job.laundryTask).length > 0 ? (
-                  <div>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry evidence</p>
-                    <MediaGallery
-                      items={buildLaundryMediaItems(job.laundryTask)}
-                      emptyText="No laundry evidence yet."
-                      title="Laundry Evidence"
-                      className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
-                    />
-                  </div>
-                ) : null}
-
-                <div className="rounded-lg border p-3">
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">Laundry timeline</p>
-                  {Array.isArray(job.laundryTask.confirmations) && job.laundryTask.confirmations.length > 0 ? (
-                    <div className="space-y-2">
-                      {job.laundryTask.confirmations.map((confirmation: any) => {
-                        const meta = parseLaundryConfirmationMeta(confirmation?.notes) as Record<string, unknown>;
-                        return (
-                          <div key={confirmation.id} className="rounded-md border bg-muted/20 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-medium">{getLaundryConfirmationLabel(confirmation)}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}
-                              </p>
-                            </div>
-                            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                              {confirmation.bagLocation ? <p>Bag location: {confirmation.bagLocation}</p> : null}
-                              {confirmation.notes && !meta?.event ? <p>Note: {confirmation.notes}</p> : null}
-                              {typeof meta.dropoffLocation === "string" && meta.dropoffLocation.trim() ? <p>Drop-off location: {meta.dropoffLocation}</p> : null}
-                              {meta.bagCount != null ? <p>Bag count: {String(meta.bagCount)}</p> : null}
-                              {typeof meta?.totalPrice === "number" ? <p>Total price: ${Number(meta.totalPrice).toFixed(2)}</p> : null}
-                              {typeof meta.reason === "string" && meta.reason.trim() ? <p>Reason: {meta.reason}</p> : null}
-                              {typeof meta.resolutionNotes === "string" && meta.resolutionNotes.trim() ? <p>Resolution: {meta.resolutionNotes}</p> : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No laundry confirmations recorded yet.</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="py-6 text-sm text-muted-foreground">No laundry task generated yet. Run the laundry planner.</p>
-          )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
         </TabsContent>
 
-        <TabsContent value="timelogs">
-          {job.timeLogs.length > 0 ? (
-            <Card>
-              <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead className="border-b">
-                    <tr className="text-xs text-muted-foreground">
-                      <th className="p-4 text-left">Cleaner</th>
-                      <th className="p-4 text-left">Start</th>
-                      <th className="p-4 text-left">Stop</th>
-                      <th className="p-4 text-right">Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {job.timeLogs.map((log: any) => (
-                      <tr key={log.id}>
-                        <td className="p-4">{log.user.name}</td>
-                        <td className="p-4">{format(new Date(log.startedAt), "HH:mm")}</td>
-                        <td className="p-4">{log.stoppedAt ? format(new Date(log.stoppedAt), "HH:mm") : "-"}</td>
-                        <td className="p-4 text-right">{log.durationM ? `${log.durationM}m` : "Active"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="py-6 text-sm text-muted-foreground">No time logs recorded.</p>
-          )}
-        </TabsContent>
-
-        <TabsContent value="timeline">
+        {/* ─────────────── ACTIVITY ─────────────── */}
+        <TabsContent value="activity" className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Activity Timeline</CardTitle>
@@ -2645,6 +2880,7 @@ export default function JobDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>

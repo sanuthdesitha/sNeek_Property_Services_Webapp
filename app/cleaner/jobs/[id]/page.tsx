@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square, PauseCircle, TimerReset, Navigation, TrafficCone, Plus, Pencil, Trash2, HandCoins } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square, PauseCircle, TimerReset, Navigation, TrafficCone, Plus, Pencil, Trash2, HandCoins, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +55,8 @@ import {
 } from "@/lib/jobs/assignment-workflow";
 import { ensureGoogleMaps, resolveBrowserMapsKey } from "@/lib/maps/loader";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
+import { DrivingPanel } from "@/components/cleaner/driving-panel";
+import { ProcessNudge, ProcessConfirm } from "@/components/shared/process-nudge";
 
 type Step = "briefing" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
@@ -468,9 +470,11 @@ export default function CleanerJobPage() {
   const [resumingDriving, setResumingDriving] = useState(false);
   const [arrivingDriving, setArrivingDriving] = useState(false);
   const [markingDelayed, setMarkingDelayed] = useState(false);
-  const [pauseReasonSelect, setPauseReasonSelect] = useState("PETROL_STOP");
+  // En-route reason chips: the value IS the reason string sent to the API
+  // (the pause/mark-delayed endpoints already accept any free-text reason).
+  const [pauseReasonSelect, setPauseReasonSelect] = useState("Traffic");
   const [pauseReasonOther, setPauseReasonOther] = useState("");
-  const [delayedReason, setDelayedReason] = useState("TRAFFIC");
+  const [delayedReason, setDelayedReason] = useState("Traffic");
   const [delayedReasonOther, setDelayedReasonOther] = useState("");
   const [manualEta, setManualEta] = useState("");
   const [trackingActive, setTrackingActive] = useState(false);
@@ -478,6 +482,14 @@ export default function CleanerJobPage() {
   const [lastPingSentAt, setLastPingSentAt] = useState<number | null>(null);
   const [lastPingAccuracy, setLastPingAccuracy] = useState<number | null>(null);
   const [pingClock, setPingClock] = useState(() => Date.now());
+
+  // Adherence nudge: confirm-before-submit gate when the cleaner tries to
+  // submit with an incomplete checklist or without a GPS check-in on record.
+  // It never hard-blocks a legitimate submit — once acknowledged, we proceed
+  // straight through. The reminder explains the step is logged for quality + pay.
+  const [adherenceConfirmOpen, setAdherenceConfirmOpen] = useState(false);
+  const [adherenceConfirmMessage, setAdherenceConfirmMessage] = useState<string>("");
+  const adherenceBypassRef = useRef(false);
 
   // GPS check-in confirm/adjust popup state.
   const [gpsCheckinOpen, setGpsCheckinOpen] = useState(false);
@@ -2218,7 +2230,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   async function handlePauseDriving() {
-    const reason = pauseReasonSelect === "OTHER" ? pauseReasonOther.trim() : pauseReasonSelect;
+    const reason = pauseReasonSelect.trim();
     if (!reason) {
       showPopupNotification("Pause reason required", "Add a short reason before pausing driving.", "destructive");
       return;
@@ -2266,6 +2278,21 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     } finally {
       setResumingDriving(false);
     }
+  }
+
+  function handleSetManualEta() {
+    const mins = parseInt(manualEta, 10);
+    if (!mins || mins < 1) return;
+    const ping = Array.isArray(job?.cleanerLocationPings) ? job.cleanerLocationPings[0] : null;
+    void (async () => {
+      await fetch(`/api/cleaner/jobs/${jobId}/location-ping`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: ping?.lat ?? 0, lng: ping?.lng ?? 0, manualEtaMinutes: mins }),
+      }).catch(() => {});
+      await load();
+      setManualEta("");
+    })();
   }
 
   async function handleArrivedDriving() {
@@ -3583,6 +3610,22 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       }
     }
 
+    // Adherence nudge: if the checklist isn't fully ticked, give a friendly-but-
+    // firm reminder before submitting. This is NOT a hard block — once the
+    // cleaner acknowledges, adherenceBypassRef lets the next call sail through.
+    // It only fires at the real friction point (genuine incomplete checklist),
+    // never on a fully-completed job.
+    if (!adherenceBypassRef.current && totalFields > 0 && filledFields < totalFields) {
+      const remaining = totalFields - filledFields;
+      setAdherenceConfirmMessage(
+        `${remaining} checklist item${remaining === 1 ? "" : "s"} ${remaining === 1 ? "is" : "are"} not ticked yet. ` +
+          "Every item you complete is logged for quality and pay. Submitting with items unticked is recorded and may delay approval or pay."
+      );
+      setAdherenceConfirmOpen(true);
+      return;
+    }
+    adherenceBypassRef.current = false;
+
     const payloadToSubmit = buildSubmissionPayload();
     if (!payloadToSubmit) return;
 
@@ -4098,203 +4141,52 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       {job?.status === "EN_ROUTE" && (
-        <Card className="border-warning/40 bg-warning/10">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Navigation className="h-4 w-4" />
-              Driving panel
-              {tripStateLabel ? <Badge variant="outline">{tripStateLabel}</Badge> : null}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border bg-background p-3">
-                <p className="text-xs text-muted-foreground">ETA</p>
-                <p className="mt-1 text-sm font-semibold">{tripEtaLabel}</p>
-                {job?.enRouteEtaMinutes == null && !job?.arrivedAt && (
-                  <div className="mt-2 flex gap-1">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={240}
-                      placeholder="min"
-                      value={manualEta}
-                      onChange={(e) => setManualEta(e.target.value)}
-                      className="h-7 w-16 text-xs"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs px-2"
-                      disabled={!manualEta || isNaN(Number(manualEta))}
-                      onClick={async () => {
-                        const mins = parseInt(manualEta, 10);
-                        if (!mins || mins < 1) return;
-                        await fetch(`/api/cleaner/jobs/${jobId}/location-ping`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ lat: latestPing?.lat ?? 0, lng: latestPing?.lng ?? 0, manualEtaMinutes: mins }),
-                        }).catch(() => {});
-                        await load();
-                        setManualEta("");
-                      }}
-                    >
-                      Set
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-lg border bg-background p-3">
-                <p className="text-xs text-muted-foreground">Last update</p>
-                <p className="mt-1 text-sm font-semibold">{tripLastUpdate ?? "Waiting for GPS"}</p>
-              </div>
-              <div className="rounded-lg border bg-background p-3">
-                <p className="text-xs text-muted-foreground">Tracking</p>
-                <p className="mt-1 text-sm font-semibold">
-                  {job?.drivingPausedAt || job?.arrivedAt ? "Stopped" : trackingActive ? "Active" : "Starting"}
-                </p>
-                {trackingActive ? (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {lastPingSentAt
-                      ? `Last ping sent ${Math.max(0, Math.round((pingClock - lastPingSentAt) / 1000))}s ago · ${formatAccuracy(lastPingAccuracy)}`
-                      : "Waiting for first GPS fix..."}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            {trackingError ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
-                <p className="text-xs text-foreground">{trackingError}</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  onClick={() => startLocationTracking()}
-                >
-                  Retry GPS
-                </Button>
-              </div>
-            ) : null}
-
-            {job?.drivingPauseReason ? (
-              <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-xs text-foreground/80">
-                Pause reason: {job.drivingPauseReason}
-              </div>
-            ) : null}
-
-            {job?.drivingDelayedReason ? (
-              <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-                Delay reason: {String(job.drivingDelayedReason).replace(/_/g, " ")}
-              </div>
-            ) : null}
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className="space-y-2 rounded-lg border bg-background p-3">
-                <Label className="text-xs text-muted-foreground">Pause reason</Label>
-                <Select value={pauseReasonSelect} onValueChange={setPauseReasonSelect} disabled={!canPauseDriving || pausingDriving}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select reason" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PETROL_STOP">Petrol stop</SelectItem>
-                    <SelectItem value="FOOD_BREAK">Food break</SelectItem>
-                    <SelectItem value="TRAFFIC">Traffic</SelectItem>
-                    <SelectItem value="VEHICLE_ISSUE">Vehicle issue</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                {pauseReasonSelect === "OTHER" && (
-                  <Input
-                    value={pauseReasonOther}
-                    onChange={(e) => setPauseReasonOther(e.target.value)}
-                    placeholder="Describe reason..."
-                    disabled={!canPauseDriving || pausingDriving}
-                  />
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full"
-                  disabled={!canPauseDriving || pausingDriving}
-                  onClick={handlePauseDriving}
-                >
-                  <PauseCircle className="mr-2 h-4 w-4" />
-                  {pausingDriving ? "Pausing..." : "Pause driving"}
-                </Button>
-              </div>
-
-              <div className="space-y-2 rounded-lg border bg-background p-3">
-                <Label className="text-xs text-muted-foreground">Delay reason</Label>
-                <Select value={delayedReason} onValueChange={setDelayedReason}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select delay reason" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="TRAFFIC">Traffic</SelectItem>
-                    <SelectItem value="PETROL_STOP">Petrol stop</SelectItem>
-                    <SelectItem value="FOOD_BREAK">Food break</SelectItem>
-                    <SelectItem value="VEHICLE_ISSUE">Vehicle issue</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                {delayedReason === "OTHER" && (
-                  <Input
-                    value={delayedReasonOther}
-                    onChange={(e) => setDelayedReasonOther(e.target.value)}
-                    placeholder="Describe reason..."
-                  />
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full"
-                  disabled={!canArriveDriving || markingDelayed}
-                  onClick={handleMarkDelayed}
-                >
-                  <TrafficCone className="mr-2 h-4 w-4" />
-                  {markingDelayed ? "Sending..." : "Running late"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              {canResumeDriving ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 sm:flex-1"
-                  disabled={resumingDriving}
-                  onClick={handleResumeDriving}
-                >
-                  <TimerReset className="mr-2 h-4 w-4" />
-                  {resumingDriving ? "Resuming..." : "Resume driving"}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                className="h-11 sm:flex-1"
-                disabled={!canArriveDriving || arrivingDriving}
-                onClick={handleArrivedDriving}
-              >
-                <MapPin className="mr-2 h-4 w-4" />
-                {arrivingDriving ? "Saving..." : "Arrived at property"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-11 text-muted-foreground"
-                disabled={stoppingDriving}
-                onClick={handleStopDriving}
-              >
-                <Square className="mr-2 h-4 w-4" />
-                {stoppingDriving ? "Stopping..." : "Stop driving"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <DrivingPanel
+          tripState={
+            job?.arrivedAt
+              ? "ARRIVED"
+              : job?.drivingPausedAt
+                ? "PAUSED"
+                : job?.drivingDelayedAt
+                  ? "DELAYED"
+                  : "EN_ROUTE"
+          }
+          etaLabel={tripEtaLabel}
+          lastUpdateLabel={tripLastUpdate}
+          trackingLabel={job?.drivingPausedAt || job?.arrivedAt ? "Stopped" : trackingActive ? "Active" : "Starting"}
+          trackingActive={trackingActive}
+          pingFreshnessLabel={
+            lastPingSentAt
+              ? `Last ping ${Math.max(0, Math.round((pingClock - lastPingSentAt) / 1000))}s ago · ${formatAccuracy(lastPingAccuracy)}`
+              : "Waiting for first GPS fix…"
+          }
+          trackingError={trackingError}
+          pauseReason={job?.drivingPauseReason ?? null}
+          delayReason={job?.drivingDelayedReason ? String(job.drivingDelayedReason).replace(/_/g, " ") : null}
+          canPause={canPauseDriving}
+          canResume={canResumeDriving}
+          canArrive={canArriveDriving}
+          pausing={pausingDriving}
+          resuming={resumingDriving}
+          arriving={arrivingDriving}
+          stopping={stoppingDriving}
+          markingDelayed={markingDelayed}
+          pauseReasonValue={pauseReasonSelect}
+          onPauseReasonChange={setPauseReasonSelect}
+          delayReasonValue={delayedReason}
+          onDelayReasonChange={setDelayedReason}
+          showManualEta={job?.enRouteEtaMinutes == null && !job?.arrivedAt}
+          manualEta={manualEta}
+          onManualEtaChange={setManualEta}
+          onSetManualEta={handleSetManualEta}
+          navigateUrl={mapsUrl}
+          onPause={handlePauseDriving}
+          onResume={handleResumeDriving}
+          onArrived={handleArrivedDriving}
+          onStop={handleStopDriving}
+          onMarkDelayed={handleMarkDelayed}
+          onRetryGps={() => startLocationTracking()}
+        />
       )}
 
       {/* Start Driving button (shown when ASSIGNED, before starting the job) */}
@@ -4772,6 +4664,40 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                         ) : null}
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {briefing?.previousLaundryDrop ? (
+              <div className="rounded-md border border-info/40 bg-info/10 p-3" data-testid="linen-drop-card">
+                <div className="flex items-start gap-2">
+                  <Package className="h-4 w-4 flex-shrink-0 mt-0.5 text-info" aria-hidden />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div>
+                      <p className="text-sm font-medium">Linen drop — where to find it</p>
+                      <p className="text-xs text-muted-foreground">
+                        Fresh linen from the last drop-off
+                        {briefing.previousLaundryDrop.droppedAt
+                          ? ` on ${format(new Date(briefing.previousLaundryDrop.droppedAt), "EEE dd MMM, h:mm a")}`
+                          : ""}
+                        . Use this to locate the bags before you start.
+                      </p>
+                    </div>
+                    {briefing.previousLaundryDrop.notes ? (
+                      <p className="whitespace-pre-wrap rounded-md bg-background/60 px-2 py-1.5 text-xs">
+                        {briefing.previousLaundryDrop.notes}
+                      </p>
+                    ) : null}
+                    {briefing.previousLaundryDrop.photo ? (
+                      <MediaGallery
+                        items={[briefing.previousLaundryDrop.photo]}
+                        emptyText="No drop-off photo available."
+                      />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No drop-off photo was captured — check the usual linen storage spot.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -5707,6 +5633,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       {step === "submit" && (
         <div className="space-y-4">
           <h3 className="font-semibold">Ready to Submit?</h3>
+          {totalFields > 0 && filledFields < totalFields ? (
+            <ProcessNudge
+              tone="caution"
+              title="A few checklist items are still open"
+              message={`${totalFields - filledFields} of ${totalFields} items aren't ticked. Each completed item is logged for quality + pay — finishing them keeps approval and payment quick.`}
+            />
+          ) : (
+            <ProcessNudge
+              tone="reassure"
+              message="Your photos, GPS and checklist are logged with this submission for quality and accurate pay. Thanks for following the full process."
+              compact
+            />
+          )}
           <Card>
             <CardContent className="space-y-2 p-4 text-sm">
               <div className="flex justify-between">
@@ -6137,6 +6076,24 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           ) : null}
         </div>
       )}
+
+      <ProcessConfirm
+        open={adherenceConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setAdherenceConfirmOpen(false);
+        }}
+        title="Before you submit"
+        message={adherenceConfirmMessage}
+        confirmLabel="Submit anyway"
+        cancelLabel="Go back & finish"
+        loading={submitting}
+        onConfirm={() => {
+          // Acknowledged — let the next handleSubmit() pass straight through.
+          adherenceBypassRef.current = true;
+          setAdherenceConfirmOpen(false);
+          void handleSubmit();
+        }}
+      />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl">

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { JobStatus, Role } from "@prisma/client";
+import { JobStatus, LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
 import { getNegativeQaWarning } from "@/lib/qa/feedback-history";
 import { listConfirmedReworkForCleanerJob } from "@/lib/qa/rework-transfers";
+import { publicUrl } from "@/lib/s3";
+import { parseLaundryConfirmationMeta } from "@/lib/laundry/media";
 
 function pickLegacyAccessNote(accessInfo: unknown) {
   if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
@@ -32,6 +34,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       select: {
         id: true,
         propertyId: true,
+        scheduledDate: true,
         notes: true,
         property: {
           select: {
@@ -128,9 +131,93 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       console.error("[briefing] QA rework lookup failed", err);
     }
 
+    // Previous laundry DROP for THIS PROPERTY — so the cleaner knows where the
+    // linen bags were left. We deliberately look at a PRIOR LaundryTask (drop
+    // before this job's scheduled date) and never the task linked to THIS job
+    // (jobId !== job.id): this job's own drop is a future event that hasn't
+    // happened yet, so showing it would be meaningless.
+    let previousLaundryDrop: {
+      droppedAt: string | null;
+      status: string;
+      notes: string | null;
+      photo: { id: string; url: string; label: string } | null;
+    } | null = null;
+    try {
+      const scheduledDate = job.scheduledDate ?? new Date();
+      const priorLaundry = await db.laundryTask.findFirst({
+        where: {
+          propertyId: job.propertyId,
+          jobId: { not: job.id },
+          status: { in: [LaundryStatus.DROPPED, LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] },
+          // The drop must have already happened, before this job is scheduled.
+          droppedAt: { not: null, lt: scheduledDate },
+        },
+        orderBy: [{ droppedAt: "desc" }],
+        select: {
+          status: true,
+          droppedAt: true,
+          flagNotes: true,
+          confirmations: {
+            orderBy: [{ createdAt: "desc" }],
+            select: {
+              id: true,
+              photoUrl: true,
+              s3Key: true,
+              notes: true,
+              bagLocation: true,
+            },
+          },
+        },
+      });
+
+      if (priorLaundry) {
+        // Prefer the confirmation explicitly tagged as the DROPPED event; fall
+        // back to the most recent confirmation that carries a photo.
+        const dropped = priorLaundry.confirmations.find((c) => {
+          const meta = parseLaundryConfirmationMeta(c.notes);
+          return String((meta as Record<string, unknown>).event ?? "").toUpperCase() === "DROPPED";
+        });
+        const withPhoto =
+          (dropped && (dropped.photoUrl || dropped.s3Key) ? dropped : null) ??
+          priorLaundry.confirmations.find((c) => c.photoUrl || c.s3Key) ??
+          null;
+
+        const photoUrl = withPhoto
+          ? withPhoto.photoUrl || (withPhoto.s3Key ? publicUrl(withPhoto.s3Key) : null)
+          : null;
+
+        // Surface the most useful note: the dropper's bag-location/notes from
+        // the confirmation, else the task's flag notes.
+        const confirmationMeta = withPhoto ? parseLaundryConfirmationMeta(withPhoto.notes) : {};
+        const metaNote =
+          typeof (confirmationMeta as Record<string, unknown>).note === "string"
+            ? ((confirmationMeta as Record<string, unknown>).note as string)
+            : null;
+        const note =
+          withPhoto?.bagLocation?.trim() ||
+          metaNote?.trim() ||
+          (withPhoto?.notes && !withPhoto.notes.trim().startsWith("{") ? withPhoto.notes.trim() : "") ||
+          priorLaundry.flagNotes?.trim() ||
+          null;
+
+        previousLaundryDrop = {
+          droppedAt: priorLaundry.droppedAt ? priorLaundry.droppedAt.toISOString() : null,
+          status: priorLaundry.status,
+          notes: note,
+          photo: photoUrl
+            ? { id: withPhoto?.id ?? "laundry-drop", url: photoUrl, label: "Linen drop-off" }
+            : null,
+        };
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[briefing] previous laundry drop lookup failed", err);
+    }
+
     return NextResponse.json({
       lastPhotos,
       qaReworkNotes,
+      previousLaundryDrop,
       accessCode: decryptSecret(job.property.accessCode) ?? pickLegacyAccessCode(job.property.accessInfo),
       alarmCode: decryptSecret(job.property.alarmCode),
       keyLocation: job.property.keyLocation?.trim() || null,
