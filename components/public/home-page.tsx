@@ -28,7 +28,6 @@ import {
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { WebsiteContent, WebsiteWhyItem } from "@/lib/public-site/content";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
-import { ScrollVacuum } from "@/components/public/scroll-vacuum";
 import type { ServiceSuburb } from "@/lib/public-site/suburbs";
 import { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags } from "@/lib/public-site/widgets-types";
 
@@ -280,14 +279,10 @@ export function HomePage({
     <div ref={scrollRef as React.RefObject<HTMLDivElement>}>
       {/* ─────────────────────────────────────────────────
           HERO — calm, editorial. WHO WE ARE.
-          The scroll-vacuum travels right → left behind the copy.
       ───────────────────────────────────────────────── */}
       <section className="relative overflow-hidden">
-        {/* Signature scroll-driven vacuum (image-sequence ready, SVG fallback now) */}
-        <ScrollVacuum />
-
         <div className={`${PUBLIC_PAGE_CONTAINER} relative z-10`}>
-          <div className="mx-auto max-w-3xl py-24 text-center sm:py-32 lg:py-40">
+          <div className="mx-auto max-w-3xl py-28 text-center sm:py-36 lg:py-44">
             <p className="marketing-eyebrow lux-rise">{content.home.eyebrow}</p>
             <h1 className="lux-rise lux-rise-d1 mt-7 text-balance text-[2.6rem] leading-[1.05] text-foreground sm:text-6xl lg:text-7xl">
               {content.home.title}

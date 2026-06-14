@@ -338,6 +338,25 @@
     background-size: 400% 100%;
     animation: shimmer 1.5s ease infinite;
   }
+
+  /* ── Branded loader (BrandLoader) ──────────────────────────────
+     A logo/monogram centred inside a slowly rotating ring. The ring
+     uses the brand primary token; the mark gently pulses. Reduced
+     motion drops the spin/pulse and uses a calm fade instead. */
+  .brand-loader-ring {
+    animation: brandLoaderSpin 1.4s linear infinite;
+  }
+  .brand-loader-mark {
+    animation: brandLoaderPulse 2.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand-loader-ring {
+      animation: brandLoaderFade 2.4s ease-in-out infinite;
+    }
+    .brand-loader-mark {
+      animation: brandLoaderFade 2.4s ease-in-out infinite;
+    }
+  }
 }
 
 @keyframes pageFade {
@@ -404,6 +423,21 @@
 @keyframes shimmer {
   from { background-position: -200% center; }
   to   { background-position: 200% center; }
+}
+
+@keyframes brandLoaderSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes brandLoaderPulse {
+  0%, 100% { opacity: 0.78; transform: scale(0.97); }
+  50%      { opacity: 1;    transform: scale(1.02); }
+}
+
+/* Gentle fade used for reduced-motion (no spin, no scale). */
+@keyframes brandLoaderFade {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
 }
 
 @keyframes marquee {
