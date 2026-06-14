@@ -91,6 +91,9 @@ export const createPropertySchema = z.object({
   inventoryEnabled: z.boolean().default(false),
   defaultCheckinTime: z.string().regex(/^\d{2}:\d{2}$/).default("14:00"),
   defaultCheckoutTime: z.string().regex(/^\d{2}:\d{2}$/).default("10:00"),
+  // Where turnover job start/due times come from: the property's configured
+  // default times ("PROPERTY", the default) or the imported iCal event times.
+  jobTimeSource: z.enum(["PROPERTY", "ICAL"]).default("PROPERTY"),
   hasBalcony: z.boolean().default(false),
   bedrooms: z.number().int().min(0).default(1),
   bathrooms: z.number().int().min(0).default(1),

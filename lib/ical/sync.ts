@@ -602,6 +602,7 @@ async function syncTurnoverJobsForReservations(params: {
     defaultCheckinTime: string;
     defaultEstimatedHours: number | null;
     maxGuestCount: number | null;
+    jobTimeSource: string;
   };
   reservations: Array<{
     id: string;
@@ -634,16 +635,30 @@ async function syncTurnoverJobsForReservations(params: {
   });
   const existingByReservationId = new Map(existingJobs.map((job) => [job.reservationId, job]));
 
+  // When jobTimeSource is "PROPERTY" (the default) the property's configured
+  // default times are authoritative and must win over any iCal/reservation
+  // event time. Only "ICAL" lets the imported feed times drive the job, falling
+  // back to the property defaults when the feed omits a time.
+  const useIcalTimes = params.property.jobTimeSource === "ICAL";
+
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
     const turnoverDateKey = turnoverDate.toISOString().slice(0, 10);
     const incomingCheckin = params.sameDayCheckinsByDate.get(turnoverDateKey);
-    const sameDayCheckinTime = incomingCheckin?.checkinTime ?? params.property.defaultCheckinTime;
+    // dueTime = deadline = next guest's check-in. Property default wins unless
+    // the source is explicitly the iCal feed.
+    const sameDayCheckinTime = useIcalTimes
+      ? incomingCheckin?.checkinTime ?? params.property.defaultCheckinTime
+      : params.property.defaultCheckinTime;
     const priority = classifySameDayCheckinPriority({
       sameDayCheckin: Boolean(incomingCheckin),
       sameDayCheckinTime,
     });
-    const startTime = toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime;
+    // startTime = clean start anchor = previous guest's checkout. Property
+    // default wins unless the source is explicitly the iCal feed.
+    const startTime = useIcalTimes
+      ? toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime
+      : params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
     const reservationContext =
       incomingCheckin?.reservationContext ?? buildPropertyMaxGuestPreparationContext(params.property.maxGuestCount);
@@ -971,6 +986,7 @@ export async function syncPropertyIcal(
         defaultCheckinTime: integration.property.defaultCheckinTime,
         defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
         maxGuestCount: getPropertyMaxGuestCount(integration.property.accessInfo),
+        jobTimeSource: integration.property.jobTimeSource,
       },
       reservations: touchedReservations.map((row) => ({
         id: row.id,

@@ -710,6 +710,9 @@ model Property {
   inventoryEnabled       Boolean  @default(false)
   defaultCheckinTime     String   @default("14:00") // HH:mm
   defaultCheckoutTime    String   @default("10:00") // HH:mm
+  // Where job start/due times come from: the property's configured default
+  // times ("PROPERTY") or the imported iCal/reservation event times ("ICAL").
+  jobTimeSource          String   @default("PROPERTY")
   hasBalcony             Boolean  @default(false)
   bedrooms               Int      @default(1)
   bathrooms              Int      @default(1)
@@ -874,6 +877,13 @@ model Job {
   gpsCheckInNote         String?   @db.Text
   requiresSafetyCheckin  Boolean   @default(false)
   safetyCheckinAt        DateTime?
+  // Skip / don't-clean: a client can request the clean be skipped, or an admin
+  // can set it directly. NONE | REQUESTED | SKIPPED | DECLINED.
+  cleanSkipStatus        String    @default("NONE")
+  cleanSkipReason        String?   @db.Text
+  cleanSkipRequestedById String?
+  cleanSkipDecidedById   String?
+  cleanSkipAt            DateTime?
   manuallyRescheduledAt   DateTime?
   rescheduledBy           String?
   enRouteStartedAt        DateTime?

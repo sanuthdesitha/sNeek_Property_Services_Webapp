@@ -78,7 +78,7 @@ export function CleanerPayRequestsPage({
 
   async function loadPayRequests() {
     setLoadingPayRequests(true);
-    const res = await fetch("/api/cleaner/pay-adjustments");
+    const res = await fetch("/api/cleaner/pay-adjustments", { cache: "no-store" });
     const body = await res.json().catch(() => []);
     setLoadingPayRequests(false);
     setPayRequests(Array.isArray(body) ? body : []);

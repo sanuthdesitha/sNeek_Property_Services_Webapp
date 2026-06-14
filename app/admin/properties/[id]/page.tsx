@@ -111,6 +111,7 @@ export default function PropertyDetailPage() {
     laundryEnabled: true,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
+    jobTimeSource: "PROPERTY" as "PROPERTY" | "ICAL",
     hasBalcony: false,
     bedrooms: "1",
     bathrooms: "1",
@@ -182,6 +183,7 @@ export default function PropertyDetailPage() {
       laundryEnabled: data.laundryEnabled !== false, // default true if missing
       defaultCheckinTime: data.defaultCheckinTime ?? "14:00",
       defaultCheckoutTime: data.defaultCheckoutTime ?? "10:00",
+      jobTimeSource: data.jobTimeSource === "ICAL" ? "ICAL" : "PROPERTY",
       hasBalcony: Boolean(data.hasBalcony),
       bedrooms: String(data.bedrooms ?? 1),
       bathrooms: String(data.bathrooms ?? 1),
@@ -401,6 +403,7 @@ export default function PropertyDetailPage() {
       laundryEnabled: form.laundryEnabled,
       defaultCheckinTime: form.defaultCheckinTime,
       defaultCheckoutTime: form.defaultCheckoutTime,
+      jobTimeSource: form.jobTimeSource,
       hasBalcony: form.hasBalcony,
       bedrooms: Number(form.bedrooms || 0),
       bathrooms: Number(form.bathrooms || 0),
@@ -933,6 +936,29 @@ export default function PropertyDetailPage() {
                   <Label>Default check-out</Label>
                   <Input type="time" value={form.defaultCheckoutTime} onChange={(e) => setForm((prev) => ({ ...prev, defaultCheckoutTime: e.target.value }))} />
                 </div>
+              </div>
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label htmlFor="job-time-source">Job time source</Label>
+                <select
+                  id="job-time-source"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={form.jobTimeSource}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      jobTimeSource: e.target.value === "ICAL" ? "ICAL" : "PROPERTY",
+                    }))
+                  }
+                >
+                  <option value="PROPERTY">Property default times (above)</option>
+                  <option value="ICAL">iCal feed times</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Controls the start and due times on turnover jobs. <strong>Property default times</strong> uses
+                  the check-out time above as the clean start and the check-in time as the deadline. <strong>iCal
+                  feed times</strong> uses the imported reservation event times instead (falling back to the
+                  defaults when the feed omits a time).
+                </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-md border p-3">
