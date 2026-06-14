@@ -99,6 +99,10 @@ export function JobRow({
   const qa = getLatestQa(job);
   const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
   const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
+  // GPS proximity ("On-site" / "Nm away") is only meaningful during a live
+  // visit — not on QA/submitted/completed/skipped jobs where the value is stale.
+  const isLiveVisit = ["EN_ROUTE", "IN_PROGRESS", "PAUSED"].includes(status);
+  const showGps = !isSkipped && isLiveVisit && job?.gpsDistanceMeters != null;
 
   return (
     <div
@@ -168,7 +172,7 @@ export function JobRow({
             )}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {job?.gpsDistanceMeters != null ? (
+            {showGps ? (
               <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
                 {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
               </Badge>
@@ -178,8 +182,8 @@ export function JobRow({
                 QA {qa.score}%
               </Badge>
             ) : null}
-            {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
-            {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
+            {!isSkipped && slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
+            {!isSkipped && slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
           </div>
         </div>
       </div>
@@ -202,7 +206,7 @@ export function JobRow({
           </Badge>
         ) : null}
         <Badge variant={(STATUS_COLORS[status] ?? "secondary") as any}>{STATUS_LABELS[status] ?? status}</Badge>
-        {status === "UNASSIGNED" ? (
+        {status === "UNASSIGNED" && !isSkipped ? (
           <Button size="sm" onClick={() => onQuickAssign(job)} disabled={quickAssigning}>
             <UserPlus className="mr-2 h-4 w-4" />
             {quickAssigning ? "Assigning..." : "Quick Assign"}

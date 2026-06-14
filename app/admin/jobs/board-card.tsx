@@ -51,6 +51,8 @@ export function BoardCard({
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
   const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
+  const isLiveVisit = ["EN_ROUTE", "IN_PROGRESS", "PAUSED"].includes(status);
+  const showGps = !isSkipped && isLiveVisit && job?.gpsDistanceMeters != null;
 
   return (
     <Card
@@ -124,16 +126,16 @@ export function BoardCard({
           </Badge>
         ) : null}
         <div className="mt-2 flex flex-wrap gap-2">
-          {job.gpsDistanceMeters != null ? (
+          {showGps ? (
             <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
               {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
             </Badge>
           ) : null}
-          {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
-          {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
+          {!isSkipped && slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
+          {!isSkipped && slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
         </div>
         <div className="mt-3 flex gap-2">
-          {status === "UNASSIGNED" ? (
+          {status === "UNASSIGNED" && !isSkipped ? (
             <Button
               size="sm"
               onClick={() => onQuickAssign(job)}

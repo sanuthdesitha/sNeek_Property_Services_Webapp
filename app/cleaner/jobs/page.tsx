@@ -328,9 +328,14 @@ export default async function CleanerJobsPage({
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
-                        {formatJobStatusLabel(job.status)}
-                      </Badge>
+                      {/* When there's a pending OFFER, the "awaiting your response"
+                          badge + accept/decline actions above already convey the
+                          state — don't also show the duplicate OFFERED status badge. */}
+                      {assignmentResponseStatus !== "PENDING" ? (
+                        <Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
+                          {formatJobStatusLabel(job.status)}
+                        </Badge>
+                      ) : null}
                       {mapsUrl ? (
                         <Button size="sm" variant="outline" asChild>
                           <a href={mapsUrl} target="_blank" rel="noreferrer">

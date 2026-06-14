@@ -586,7 +586,13 @@ export default function JobsPage() {
   }
 
   function getSlaStatus(job: any): "overdue" | "due-soon" | null {
-    if (!job?.dueTime || ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"].includes(String(job?.status ?? ""))) {
+    // No SLA pressure for terminal/skipped/cancelled jobs, or once the work is
+    // submitted/under QA — overdue/due-soon only make sense for live, to-do jobs.
+    if (
+      !job?.dueTime ||
+      String(job?.cleanSkipStatus ?? "") === "SKIPPED" ||
+      ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW", "CANCELLED"].includes(String(job?.status ?? ""))
+    ) {
       return null;
     }
     const dueDate = new Date(job.scheduledDate);
@@ -756,7 +762,14 @@ export default function JobsPage() {
   // Selecting a quick status chip clears any explicit date inputs only when the
   // chip itself isn't a date concern; status + date compose freely otherwise.
   function applyStatusChip(chipId: string) {
-    setFilters((current) => ({ ...current, status: chipId }));
+    setFilters((current) => ({
+      ...current,
+      status: chipId,
+      // Completed jobs read best newest-first; active/upcoming read soonest-first.
+      // This sets the sensible default per status; the user can still override
+      // the sort afterward.
+      sort: chipId === "completed" ? "latest" : current.sort === "latest" ? "soonest" : current.sort,
+    }));
   }
 
   // Quick date chip. Picking a chip clears the manual date-range inputs so the
