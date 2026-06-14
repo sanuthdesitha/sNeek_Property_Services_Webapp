@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
@@ -242,6 +243,45 @@ export async function PATCH(req: NextRequest) {
     const body = updateSchema.parse(await req.json());
     const before = await getAppSettings();
     const settings = await saveAppSettings(body as any);
+
+    // When public-website content (or branding shown on the marketing site)
+    // changes, drop the cached render of every public marketing route so edits
+    // appear on the live site immediately instead of waiting for a redeploy or
+    // the next natural cache miss.
+    if (
+      body.websiteContent !== undefined ||
+      body.companyName !== undefined ||
+      body.logoUrl !== undefined ||
+      body.publicWidgets !== undefined
+    ) {
+      const publicPaths = [
+        "/",
+        "/services",
+        "/airbnb-hosting",
+        "/subscriptions",
+        "/why-us",
+        "/compare",
+        "/faq",
+        "/contact",
+        "/blog",
+        "/careers",
+        "/terms",
+        "/privacy",
+      ];
+      for (const path of publicPaths) {
+        try {
+          revalidatePath(path);
+        } catch {
+          /* best-effort: never block the save on a revalidation hiccup */
+        }
+      }
+      // Service detail pages share a dynamic segment.
+      try {
+        revalidatePath("/services/[slug]", "page");
+      } catch {
+        /* no-op */
+      }
+    }
 
     await db.auditLog.create({
       data: {

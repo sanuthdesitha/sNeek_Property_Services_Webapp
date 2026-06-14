@@ -7,6 +7,7 @@ import { DEFAULT_WEBSITE_CONTENT, type WebsiteContent, type WebsiteFeatureCard, 
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AdminPageShell } from "@/components/admin/page-shell";
+import { WebsiteLivePreview } from "@/components/admin/website-live-preview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -233,7 +234,15 @@ function LegalSectionsEditor({ value, onChange }: { value: WebsiteLegalSection[]
   );
 }
 
-export function WebsiteEditor({ initialContent }: { initialContent: WebsiteContent }) {
+export function WebsiteEditor({
+  initialContent,
+  companyName = "sNeek Property Services",
+  logoUrl = "",
+}: {
+  initialContent: WebsiteContent;
+  companyName?: string;
+  logoUrl?: string;
+}) {
   const [content, setContent] = useState<WebsiteContent>(() => cloneContent(initialContent));
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
@@ -349,7 +358,7 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_340px]">
         <SectionCard
           title="Editor workspace"
-          description="Use the tabs below to update public pages, then preview the result in a new tab before saving."
+          description="Edit any section below and watch it update instantly in the live preview on the right. Nothing goes live until you press Save website."
         >
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="rounded-[1.5rem] border border-primary/10 bg-primary/[0.04] p-5">
@@ -378,8 +387,8 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
             <div className="rounded-[1.5rem] border border-border/70 bg-white/92 dark:bg-white/5 p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Preview shortcuts</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Open customer-facing pages in a new tab while you edit.</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Open full pages</p>
+                  <p className="mt-1 text-sm text-muted-foreground">The home page renders live on the right. Open any other customer-facing page in a new tab to review it.</p>
                 </div>
                 <Button type="button" variant="outline" className="rounded-full" asChild>
                   <a href="/admin/website/blog">
@@ -430,7 +439,8 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
         </SectionCard>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 space-y-5">
         <div className="overflow-x-auto pb-1">
           <TabsList className="flex min-w-max flex-nowrap justify-start gap-2 rounded-[1.2rem] bg-white/70 dark:bg-white/5 p-1">
             {editorTabs.map((tab) => (
@@ -1164,7 +1174,14 @@ export function WebsiteEditor({ initialContent }: { initialContent: WebsiteConte
             </div>
           </SectionCard>
         </TabsContent>
-      </Tabs>
+        </Tabs>
+
+        <div className="hidden min-w-0 xl:block">
+          <div className="sticky top-24 h-[calc(100vh-8rem)]">
+            <WebsiteLivePreview content={content} companyName={companyName} logoUrl={logoUrl} />
+          </div>
+        </div>
+      </div>
 
       <div className="sticky bottom-4 z-20 flex justify-end">
         <div className="flex flex-wrap items-center gap-3 rounded-[1.3rem] border border-white/80 dark:border-white/10 bg-white/92 dark:bg-white/5 px-4 py-3 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)] backdrop-blur-md">

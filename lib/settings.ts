@@ -145,6 +145,37 @@ export interface SlaSettings {
   notifyAdminOnOverdue: boolean;
 }
 
+export type CaseSeverityLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+/**
+ * Controls how aggressively the platform opens *formal* cases for automated
+ * breach detection (overdue jobs, SLA misses, QA fails). The goal is to avoid
+ * flooding the case queue with minor breaches: small breaches surface only as
+ * soft "immediate attention" items, while anything past the configured
+ * thresholds becomes a real, deduped, self-healing case.
+ */
+export interface CaseAutomationSettings {
+  /**
+   * Minimum severity an automated breach must reach before a formal case is
+   * opened. Below this, the breach is a soft attention item only.
+   */
+  autoOpenMinSeverity: CaseSeverityLevel;
+  /**
+   * Extra grace (in minutes) added on top of the SLA escalation window before
+   * an overdue job is allowed to open a case. Lets minor overruns clear on
+   * their own without paperwork.
+   */
+  overdueGraceMinutes: number;
+  /** Never open a second open case for the same job + type. */
+  dedupeByJobAndType: boolean;
+  /**
+   * When the underlying condition clears (job completed, QA passes on
+   * re-review), auto-resolve the matching auto-created case with a transition
+   * note instead of leaving it stale.
+   */
+  autoResolveOnClear: boolean;
+}
+
 export interface RecurringJobSettings {
   enabled: boolean;
   lookaheadDays: number;
@@ -225,6 +256,7 @@ export interface AppSettings {
   autoClockOut: AutoClockOutSettings;
   laundryOperations: LaundryOperationsSettings;
   sla: SlaSettings;
+  caseAutomation: CaseAutomationSettings;
   recurringJobs: RecurringJobSettings;
   autoAssign: AutoAssignSettings;
   routeOptimization: RouteOptimizationSettings;
@@ -430,6 +462,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
     overdueEscalationMinutes: 30,
     createIssueOnOverdue: true,
     notifyAdminOnOverdue: true,
+  },
+  caseAutomation: {
+    // Only open a formal case once a breach is HIGH or above — minor overdue
+    // jobs stay as soft attention items, not paperwork.
+    autoOpenMinSeverity: "HIGH",
+    // Add an hour of grace on top of the SLA escalation window before a case
+    // is opened, so small overruns clear on their own.
+    overdueGraceMinutes: 60,
+    dedupeByJobAndType: true,
+    autoResolveOnClear: true,
   },
   recurringJobs: {
     enabled: true,
@@ -785,6 +827,35 @@ function sanitizeSlaSettings(input: unknown, fallback: SlaSettings): SlaSettings
   };
 }
 
+const CASE_SEVERITY_LEVELS: CaseSeverityLevel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+function sanitizeCaseAutomationSettings(
+  input: unknown,
+  fallback: CaseAutomationSettings
+): CaseAutomationSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const rawSeverity = String(row.autoOpenMinSeverity ?? "").trim().toUpperCase();
+  return {
+    autoOpenMinSeverity: CASE_SEVERITY_LEVELS.includes(rawSeverity as CaseSeverityLevel)
+      ? (rawSeverity as CaseSeverityLevel)
+      : fallback.autoOpenMinSeverity,
+    overdueGraceMinutes: clamp(
+      Number(row.overdueGraceMinutes ?? fallback.overdueGraceMinutes),
+      0,
+      1440
+    ),
+    dedupeByJobAndType:
+      typeof row.dedupeByJobAndType === "boolean"
+        ? row.dedupeByJobAndType
+        : fallback.dedupeByJobAndType,
+    autoResolveOnClear:
+      typeof row.autoResolveOnClear === "boolean"
+        ? row.autoResolveOnClear
+        : fallback.autoResolveOnClear,
+  };
+}
+
 function sanitizeRecurringJobSettings(input: unknown, fallback: RecurringJobSettings): RecurringJobSettings {
   if (!input || typeof input !== "object") return fallback;
   const row = input as Record<string, unknown>;
@@ -1051,6 +1122,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       DEFAULT_SETTINGS.laundryOperations
     ),
     sla: sanitizeSlaSettings((parsed as any).sla, DEFAULT_SETTINGS.sla),
+    caseAutomation: sanitizeCaseAutomationSettings(
+      (parsed as any).caseAutomation,
+      DEFAULT_SETTINGS.caseAutomation
+    ),
     recurringJobs: sanitizeRecurringJobSettings(
       (parsed as any).recurringJobs,
       DEFAULT_SETTINGS.recurringJobs
@@ -1127,6 +1202,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     profileEditPolicy: input.profileEditPolicy ?? current.profileEditPolicy,
     profileEditOverrides: input.profileEditOverrides ?? current.profileEditOverrides,
     sla: input.sla ?? current.sla,
+    caseAutomation: input.caseAutomation ?? current.caseAutomation,
     recurringJobs: input.recurringJobs ?? current.recurringJobs,
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,

@@ -7,5 +7,11 @@ export default async function AdminWebsitePage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const settings = await getAppSettings();
 
-  return <WebsiteEditor initialContent={settings.websiteContent} />;
+  return (
+    <WebsiteEditor
+      initialContent={settings.websiteContent}
+      companyName={settings.companyName || "sNeek Property Services"}
+      logoUrl={settings.logoUrl}
+    />
+  );
 }

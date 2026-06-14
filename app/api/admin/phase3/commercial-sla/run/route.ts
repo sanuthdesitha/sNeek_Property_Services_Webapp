@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { evaluateCommercialSla } from "@/lib/phase3/commercial-sla";
+import { getAppSettings } from "@/lib/settings";
+import { meetsAutoOpenThreshold } from "@/lib/cases/auto-case";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -24,12 +26,16 @@ export async function POST(req: NextRequest) {
 
     let issuesCreated = 0;
     if (body.createIssues) {
+      const settings = await getAppSettings();
       for (const breach of result.breaches) {
+        // THRESHOLD: keep minor commercial breaches out of the formal queue.
+        if (!meetsAutoOpenThreshold(breach.severity, settings.caseAutomation)) continue;
+        // DEDUPE: never open a second open case for this job + rule.
         const existing = await db.issueTicket.findFirst({
           where: {
             jobId: breach.jobId,
             title: `SLA breach (${breach.ruleName})`,
-            status: { not: "RESOLVED" },
+            status: { notIn: ["RESOLVED", "CLOSED"] },
           },
           select: { id: true },
         });
@@ -41,6 +47,9 @@ export async function POST(req: NextRequest) {
             description: `Types: ${breach.breachTypes.join(", ")} | Severity: ${breach.severity}`,
             severity: breach.severity,
             status: "OPEN",
+            state: "OPEN",
+            caseType: "SLA",
+            source: "COMMERCIAL_SLA",
           },
         });
         issuesCreated += 1;

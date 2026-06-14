@@ -2693,6 +2693,82 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
             </div>
 
             <div className="space-y-2 rounded border p-3">
+              <p className="text-xs font-medium">Auto-case creation</p>
+              <p className="text-[11px] text-muted-foreground">
+                Limit formal cases for minor breaches. Smaller breaches stay as soft attention items.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Only auto-open at severity</Label>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={settings.caseAutomation.autoOpenMinSeverity}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      caseAutomation: {
+                        ...prev.caseAutomation,
+                        autoOpenMinSeverity: e.target.value as typeof prev.caseAutomation.autoOpenMinSeverity,
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                >
+                  <option value="LOW">Low and above</option>
+                  <option value="MEDIUM">Medium and above</option>
+                  <option value="HIGH">High and above</option>
+                  <option value="CRITICAL">Critical only</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Overdue grace before case (mins)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={settings.caseAutomation.overdueGraceMinutes}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      caseAutomation: {
+                        ...prev.caseAutomation,
+                        overdueGraceMinutes: Number(
+                          e.target.value || prev.caseAutomation.overdueGraceMinutes
+                        ),
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Dedupe by job + type</Label>
+                <Switch
+                  checked={settings.caseAutomation.dedupeByJobAndType}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      caseAutomation: { ...prev.caseAutomation, dedupeByJobAndType: value },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Auto-resolve when condition clears</Label>
+                <Switch
+                  checked={settings.caseAutomation.autoResolveOnClear}
+                  onCheckedChange={(value) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      caseAutomation: { ...prev.caseAutomation, autoResolveOnClear: value },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded border p-3">
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Recurring generation enabled</Label>
                 <Switch

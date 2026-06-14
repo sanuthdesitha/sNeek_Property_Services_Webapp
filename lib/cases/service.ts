@@ -5,6 +5,7 @@ import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
 import { publicUrl } from "@/lib/s3";
 import { listDisputes, type DisputeRecord } from "@/lib/phase4/disputes";
 import { normalizeUnifiedCaseStatus, type UnifiedCaseStatus } from "@/lib/cases/status";
+import type { CaseState } from "@/lib/cases/lifecycle-fsm";
 
 const LEGACY_MIGRATION_KEY = "cases_legacy_disputes_migration_v1";
 
@@ -67,6 +68,34 @@ function normalizeCaseType(value: string | null | undefined): CaseType {
 
 function normalizeCaseStatus(value: string | null | undefined): CaseStatus {
   return normalizeUnifiedCaseStatus(value);
+}
+
+/**
+ * The case carries two parallel fields: the legacy unified `status` (driven by
+ * the admin workspace quick actions) and the FSM `state` (the lifecycle rail +
+ * CaseTransition history). To keep the lifecycle honest, a status change maps
+ * onto the corresponding lifecycle state so both views agree and a transition
+ * is recorded.
+ */
+function stateForStatus(status: CaseStatus): CaseState {
+  switch (status) {
+    case "OPEN":
+      return "OPEN";
+    case "TRIAGE":
+      return "TRIAGE";
+    case "INVESTIGATING":
+      return "IN_PROGRESS";
+    case "WAITING_CLIENT":
+      return "AWAITING_CLIENT";
+    case "WAITING_INTERNAL":
+      return "IN_PROGRESS";
+    case "RESOLVED":
+      return "RESOLVED";
+    case "CLOSED":
+      return "CLOSED";
+    default:
+      return "OPEN";
+  }
 }
 
 function normalizeSeverity(value: string | null | undefined) {
@@ -419,21 +448,25 @@ export async function createCase(input: {
   return getCaseById(created.id);
 }
 
-export async function updateCase(id: string, patch: {
-  title?: string;
-  description?: string | null;
-  severity?: string | null;
-  status?: string | null;
-  assignedToUserId?: string | null;
-  clientVisible?: boolean;
-  clientCanReply?: boolean;
-  resolutionNote?: string | null;
-  caseType?: string | null;
-  metadata?: Record<string, unknown>;
-}) {
+export async function updateCase(
+  id: string,
+  patch: {
+    title?: string;
+    description?: string | null;
+    severity?: string | null;
+    status?: string | null;
+    assignedToUserId?: string | null;
+    clientVisible?: boolean;
+    clientCanReply?: boolean;
+    resolutionNote?: string | null;
+    caseType?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+  options?: { actorId?: string | null; statusChangeNote?: string | null }
+) {
   const existing = await db.issueTicket.findUnique({
     where: { id },
-    select: { id: true, metadata: true, resolutionNote: true, description: true },
+    select: { id: true, metadata: true, resolutionNote: true, description: true, status: true, state: true },
   });
   if (!existing) return null;
   const nextMetadata = {
@@ -443,13 +476,21 @@ export async function updateCase(id: string, patch: {
     ...(patch.metadata ?? {}),
   };
 
+  // Keep the FSM `state` in lockstep with the unified `status` so the lifecycle
+  // rail and the quick-action status never disagree.
+  const nextStatus = patch.status ? normalizeCaseStatus(patch.status) : null;
+  const fromState = (existing.state as CaseState) ?? "OPEN";
+  const nextState = nextStatus ? stateForStatus(nextStatus) : null;
+  const stateChanged = Boolean(nextState && nextState !== fromState);
+
   await db.issueTicket.update({
     where: { id },
     data: {
       title: patch.title?.trim().slice(0, 180) || undefined,
       description: patch.description !== undefined ? patch.description?.trim() || null : undefined,
       severity: patch.severity ? normalizeSeverity(patch.severity) : undefined,
-      status: patch.status ? normalizeCaseStatus(patch.status) : undefined,
+      status: nextStatus ?? undefined,
+      state: stateChanged ? (nextState as CaseState) : undefined,
       assignedToUserId:
         patch.assignedToUserId !== undefined ? patch.assignedToUserId?.trim() || null : undefined,
       clientVisible: patch.clientVisible,
@@ -460,6 +501,20 @@ export async function updateCase(id: string, patch: {
       metadata: nextMetadata as any,
     },
   });
+
+  if (stateChanged && nextState) {
+    await db.caseTransition
+      .create({
+        data: {
+          caseId: id,
+          fromState,
+          toState: nextState,
+          actorId: options?.actorId ?? null,
+          reason: options?.statusChangeNote?.slice(0, 4000) || `Status set to ${nextStatus}.`,
+        },
+      })
+      .catch(() => undefined);
+  }
 
   return getCaseById(id);
 }

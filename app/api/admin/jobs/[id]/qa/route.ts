@@ -10,6 +10,11 @@ import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner"
 import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
 import { scheduleJobFollowUps } from "@/lib/ops/follow-up-sequences";
 import { logger } from "@/lib/logger";
+import {
+  autoResolveJobCases,
+  findOpenAutoCase,
+  meetsAutoOpenThreshold,
+} from "@/lib/cases/auto-case";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -90,12 +95,23 @@ export async function POST(
     // roll back the QA review itself, so these run outside the core transaction
     // and each is individually guarded + logged.
     let reworkJobId: string | null = null;
-    if (!passed && settings.qaAutomation.createIssueTicket) {
+    if (
+      !passed &&
+      settings.qaAutomation.createIssueTicket &&
+      // Respect the case-automation threshold (QA fails are HIGH severity).
+      meetsAutoOpenThreshold("HIGH", settings.caseAutomation)
+    ) {
       try {
-        const existingIssue = await db.issueTicket.findFirst({
-          where: { jobId: params.id, caseType: "OPS", status: { not: "RESOLVED" } },
-          select: { id: true },
-        });
+        // DEDUPE: never open a second open QA case for this job. The legacy
+        // OPS-type check is kept, plus the shared job+type guard.
+        const existingIssue =
+          (await db.issueTicket.findFirst({
+            where: { jobId: params.id, caseType: "OPS", status: { not: "RESOLVED" } },
+            select: { id: true },
+          })) ??
+          (settings.caseAutomation.dedupeByJobAndType
+            ? await findOpenAutoCase({ jobId: params.id, titlePrefix: "QA Below Threshold" })
+            : null);
         if (!existingIssue) {
           const jobNumber = await db.job.findUnique({
             where: { id: params.id },
@@ -110,12 +126,28 @@ export async function POST(
               source: "QA_AUTOMATION",
               severity: "HIGH",
               status: "OPEN",
+              state: "OPEN",
               clientVisible: false,
             },
           });
         }
       } catch (err) {
         logger.error({ err, jobId: params.id }, "QA automation: issue-ticket creation failed (non-fatal)");
+      }
+    }
+
+    // SELF-HEAL: a re-review that now passes should auto-resolve the QA case
+    // the previous failure opened, instead of leaving it stale.
+    if (passed && settings.caseAutomation.autoResolveOnClear) {
+      try {
+        await autoResolveJobCases({
+          jobId: params.id,
+          titlePrefix: "QA Below Threshold",
+          reason: `QA re-review passed with a score of ${body.score}% (threshold ${settings.qaAutomation.failureThreshold}%).`,
+          actorId: session.user.id,
+        });
+      } catch (err) {
+        logger.error({ err, jobId: params.id }, "QA automation: case self-heal failed (non-fatal)");
       }
     }
 

@@ -34,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { PortalTheme } from "@/lib/settings";
 import { ProfileCompletionGate } from "@/components/shared/profile-completion-gate";
+import { ShieldCheck } from "lucide-react";
 
 type PortalNavItem = {
   href: string;
@@ -208,6 +209,14 @@ export function PortalShell({
 
         {/* Footer */}
         <div className="border-t border-border/60 py-3 px-2 space-y-0.5 shrink-0">
+          {!compact && (
+            <div className="mb-2 flex items-start gap-2 rounded-xl border border-primary/15 bg-primary/[0.04] px-2.5 py-2">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              <p className="text-[10.5px] leading-snug text-muted-foreground">
+                Following the verified workflow keeps your jobs, pay, and quality on track.
+              </p>
+            </div>
+          )}
           <Link
             href={settingsHref}
             title={compact ? "Settings" : undefined}

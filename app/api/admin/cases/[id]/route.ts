@@ -56,7 +56,10 @@ export async function PATCH(
     if (statusChanged && !body.statusChangeNote?.trim()) {
       return NextResponse.json({ error: "A note is required when changing case status." }, { status: 400 });
     }
-    const updated = await updateCase(params.id, body);
+    const updated = await updateCase(params.id, body, {
+      actorId: session.user.id,
+      statusChangeNote: body.statusChangeNote?.trim() || null,
+    });
     if (!updated) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }

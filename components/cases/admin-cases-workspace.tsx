@@ -183,6 +183,40 @@ function statusTone(value: CaseStatus) {
   return "outline" as const;
 }
 
+/** Human age of a case from its created timestamp, e.g. "3d", "5h", "12m". */
+function ageLabel(createdAt: string): string {
+  const created = new Date(createdAt).getTime();
+  if (Number.isNaN(created)) return "-";
+  const mins = Math.max(0, Math.round((Date.now() - created) / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+type SlaIndicator = { label: string; tone: "destructive" | "secondary" | "outline" } | null;
+
+/**
+ * SLA / age indicator for the queue card. Shows "SLA breached" when the
+ * deadline has passed, "Due in N…" when a deadline is approaching, otherwise
+ * the case age. Resolved/closed cases show nothing.
+ */
+function slaIndicator(item: CaseItem): SlaIndicator {
+  if (item.status === "RESOLVED" || item.status === "CLOSED") return null;
+  if (item.slaBreachAt) {
+    const breach = new Date(item.slaBreachAt).getTime();
+    if (!Number.isNaN(breach)) {
+      const diffMin = Math.round((breach - Date.now()) / 60_000);
+      if (diffMin <= 0) return { label: "SLA breached", tone: "destructive" };
+      if (diffMin < 240) {
+        const hrs = Math.max(1, Math.round(diffMin / 60));
+        return { label: `Due in ${hrs}h`, tone: "secondary" };
+      }
+    }
+  }
+  return { label: `Age ${ageLabel(item.createdAt)}`, tone: "outline" };
+}
+
 export function AdminCasesWorkspace() {
   const router = useRouter();
   const pathname = usePathname();
@@ -593,7 +627,7 @@ export function AdminCasesWorkspace() {
                 {visibleItems.map((item) => (
                   <div key={item.id} className={`rounded-xl border px-3 py-3 transition ${selectedId === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}>
                     <button type="button" className="w-full text-left" onClick={() => setSelectedId(item.id)}>
-                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{CASE_STATUS_LABELS[item.status]}</Badge></div></div>
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.title}</p><div className="flex flex-wrap gap-1"><Badge variant={severityTone(item.severity)}>{item.severity}</Badge><Badge variant={statusTone(item.status)}>{CASE_STATUS_LABELS[item.status]}</Badge>{(() => { const sla = slaIndicator(item); return sla ? <Badge variant={sla.tone}>{sla.label}</Badge> : null; })()}</div></div>
                       <p className="mt-1 text-xs text-muted-foreground">{prettify(item.caseType)} · {item.property?.name || item.job?.property?.name || item.client?.name || "General case"}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Owner: {item.assignedTo?.name?.trim() || item.assignedTo?.email || "Unassigned"}</p>
                     </button>
