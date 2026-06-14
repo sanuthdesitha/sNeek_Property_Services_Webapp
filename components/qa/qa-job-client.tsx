@@ -42,6 +42,8 @@ import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintena
 import { toast } from "@/hooks/use-toast";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { FieldInput } from "@/components/forms/field-input";
+import { getAccuratePosition } from "@/lib/geo/get-position";
+import type { StampOptions } from "@/lib/uploads/stamp";
 import {
   emptyInspectionTools,
   emptyReworkProposal,
@@ -61,9 +63,11 @@ const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
 
 export function QaJobClient({ jobId }: { jobId: string }) {
   const { data: authSession } = useSession();
-  // Evidence stamp identity for QA photos (timestamp + inspector name + sNeek mark).
-  const evidenceStamp = { capturerName: authSession?.user?.name ?? "QA Inspector" };
   const [payload, setPayload] = useState<any>(null);
+  // Evidence stamp inputs (branding + GPS), fetched once per session and reused
+  // across every QA photo so the overlay carries the real logo + location.
+  const [branding, setBranding] = useState<{ companyName?: string; logoUrl?: string }>({});
+  const [stampGps, setStampGps] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<Record<string, any>>({});
@@ -92,6 +96,27 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     void load();
   }, [jobId]);
 
+  // Resolve branding + a GPS fix once for the evidence stamp (best-effort).
+  useEffect(() => {
+    let active = true;
+    fetch("/api/public/branding")
+      .then((r) => r.json())
+      .then((b) => {
+        if (active) setBranding({ companyName: b?.companyName, logoUrl: b?.logoUrl });
+      })
+      .catch(() => {});
+    getAccuratePosition()
+      .then((fix) => {
+        if (active && Number.isFinite(fix?.lat) && Number.isFinite(fix?.lng)) {
+          setStampGps({ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy ?? null });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Seed previously-saved per-section QA photos (keys + presigned display URLs)
   // whenever a fresh payload arrives, so re-opening shows existing thumbnails.
   useEffect(() => {
@@ -115,6 +140,24 @@ export function QaJobClient({ jobId }: { jobId: string }) {
 
   const template = payload?.template;
   const job = payload?.job;
+
+  // Base evidence stamp shared by every QA photo (timestamp Australia/Sydney,
+  // inspector name, GPS, sNeek logo). Per-upload contextLabel is merged at the
+  // dropzone. Rebuilds as branding/GPS resolve so later shots carry the logo+fix.
+  const evidenceStamp = useMemo<StampOptions>(() => {
+    const propertyName =
+      (typeof job?.property?.name === "string" && job.property.name.trim()) || "";
+    const propertySuburb =
+      (typeof job?.property?.suburb === "string" && job.property.suburb.trim()) || "";
+    return {
+      capturerName: authSession?.user?.name?.trim() || "QA Inspector",
+      companyName: branding.companyName?.trim() || "sNeek Property Services",
+      logoUrl: branding.logoUrl || "",
+      gps: stampGps,
+      timezone: "Australia/Sydney",
+      reference: [propertyName, propertySuburb].filter(Boolean).join(" · ") || undefined,
+    };
+  }, [authSession?.user?.name, branding.companyName, branding.logoUrl, stampGps, job?.property?.name, job?.property?.suburb]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
   const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> =
     payload?.cleanerCandidates ?? [];
@@ -520,7 +563,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                     jobId={jobId}
                     accept="image/*"
                     maxFiles={6}
-                    stamp={evidenceStamp}
+                    stamp={{
+                      ...evidenceStamp,
+                      contextLabel: ["Damage report", entry.area?.trim()].filter(Boolean).join(" · "),
+                    }}
                     onUploaded={(r) => updateDamage(entry.id, { photoKeys: [...entry.photoKeys, r.key] })}
                   />
                   <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDamage(entry.id)}>
@@ -865,7 +911,13 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         jobId={jobId}
                         accept="image/*"
                         maxFiles={6}
-                        stamp={evidenceStamp}
+                        stamp={{
+                          ...evidenceStamp,
+                          contextLabel:
+                            (typeof section.label === "string" && section.label.trim()) ||
+                            (typeof section.title === "string" && section.title.trim()) ||
+                            undefined,
+                        }}
                         onUploaded={(r) => addSectionPhoto(section.id, r.key)}
                       />
                     ) : null}
