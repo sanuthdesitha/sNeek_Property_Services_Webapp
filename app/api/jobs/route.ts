@@ -117,9 +117,14 @@ export async function GET(req: NextRequest) {
     const dateTo = searchParams.get("dateTo");
 
     const page = Math.max(1, Math.floor(Number(searchParams.get("page") ?? "1")));
-    const limit = Math.min(100, Math.max(10, Math.floor(Number(searchParams.get("limit") ?? "50"))));
+    const limit = Math.min(5000, Math.max(10, Math.floor(Number(searchParams.get("limit") ?? "50"))));
     const role = session.user.role;
-    const wantsPaginatedPayload = role !== Role.CLEANER && Boolean(statusGroup);
+    // Admins/ops get the paginated payload for the unified jobs list. The
+    // legacy `statusGroup` param is still honoured for older callers, but is no
+    // longer required — the page now filters by explicit `status` + date params.
+    const paginated = searchParams.get("paginated");
+    const wantsPaginatedPayload =
+      role !== Role.CLEANER && (Boolean(statusGroup) || paginated === "1" || paginated === "true");
 
     const where = buildWhereClause({
       status,

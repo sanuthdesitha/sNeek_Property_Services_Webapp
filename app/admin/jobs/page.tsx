@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertTriangle, Briefcase, CalendarClock, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, Trash2, UserPlus } from "lucide-react";
+import { toZonedTime } from "date-fns-tz";
+import { AlertTriangle, Briefcase, ChevronLeft, ChevronRight, Kanban, List, Plus, Settings2, SlidersHorizontal, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,9 @@ import { Label } from "@/components/ui/label";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
 import { toast } from "@/hooks/use-toast";
+import { JobRow, STATUS_COLORS, STATUS_LABELS } from "./job-row";
+
+const TZ = "Australia/Sydney";
 
 const JOB_STATUSES = [
   "UNASSIGNED",
@@ -33,32 +36,53 @@ const JOB_STATUSES = [
   "COMPLETED",
   "INVOICED",
 ];
-const STATUS_COLORS: Record<string, string> = {
-  UNASSIGNED: "warning",
-  OFFERED: "warning",
-  ASSIGNED: "secondary",
-  EN_ROUTE: "warning",
-  IN_PROGRESS: "default",
-  PAUSED: "warning",
-  WAITING_CONTINUATION_APPROVAL: "destructive",
-  SUBMITTED: "secondary",
-  QA_REVIEW: "warning",
-  COMPLETED: "success",
-  INVOICED: "outline",
-};
-const STATUS_LABELS: Record<string, string> = {
-  UNASSIGNED: "Unassigned",
-  OFFERED: "Awaiting Confirmation",
-  ASSIGNED: "Assigned",
-  EN_ROUTE: "On the way",
-  IN_PROGRESS: "In Progress",
-  PAUSED: "Paused",
-  WAITING_CONTINUATION_APPROVAL: "Waiting Approval",
-  SUBMITTED: "Submitted",
-  QA_REVIEW: "QA Review",
-  COMPLETED: "Completed",
-  INVOICED: "Invoiced",
-};
+
+// Quick status chips surfaced above the list (the old "Active/Completed" tabs
+// collapse into these). "active" / "completed" are virtual groups that expand
+// to a set of real JobStatus values; everything else is a single status.
+type StatusChip = { id: string; label: string };
+const STATUS_CHIPS: StatusChip[] = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "UNASSIGNED", label: "Unassigned" },
+  { id: "IN_PROGRESS", label: "In Progress" },
+  { id: "QA_REVIEW", label: "QA Review" },
+  { id: "COMPLETED", label: "Completed" },
+  { id: "INVOICED", label: "Invoiced" },
+];
+const COMPLETED_STATUSES = ["COMPLETED", "INVOICED"];
+
+// Quick date chips (Australia/Sydney). These compose with the status filter.
+type DateFilter = "all" | "today" | "tomorrow" | "week";
+const DATE_CHIPS: { id: DateFilter; label: string }[] = [
+  { id: "all", label: "All dates" },
+  { id: "today", label: "Today" },
+  { id: "tomorrow", label: "Tomorrow" },
+  { id: "week", label: "This week" },
+];
+
+function sydneyDayKey(value: string | Date): string {
+  return format(toZonedTime(new Date(value), TZ), "yyyy-MM-dd");
+}
+function todayKey(): string {
+  return format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
+}
+function tomorrowKey(): string {
+  const base = toZonedTime(new Date(), TZ);
+  return format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1), "yyyy-MM-dd");
+}
+function weekEndKey(): string {
+  const base = toZonedTime(new Date(), TZ);
+  return format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + 6), "yyyy-MM-dd");
+}
+
+/** Resolve a quick date chip to the dateFrom/dateTo pair sent to /api/jobs (Sydney). */
+function dateFilterRange(filter: DateFilter): { dateFrom: string; dateTo: string } {
+  if (filter === "today") return { dateFrom: todayKey(), dateTo: todayKey() };
+  if (filter === "tomorrow") return { dateFrom: tomorrowKey(), dateTo: tomorrowKey() };
+  if (filter === "week") return { dateFrom: todayKey(), dateTo: weekEndKey() };
+  return { dateFrom: "", dateTo: "" };
+}
 
 const JOB_FILTER_DEFAULTS = {
   status: "all",
@@ -67,26 +91,12 @@ const JOB_FILTER_DEFAULTS = {
   jobType: "all",
   clientId: "all",
   propertyId: "all",
+  dateFilter: "all" as DateFilter,
   dateFrom: "",
   dateTo: "",
   invoiced: "all",
 };
 
-type SavedView = "today" | "week" | "unassigned" | "at-risk" | "all";
-
-const SAVED_VIEW_LABELS: Record<SavedView, string> = {
-  today: "Today",
-  week: "This week",
-  unassigned: "Unassigned",
-  "at-risk": "At risk",
-  all: "All",
-};
-
-function todayIso(offset = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
-}
 const JOB_VIEW_STORAGE_KEY = "sneek_admin_jobs_view_v1";
 const JOBS_PAGE_SIZE = 50;
 const KANBAN_COLUMN_PREVIEW = 12;
@@ -94,6 +104,11 @@ const KANBAN_COLUMN_PREVIEW = 12;
 type JobFilters = typeof JOB_FILTER_DEFAULTS;
 
 function parseJobFilters(params: { get(name: string): string | null }): JobFilters {
+  const rawDateFilter = params.get("dateFilter");
+  const dateFilter: DateFilter =
+    rawDateFilter === "today" || rawDateFilter === "tomorrow" || rawDateFilter === "week"
+      ? rawDateFilter
+      : "all";
   return {
     status: params.get("status") || JOB_FILTER_DEFAULTS.status,
     search: params.get("search") || JOB_FILTER_DEFAULTS.search,
@@ -101,6 +116,7 @@ function parseJobFilters(params: { get(name: string): string | null }): JobFilte
     jobType: params.get("jobType") || JOB_FILTER_DEFAULTS.jobType,
     clientId: params.get("clientId") || JOB_FILTER_DEFAULTS.clientId,
     propertyId: params.get("propertyId") || JOB_FILTER_DEFAULTS.propertyId,
+    dateFilter,
     dateFrom: params.get("dateFrom") || JOB_FILTER_DEFAULTS.dateFrom,
     dateTo: params.get("dateTo") || JOB_FILTER_DEFAULTS.dateTo,
     invoiced: params.get("invoiced") || JOB_FILTER_DEFAULTS.invoiced,
@@ -124,9 +140,6 @@ export default function JobsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [jobToDelete, setJobToDelete] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState("active");
-  const initialSavedView = (searchParams.get("view") as SavedView | null) ?? "all";
-  const [savedFilterView, setSavedFilterView] = useState<SavedView>(initialSavedView);
 
   const [qaScoreByJob, setQaScoreByJob] = useState<Record<string, string>>({});
   const [qaNotesByJob, setQaNotesByJob] = useState<Record<string, string>>({});
@@ -153,20 +166,39 @@ export default function JobsPage() {
   const [bulkStatusValue, setBulkStatusValue] = useState("ASSIGNED");
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
-  async function loadJobs(page: number = 1) {
-    setLoading(true);
-    const statusGroup = activeTab === "active" ? "active" : "completed";
-    const params = new URLSearchParams({
-      statusGroup,
-      page: String(page),
-      limit: String(JOBS_PAGE_SIZE),
-    });
-    if (filters.status !== "all") params.set("status", filters.status);
+  // Build the /api/jobs query from the current filters (status chip + date chip
+  // + the rest). Shared by loadJobs and the CSV export so they stay in sync.
+  function buildJobsQuery(overrides?: Record<string, string>): URLSearchParams {
+    const params = new URLSearchParams({ paginated: "1" });
+    // Status chip: "active"/"completed" are virtual groups; anything else is a
+    // single JobStatus. "all" sends nothing so every status is returned.
+    if (filters.status === "active") {
+      params.set("statusGroup", "active");
+    } else if (filters.status === "completed") {
+      params.set("statusGroup", "completed");
+    } else if (filters.status !== "all") {
+      params.set("status", filters.status);
+    }
     if (filters.jobType !== "all") params.set("jobType", filters.jobType);
     if (filters.clientId !== "all") params.set("clientId", filters.clientId);
     if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
-    if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
-    if (filters.dateTo) params.set("dateTo", filters.dateTo);
+
+    // Quick date chip wins; fall back to the explicit date-range inputs.
+    const quickRange = dateFilterRange(filters.dateFilter);
+    const dateFrom = quickRange.dateFrom || filters.dateFrom;
+    const dateTo = quickRange.dateTo || filters.dateTo;
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+
+    if (overrides) {
+      for (const [key, value] of Object.entries(overrides)) params.set(key, value);
+    }
+    return params;
+  }
+
+  async function loadJobs(page: number = 1) {
+    setLoading(true);
+    const params = buildJobsQuery({ page: String(page), limit: String(JOBS_PAGE_SIZE) });
     const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
     const data = await res.json().catch(() => ({ jobs: [], pagination: {} }));
     setJobs(Array.isArray(data?.jobs) ? data.jobs : []);
@@ -209,11 +241,12 @@ export default function JobsPage() {
 
   useEffect(() => {
     loadJobs(1);
-  }, [activeTab, filters.status, filters.jobType, filters.clientId, filters.propertyId, filters.dateFrom, filters.dateTo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.status, filters.jobType, filters.clientId, filters.propertyId, filters.dateFilter, filters.dateFrom, filters.dateTo]);
 
   useEffect(() => {
     setKanbanVisibleCounts({});
-  }, [activeTab, filters.status, filters.search, filters.cleanerName, filters.jobType, filters.dateFrom, filters.dateTo, filters.invoiced]);
+  }, [filters.status, filters.search, filters.cleanerName, filters.jobType, filters.dateFilter, filters.dateFrom, filters.dateTo, filters.invoiced]);
 
   useEffect(() => {
     try {
@@ -301,52 +334,15 @@ export default function JobsPage() {
       }).length,
     [filters]
   );
-  function matchesSavedView(job: any, view: SavedView): boolean {
-    if (view === "all") return true;
-    const scheduled = job?.scheduledDate ? new Date(job.scheduledDate) : null;
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(startOfToday);
-    endOfToday.setDate(endOfToday.getDate() + 1);
-    if (view === "today") {
-      if (!scheduled) return false;
-      return scheduled >= startOfToday && scheduled < endOfToday;
-    }
-    if (view === "week") {
-      if (!scheduled) return false;
-      const endOfWeek = new Date(startOfToday);
-      endOfWeek.setDate(endOfWeek.getDate() + 7);
-      return scheduled >= startOfToday && scheduled < endOfWeek;
-    }
-    if (view === "unassigned") {
-      return job?.status === "UNASSIGNED";
-    }
-    if (view === "at-risk") {
-      const sla = getSlaStatus(job);
-      if (sla === "overdue" || sla === "due-soon") return true;
-      // Unassigned within next hour also counts as at-risk
-      if (job?.status === "UNASSIGNED" && scheduled) {
-        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
-        return scheduled <= oneHourFromNow;
-      }
-      return false;
-    }
-    return true;
-  }
-
+  // Server-side filters (status group/single status + date range + property +
+  // client + job type) are already applied by /api/jobs. The client pass only
+  // layers the text-based refinements (search, cleaner name) and the invoiced
+  // toggle on top, so completed jobs are never silently dropped here.
   const filteredJobs = useMemo(() => {
     const searchNeedle = filters.search.trim().toLowerCase();
     const cleanerNeedle = filters.cleanerName.trim().toLowerCase();
 
     return jobs.filter((job) => {
-      if (!matchesSavedView(job, savedFilterView)) return false;
-      if (filters.status !== "all" && job.status !== filters.status) return false;
-      if (filters.jobType !== "all" && String(job.jobType ?? "") !== filters.jobType) return false;
-
-      const scheduledDate = job?.scheduledDate ? new Date(job.scheduledDate) : null;
-      if (filters.dateFrom && scheduledDate && scheduledDate < new Date(`${filters.dateFrom}T00:00:00`)) return false;
-      if (filters.dateTo && scheduledDate && scheduledDate > new Date(`${filters.dateTo}T23:59:59`)) return false;
-
       const isInvoiced =
         job.status === "INVOICED" ||
         Boolean(job.invoiceId) ||
@@ -379,7 +375,7 @@ export default function JobsPage() {
 
       return true;
     });
-  }, [filters, jobs, savedFilterView]);
+  }, [filters, jobs]);
   const qaQueueJobs = useMemo(
     () => filteredJobs.filter((job) => job.status === "SUBMITTED" || job.status === "QA_REVIEW"),
     [filteredJobs]
@@ -723,28 +719,16 @@ export default function JobsPage() {
 
   const jobUrgentTotal = pendingContinuationRows.length + pendingTimingCount;
 
-  const savedViewCounts = useMemo<Record<SavedView, number>>(() => {
-    const counts: Record<SavedView, number> = { today: 0, week: 0, unassigned: 0, "at-risk": 0, all: jobs.length };
-    for (const job of jobs) {
-      if (matchesSavedView(job, "today")) counts.today += 1;
-      if (matchesSavedView(job, "week")) counts.week += 1;
-      if (matchesSavedView(job, "unassigned")) counts.unassigned += 1;
-      if (matchesSavedView(job, "at-risk")) counts["at-risk"] += 1;
-    }
-    return counts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs]);
+  // Selecting a quick status chip clears any explicit date inputs only when the
+  // chip itself isn't a date concern; status + date compose freely otherwise.
+  function applyStatusChip(chipId: string) {
+    setFilters((current) => ({ ...current, status: chipId }));
+  }
 
-  function applySavedView(view: SavedView) {
-    setSavedFilterView(view);
-    const next = new URLSearchParams(searchParams.toString());
-    if (view === "all") {
-      next.delete("view");
-    } else {
-      next.set("view", view);
-    }
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  // Quick date chip. Picking a chip clears the manual date-range inputs so the
+  // two date controls never fight; "all" clears everything date-related.
+  function applyDateChip(chip: DateFilter) {
+    setFilters((current) => ({ ...current, dateFilter: chip, dateFrom: "", dateTo: "" }));
   }
 
   return (
@@ -774,7 +758,7 @@ export default function JobsPage() {
         title="Jobs"
         description={
           <>
-            {pagination.totalCount} {activeTab === "completed" ? "completed" : "active"} jobs
+            {pagination.totalCount} job{pagination.totalCount !== 1 ? "s" : ""}
             {pagination.totalPages > 1 && (
               <span className="text-muted-foreground"> &middot; Page {pagination.page} of {pagination.totalPages}</span>
             )}
@@ -795,14 +779,7 @@ export default function JobsPage() {
             variant="outline"
             onClick={async () => {
               try {
-                const statusGroup = activeTab === "active" ? "active" : "completed";
-                const params = new URLSearchParams({ statusGroup, limit: "5000" });
-                if (filters.status !== "all") params.set("status", filters.status);
-                if (filters.jobType !== "all") params.set("jobType", filters.jobType);
-                if (filters.clientId !== "all") params.set("clientId", filters.clientId);
-                if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
-                if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
-                if (filters.dateTo) params.set("dateTo", filters.dateTo);
+                const params = buildJobsQuery({ limit: "5000" });
                 const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
                 const data = await res.json().catch(() => ({ jobs: [] }));
                 const rows = (Array.isArray(data?.jobs) ? data.jobs : []).map((j: any) => ({
@@ -827,7 +804,7 @@ export default function JobsPage() {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `jobs_export_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.download = `jobs_export_${new Date().toISOString().slice(0, 10)}.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
                 toast({ title: "Export complete", description: `${rows.length} jobs exported.` });
@@ -882,62 +859,53 @@ export default function JobsPage() {
         }
       />
 
-      {/* Saved filter views */}
-      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1">
-        {(["today", "week", "unassigned", "at-risk", "all"] as SavedView[]).map((view) => {
-          const isActive = savedFilterView === view;
-          return (
-            <button
-              key={view}
-              type="button"
-              onClick={() => applySavedView(view)}
-              className={
-                "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
-                (isActive
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground")
-              }
-            >
-              {SAVED_VIEW_LABELS[view]}
-              <span
+      <div className="space-y-3">
+        {/* Quick date tabs (Australia/Sydney). Horizontally scrollable on mobile. */}
+        <div className="-mx-1 flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1">
+          {DATE_CHIPS.map((chip) => {
+            const isActive = filters.dateFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => applyDateChip(chip.id)}
                 className={
-                  "rounded-full px-1.5 text-[10px] font-semibold " +
-                  (isActive ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground")
+                  "inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+                  (isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
                 }
               >
-                {savedViewCounts[view]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="active">
-            Active jobs
-            {activeTab === "active" ? (
-              <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
-                {pagination.totalCount || jobs.length}
-              </span>
-            ) : null}
-          </TabsTrigger>
-          <TabsTrigger value="completed">
-            Completed jobs
-            {activeTab === "completed" ? (
-              <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
-                {pagination.totalCount || jobs.length}
-              </span>
-            ) : null}
-          </TabsTrigger>
-        </TabsList>
-
-        <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-          {activeTab === "active"
-            ? "Active tab keeps completed jobs out of the main list so dispatch and approvals load faster."
-            : "Completed tab only loads finished jobs so archive review no longer slows down daily ops."}
+                {chip.label}
+              </button>
+            );
+          })}
         </div>
 
+        {/* Status filter chips replace the old Active/Completed tabs. */}
+        <div className="-mx-1 flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1">
+          {STATUS_CHIPS.map((chip) => {
+            const isActive = filters.status === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => applyStatusChip(chip.id)}
+                className={
+                  "inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+                  (isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground")
+                }
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-4">
         {filtersOpen ? (
           <Card>
             <CardContent className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1051,7 +1019,9 @@ export default function JobsPage() {
               <Input
                 type="date"
                 value={filters.dateFrom}
-                onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, dateFilter: "all", dateFrom: event.target.value }))
+                }
               />
             </div>
             <div className="space-y-1.5">
@@ -1059,7 +1029,9 @@ export default function JobsPage() {
               <Input
                 type="date"
                 value={filters.dateTo}
-                onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, dateFilter: "all", dateTo: event.target.value }))
+                }
               />
             </div>
             <div className="space-y-1.5">
@@ -1328,110 +1300,21 @@ export default function JobsPage() {
             <CardContent className="p-0">
               <div className="divide-y">
                 {filteredJobs.map((job) => (
-                  (() => {
-                    const assignmentNames = getAssignmentNames(job);
-                    const slaStatus = getSlaStatus(job);
-                    return (
-                  <div
+                  <JobRow
                     key={job.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${
-                      pendingContinuationJobIds.has(job.id) ? "bg-warning/10" : ""
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="pt-1">
-                        <Checkbox
-                          checked={selectedIds.includes(job.id)}
-                          onCheckedChange={() => toggleSelectedJob(job.id)}
-                        />
-                      </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
-                          {job.property.name}
-                        </Link>
-                        {job.jobNumber ? (
-                          <Badge
-                            variant="warning"
-                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
-                          >
-                            {job.jobNumber}
-                          </Badge>
-                        ) : null}
-                        {hasActiveDamageCase(job) ? (
-                          <Button size="sm" variant="outline" asChild className="h-6 border-red-300 px-2 text-red-700 hover:bg-red-50 hover:text-red-800">
-                            <Link href={`/admin/cases?jobId=${job.id}`}>
-                              <AlertTriangle className="mr-1 h-3 w-3" />
-                              Damage
-                            </Link>
-                          </Button>
-                        ) : null}
-                        {pendingRescheduleJobIds.has(job.id) ? (
-                          <Button size="sm" variant="outline" asChild className="h-6 border-amber-300 bg-amber-50 px-2 text-amber-800 hover:bg-amber-100">
-                            <Link href="/admin/approvals">
-                              <CalendarClock className="mr-1 h-3 w-3" />
-                              Reschedule req
-                            </Link>
-                          </Button>
-                        ) : null}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {job.property.suburb} - {job.jobType.replace(/_/g, " ")} -{" "}
-                        {format(new Date(job.scheduledDate), "dd MMM yyyy")}
-                        {job.startTime ? ` - ${job.startTime}` : ""}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {job.gpsDistanceMeters != null ? (
-                          <Badge variant={job.gpsDistanceMeters < 500 ? "success" : "warning"}>
-                            {job.gpsDistanceMeters < 500 ? "On-site" : `${job.gpsDistanceMeters}m away`}
-                          </Badge>
-                        ) : null}
-                        {slaStatus === "overdue" ? <Badge variant="destructive">Overdue</Badge> : null}
-                        {slaStatus === "due-soon" ? <Badge variant="warning">Due soon</Badge> : null}
-                      </div>
-                    </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {assignmentNames.length > 0 ? (
-                        <span className="hidden text-xs text-muted-foreground sm:block">
-                          {assignmentNames.join(", ")}
-                        </span>
-                      ) : null}
-                      {pendingContinuationJobIds.has(job.id) ? (
-                        <Badge variant="destructive">
-                          <AlertTriangle className="mr-1 h-3 w-3" />
-                          Continuation pending
-                        </Badge>
-                      ) : null}
-                      <Badge variant={STATUS_COLORS[job.status] as any}>{STATUS_LABELS[job.status]}</Badge>
-                      {job.status === "UNASSIGNED" ? (
-                        <Button
-                          size="sm"
-                          onClick={() => openQuickAssign(job)}
-                          disabled={Boolean(quickAssigningByJob[job.id])}
-                        >
-                          <UserPlus className="mr-2 h-4 w-4" />
-                          {quickAssigningByJob[job.id] ? "Assigning..." : "Quick Assign"}
-                        </Button>
-                      ) : null}
-                      <Button size="sm" variant="outline" asChild>
-                        <Link href={`/admin/jobs/${job.id}`}>View</Link>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => {
-                          setJobToDelete(job);
-                          setDeleteOpen(true);
-                        }}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                    );
-                  })()
+                    job={job}
+                    selected={selectedIds.includes(job.id)}
+                    onToggleSelect={toggleSelectedJob}
+                    onQuickAssign={openQuickAssign}
+                    onDelete={(j) => {
+                      setJobToDelete(j);
+                      setDeleteOpen(true);
+                    }}
+                    quickAssigning={Boolean(quickAssigningByJob[job.id])}
+                    pendingContinuation={pendingContinuationJobIds.has(job.id)}
+                    pendingReschedule={pendingRescheduleJobIds.has(job.id)}
+                    slaStatus={getSlaStatus(job)}
+                  />
                 ))}
                 {filteredJobs.length === 0 ? (
                   <p className="px-6 py-10 text-center text-sm text-muted-foreground">No jobs match filters.</p>
@@ -1472,12 +1355,12 @@ export default function JobsPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link href={`/admin/jobs/${job.id}`} className="font-medium text-sm hover:underline">
-                          {job.property.name}
+                          {job.property?.name ?? "Unknown property"}
                         </Link>
                         {job.jobNumber ? (
                           <Badge
                             variant="warning"
-                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950"
+                            className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950 tabular-nums"
                           >
                             {job.jobNumber}
                           </Badge>
@@ -1491,9 +1374,15 @@ export default function JobsPage() {
                           </Button>
                         ) : null}
                       </div>
-                      <p className="text-xs text-muted-foreground">{job.property.suburb}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{job.jobType.replace(/_/g, " ")}</p>
-                      <p className="mt-1 text-xs font-medium">{format(new Date(job.scheduledDate), "dd MMM")}</p>
+                      <p className="text-xs text-muted-foreground">{job.property?.suburb ?? ""}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {job.jobType ? String(job.jobType).replace(/_/g, " ") : "Job"}
+                      </p>
+                      <p className="mt-1 text-xs font-medium tabular-nums">
+                        {job.scheduledDate && !Number.isNaN(new Date(job.scheduledDate).getTime())
+                          ? format(toZonedTime(new Date(job.scheduledDate), TZ), "dd MMM")
+                          : "No date"}
+                      </p>
                       {pendingContinuationJobIds.has(job.id) ? (
                         <Badge variant="destructive" className="mt-2">
                           Continuation pending
@@ -1568,7 +1457,7 @@ export default function JobsPage() {
             ))}
         </div>
       )}
-      </Tabs>
+      </div>
 
       {selectedIds.length > 0 ? (
         <div className="sticky bottom-4 z-30 mx-auto flex w-fit max-w-3xl flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-xl backdrop-blur">
