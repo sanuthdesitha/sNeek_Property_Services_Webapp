@@ -209,6 +209,8 @@ export default function JobDetailPage() {
   const [rescheduleForm, setRescheduleForm] = useState({ date: "", startTime: "", dueTime: "", reason: "" });
   const [rescheduling, setRescheduling] = useState(false);
   const [clearingReschedule, setClearingReschedule] = useState(false);
+  const [skipReason, setSkipReason] = useState("");
+  const [skipBusy, setSkipBusy] = useState(false);
   const [editForm, setEditForm] = useState({
     status: "UNASSIGNED",
     scheduledDate: "",
@@ -1003,6 +1005,35 @@ export default function JobDetailPage() {
     }
   }
 
+  async function runSkipAction(action: "set" | "approve" | "decline" | "unskip") {
+    setSkipBusy(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${params.id}/skip`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason: skipReason.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not update skip state.");
+      toast({
+        title:
+          action === "set"
+            ? "Clean skipped"
+            : action === "approve"
+              ? "Skip request approved"
+              : action === "decline"
+                ? "Skip request declined"
+                : "Clean restored",
+      });
+      setSkipReason("");
+      load();
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message ?? "Could not update skip state.", variant: "destructive" });
+    } finally {
+      setSkipBusy(false);
+    }
+  }
+
   if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>;
   if (!job || job.error) {
     return <div className="p-8 text-destructive">{String(job?.error ?? "Job not found.")}</div>;
@@ -1137,6 +1168,91 @@ export default function JobDetailPage() {
           </Button>
         {job.report?.sentToClient && <Badge variant="success">Shared with client</Badge>}
       </div>
+
+      {/* Skip / don't clean control */}
+      {(() => {
+        const skipStatus = String(job.cleanSkipStatus ?? "NONE");
+        const skipBadge =
+          skipStatus === "SKIPPED"
+            ? { variant: "destructive" as const, label: "Skipped — no clean" }
+            : skipStatus === "REQUESTED"
+              ? { variant: "warning" as const, label: "Skip requested" }
+              : skipStatus === "DECLINED"
+                ? { variant: "secondary" as const, label: "Skip declined" }
+                : null;
+        return (
+          <Card
+            className={
+              skipStatus === "SKIPPED"
+                ? "border-destructive/40 bg-destructive/5"
+                : skipStatus === "REQUESTED"
+                  ? "border-warning/40 bg-warning/10"
+                  : undefined
+            }
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                Skip / don&apos;t clean
+                {skipBadge ? <Badge variant={skipBadge.variant}>{skipBadge.label}</Badge> : null}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {skipStatus === "REQUESTED" ? (
+                <p className="text-sm text-muted-foreground">
+                  A skip was requested{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} Approve to
+                  stop this clean (won&apos;t be dispatched, billed, or paid), or decline to keep it.
+                </p>
+              ) : skipStatus === "SKIPPED" ? (
+                <p className="text-sm text-muted-foreground">
+                  This clean is skipped{job.cleanSkipReason ? `: ${job.cleanSkipReason}` : "."} It is excluded
+                  from dispatch, billing, and payroll. Un-skip to restore it.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Mark this turnover so it is not cleaned. Skipped jobs are excluded from dispatch,
+                  billing, and payroll.
+                </p>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">Reason (optional)</Label>
+                <Input
+                  value={skipReason}
+                  onChange={(e) => setSkipReason(e.target.value)}
+                  placeholder="Reason for skipping / decision note"
+                  maxLength={500}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {skipStatus === "REQUESTED" ? (
+                  <>
+                    <Button size="sm" disabled={skipBusy} onClick={() => runSkipAction("approve")}>
+                      <Check className="mr-1.5 h-4 w-4" /> Approve skip
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("decline")}>
+                      <X className="mr-1.5 h-4 w-4" /> Decline
+                    </Button>
+                  </>
+                ) : skipStatus === "SKIPPED" ? (
+                  <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
+                    <RefreshCw className="mr-1.5 h-4 w-4" /> Un-skip (restore clean)
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" disabled={skipBusy} onClick={() => runSkipAction("set")}>
+                      Skip this clean
+                    </Button>
+                    {skipStatus === "DECLINED" ? (
+                      <Button size="sm" variant="ghost" disabled={skipBusy} onClick={() => runSkipAction("unskip")}>
+                        Clear declined state
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Manually rescheduled notice */}
       {job.manuallyRescheduledAt && (

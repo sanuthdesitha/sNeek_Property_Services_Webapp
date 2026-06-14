@@ -51,6 +51,8 @@ function buildWhereClause(params: {
 
   if (params.role === Role.CLEANER) {
     where.assignments = { some: { userId: params.userId, removedAt: null } };
+    // Skipped cleans are not part of a cleaner's actionable workload.
+    where.cleanSkipStatus = { not: "SKIPPED" };
   }
 
   return where;

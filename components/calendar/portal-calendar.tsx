@@ -9,9 +9,8 @@ import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Settings2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, User2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,10 +23,10 @@ import { CleanerJobOfferActions } from "@/components/cleaner/job-offer-actions";
 
 type CalendarViewPreference = "dayGridMonth" | "timeGridWeek" | "timeGridDay";
 
-const CALENDAR_VIEW_OPTIONS: Array<{ value: CalendarViewPreference; label: string }> = [
-  { value: "dayGridMonth", label: "Month" },
-  { value: "timeGridWeek", label: "Week" },
-  { value: "timeGridDay", label: "Day" },
+const CALENDAR_VIEW_OPTIONS: Array<{ value: CalendarViewPreference; label: string; short: string }> = [
+  { value: "dayGridMonth", label: "Month", short: "M" },
+  { value: "timeGridWeek", label: "Week", short: "W" },
+  { value: "timeGridDay", label: "Day", short: "D" },
 ];
 
 export type PortalCalendarEvent = {
@@ -43,6 +42,7 @@ export type PortalCalendarEvent = {
     badgeLabel: string;
     subtitle?: string;
     meta?: string;
+    cleanerName?: string;
     href?: string;
     assignmentResponseStatus?: string | null;
   };
@@ -61,6 +61,7 @@ type PortalCalendarSelectedEvent = {
   badgeLabel: string;
   subtitle?: string;
   meta?: string;
+  cleanerName?: string;
   href?: string;
   assignmentResponseStatus?: string | null;
 };
@@ -85,21 +86,10 @@ export function PortalCalendar({
   const [selectedEvent, setSelectedEvent] = useState<PortalCalendarSelectedEvent | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [currentView, setCurrentView] = useState<CalendarViewPreference>("dayGridMonth");
-  const [savedView, setSavedView] = useState<CalendarViewPreference>("dayGridMonth");
-  const [draftView, setDraftView] = useState<CalendarViewPreference>("dayGridMonth");
-  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
-
-  const summary = useMemo(() => {
-    const uniqueDays = new Set(events.map((event) => String(event.start).slice(0, 10))).size;
-    const awaitingConfirmation = events.filter(
-      (event) => event.extendedProps.assignmentResponseStatus === "PENDING"
-    ).length;
-    return {
-      total: events.length,
-      activeDays: uniqueDays,
-      awaitingConfirmation,
-    };
-  }, [events]);
+  const [periodLabel, setPeriodLabel] = useState("");
+  // Tracks whether the user explicitly picked a view this session, so we don't
+  // stomp their choice when the viewport flips between mobile/desktop.
+  const explicitViewRef = useRef(false);
 
   const legendCounts = useMemo(() => {
     return events.reduce<Record<string, number>>((acc, event) => {
@@ -109,64 +99,87 @@ export function PortalCalendar({
     }, {});
   }, [events]);
 
+  // Restore a saved desktop view preference (mobile always opens on Day).
   useEffect(() => {
     const media = window.matchMedia("(max-width: 768px)");
-    const syncViewport = () => setIsCompactViewport(media.matches);
-    syncViewport();
+    const compact = media.matches;
+    setIsCompactViewport(compact);
+
+    let initial: CalendarViewPreference = compact ? "timeGridDay" : "dayGridMonth";
+    if (!compact && viewPreferenceKey) {
+      try {
+        const raw = window.localStorage.getItem(viewPreferenceKey);
+        if (raw === "dayGridMonth" || raw === "timeGridWeek" || raw === "timeGridDay") {
+          initial = raw;
+        }
+      } catch {
+        // Ignore storage failures.
+      }
+    }
+    setCurrentView(initial);
+    const api = calendarRef.current?.getApi();
+    if (api && api.view.type !== initial) api.changeView(initial);
+
+    const syncViewport = (event: MediaQueryListEvent) => {
+      setIsCompactViewport(event.matches);
+      if (explicitViewRef.current) return;
+      const next: CalendarViewPreference = event.matches ? "timeGridDay" : "dayGridMonth";
+      const calendarApi = calendarRef.current?.getApi();
+      if (calendarApi && calendarApi.view.type !== next) calendarApi.changeView(next);
+    };
     media.addEventListener("change", syncViewport);
     return () => media.removeEventListener("change", syncViewport);
-  }, []);
-
-  useEffect(() => {
-    if (!viewPreferenceKey) return;
-    try {
-      const raw = window.localStorage.getItem(viewPreferenceKey);
-      if (
-        raw === "dayGridMonth" ||
-        raw === "timeGridWeek" ||
-        raw === "timeGridDay"
-      ) {
-        setSavedView(raw);
-        setDraftView(raw);
-        setCurrentView(raw);
-        const api = calendarRef.current?.getApi();
-        if (api && api.view.type !== raw) {
-          api.changeView(raw);
-        }
-      }
-    } catch {
-      // Ignore storage failures.
-    }
   }, [viewPreferenceKey]);
 
-  // Event tiles always use a translucent token background, so the foreground
-  // text and a borderColor-driven dot work in both light and dark mode.
-  function getEventTextPalette(borderColor?: string | null) {
-    return {
-      primary: "text-foreground",
-      secondary: "text-muted-foreground",
-      tertiary: "text-muted-foreground/80",
-      dot: "bg-current",
-      dotStyle: { backgroundColor: borderColor ?? "hsl(var(--primary))" } as CSSProperties,
-      pill: "bg-foreground/10 text-foreground",
-    };
+  function changeView(view: CalendarViewPreference) {
+    explicitViewRef.current = true;
+    const api = calendarRef.current?.getApi();
+    if (api) api.changeView(view);
+    setCurrentView(view);
+    if (viewPreferenceKey && !isCompactViewport) {
+      try {
+        window.localStorage.setItem(viewPreferenceKey, view);
+      } catch {
+        // Ignore storage failures.
+      }
+    }
+  }
+
+  function dotStyle(borderColor?: string | null): CSSProperties {
+    return { backgroundColor: borderColor ?? "hsl(var(--primary))" };
+  }
+
+  // Compact status + cleaner row shared across views. The cleaner name is the
+  // owner-priority field, so it is always rendered when present (with a person
+  // glyph so it reads at a glance on mobile).
+  function CleanerLine({ name, className = "" }: { name?: string; className?: string }) {
+    if (!name) return null;
+    return (
+      <span className={`inline-flex min-w-0 items-center gap-1 ${className}`}>
+        <User2 className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+        <span className="truncate">{name}</span>
+      </span>
+    );
   }
 
   function renderEventContent(arg: EventContentArg) {
     const details = arg.event.extendedProps as PortalCalendarEvent["extendedProps"];
     const isMonthView = arg.view.type === "dayGridMonth";
-    const isDayView = arg.view.type === "timeGridDay";
     const isTimeGridView = arg.view.type.startsWith("timeGrid");
-    const palette = getEventTextPalette(arg.event.borderColor);
 
     if (isMonthView) {
       return (
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${palette.dot}`} style={palette.dotStyle} />
-          {arg.timeText ? (
-            <span className={`shrink-0 text-[10px] font-semibold ${palette.secondary}`}>{arg.timeText}</span>
+        <div className="flex min-w-0 flex-col gap-0.5 py-px">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={dotStyle(arg.event.borderColor)} />
+            {arg.timeText ? (
+              <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">{arg.timeText}</span>
+            ) : null}
+            <span className="truncate text-[11px] font-semibold text-foreground">{arg.event.title}</span>
+          </div>
+          {details.cleanerName ? (
+            <CleanerLine name={details.cleanerName} className="text-[10px] text-muted-foreground" />
           ) : null}
-          <span className={`truncate text-[11px] font-semibold ${palette.primary}`}>{arg.event.title}</span>
         </div>
       );
     }
@@ -175,30 +188,25 @@ export function PortalCalendar({
       return (
         <div className="flex h-full min-w-0 flex-col gap-1 overflow-hidden">
           <div className="flex items-center justify-between gap-2">
-            <span className={`truncate text-[10px] font-semibold uppercase tracking-[0.08em] ${palette.secondary}`}>
+            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {details.badgeLabel}
             </span>
             {arg.timeText ? (
-              <span className={`shrink-0 text-[10px] font-semibold ${palette.secondary}`}>{arg.timeText}</span>
+              <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">{arg.timeText}</span>
             ) : null}
           </div>
-          <div className={`line-clamp-2 text-[11px] font-semibold leading-4 sm:text-[12px] ${palette.primary}`}>
+          <div className="line-clamp-2 text-[11px] font-semibold leading-4 text-foreground sm:text-[12px]">
             {arg.event.title}
           </div>
-          {isDayView ? (
-            <>
-              {details.subtitle ? (
-                <div className={`truncate text-[10px] leading-4 ${palette.secondary}`}>{details.subtitle}</div>
-              ) : null}
-              {details.meta ? (
-                <div className={`line-clamp-2 text-[10px] leading-4 ${palette.tertiary}`}>{details.meta}</div>
-              ) : null}
-            </>
-          ) : (
-            <div className={`truncate text-[10px] leading-4 ${palette.secondary}`}>
-              {[details.subtitle, details.meta].filter(Boolean).join(" | ")}
-            </div>
-          )}
+          {details.cleanerName ? (
+            <CleanerLine
+              name={details.cleanerName}
+              className="text-[10px] font-medium leading-4 text-foreground/90"
+            />
+          ) : null}
+          <div className="truncate text-[10px] leading-4 text-muted-foreground">
+            {[details.subtitle, details.meta].filter(Boolean).join(" · ")}
+          </div>
         </div>
       );
     }
@@ -206,18 +214,17 @@ export function PortalCalendar({
     return (
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
-          <span className={`truncate text-[11px] font-semibold uppercase tracking-[0.12em] ${palette.secondary}`}>
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {details.badgeLabel}
           </span>
-          {arg.timeText ? (
-            <span className={`shrink-0 text-[11px] ${palette.secondary}`}>{arg.timeText}</span>
-          ) : null}
+          {arg.timeText ? <span className="shrink-0 text-[11px] text-muted-foreground">{arg.timeText}</span> : null}
         </div>
-        <div className={`truncate text-xs font-semibold sm:text-[13px] ${palette.primary}`}>{arg.event.title}</div>
-        {details.subtitle ? (
-          <div className={`truncate text-[11px] ${palette.secondary}`}>{details.subtitle}</div>
+        <div className="truncate text-xs font-semibold text-foreground sm:text-[13px]">{arg.event.title}</div>
+        {details.cleanerName ? (
+          <CleanerLine name={details.cleanerName} className="text-[11px] font-medium text-foreground/90" />
         ) : null}
-        {details.meta ? <div className={`truncate text-[11px] ${palette.tertiary}`}>{details.meta}</div> : null}
+        {details.subtitle ? <div className="truncate text-[11px] text-muted-foreground">{details.subtitle}</div> : null}
+        {details.meta ? <div className="truncate text-[11px] text-muted-foreground/80">{details.meta}</div> : null}
       </div>
     );
   }
@@ -232,6 +239,7 @@ export function PortalCalendar({
       badgeLabel: details.badgeLabel,
       subtitle: details.subtitle,
       meta: details.meta,
+      cleanerName: details.cleanerName,
       href: details.href,
       assignmentResponseStatus: details.assignmentResponseStatus,
     });
@@ -255,90 +263,47 @@ export function PortalCalendar({
     ) {
       setCurrentView(arg.view.type);
     }
+    setPeriodLabel(arg.view.title);
   }
 
-  function saveViewPreference() {
-    if (!viewPreferenceKey) return;
-    try {
-      window.localStorage.setItem(viewPreferenceKey, draftView);
-      setSavedView(draftView);
-    } catch {
-      // Ignore storage failures.
-    }
-    const api = calendarRef.current?.getApi();
-    if (api && api.view.type !== draftView) {
-      api.changeView(draftView);
-    }
-    setViewOptionsOpen(false);
+  function goPrev() {
+    calendarRef.current?.getApi().prev();
+  }
+  function goNext() {
+    calendarRef.current?.getApi().next();
+  }
+  function goToday() {
+    calendarRef.current?.getApi().today();
   }
 
   return (
     <div className="space-y-4">
-      <Card className="border-primary/15">
-        <CardContent
-          className={`grid gap-4 p-4 sm:p-5 ${legendItems.length > 0 ? "xl:grid-cols-[1.05fr_0.55fr_0.6fr]" : "sm:grid-cols-[1.2fr_0.8fr]"}`}
-        >
-          <div>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
-                <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+      <Card className="border-border/70 bg-surface">
+        <CardContent className="flex flex-col gap-3 p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <CalendarDays className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground sm:text-sm">{description}</p>
               </div>
-              {viewPreferenceKey ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => {
-                    setDraftView(currentView);
-                    setViewOptionsOpen(true);
-                  }}
-                >
-                  <Settings2 className="mr-2 h-4 w-4" />
-                  View options
-                </Button>
-              ) : null}
             </div>
-            {isCompactViewport ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Tap any job dot or event to open a detail popup without leaving the calendar.
-              </p>
-            ) : null}
+            <span className="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs font-medium text-muted-foreground">
+              {events.length} {events.length === 1 ? "item" : "items"}
+            </span>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-surface-raised p-3">
-              <p className="text-xs text-muted-foreground">Calendar items</p>
-              <p className="text-2xl font-semibold">{summary.total}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-surface-raised p-3">
-              <p className="text-xs text-muted-foreground">Active days</p>
-              <p className="text-2xl font-semibold">{summary.activeDays}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-surface-raised p-3">
-              <p className="text-xs text-muted-foreground">Awaiting confirmation</p>
-              <p className="text-2xl font-semibold">{summary.awaitingConfirmation}</p>
-            </div>
-            {viewPreferenceKey ? (
-              <div className="rounded-2xl border border-border bg-surface-raised p-3">
-                <p className="text-xs text-muted-foreground">Saved default view</p>
-                <p className="text-base font-semibold">
-                  {CALENDAR_VIEW_OPTIONS.find((option) => option.value === savedView)?.label ?? "Month"}
-                </p>
-              </div>
-            ) : null}
-          </div>
+
           {legendItems.length > 0 ? (
-            <div className="rounded-2xl border border-border bg-surface-raised p-3">
-              <p className="text-xs text-muted-foreground">Legend</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {legendItems.map((item) => (
-                  <Badge key={item.label} variant="outline" className="gap-1.5 bg-surface">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
-                    {item.label} ({legendCounts[item.label] ?? 0})
-                  </Badge>
-                ))}
-              </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-3">
+              {legendItems.map((item) => (
+                <span key={item.label} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+                  <span className="font-medium text-foreground/80">{item.label}</span>
+                  <span className="tabular-nums">({legendCounts[item.label] ?? 0})</span>
+                </span>
+              ))}
             </div>
           ) : null}
         </CardContent>
@@ -346,27 +311,67 @@ export function PortalCalendar({
 
       {events.length === 0 ? (
         <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">{emptyMessage}</CardContent>
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">{emptyMessage}</CardContent>
         </Card>
       ) : (
-        <div className="relative overflow-visible rounded-[calc(var(--radius)+6px)] border border-border bg-surface shadow-sm">
+        <div className="sneek-portal-calendar relative overflow-hidden rounded-[calc(var(--radius)+6px)] border border-border bg-surface shadow-sm">
+          {/* Custom toolbar — wraps and stacks cleanly on mobile, big tap targets. */}
+          <div className="flex flex-col gap-3 border-b border-border bg-surface-raised/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+            <div className="flex items-center gap-2">
+              <div className="inline-flex items-center rounded-full border border-border bg-surface">
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  aria-label="Previous"
+                  className="flex h-9 w-9 items-center justify-center rounded-l-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  aria-label="Next"
+                  className="flex h-9 w-9 items-center justify-center rounded-r-full border-l border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <Button type="button" size="sm" variant="outline" className="h-9 rounded-full" onClick={goToday}>
+                Today
+              </Button>
+              <p className="truncate text-sm font-semibold sm:text-base">{periodLabel}</p>
+            </div>
+
+            <div className="inline-flex w-full shrink-0 rounded-full border border-border bg-surface p-0.5 sm:w-auto">
+              {CALENDAR_VIEW_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => changeView(option.value)}
+                  className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
+                    currentView === option.value
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <FullCalendar
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView={savedView}
-            headerToolbar={{
-              left: "prev,next today",
-              center: "title",
-              right: "dayGridMonth,timeGridWeek,timeGridDay",
-            }}
-            buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day" }}
+            initialView={isCompactViewport ? "timeGridDay" : "dayGridMonth"}
+            headerToolbar={false}
             events={events}
             eventContent={renderEventContent}
             eventClick={handleEventClick}
             datesSet={handleDatesSet}
             height="auto"
             stickyHeaderDates
-            dayMaxEventRows={4}
+            dayMaxEventRows={isCompactViewport ? 3 : 4}
             moreLinkClick="popover"
             fixedWeekCount={false}
             eventOrder="start,-duration,title"
@@ -425,6 +430,12 @@ export function PortalCalendar({
                     : "Time not set"}
                   {selectedEvent.end ? ` - ${format(new Date(selectedEvent.end), "h:mm a")}` : ""}
                 </p>
+                {selectedEvent.cleanerName ? (
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-foreground">
+                    <User2 className="h-3.5 w-3.5 opacity-70" aria-hidden />
+                    {selectedEvent.cleanerName}
+                  </p>
+                ) : null}
                 {selectedEvent.subtitle ? (
                   <p className="mt-1 text-muted-foreground">{selectedEvent.subtitle}</p>
                 ) : null}
@@ -448,7 +459,7 @@ export function PortalCalendar({
                       if (href) router.push(href);
                     }}
                   >
-                    Open job
+                    Open details
                   </Button>
                 </div>
               ) : null}
@@ -457,116 +468,75 @@ export function PortalCalendar({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={viewOptionsOpen} onOpenChange={setViewOptionsOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Calendar View Options</DialogTitle>
-            <DialogDescription>Choose the view that should open by default next time.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Default view</label>
-              <select
-                value={draftView}
-                onChange={(event) => setDraftView(event.target.value as CalendarViewPreference)}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                {CALENDAR_VIEW_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="rounded-2xl border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-              Current calendar view:{" "}
-              <span className="font-medium text-foreground">
-                {CALENDAR_VIEW_OPTIONS.find((option) => option.value === currentView)?.label ?? "Month"}
-              </span>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setViewOptionsOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={saveViewPreference}>
-                Save default view
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <style jsx global>{`
         /* Most theme-aware FullCalendar rules live in app/globals.css. This
            block only carries layout-specific overrides shared across portals. */
-        .fc .fc-toolbar.fc-header-toolbar {
-          margin-bottom: 1rem;
-          padding: 1rem 1rem 0;
-          gap: 0.75rem;
-          flex-wrap: wrap;
-        }
-        .fc .fc-button {
-          border-radius: 9999px;
-          font-weight: 600;
-          padding: 0.45rem 0.85rem;
-        }
-        .fc .fc-col-header-cell-cushion,
-        .fc .fc-daygrid-day-number {
+        .sneek-portal-calendar .fc .fc-col-header-cell-cushion,
+        .sneek-portal-calendar .fc .fc-daygrid-day-number {
           font-weight: 600;
           padding: 0.55rem 0.35rem;
         }
-        .fc .fc-event {
+        .sneek-portal-calendar .fc .fc-event {
           border-width: 1px;
           border-radius: 14px;
-          padding: 0.2rem 0.35rem;
+          padding: 0.2rem 0.4rem;
           cursor: pointer;
+          transition: transform 140ms ease, box-shadow 140ms ease;
         }
-        .fc .fc-daygrid-event {
-          min-height: 1.55rem;
+        .sneek-portal-calendar .fc .fc-event:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 16px -10px hsl(var(--foreground) / 0.45);
         }
-        .fc .fc-daygrid-day-events {
+        .sneek-portal-calendar .fc .fc-event:active {
+          transform: translateY(0);
+        }
+        .sneek-portal-calendar .fc .fc-daygrid-event {
+          min-height: 1.75rem;
+        }
+        .sneek-portal-calendar .fc .fc-daygrid-day-events {
           margin: 0 0.2rem 0.25rem;
         }
-        .fc .fc-daygrid-more-link {
+        .sneek-portal-calendar .fc .fc-daygrid-more-link {
           margin: 0.18rem 0.3rem 0.25rem;
           font-size: 0.72rem;
           font-weight: 600;
         }
-        .fc .fc-popover {
+        .sneek-portal-calendar .fc .fc-popover {
           z-index: 40;
           border-radius: 16px;
           opacity: 1;
           overflow: hidden;
         }
-        .fc .fc-popover-header {
+        .sneek-portal-calendar .fc .fc-popover-header {
           padding: 0.7rem 0.9rem;
         }
-        .fc .fc-more-popover .fc-popover-body {
+        .sneek-portal-calendar .fc .fc-more-popover .fc-popover-body {
           padding: 0.45rem 0.55rem 0.65rem;
         }
-        .fc .fc-more-popover .fc-daygrid-event-harness,
-        .fc .fc-more-popover .fc-daygrid-event-harness-abs {
+        .sneek-portal-calendar .fc .fc-more-popover .fc-daygrid-event-harness,
+        .sneek-portal-calendar .fc .fc-more-popover .fc-daygrid-event-harness-abs {
           position: relative !important;
           inset: auto !important;
           display: block !important;
           margin-top: 0.28rem !important;
         }
-        .fc .fc-more-popover .fc-daygrid-event {
+        .sneek-portal-calendar .fc .fc-more-popover .fc-daygrid-event {
           margin: 0 !important;
         }
-        .fc .fc-view-harness,
-        .fc .fc-view-harness-active {
+        .sneek-portal-calendar .fc .fc-view-harness,
+        .sneek-portal-calendar .fc .fc-view-harness-active {
           overflow: visible;
         }
-        .fc .fc-scrollgrid {
-          border-radius: calc(var(--radius) + 6px);
-          overflow: hidden;
+        .sneek-portal-calendar .fc .fc-scrollgrid {
+          border-left: 0;
+          border-right: 0;
+          border-bottom: 0;
         }
-        .fc .fc-event-main {
+        .sneek-portal-calendar .fc .fc-event-main {
           padding: 0;
         }
-        .fc .fc-timegrid-slot-label-cushion,
-        .fc .fc-timegrid-axis-cushion {
+        .sneek-portal-calendar .fc .fc-timegrid-slot-label-cushion,
+        .sneek-portal-calendar .fc .fc-timegrid-axis-cushion {
           font-size: 0.8rem;
           font-weight: 600;
           display: block;
@@ -577,85 +547,68 @@ export function PortalCalendar({
           max-width: 100%;
           box-sizing: border-box;
         }
-        .fc .fc-timegrid-axis {
+        .sneek-portal-calendar .fc .fc-timegrid-axis {
           width: 4.3rem;
         }
-        .fc .fc-timegrid-axis-frame,
-        .fc .fc-timegrid-slot-label-frame {
+        .sneek-portal-calendar .fc .fc-timegrid-axis-frame,
+        .sneek-portal-calendar .fc .fc-timegrid-slot-label-frame {
           overflow: hidden;
         }
-        .fc .fc-timegrid-slot {
+        .sneek-portal-calendar .fc .fc-timegrid-slot {
           height: 2.9rem;
         }
-        .fc .fc-timegrid-col-events {
+        .sneek-portal-calendar .fc .fc-timegrid-col-events {
           margin: 0 0.2rem;
         }
-        .fc .fc-timegrid-event {
+        .sneek-portal-calendar .fc .fc-timegrid-event {
           min-height: 76px;
           border-radius: 16px;
           padding: 0.24rem;
         }
-        .fc .fc-timegrid-event .fc-event-main {
+        .sneek-portal-calendar .fc .fc-timegrid-event .fc-event-main {
           display: flex;
           height: 100%;
           align-items: stretch;
           padding: 0.12rem;
           overflow: hidden;
         }
-        .fc .fc-timegrid-event .fc-event-main > div {
+        .sneek-portal-calendar .fc .fc-timegrid-event .fc-event-main > div {
           width: 100%;
           overflow: hidden;
         }
-        .fc .fc-timegrid-event .fc-event-title,
-        .fc .fc-timegrid-event .fc-event-time {
+        .sneek-portal-calendar .fc .fc-timegrid-event .fc-event-title,
+        .sneek-portal-calendar .fc .fc-timegrid-event .fc-event-time {
           white-space: normal;
         }
-        .fc .fc-timegrid-event-harness {
+        .sneek-portal-calendar .fc .fc-timegrid-event-harness {
           margin-inline: 0.1rem;
         }
         @media (max-width: 768px) {
-          .fc .fc-toolbar.fc-header-toolbar {
-            padding: 0.85rem 0.85rem 0;
-          }
-          .fc .fc-toolbar-title {
-            font-size: 0.95rem;
-          }
-          .fc .fc-button {
-            padding: 0.4rem 0.65rem;
-            font-size: 0.75rem;
-          }
-          .fc .fc-toolbar-chunk {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.35rem;
-          }
-          .fc .fc-timegrid-axis {
+          .sneek-portal-calendar .fc .fc-timegrid-axis {
             width: 3rem;
           }
-          .fc .fc-timegrid-slot-label-cushion,
-          .fc .fc-timegrid-axis-cushion {
+          .sneek-portal-calendar .fc .fc-timegrid-slot-label-cushion,
+          .sneek-portal-calendar .fc .fc-timegrid-axis-cushion {
             font-size: 0.68rem;
             padding: 0 0.15rem;
           }
-          .fc .fc-daygrid-day-events {
+          .sneek-portal-calendar .fc .fc-daygrid-day-events {
             margin-inline: 0.1rem;
           }
-          .fc .fc-daygrid-more-link {
+          .sneek-portal-calendar .fc .fc-daygrid-more-link {
             margin-inline: 0.18rem;
           }
-          .fc .fc-timegrid-col-events {
+          .sneek-portal-calendar .fc .fc-timegrid-col-events {
             margin: 0 0.08rem;
           }
-          .fc .fc-timegrid-slot {
-            height: 2.45rem;
+          .sneek-portal-calendar .fc .fc-timegrid-slot {
+            height: 2.6rem;
           }
-          .fc .fc-timegrid-event {
-            min-height: 64px;
+          .sneek-portal-calendar .fc .fc-timegrid-event {
+            min-height: 66px;
           }
         }
       `}</style>
     </div>
   );
 }
-
-

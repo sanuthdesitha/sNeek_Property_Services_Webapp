@@ -36,6 +36,7 @@ type AllApprovals = {
   flaggedLaundry: any[];
   rescheduleRequests: any[];
   qaReworkTransfers: any[];
+  skipRequests: any[];
   counts: Record<string, number>;
 };
 
@@ -48,6 +49,7 @@ const TABS = [
   { key: "flaggedLaundry",     label: "Flagged Laundry",     icon: Shirt },
   { key: "rescheduleRequests", label: "Reschedule Requests", icon: CalendarClock },
   { key: "qaReworkTransfers",  label: "QA Reworks",          icon: RotateCcw },
+  { key: "skipRequests",       label: "Skip Requests",       icon: XCircle },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -726,6 +728,67 @@ export default function AdminApprovalsPage() {
                         <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
                       </Button>
                     )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Skip Requests ── */}
+          {activeTab === "skipRequests" && (
+            (data.skipRequests?.length ?? 0) === 0 ? <Empty /> : data.skipRequests.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <XCircle className="h-4 w-4 text-amber-500" />
+                      <p className="font-semibold">
+                        Skip clean — {row.property?.name ?? `Job #${row.jobNumber ?? row.id.slice(0, 8)}`}
+                      </p>
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 border-amber-200">
+                        REQUESTED
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.property?.suburb} ·{" "}
+                      Scheduled: {row.scheduledDate ? format(new Date(row.scheduledDate), "dd MMM yyyy") : "—"}
+                      {row.startTime ? ` ${row.startTime}` : ""}
+                    </p>
+                    {row.cleanSkipReason && (
+                      <p className="text-sm">
+                        <span className="font-medium">Reason:</span> {row.cleanSkipReason}
+                      </p>
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      Requested by: {row.requestedBy?.name ?? row.requestedBy?.email ?? "Client"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Requested: {fmt(row.cleanSkipAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!!acting}
+                      onClick={() =>
+                        act(`/api/admin/jobs/${row.id}/skip`, "PATCH", { action: "approve" }, "Skip approved — clean cancelled")
+                      }
+                    >
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                      Approve skip
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() =>
+                        act(`/api/admin/jobs/${row.id}/skip`, "PATCH", { action: "decline" }, "Skip declined")
+                      }
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Decline
+                    </Button>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={`/admin/jobs/${row.id}`}>View job</Link>
+                    </Button>
                   </div>
                 </div>
               </Card>

@@ -43,6 +43,7 @@ export async function POST(
         startTime: true,
         dueTime: true,
         internalNotes: true,
+        cleanSkipStatus: true,
         property: { select: { name: true, suburb: true } },
         assignments: {
           select: {
@@ -56,6 +57,14 @@ export async function POST(
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    // Skipped cleans must never be dispatched. Allow clearing assignees (empty list)
+    // so an admin can still tidy up, but block assigning cleaners to a skipped job.
+    if (job.cleanSkipStatus === "SKIPPED" && Array.isArray(userIds) && userIds.length > 0) {
+      return NextResponse.json(
+        { error: "This clean is skipped and cannot be assigned. Un-skip it first to restore the clean." },
+        { status: 400 }
+      );
     }
     const activeAssignments = job.assignments.filter((assignment) => !assignment.removedAt);
     const previousAssignedIds = activeAssignments.map((assignment) => assignment.userId);

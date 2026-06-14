@@ -12,7 +12,7 @@ export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks, qaReworkTransfers] =
+    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks, qaReworkTransfers, skipRequests] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
         listEarlyCheckoutRequests({ status: "PENDING" }),
@@ -93,7 +93,43 @@ export async function GET() {
           take: 50,
         }),
         listQaReworkTransfers(QaReworkTransferStatus.PENDING),
+        db.job.findMany({
+          where: { cleanSkipStatus: "REQUESTED" },
+          select: {
+            id: true,
+            jobNumber: true,
+            scheduledDate: true,
+            startTime: true,
+            cleanSkipStatus: true,
+            cleanSkipReason: true,
+            cleanSkipAt: true,
+            cleanSkipRequestedById: true,
+            property: { select: { name: true, suburb: true } },
+          },
+          orderBy: { cleanSkipAt: "desc" },
+          take: 50,
+        }),
       ]);
+
+    // Resolve the requesting client user for each pending skip request (no FK relation in schema).
+    const skipRequesterIds = Array.from(
+      new Set(
+        skipRequests
+          .map((r) => r.cleanSkipRequestedById)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      )
+    );
+    const skipRequesters = skipRequesterIds.length
+      ? await db.user.findMany({
+          where: { id: { in: skipRequesterIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const skipRequesterMap = Object.fromEntries(skipRequesters.map((u) => [u.id, u]));
+    const enrichedSkipRequests = skipRequests.map((r) => ({
+      ...r,
+      requestedBy: r.cleanSkipRequestedById ? skipRequesterMap[r.cleanSkipRequestedById] ?? null : null,
+    }));
 
     // Filter to only reschedule requests (check metadata.type in JS to avoid JSON path issues)
     const rescheduleRequests = allClientTasks.filter((t) => {
@@ -162,6 +198,7 @@ export async function GET() {
       flaggedLaundry,
       rescheduleRequests,
       qaReworkTransfers,
+      skipRequests: enrichedSkipRequests,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -171,6 +208,7 @@ export async function GET() {
         flaggedLaundry: flaggedLaundry.length,
         rescheduleRequests: rescheduleRequests.length,
         qaReworkTransfers: qaReworkTransfers.length,
+        skipRequests: enrichedSkipRequests.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -179,7 +217,8 @@ export async function GET() {
           clientApprovals.length +
           flaggedLaundry.length +
           rescheduleRequests.length +
-          qaReworkTransfers.length,
+          qaReworkTransfers.length +
+          enrichedSkipRequests.length,
       },
     });
   } catch (err: any) {

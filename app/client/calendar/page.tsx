@@ -47,6 +47,10 @@ export default async function ClientCalendarPage() {
           dueTime: true,
           report: { select: { id: true } },
           property: { select: { name: true, suburb: true } },
+          assignments: {
+            where: { removedAt: null },
+            select: { user: { select: { name: true } } },
+          },
         },
         orderBy: [{ scheduledDate: "asc" }],
         take: 500,
@@ -56,6 +60,13 @@ export default async function ClientCalendarPage() {
   const events: PortalCalendarEvent[] = jobs.map((job) => {
     const dateKey = job.scheduledDate.toISOString().slice(0, 10);
     const colors = STATUS_COLORS[job.status] ?? STATUS_COLORS.ASSIGNED;
+    const cleanerNames = job.assignments
+      .map((assignment) => assignment.user?.name)
+      .filter((name): name is string => Boolean(name));
+    const cleanerName =
+      cleanerNames.length > 1
+        ? `${cleanerNames[0]} +${cleanerNames.length - 1}`
+        : cleanerNames[0];
     return {
       id: job.id,
       title: job.property.name,
@@ -71,6 +82,7 @@ export default async function ClientCalendarPage() {
       extendedProps: {
         badgeLabel: job.status.replace(/_/g, " "),
         subtitle: job.jobType.replace(/_/g, " "),
+        cleanerName,
         meta: [job.property.suburb, job.startTime, job.dueTime, job.report ? "Report ready" : undefined]
           .filter(Boolean)
           .join(" | "),

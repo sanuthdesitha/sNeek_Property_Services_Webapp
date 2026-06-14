@@ -39,6 +39,8 @@ export async function GET(req: Request) {
       job: {
         scheduledDate: { gte: bounds.start, lt: bounds.end },
         status: { notIn: ["COMPLETED", "INVOICED"] },
+        // Skipped cleans are not actionable jobs for cleaners.
+        cleanSkipStatus: { not: "SKIPPED" },
       },
     },
     include: {

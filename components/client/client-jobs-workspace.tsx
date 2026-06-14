@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   addMonths,
   eachDayOfInterval,
@@ -155,6 +156,68 @@ export function ClientJobsWorkspace({
   const [requestedDate, setRequestedDate] = useState("");
   const [cancelReason, setCancelReason] = useState("slot change");
   const [submittingAction, setSubmittingAction] = useState(false);
+  const router = useRouter();
+  // Local skip-state overlay so the card reflects a request/cancel immediately
+  // without a full reload. Keyed by job id.
+  const [skipOverrides, setSkipOverrides] = useState<Record<string, string>>({});
+  const [skipJob, setSkipJob] = useState<any | null>(null);
+  const [skipReason, setSkipReason] = useState("");
+  const [submittingSkip, setSubmittingSkip] = useState(false);
+  const [cancellingSkipId, setCancellingSkipId] = useState<string | null>(null);
+
+  function skipStatusFor(job: any): string {
+    return skipOverrides[job.id] ?? job.cleanSkipStatus ?? "NONE";
+  }
+
+  async function submitSkipRequest() {
+    if (!skipJob) return;
+    setSubmittingSkip(true);
+    try {
+      const res = await fetch(`/api/client/jobs/${skipJob.id}/skip-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: skipReason.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not send skip request.");
+      setSkipOverrides((prev) => ({ ...prev, [skipJob.id]: "REQUESTED" }));
+      toast({
+        title: "Skip request sent",
+        description: "Admin has been notified and will review whether to skip this clean.",
+      });
+      setSkipJob(null);
+      setSkipReason("");
+      router.refresh();
+    } catch (error: any) {
+      toast({
+        title: "Request failed",
+        description: error?.message ?? "Could not send skip request.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmittingSkip(false);
+    }
+  }
+
+  async function cancelSkipRequest(job: any) {
+    setCancellingSkipId(job.id);
+    try {
+      const res = await fetch(`/api/client/jobs/${job.id}/skip-request`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not cancel skip request.");
+      setSkipOverrides((prev) => ({ ...prev, [job.id]: "NONE" }));
+      toast({ title: "Skip request cancelled", description: "The clean will go ahead as scheduled." });
+      router.refresh();
+    } catch (error: any) {
+      toast({
+        title: "Cancel failed",
+        description: error?.message ?? "Could not cancel skip request.",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingSkipId(null);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -246,6 +309,9 @@ export function ClientJobsWorkspace({
 
   function renderJobCard(job: any) {
     const laundrySummary = buildLaundrySummary(job.laundryTask);
+    const skipStatus = skipStatusFor(job);
+    const isUpcomingActive =
+      toDayKey(job.scheduledDate) >= currentDayKey && !["COMPLETED", "INVOICED"].includes(job.status);
 
     return (
       <Card key={job.id}>
@@ -328,6 +394,38 @@ export function ClientJobsWorkspace({
             </div>
           ) : null}
 
+          {/* Skip-clean state banner */}
+          {skipStatus === "SKIPPED" ? (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="font-medium">Skipped — no clean</p>
+              <p className="text-xs text-amber-800">
+                This turnover has been marked as skipped and will not be cleaned.
+                {job.cleanSkipReason ? ` Reason: ${job.cleanSkipReason}` : ""}
+              </p>
+            </div>
+          ) : skipStatus === "REQUESTED" ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <div className="min-w-0">
+                <p className="font-medium">Skip request pending</p>
+                <p className="text-xs text-amber-800">
+                  Waiting for admin to review your request to skip this clean.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cancellingSkipId === job.id}
+                onClick={() => cancelSkipRequest(job)}
+              >
+                {cancellingSkipId === job.id ? "Cancelling…" : "Cancel request"}
+              </Button>
+            </div>
+          ) : skipStatus === "DECLINED" ? (
+            <div className="rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Your previous skip request was declined — this clean will go ahead as scheduled.
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Link
               href={`/client/jobs/${job.id}`}
@@ -343,7 +441,7 @@ export function ClientJobsWorkspace({
                 jobId={job.id}
                 jobLabel={`${job.property.name} - ${format(toLocalDate(job.scheduledDate), "dd MMM yyyy")}`}
               />
-              {toDayKey(job.scheduledDate) >= currentDayKey && !["COMPLETED", "INVOICED"].includes(job.status) ? (
+              {isUpcomingActive ? (
                 <>
                   <Button variant="outline" size="sm" onClick={() => openAction(job, "reschedule")}>
                     Change date
@@ -351,6 +449,18 @@ export function ClientJobsWorkspace({
                   <Button variant="outline" size="sm" onClick={() => openAction(job, "cancel")}>
                     Cancel
                   </Button>
+                  {skipStatus === "NONE" || skipStatus === "DECLINED" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSkipJob(job);
+                        setSkipReason("");
+                      }}
+                    >
+                      Request to skip this clean
+                    </Button>
+                  ) : null}
                 </>
               ) : null}
               {job.satisfactionRating ? (
@@ -553,6 +663,48 @@ export function ClientJobsWorkspace({
                   <MessageSquareMore className="mr-2 h-4 w-4" />
                 )}
                 Send request
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(skipJob)} onOpenChange={(open) => (!open ? setSkipJob(null) : undefined)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request to skip this clean</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border p-3 text-sm">
+              <p className="font-medium">{skipJob?.property?.name}</p>
+              <p className="text-muted-foreground">
+                {skipJob ? format(toLocalDate(skipJob.scheduledDate), "EEE dd MMM yyyy") : ""}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              We will not clean this turnover if admin approves your request. You can cancel the
+              request any time before it is reviewed.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Reason (optional)</Label>
+              <Input
+                value={skipReason}
+                onChange={(event) => setSkipReason(event.target.value)}
+                placeholder="e.g. no guest this turnover"
+                maxLength={500}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSkipJob(null)} disabled={submittingSkip}>
+                Close
+              </Button>
+              <Button onClick={submitSkipRequest} disabled={submittingSkip}>
+                {submittingSkip ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquareMore className="mr-2 h-4 w-4" />
+                )}
+                Send skip request
               </Button>
             </div>
           </div>

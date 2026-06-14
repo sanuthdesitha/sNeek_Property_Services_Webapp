@@ -140,6 +140,8 @@ export async function generateClientInvoice(input: {
         ...(input.propertyId ? { id: input.propertyId } : {}),
       },
       status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+      // Skipped cleans ("don't clean this turnover") are never billed.
+      cleanSkipStatus: { not: "SKIPPED" },
       ...(input.periodStart || input.periodEnd
         ? {
             // Bucket by completion date when set (next-day/custom), else scheduled date.

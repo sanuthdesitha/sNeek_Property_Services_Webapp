@@ -97,6 +97,8 @@ export function JobRow({
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   const qa = getLatestQa(job);
+  const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
+  const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
 
   return (
     <div
@@ -147,6 +149,8 @@ export function JobRow({
                 </Link>
               </Button>
             ) : null}
+            {isSkipped ? <Badge variant="destructive">Skipped — no clean</Badge> : null}
+            {skipRequested ? <Badge variant="warning">Skip requested</Badge> : null}
           </div>
           <p className="text-xs text-muted-foreground">
             {suburb ? `${suburb} - ` : ""}

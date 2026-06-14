@@ -6,35 +6,31 @@ import interactionPlugin from "@fullcalendar/interaction";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/core";
 import { useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  AlertTriangle,
-  CalendarClock,
-  CalendarRange,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  MapPin,
-  RefreshCw,
-  Shirt,
-  Sparkles,
-} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 const SYDNEY_TZ = "Australia/Sydney";
+
+type LaundryViewPreference = "dayGridMonth" | "dayGridWeek" | "dayGridDay";
+
+const VIEW_OPTIONS: Array<{ value: LaundryViewPreference; label: string }> = [
+  { value: "dayGridMonth", label: "Month" },
+  { value: "dayGridWeek", label: "Week" },
+  { value: "dayGridDay", label: "Day" },
+];
 
 // Token-based per-status palette so events read clean in both light and dark mode.
 const STATUS_META: Record<
   string,
-  { variant: "muted" | "primary" | "info" | "success" | "danger" | "warning"; badge: "default" | "secondary" | "destructive" | "outline" | "success" | "warning"; label: string }
+  { variant: "muted" | "primary" | "info" | "success" | "danger" | "warning"; label: string }
 > = {
-  PENDING: { variant: "muted", badge: "outline", label: "Pending" },
-  CONFIRMED: { variant: "primary", badge: "secondary", label: "Confirmed" },
-  PICKED_UP: { variant: "info", badge: "default", label: "Picked up" },
-  DROPPED: { variant: "success", badge: "success", label: "Completed" },
-  FLAGGED: { variant: "danger", badge: "destructive", label: "Flagged" },
-  SKIPPED_PICKUP: { variant: "warning", badge: "warning", label: "Skipped pickup" },
+  PENDING: { variant: "muted", label: "Pending" },
+  CONFIRMED: { variant: "primary", label: "Confirmed" },
+  PICKED_UP: { variant: "info", label: "Picked up" },
+  DROPPED: { variant: "success", label: "Completed" },
+  FLAGGED: { variant: "danger", label: "Flagged" },
+  SKIPPED_PICKUP: { variant: "warning", label: "Skipped pickup" },
 };
 
 type LaundryCalendarEvent = {
@@ -67,48 +63,23 @@ function addOneDayIso(value: string | Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function getSydneyDateIso(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SYDNEY_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-
-  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  return `${year}-${month}-${day}`;
+function shortDate(value?: string | null) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-AU", { timeZone: SYDNEY_TZ, day: "numeric", month: "short" }).format(
+    new Date(`${value}T00:00:00`)
+  );
 }
-
-function formatDateLabel(value?: string | null) {
-  if (!value) return "Not scheduled";
-  return new Intl.DateTimeFormat("en-AU", {
-    timeZone: SYDNEY_TZ,
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
-}
-
-// Event tiles use a low-opacity token background, so text is always foreground
-// in either theme — no readability problems in dark mode.
-const EVENT_TEXT_PALETTE = {
-  primary: "text-foreground",
-  secondary: "text-muted-foreground",
-  tertiary: "text-muted-foreground/80",
-  dotClass: "bg-current",
-  pillClass: "bg-foreground/10 text-foreground",
-} as const;
 
 export default function LaundryCalendarView() {
   const router = useRouter();
   const calendarRef = useRef<FullCalendar | null>(null);
   const [events, setEvents] = useState<LaundryCalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("dayGridMonth");
+  const [currentView, setCurrentView] = useState<LaundryViewPreference>("dayGridMonth");
+  const [periodLabel, setPeriodLabel] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [isCompactViewport, setIsCompactViewport] = useState(false);
-  const [boardExpanded, setBoardExpanded] = useState(false);
+  const explicitViewRef = useRef(false);
 
   async function loadRange(start: string, end: string) {
     setLoading(true);
@@ -143,6 +114,12 @@ export default function LaundryCalendarView() {
     setLoading(false);
   }
 
+  function refreshRange() {
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    void loadRange(api.view.activeStart.toISOString(), api.view.activeEnd.toISOString());
+  }
+
   useEffect(() => {
     const api = calendarRef.current?.getApi();
     if (!api) return;
@@ -151,10 +128,22 @@ export default function LaundryCalendarView() {
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 768px)");
-    const syncViewport = () => setIsCompactViewport(media.matches);
-    syncViewport();
-    media.addEventListener("change", syncViewport);
-    return () => media.removeEventListener("change", syncViewport);
+    const compact = media.matches;
+    setIsCompactViewport(compact);
+    const initial: LaundryViewPreference = compact ? "dayGridDay" : "dayGridMonth";
+    setCurrentView(initial);
+    const api = calendarRef.current?.getApi();
+    if (api && api.view.type !== initial) api.changeView(initial);
+
+    const sync = (event: MediaQueryListEvent) => {
+      setIsCompactViewport(event.matches);
+      if (explicitViewRef.current) return;
+      const next: LaundryViewPreference = event.matches ? "dayGridDay" : "dayGridMonth";
+      const calendarApi = calendarRef.current?.getApi();
+      if (calendarApi && calendarApi.view.type !== next) calendarApi.changeView(next);
+    };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
   }, []);
 
   const counts = useMemo(
@@ -167,72 +156,28 @@ export default function LaundryCalendarView() {
     [events]
   );
 
-  const todayIso = useMemo(() => getSydneyDateIso(), []);
-
-  const summary = useMemo(
-    () => [
-      {
-        label: "Tasks in range",
-        value: events.length,
-        icon: CalendarClock,
-        note: "All pickups and drop-offs inside the current range.",
-        accent: "from-sky-500/10 via-cyan-500/10 to-transparent",
-      },
-      {
-        label: "Awaiting action",
-        value: (counts.PENDING ?? 0) + (counts.CONFIRMED ?? 0),
-        icon: Shirt,
-        note: "Pending and confirmed tasks still in motion.",
-        accent: "from-teal-500/10 via-emerald-500/10 to-transparent",
-      },
-      {
-        label: "Completed",
-        value: counts.DROPPED ?? 0,
-        icon: CheckCircle2,
-        note: "Returned and completed tasks visible in this range.",
-        accent: "from-emerald-500/10 via-lime-500/10 to-transparent",
-      },
-      {
-        label: "Exceptions",
-        value: (counts.FLAGGED ?? 0) + (counts.SKIPPED_PICKUP ?? 0),
-        icon: AlertTriangle,
-        note: "Flagged items and skipped pickups to review.",
-        accent: "from-amber-500/10 via-rose-500/10 to-transparent",
-      },
-    ],
-    [counts, events.length]
+  const visibleEvents = useMemo(
+    () => (statusFilter === "ALL" ? events : events.filter((event) => event.extendedProps.status === statusFilter)),
+    [events, statusFilter]
   );
 
-  const todaySpotlight = useMemo(() => {
-    const activeToday = events.filter((event) => event.start <= todayIso && event.end > todayIso);
-    const pickupToday = activeToday.filter((event) => event.extendedProps.pickupDate === todayIso);
-    const dropoffToday = activeToday.filter((event) => event.extendedProps.dropoffDate === todayIso);
-    const exceptionsToday = activeToday.filter((event) =>
-      ["FLAGGED", "SKIPPED_PICKUP"].includes(event.extendedProps.status)
-    );
-    const nextPickup = [...events]
-      .filter((event) => event.extendedProps.pickupDate >= todayIso)
-      .sort((a, b) => a.extendedProps.pickupDate.localeCompare(b.extendedProps.pickupDate))[0];
-    const nextDropoff = [...events]
-      .filter((event) => event.extendedProps.dropoffDate >= todayIso)
-      .sort((a, b) => a.extendedProps.dropoffDate.localeCompare(b.extendedProps.dropoffDate))[0];
-    return {
-      activeToday,
-      pickupToday,
-      dropoffToday,
-      exceptionsToday,
-      nextPickup,
-      nextDropoff,
-    };
-  }, [events, todayIso]);
-
   function handleDatesSet(arg: DatesSetArg) {
-    setView(arg.view.type);
+    if (arg.view.type === "dayGridMonth" || arg.view.type === "dayGridWeek" || arg.view.type === "dayGridDay") {
+      setCurrentView(arg.view.type);
+    }
+    setPeriodLabel(arg.view.title);
     void loadRange(arg.start.toISOString(), arg.end.toISOString());
   }
 
   function handleEventClick(arg: EventClickArg) {
     router.push(`/admin/laundry?taskId=${arg.event.id}`);
+  }
+
+  function changeView(view: LaundryViewPreference) {
+    explicitViewRef.current = true;
+    const api = calendarRef.current?.getApi();
+    if (api) api.changeView(view);
+    setCurrentView(view);
   }
 
   function renderEventContent(arg: EventContentArg) {
@@ -243,345 +188,183 @@ export default function LaundryCalendarView() {
     const pickupDate = String(arg.event.extendedProps.pickupDate ?? "");
     const dropoffDate = String(arg.event.extendedProps.dropoffDate ?? "");
     const flagReason = String(arg.event.extendedProps.flagReason ?? "");
-    const palette = EVENT_TEXT_PALETTE;
     const isMonthView = arg.view.type === "dayGridMonth";
 
     if (isMonthView) {
       return (
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
-            <span
-              className={`h-2 w-2 shrink-0 rounded-full ${palette.dotClass}`}
-              style={{ backgroundColor: `hsl(var(--${meta.variant}))` }}
-            />
-            <span className={`truncate text-[10px] font-semibold uppercase tracking-[0.08em] ${palette.secondary}`}>
-              {meta.label}
-            </span>
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: `hsl(var(--${meta.variant}))` }} />
+            <span className="truncate text-[11px] font-semibold text-foreground">{arg.event.title}</span>
             {flagReason ? (
-              <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${palette.pillClass}`}>
+              <span className="shrink-0 rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold text-destructive">
                 Issue
               </span>
             ) : null}
           </div>
-          <span className={`truncate text-[11px] font-semibold ${palette.primary}`}>{arg.event.title}</span>
-          <span className={`truncate text-[10px] ${palette.tertiary}`}>
-            {clientName || suburb || "Laundry schedule"}
+          <span className="truncate text-[10px] text-muted-foreground">
+            {shortDate(pickupDate)} → {shortDate(dropoffDate)}
           </span>
         </div>
       );
     }
 
     return (
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex items-start justify-between gap-2">
-          <span className={`truncate text-[11px] font-semibold uppercase tracking-[0.12em] ${palette.secondary}`}>
+      <div className="flex min-w-0 flex-col gap-1 px-0.5 py-0.5">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             {meta.label}
           </span>
+          {flagReason ? (
+            <span className="shrink-0 rounded-full bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold text-danger">
+              Issue
+            </span>
+          ) : null}
         </div>
-        <div className={`truncate text-xs font-semibold sm:text-[13px] ${palette.primary}`}>{arg.event.title}</div>
-        <div className={`truncate text-[11px] ${palette.secondary}`}>
+        <div className="truncate text-xs font-semibold text-foreground sm:text-[13px]">{arg.event.title}</div>
+        <div className="truncate text-[11px] text-muted-foreground">
           {clientName || "Laundry schedule"}
-          {suburb ? ` | ${suburb}` : ""}
+          {suburb ? ` · ${suburb}` : ""}
         </div>
-        <div className={`truncate text-[11px] ${palette.tertiary}`}>
-          Pickup {pickupDate}
-          {dropoffDate ? ` | Drop-off ${dropoffDate}` : ""}
+        <div className="truncate text-[11px] text-muted-foreground/80">
+          Pickup {shortDate(pickupDate)} · Drop-off {shortDate(dropoffDate)}
         </div>
         {flagReason ? (
-          <div className={`truncate text-[11px] ${palette.tertiary}`}>Issue: {flagReason.replace(/_/g, " ")}</div>
+          <div className="truncate text-[11px] text-danger/90">Issue: {flagReason.replace(/_/g, " ")}</div>
         ) : null}
       </div>
     );
   }
 
   return (
-    <div className="laundry-admin-calendar space-y-5 p-4 sm:p-5">
-      <Card className="overflow-hidden border-primary/20 bg-surface">
-        <CardContent className="p-0">
-          <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="border-primary/15 bg-primary/10 text-primary">
-                  <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  Laundry command view
-                </Badge>
-                <Badge variant="outline" className="border-border bg-surface-raised">
-                  {boardExpanded ? "Expanded" : "Collapsed"}
-                </Badge>
-              </div>
-              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Schedule Board
-              </p>
-              <h3 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
-                Laundry briefing and schedule context
-              </h3>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Keep this collapsed for a cleaner calendar view, then expand it when you need the full pickup and return briefing.
-              </p>
+    <div className="laundry-admin-calendar space-y-4">
+      <Card className="border-border/70 bg-surface">
+        <CardContent className="flex flex-col gap-3 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="font-semibold">
+                {events.length} {events.length === 1 ? "task" : "tasks"} loaded
+              </span>
+              {(counts.FLAGGED ?? 0) + (counts.SKIPPED_PICKUP ?? 0) > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-danger/15 px-2.5 py-0.5 text-xs font-semibold text-danger">
+                  {(counts.FLAGGED ?? 0) + (counts.SKIPPED_PICKUP ?? 0)} need attention
+                </span>
+              ) : null}
             </div>
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => setBoardExpanded((value) => !value)}>
-              {boardExpanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
-              {boardExpanded ? "Hide schedule board" : "Show schedule board"}
+            <Button type="button" size="sm" variant="outline" className="h-9 rounded-full" onClick={refreshRange}>
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
           </div>
-          {boardExpanded ? (
-          <div className="grid gap-0 border-t border-border xl:grid-cols-[1.08fr_0.92fr]">
-            <div className="p-5 sm:p-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-border bg-surface-raised">
-                  {view === "dayGridMonth" ? "Month view" : view === "dayGridWeek" ? "Week view" : "Day view"}
-                </Badge>
-              </div>
-              <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Schedule Board
-              </p>
-              <h3 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                Laundry pickups and returns with real operational context
-              </h3>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Keep pickups, returns, flagged items, and today&apos;s workload in one calendar so the laundry team can
-                see what matters first and operations can jump into the full task detail immediately.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  className="rounded-full px-5"
-                  onClick={() => {
-                    const api = calendarRef.current?.getApi();
-                    if (!api) return;
-                    void loadRange(api.view.activeStart.toISOString(), api.view.activeEnd.toISOString());
-                  }}
-                >
-                  <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                  Refresh range
-                </Button>
-                <div className="inline-flex items-center rounded-full border border-border bg-surface-raised px-4 py-2 text-sm text-muted-foreground">
-                  <CalendarRange className="mr-2 h-4 w-4 text-primary" />
-                  Click any task to open the full laundry detail
-                </div>
-              </div>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {summary.map((item) => (
-                  <div
-                    key={item.label}
-                    className={`rounded-2xl border border-border bg-gradient-to-br ${item.accent} p-3 shadow-sm backdrop-blur`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface shadow-sm">
-                        <item.icon className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.label}</p>
-                        <p className="mt-1 text-2xl font-semibold text-foreground">{item.value}</p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.note}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="border-t border-border bg-muted/40 p-5 sm:p-6 xl:border-l xl:border-t-0">
-              <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                      Today spotlight
-                    </p>
-                    <h4 className="mt-2 text-xl font-semibold">What needs attention first</h4>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Snapshot for {formatDateLabel(todayIso)} in Sydney time.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-primary/10 p-3">
-                    <Shirt className="h-5 w-5 text-primary" />
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
-                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Active today</p>
-                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.activeToday.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
-                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Pickup today</p>
-                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.pickupToday.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface-raised p-3">
-                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Exceptions today</p>
-                    <p className="mt-1 text-xl font-semibold">{todaySpotlight.exceptionsToday.length}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-border bg-surface p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-xl bg-info/15 p-2 text-info">
-                        <CalendarClock className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Next pickup</p>
-                        <p className="truncate text-sm font-semibold text-foreground">
-                          {todaySpotlight.nextPickup?.title ?? "No upcoming pickup in this range"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {todaySpotlight.nextPickup
-                            ? `${formatDateLabel(todaySpotlight.nextPickup.extendedProps.pickupDate)}${todaySpotlight.nextPickup.extendedProps.clientName ? ` | ${todaySpotlight.nextPickup.extendedProps.clientName}` : ""}`
-                            : "Adjust the range or refresh to load more"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-surface p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-xl bg-success/15 p-2 text-success">
-                        <CheckCircle2 className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Next drop-off</p>
-                        <p className="truncate text-sm font-semibold text-foreground">
-                          {todaySpotlight.nextDropoff?.title ?? "No upcoming drop-off in this range"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {todaySpotlight.nextDropoff
-                            ? `${formatDateLabel(todaySpotlight.nextDropoff.extendedProps.dropoffDate)}${todaySpotlight.nextDropoff.extendedProps.suburb ? ` | ${todaySpotlight.nextDropoff.extendedProps.suburb}` : ""}`
-                            : "Completed tasks stay visible in the timeline"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-dashed border-border bg-surface-raised/80 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Status legend
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {Object.entries(STATUS_META).map(([status, meta]) => (
-                      <Badge key={status} variant={meta.badge}>
-                        {meta.label} ({counts[status] ?? 0})
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* Status legend doubles as a filter. */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+            <button
+              type="button"
+              onClick={() => setStatusFilter("ALL")}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                statusFilter === "ALL"
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border bg-surface text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              All ({events.length})
+            </button>
+            {Object.entries(STATUS_META).map(([status, meta]) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter((current) => (current === status ? "ALL" : status))}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  statusFilter === status
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-surface text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${meta.variant}))` }} aria-hidden />
+                {meta.label} ({counts[status] ?? 0})
+              </button>
+            ))}
           </div>
-          ) : null}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_0.3fr]">
-        <div className="relative overflow-visible rounded-[calc(var(--radius)+10px)] border border-border bg-surface shadow-sm">
-          <div className="border-b border-border bg-surface-raised px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Calendar canvas</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Month, week, and day views share the same theme as dispatch and keep laundry exceptions visible.
-                </p>
-              </div>
-              <Badge variant="outline" className="border-border bg-surface">
-                {events.length} tasks loaded
-              </Badge>
+      <div className="relative overflow-hidden rounded-[calc(var(--radius)+6px)] border border-border bg-surface shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-border bg-surface-raised/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center rounded-full border border-border bg-surface">
+              <button
+                type="button"
+                onClick={() => calendarRef.current?.getApi().prev()}
+                aria-label="Previous"
+                className="flex h-9 w-9 items-center justify-center rounded-l-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => calendarRef.current?.getApi().next()}
+                aria-label="Next"
+                className="flex h-9 w-9 items-center justify-center rounded-r-full border-l border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-full"
+              onClick={() => calendarRef.current?.getApi().today()}
+            >
+              Today
+            </Button>
+            <p className="truncate text-sm font-semibold sm:text-base">{periodLabel}</p>
           </div>
-          <div className="relative">
-            <FullCalendar
-              ref={calendarRef}
-              plugins={[dayGridPlugin, interactionPlugin]}
-              initialView="dayGridMonth"
-              headerToolbar={{
-                left: "prev,next today",
-                center: "title",
-                right: "dayGridMonth,dayGridWeek,dayGridDay",
-              }}
-              buttonText={{
-                today: "Today",
-                month: "Month",
-                week: "Week",
-                day: "Day",
-              }}
-              height="auto"
-              events={events}
-              eventContent={renderEventContent}
-              datesSet={handleDatesSet}
-              eventClick={handleEventClick}
-              stickyHeaderDates
-              dayMaxEventRows={4}
-              moreLinkClick="popover"
-              fixedWeekCount={false}
-              eventOrder="start,-duration,title"
-              weekNumbers
-              nowIndicator
-              timeZone="Australia/Sydney"
-              eventTimeFormat={
-                isCompactViewport
-                  ? { month: "short", day: "numeric" }
-                  : { month: "short", day: "numeric" }
-              }
-              eventDidMount={(info) => {
-                const details = info.event.extendedProps as LaundryCalendarEvent["extendedProps"];
-                info.el.setAttribute(
-                  "title",
-                  `${info.event.title}${details.clientName ? ` | ${details.clientName}` : ""}${details.suburb ? ` | ${details.suburb}` : ""}`
-                );
-              }}
-            />
+
+          <div className="inline-flex w-full shrink-0 rounded-full border border-border bg-surface p-0.5 sm:w-auto">
+            {VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => changeView(option.value)}
+                className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
+                  currentView === option.value
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <Card className="border-primary/15 bg-surface">
-          <CardContent className="p-4 sm:p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Quick context</p>
-            <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-border bg-surface-raised p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                    <MapPin className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">Open task detail from any event</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Click a pickup or return card to jump directly to the full laundry task with confirmations, photos,
-                      and related notes.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border bg-surface-raised p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-warning/15 p-2 text-warning">
-                    <AlertTriangle className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">Exceptions stay visible</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Flagged tasks and skipped pickups are highlighted so operations can spot interruptions without
-                      opening each day.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border bg-surface-raised p-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-success/15 p-2 text-success">
-                    <CheckCircle2 className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">Today stays the anchor</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Use the spotlight panel to keep the current day grounded even when the calendar range spans a full
-                      month.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, interactionPlugin]}
+          initialView={isCompactViewport ? "dayGridDay" : "dayGridMonth"}
+          headerToolbar={false}
+          height="auto"
+          events={visibleEvents}
+          eventContent={renderEventContent}
+          datesSet={handleDatesSet}
+          eventClick={handleEventClick}
+          stickyHeaderDates
+          dayMaxEventRows={isCompactViewport ? 3 : 4}
+          moreLinkClick="popover"
+          fixedWeekCount={false}
+          eventOrder="start,-duration,title"
+          nowIndicator
+          timeZone="Australia/Sydney"
+          eventDidMount={(info) => {
+            const details = info.event.extendedProps as LaundryCalendarEvent["extendedProps"];
+            info.el.setAttribute(
+              "title",
+              `${info.event.title}${details.clientName ? ` | ${details.clientName}` : ""}${details.suburb ? ` | ${details.suburb}` : ""}`
+            );
+          }}
+        />
       </div>
 
       <style jsx global>{`
@@ -589,85 +372,53 @@ export default function LaundryCalendarView() {
           position: relative;
           z-index: 0;
         }
-
-        .laundry-admin-calendar .fc .fc-toolbar.fc-header-toolbar {
-          margin-bottom: 1rem;
-          padding: 1rem 1rem 0.25rem;
-          gap: 0.75rem;
-          flex-wrap: wrap;
-        }
-
-        .laundry-admin-calendar .fc .fc-button {
-          border-radius: 9999px;
-          font-weight: 600;
-          padding: 0.45rem 0.85rem;
-        }
-
         .laundry-admin-calendar .fc .fc-col-header-cell-cushion,
         .laundry-admin-calendar .fc .fc-daygrid-day-number {
           font-weight: 600;
           padding: 0.55rem 0.35rem;
         }
-
-        .laundry-admin-calendar .fc .fc-week-number {
-          display: inline-flex;
-          min-width: 1.7rem;
-          height: 1.7rem;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-          font-size: 0.7rem;
-          font-weight: 700;
-        }
-
         .laundry-admin-calendar .fc .sneek-calendar-event {
           border-width: 1px;
-          border-radius: 16px;
-          padding: 0.38rem 0.45rem;
-          transition: transform 160ms ease, box-shadow 160ms ease;
+          border-radius: 14px;
+          padding: 0.3rem 0.4rem;
+          transition: transform 140ms ease, box-shadow 140ms ease;
         }
-
         .laundry-admin-calendar .fc .sneek-calendar-event:hover {
           transform: translateY(-1px);
+          box-shadow: 0 6px 16px -10px hsl(var(--foreground) / 0.45);
         }
-
+        .laundry-admin-calendar .fc .sneek-calendar-event:active {
+          transform: translateY(0);
+        }
         .laundry-admin-calendar .fc .fc-daygrid-event-harness {
           margin-top: 0.22rem;
         }
-
         .laundry-admin-calendar .fc .fc-daygrid-event {
-          min-height: 1.6rem;
+          min-height: 1.75rem;
         }
-
         .laundry-admin-calendar .fc .fc-daygrid-day-events {
           margin: 0 0.2rem 0.25rem;
         }
-
         .laundry-admin-calendar .fc .fc-daygrid-more-link {
           margin: 0.18rem 0.3rem 0.25rem;
           font-size: 0.72rem;
           font-weight: 600;
         }
-
         .laundry-admin-calendar .fc .fc-event-main {
           padding: 0;
         }
-
         .laundry-admin-calendar .fc .fc-popover {
           z-index: 40;
           border-radius: 16px;
           opacity: 1;
           overflow: hidden;
         }
-
         .laundry-admin-calendar .fc .fc-popover-header {
           padding: 0.7rem 0.9rem;
         }
-
         .laundry-admin-calendar .fc .fc-more-popover .fc-popover-body {
           padding: 0.45rem 0.55rem 0.65rem;
         }
-
         .laundry-admin-calendar .fc .fc-more-popover .fc-daygrid-event-harness,
         .laundry-admin-calendar .fc .fc-more-popover .fc-daygrid-event-harness-abs {
           position: relative !important;
@@ -675,53 +426,28 @@ export default function LaundryCalendarView() {
           display: block !important;
           margin-top: 0.28rem !important;
         }
-
         .laundry-admin-calendar .fc .fc-more-popover .fc-daygrid-event {
           margin: 0 !important;
         }
-
         .laundry-admin-calendar .fc .fc-view-harness,
         .laundry-admin-calendar .fc .fc-view-harness-active {
           overflow: visible;
         }
-
         .laundry-admin-calendar .fc .fc-scrollgrid {
-          border-radius: calc(var(--radius) + 6px);
-          overflow: hidden;
+          border-left: 0;
+          border-right: 0;
+          border-bottom: 0;
         }
-
         .laundry-admin-calendar .fc .fc-daygrid-day-frame {
           min-height: 7rem;
         }
-
         @media (max-width: 768px) {
-          .laundry-admin-calendar .fc .fc-toolbar.fc-header-toolbar {
-            padding: 0.85rem 0.85rem 0;
-          }
-
-          .laundry-admin-calendar .fc .fc-toolbar-title {
-            font-size: 0.95rem;
-          }
-
-          .laundry-admin-calendar .fc .fc-button {
-            padding: 0.4rem 0.65rem;
-            font-size: 0.75rem;
-          }
-
-          .laundry-admin-calendar .fc .fc-toolbar-chunk {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.35rem;
-          }
-
           .laundry-admin-calendar .fc .fc-daygrid-day-events {
             margin-inline: 0.1rem;
           }
-
           .laundry-admin-calendar .fc .fc-daygrid-more-link {
             margin-inline: 0.18rem;
           }
-
           .laundry-admin-calendar .fc .fc-daygrid-day-frame {
             min-height: 5.6rem;
           }

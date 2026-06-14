@@ -31,6 +31,8 @@ export async function getPayrollSummary(input: {
           { completedAt: null, scheduledDate: { gte: start, lt: endExclusive } },
         ],
         status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
+        // Skipped cleans are never paid out.
+        cleanSkipStatus: { not: "SKIPPED" },
         ...(input.excludePaidJobs ? { payrollRunId: null } : {}),
       },
       select: {

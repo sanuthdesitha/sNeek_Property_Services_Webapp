@@ -74,6 +74,9 @@ type Job = {
   notes: string | null;
   actualHours: number | null;
   estimatedHours: number | null;
+  cleanSkipStatus: string | null;
+  cleanSkipReason: string | null;
+  cleanSkipAt: string | null;
   enRouteStartedAt: string | null;
   enRouteEtaMinutes: number | null;
   enRouteEtaUpdatedAt: string | null;
@@ -205,6 +208,42 @@ export default function ClientJobDetailPage() {
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skipBusy, setSkipBusy] = useState(false);
+
+  async function requestSkip() {
+    if (!job) return;
+    const reason = window.prompt("Optional reason for skipping this clean:") ?? undefined;
+    setSkipBusy(true);
+    try {
+      const res = await fetch(`/api/client/jobs/${job.id}/skip-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason?.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not send skip request.");
+      setJob((prev) => (prev ? { ...prev, cleanSkipStatus: "REQUESTED", cleanSkipReason: reason?.trim() || null } : prev));
+    } catch (err: any) {
+      window.alert(err?.message ?? "Could not send skip request.");
+    } finally {
+      setSkipBusy(false);
+    }
+  }
+
+  async function cancelSkip() {
+    if (!job) return;
+    setSkipBusy(true);
+    try {
+      const res = await fetch(`/api/client/jobs/${job.id}/skip-request`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not cancel skip request.");
+      setJob((prev) => (prev ? { ...prev, cleanSkipStatus: "NONE", cleanSkipReason: null } : prev));
+    } catch (err: any) {
+      window.alert(err?.message ?? "Could not cancel skip request.");
+    } finally {
+      setSkipBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -320,6 +359,52 @@ export default function ClientJobDetailPage() {
           <StatusTimeline status={job.status} />
         </CardContent>
       </Card>
+
+      {/* Skip / don't clean */}
+      {(() => {
+        const skipStatus = job.cleanSkipStatus ?? "NONE";
+        const canRequest =
+          !["COMPLETED", "INVOICED"].includes(job.status) &&
+          (skipStatus === "NONE" || skipStatus === "DECLINED");
+        if (skipStatus === "SKIPPED") {
+          return (
+            <Card className="border-amber-300 bg-amber-50">
+              <CardContent className="py-4 text-sm text-amber-900">
+                <p className="font-medium">Skipped — no clean</p>
+                <p className="text-xs text-amber-800">
+                  This turnover has been marked as skipped and will not be cleaned.
+                  {job.cleanSkipReason ? ` Reason: ${job.cleanSkipReason}` : ""}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        }
+        if (skipStatus === "REQUESTED") {
+          return (
+            <Card className="border-amber-300 bg-amber-50">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm text-amber-900">
+                <div>
+                  <p className="font-medium">Skip request pending</p>
+                  <p className="text-xs text-amber-800">Waiting for admin to review your request to skip this clean.</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={cancelSkip} disabled={skipBusy}>
+                  {skipBusy ? "Cancelling…" : "Cancel request"}
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        }
+        if (canRequest) {
+          return (
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={requestSkip} disabled={skipBusy}>
+                {skipBusy ? "Sending…" : "Request to skip this clean"}
+              </Button>
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       <Tabs defaultValue="overview">
         <TabsList className="flex-wrap h-auto gap-1">

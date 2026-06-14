@@ -24,6 +24,19 @@ export async function POST(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = schema.parse(await req.json().catch(() => ({})));
+
+    // Skipped cleans must never be dispatched to cleaners.
+    const skipGuard = await db.job.findUnique({
+      where: { id: params.jobId },
+      select: { cleanSkipStatus: true },
+    });
+    if (skipGuard?.cleanSkipStatus === "SKIPPED") {
+      return NextResponse.json(
+        { error: "This clean is skipped and cannot be assigned. Un-skip it first to restore the clean." },
+        { status: 400 }
+      );
+    }
+
     await applyAutoAssignment(params.jobId, body.cleanerIds, session.user.id);
     const [settings, job, cleaners] = await Promise.all([
       getAppSettings(),

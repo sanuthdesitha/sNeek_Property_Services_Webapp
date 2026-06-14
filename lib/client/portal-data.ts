@@ -411,6 +411,9 @@ export async function listClientJobsForUser(userId: string) {
         scheduledDate: true,
         startTime: true,
         dueTime: true,
+        cleanSkipStatus: true,
+        cleanSkipReason: true,
+        cleanSkipAt: true,
         property: {
           select: {
             id: true,

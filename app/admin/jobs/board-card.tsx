@@ -49,6 +49,8 @@ export function BoardCard({
   const status = String(job?.status ?? "");
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
+  const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
+  const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
 
   return (
     <Card
@@ -109,6 +111,16 @@ export function BoardCard({
         {pendingContinuation ? (
           <Badge variant="destructive" className="mt-2">
             Continuation pending
+          </Badge>
+        ) : null}
+        {isSkipped ? (
+          <Badge variant="destructive" className="mt-2">
+            Skipped — no clean
+          </Badge>
+        ) : null}
+        {skipRequested ? (
+          <Badge variant="warning" className="mt-2">
+            Skip requested
           </Badge>
         ) : null}
         <div className="mt-2 flex flex-wrap gap-2">
