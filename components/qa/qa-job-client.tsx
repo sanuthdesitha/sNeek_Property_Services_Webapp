@@ -66,7 +66,11 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [payload, setPayload] = useState<any>(null);
   // Evidence stamp inputs (branding + GPS), fetched once per session and reused
   // across every QA photo so the overlay carries the real logo + location.
-  const [branding, setBranding] = useState<{ companyName?: string; logoUrl?: string }>({});
+  const [branding, setBranding] = useState<{
+    companyName?: string;
+    logoUrl?: string;
+    evidenceStamp?: { dateFormat?: string; timeFormat?: string; showWeekday?: boolean };
+  }>({});
   const [stampGps, setStampGps] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -102,7 +106,12 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     fetch("/api/public/branding")
       .then((r) => r.json())
       .then((b) => {
-        if (active) setBranding({ companyName: b?.companyName, logoUrl: b?.logoUrl });
+        if (active)
+          setBranding({
+            companyName: b?.companyName,
+            logoUrl: b?.logoUrl,
+            evidenceStamp: b?.evidenceStamp,
+          });
       })
       .catch(() => {});
     getAccuratePosition()
@@ -147,17 +156,38 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const evidenceStamp = useMemo<StampOptions>(() => {
     const propertyName =
       (typeof job?.property?.name === "string" && job.property.name.trim()) || "";
-    const propertySuburb =
-      (typeof job?.property?.suburb === "string" && job.property.suburb.trim()) || "";
+    const addressParts = [
+      job?.property?.address,
+      job?.property?.suburb,
+      job?.property?.state,
+      job?.property?.postcode,
+    ]
+      .filter((v: unknown) => typeof v === "string" && v.trim())
+      .map((v: string) => v.trim());
     return {
       capturerName: authSession?.user?.name?.trim() || "QA Inspector",
       companyName: branding.companyName?.trim() || "sNeek Property Services",
       logoUrl: branding.logoUrl || "",
       gps: stampGps,
       timezone: "Australia/Sydney",
-      reference: [propertyName, propertySuburb].filter(Boolean).join(" · ") || undefined,
+      address: addressParts.join(", ") || undefined,
+      reference: propertyName || undefined,
+      dateFormat: branding.evidenceStamp?.dateFormat,
+      timeFormat: branding.evidenceStamp?.timeFormat,
+      showWeekday: branding.evidenceStamp?.showWeekday,
     };
-  }, [authSession?.user?.name, branding.companyName, branding.logoUrl, stampGps, job?.property?.name, job?.property?.suburb]);
+  }, [
+    authSession?.user?.name,
+    branding.companyName,
+    branding.logoUrl,
+    branding.evidenceStamp,
+    stampGps,
+    job?.property?.name,
+    job?.property?.address,
+    job?.property?.suburb,
+    job?.property?.state,
+    job?.property?.postcode,
+  ]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
   const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> =
     payload?.cleanerCandidates ?? [];
@@ -565,6 +595,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                     maxFiles={6}
                     stamp={{
                       ...evidenceStamp,
+                      tag: "damage",
                       contextLabel: ["Damage report", entry.area?.trim()].filter(Boolean).join(" · "),
                     }}
                     onUploaded={(r) => updateDamage(entry.id, { photoKeys: [...entry.photoKeys, r.key] })}
@@ -913,6 +944,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         maxFiles={6}
                         stamp={{
                           ...evidenceStamp,
+                          tag: "after",
                           contextLabel:
                             (typeof section.label === "string" && section.label.trim()) ||
                             (typeof section.title === "string" && section.title.trim()) ||

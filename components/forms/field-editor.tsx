@@ -305,6 +305,55 @@ export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableF
               </div>
             )}
 
+            {isUpload && (field.type === "photo" || field.type === "video") && (
+              <div className="space-y-1.5 rounded-md border p-3">
+                <Label htmlFor={`field-capture-type-${field.id}`}>Capture type</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  What the cleaner can capture for this field.
+                </p>
+                <Select
+                  value={
+                    field.mediaMode === "both"
+                      ? "both"
+                      : field.type === "video"
+                        ? "video"
+                        : "photo"
+                  }
+                  onValueChange={(v) => {
+                    if (v === "both") {
+                      // "Photo or Video" — keep the field a photo field but flag
+                      // both so the renderer offers photo capture AND the video
+                      // recorder. Seed a video duration default if missing.
+                      onUpdate({
+                        ...field,
+                        type: "photo",
+                        mediaMode: "both",
+                        maxDurationSec: field.maxDurationSec ?? 60,
+                      });
+                    } else if (v === "video") {
+                      onUpdate({
+                        ...field,
+                        type: "video",
+                        mediaMode: undefined,
+                        maxDurationSec: field.maxDurationSec ?? 60,
+                      });
+                    } else {
+                      onUpdate({ ...field, type: "photo", mediaMode: undefined });
+                    }
+                  }}
+                >
+                  <SelectTrigger id={`field-capture-type-${field.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="photo">Photo</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                    <SelectItem value="both">Photo or Video</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {isUpload && (
               <div className="grid grid-cols-2 gap-2">
                 {field.type !== "video" && (
@@ -331,7 +380,7 @@ export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableF
                     onChange={(e) => onUpdate({ ...field, maxFiles: num(e.target.value) })}
                   />
                 </div>
-                {field.type === "video" && (
+                {(field.type === "video" || field.mediaMode === "both") && (
                   <div className="space-y-1">
                     <Label htmlFor={`field-max-duration-${field.id}`}>Max duration (sec)</Label>
                     <Input

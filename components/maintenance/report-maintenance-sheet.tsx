@@ -45,6 +45,8 @@ export interface ReportMaintenanceSheetProps {
   propertyId: string;
   /** Optional job context (cleaner/QA flows). */
   jobId?: string;
+  /** Optional full property address, burned into the evidence stamp. */
+  propertyAddress?: string;
   /** Button styling/label overrides for the trigger. */
   triggerLabel?: string;
   triggerVariant?: "default" | "outline" | "secondary" | "ghost";
@@ -62,6 +64,7 @@ export interface ReportMaintenanceSheetProps {
 export function ReportMaintenanceSheet({
   propertyId,
   jobId,
+  propertyAddress,
   triggerLabel = "Report something to fix / replace",
   triggerVariant = "outline",
   triggerSize = "sm",
@@ -223,7 +226,11 @@ export function ReportMaintenanceSheet({
               <UploadDropzone
                 accept="image/*"
                 jobId={jobId}
-                stamp={{ capturerName: authSession?.user?.name ?? "Reporter" }}
+                stamp={{
+                  capturerName: authSession?.user?.name ?? "Reporter",
+                  tag: "damage",
+                  address: propertyAddress?.trim() || undefined,
+                }}
                 onUploaded={(r) => setPhotoKeys((prev) => [...prev, r.key])}
                 onFailure={(name) =>
                   toast({ title: "Upload failed", description: `${name} could not be uploaded.`, variant: "destructive" })

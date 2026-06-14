@@ -10,10 +10,16 @@ export async function GET() {
     return NextResponse.json({
       companyName: settings.companyName,
       logoUrl: settings.logoUrl,
+      evidenceStamp: settings.evidenceStamp,
     });
   } catch (err: any) {
     return NextResponse.json(
-      { companyName: "sNeek Property Services", logoUrl: "", error: err?.message ?? "Failed to load branding." },
+      {
+        companyName: "sNeek Property Services",
+        logoUrl: "",
+        evidenceStamp: { dateFormat: "DD/MM/YYYY", timeFormat: "HH:mm", showWeekday: true },
+        error: err?.message ?? "Failed to load branding.",
+      },
       { status: 200 }
     );
   }

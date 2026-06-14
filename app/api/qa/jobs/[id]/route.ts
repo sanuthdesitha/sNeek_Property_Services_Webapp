@@ -112,7 +112,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       db.job.findUnique({
         where: { id: params.id },
         include: {
-          property: { select: { id: true, name: true, address: true, suburb: true, accessInfo: true } },
+          property: { select: { id: true, name: true, address: true, suburb: true, state: true, postcode: true, accessInfo: true } },
           assignments: {
             where: { removedAt: null },
             select: { user: { select: { id: true, name: true, email: true } } },

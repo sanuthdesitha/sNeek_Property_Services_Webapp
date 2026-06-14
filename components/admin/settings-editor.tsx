@@ -413,6 +413,35 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
     [cleanerOptions, settings.selectAllAllowedCleanerIds]
   );
 
+  // Live preview of the evidence-photo timestamp (matches lib/uploads/stamp.ts).
+  const evidenceStampPreview = useMemo(() => {
+    const { dateFormat, timeFormat, showWeekday } = settings.evidenceStamp;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const sample = new Date(2026, 5, 13, 15, 43); // Sat 13 Jun 2026, 15:43
+    const dd = "13";
+    const mm = "06";
+    const yyyy = "2026";
+    let dateStr: string;
+    switch (dateFormat) {
+      case "MM/DD/YYYY":
+        dateStr = `${mm}/${dd}/${yyyy}`;
+        break;
+      case "YYYY-MM-DD":
+        dateStr = `${yyyy}-${mm}-${dd}`;
+        break;
+      case "DD MMM YYYY":
+        dateStr = `${dd} ${months[5]} ${yyyy}`;
+        break;
+      default:
+        dateStr = `${dd}/${mm}/${yyyy}`;
+    }
+    const timeStr = timeFormat === "hh:mm a" ? "3:43 pm" : "15:43";
+    const weekdayStr = showWeekday
+      ? ` · ${sample.toLocaleDateString("en-AU", { weekday: "short" })}`
+      : "";
+    return `${timeStr} · ${dateStr}${weekdayStr}`;
+  }, [settings.evidenceStamp]);
+
   function hydrateFromSnapshot(nextSettings: AppSettings) {
     setSettings(nextSettings);
     const nextBlocks = Object.fromEntries(
@@ -1191,6 +1220,84 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               }
               disabled={readOnly}
               placeholder="e.g. Please include invoice number as payment reference."
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-md border p-4">
+          <div>
+            <p className="text-sm font-medium">Evidence photo stamp</p>
+            <p className="text-xs text-muted-foreground">
+              Timestamp format burned into every job / QA / maintenance photo (Australia/Sydney).
+              Preview: <span className="font-medium text-foreground">{evidenceStampPreview}</span>
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Date format</Label>
+              <Select
+                value={settings.evidenceStamp.dateFormat}
+                onValueChange={(value) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    evidenceStamp: {
+                      ...prev.evidenceStamp,
+                      dateFormat: value as AppSettings["evidenceStamp"]["dateFormat"],
+                    },
+                  }))
+                }
+                disabled={readOnly}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DD/MM/YYYY">DD/MM/YYYY (13/06/2026)</SelectItem>
+                  <SelectItem value="MM/DD/YYYY">MM/DD/YYYY (06/13/2026)</SelectItem>
+                  <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (2026-06-13)</SelectItem>
+                  <SelectItem value="DD MMM YYYY">DD MMM YYYY (13 Jun 2026)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Time format</Label>
+              <Select
+                value={settings.evidenceStamp.timeFormat}
+                onValueChange={(value) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    evidenceStamp: {
+                      ...prev.evidenceStamp,
+                      timeFormat: value as AppSettings["evidenceStamp"]["timeFormat"],
+                    },
+                  }))
+                }
+                disabled={readOnly}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HH:mm">24-hour (15:43)</SelectItem>
+                  <SelectItem value="hh:mm a">12-hour (3:43 pm)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Show weekday</p>
+              <p className="text-xs text-muted-foreground">Adds the day name (e.g. Sat) under the date.</p>
+            </div>
+            <Switch
+              checked={settings.evidenceStamp.showWeekday}
+              onCheckedChange={(value) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  evidenceStamp: { ...prev.evidenceStamp, showWeekday: value },
+                }))
+              }
+              disabled={readOnly}
             />
           </div>
         </div>

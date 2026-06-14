@@ -88,6 +88,7 @@ export function GuidedCapture({
   // Live-camera state.
   const [liveReady, setLiveReady] = React.useState(false);
   const [useFallback, setUseFallback] = React.useState(false);
+  const [starting, setStarting] = React.useState(true);
   const [flash, setFlash] = React.useState(false);
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -113,32 +114,60 @@ export function GuidedCapture({
     setLiveReady(false);
   }, []);
 
+  /**
+   * Attach an active MediaStream to the (always-mounted) <video> element and
+   * play it. Kept separate from acquisition so it can run from an effect once
+   * the element is guaranteed mounted — fixing the "stream attached before ref
+   * ready / video hidden" class of bugs where the preview never appeared.
+   */
+  const attachStream = React.useCallback(async (stream: MediaStream) => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+    // muted + playsInline are required for autoplay on iOS/Safari; set them on
+    // the element too (not just as attributes) so play() isn't blocked.
+    video.muted = true;
+    video.playsInline = true;
+    try {
+      await video.play();
+    } catch {
+      // Autoplay can reject if the gesture/visibility isn't ready yet; a retry
+      // on the next tick (element is mounted, attributes set) usually succeeds.
+      await new Promise((r) => setTimeout(r, 60));
+      await video.play().catch(() => undefined);
+    }
+  }, []);
+
   const startStream = React.useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setUseFallback(true);
+      setStarting(false);
       return;
     }
+    setStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
       streamRef.current = stream;
-      const video = videoRef.current;
-      if (!video) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      video.srcObject = stream;
-      await video.play().catch(() => undefined);
-      setLiveReady(true);
       setUseFallback(false);
+      // The <video> is always mounted, so attach immediately; a dedicated
+      // effect also re-attaches if the ref settles after this resolves.
+      await attachStream(stream);
+      setLiveReady(true);
     } catch {
       // Denied / unavailable (common on iOS in some webviews) — degrade.
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       setUseFallback(true);
       setLiveReady(false);
+    } finally {
+      setStarting(false);
     }
-  }, []);
+  }, [attachStream]);
 
   React.useEffect(() => {
     void startStream();
@@ -148,6 +177,20 @@ export function GuidedCapture({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Belt-and-braces: whenever a stream exists and live mode is on, make sure it
+  // is bound to the video element (handles ref/layout settling after acquire).
+  React.useEffect(() => {
+    if (streamRef.current && !useFallback) {
+      void attachStream(streamRef.current);
+    }
+  }, [useFallback, attachStream, liveReady]);
+
+  const retryCamera = React.useCallback(() => {
+    setUseFallback(false);
+    setLiveReady(false);
+    void startStream();
+  }, [startStream]);
 
   if (!item) return null;
 
@@ -280,7 +323,7 @@ export function GuidedCapture({
   const shutterDisabled = atMax || capturing;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-black text-white">
+    <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col overflow-hidden bg-black text-white">
       {/* Hidden inputs for the fallback + gallery paths. */}
       <input
         ref={cameraInputRef}
@@ -325,24 +368,48 @@ export function GuidedCapture({
         </div>
       </div>
 
-      {/* Live preview area (fills the middle). */}
+      {/* Live preview area (fills the middle). The <video> is ALWAYS mounted so
+          the stream can attach reliably; fallback/loading states sit on top. */}
       <div className="relative min-h-0 flex-1">
-        {!useFallback ? (
-          <video
-            ref={videoRef}
-            className="absolute inset-0 h-full w-full bg-black object-cover"
-            muted
-            playsInline
-            autoPlay
-          />
-        ) : (
+        <video
+          ref={videoRef}
+          className={`absolute inset-0 h-full w-full bg-black object-cover ${
+            useFallback ? "invisible" : ""
+          }`}
+          muted
+          playsInline
+          autoPlay
+        />
+
+        {/* Acquiring the camera. */}
+        {!useFallback && starting && !liveReady ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-900/90 px-6 text-center">
+            <Loader2 className={`size-8 text-white/70 ${reduceMotion ? "" : "animate-spin"}`} />
+            <p className="text-sm text-white/70">Starting camera…</p>
+          </div>
+        ) : null}
+
+        {/* Camera unavailable / denied fallback. */}
+        {useFallback ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-900 px-6 text-center">
             <Camera className="size-10 text-white/50" />
-            <p className="text-sm text-white/70">
-              Live camera unavailable — tap the shutter to use your device camera.
+            <p className="text-sm font-medium text-white/80">Camera unavailable</p>
+            <p className="max-w-xs text-xs text-white/60">
+              We couldn&apos;t open the live camera. Tap the shutter to use your device camera, or
+              retry the live preview.
             </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              onClick={retryCamera}
+            >
+              <RefreshCcw className="mr-1 size-3.5" />
+              Retry live camera
+            </Button>
           </div>
-        )}
+        ) : null}
 
         {/* Shutter flash. */}
         {flash ? <div className="absolute inset-0 bg-white/80" aria-hidden /> : null}

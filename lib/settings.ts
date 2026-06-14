@@ -175,6 +175,18 @@ export interface PricingSettings {
   gstEnabled: boolean;
 }
 
+export type StampDateFormat = "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD" | "DD MMM YYYY";
+export type StampTimeFormat = "HH:mm" | "hh:mm a";
+
+export interface EvidenceStampSettings {
+  /** Date line format burned into evidence photos. */
+  dateFormat: StampDateFormat;
+  /** Time line format (24h "HH:mm" or 12h "hh:mm a"). */
+  timeFormat: StampTimeFormat;
+  /** Show the weekday (e.g. "Sat") under the date. */
+  showWeekday: boolean;
+}
+
 export type PropertyFormTemplateOverrides = Record<string, Partial<Record<JobType, string>>>;
 
 export type PortalTheme = "dark" | "light" | "public";
@@ -218,6 +230,7 @@ export interface AppSettings {
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
   pricing: PricingSettings;
+  evidenceStamp: EvidenceStampSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
   emailTemplates: AppEmailTemplates;
   notificationTemplates: AppNotificationTemplates;
@@ -442,6 +455,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   pricing: {
     gstEnabled: true,
+  },
+  evidenceStamp: {
+    dateFormat: "DD/MM/YYYY",
+    timeFormat: "HH:mm",
+    showWeekday: true,
   },
   propertyFormTemplateOverrides: {},
   emailTemplates: getDefaultEmailTemplates(),
@@ -830,6 +848,28 @@ function sanitizePricingSettings(input: unknown, fallback: PricingSettings): Pri
   };
 }
 
+function sanitizeEvidenceStamp(
+  input: unknown,
+  fallback: EvidenceStampSettings
+): EvidenceStampSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const dateFormats: StampDateFormat[] = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD", "DD MMM YYYY"];
+  const timeFormats: StampTimeFormat[] = ["HH:mm", "hh:mm a"];
+  return {
+    dateFormat:
+      typeof row.dateFormat === "string" && dateFormats.includes(row.dateFormat as StampDateFormat)
+        ? (row.dateFormat as StampDateFormat)
+        : fallback.dateFormat,
+    timeFormat:
+      typeof row.timeFormat === "string" && timeFormats.includes(row.timeFormat as StampTimeFormat)
+        ? (row.timeFormat as StampTimeFormat)
+        : fallback.timeFormat,
+    showWeekday:
+      typeof row.showWeekday === "boolean" ? row.showWeekday : fallback.showWeekday,
+  };
+}
+
 function sanitizePropertyFormTemplateOverrides(
   input: unknown,
   fallback: PropertyFormTemplateOverrides
@@ -1025,6 +1065,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       DEFAULT_SETTINGS.qaAutomation
     ),
     pricing: sanitizePricingSettings((parsed as any).pricing, DEFAULT_SETTINGS.pricing),
+    evidenceStamp: sanitizeEvidenceStamp(
+      (parsed as any).evidenceStamp,
+      DEFAULT_SETTINGS.evidenceStamp
+    ),
     propertyFormTemplateOverrides: sanitizePropertyFormTemplateOverrides(
       (parsed as any).propertyFormTemplateOverrides,
       DEFAULT_SETTINGS.propertyFormTemplateOverrides
@@ -1088,6 +1132,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
     pricing: input.pricing ?? current.pricing,
+    evidenceStamp: input.evidenceStamp ?? current.evidenceStamp,
     websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
     scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,

@@ -804,10 +804,45 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     return resolved;
   }
 
+  /**
+   * Heuristic: derive the evidence tag (before / after / damage) for a photo
+   * from the section/field it belongs to. Damage uploaders pass tag explicitly;
+   * here we look at the section title for clearly pre-clean / arrival wording,
+   * otherwise default to "after" (completion / checklist evidence).
+   */
+  function deriveTag(fieldId?: string): "before" | "after" | "damage" {
+    if (!fieldId) return "after";
+    // Damage uploaders use synthetic field ids (DAMAGE_UPLOAD_FIELD_ID and
+    // damageItemPhotoFieldId) that don't live in the form sections.
+    if (fieldId === DAMAGE_UPLOAD_FIELD_ID || fieldId.startsWith("__damage_")) {
+      return "damage";
+    }
+    const match = visibleSections
+      .flatMap((section: any) => (section.fields ?? []).map((f: any) => ({ f, section })))
+      .find((entry: any) => entry.f?.id === fieldId);
+    if (!match) return "after";
+    const haystack = [
+      match.section?.title,
+      match.section?.label,
+      match.section?.description,
+      match.f?.label,
+      match.f?.locationTag,
+    ]
+      .filter((v: unknown) => typeof v === "string")
+      .join(" ")
+      .toLowerCase();
+    if (/\b(damage|broken|defect|fault)\b/.test(haystack)) return "damage";
+    if (/\b(before|arrival|arrive|pre-?clean|pre clean|start|check-?in|on arrival)\b/.test(haystack)) {
+      return "before";
+    }
+    return "after";
+  }
+
   /** Build the evidence stamp options shared by every job photo. */
   function buildStampOptions(
     gps: { lat: number; lng: number; accuracy: number | null } | null,
-    fieldId?: string
+    fieldId?: string,
+    tag?: "before" | "after" | "damage"
   ): StampOptions {
     const capturerName =
       (typeof payload?.viewerName === "string" && payload.viewerName.trim()) || "Cleaner";
@@ -818,12 +853,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const timezone =
       (typeof payload?.startVerification?.timezone === "string" && payload.startVerification.timezone) ||
       "Australia/Sydney";
+    const stampFormat = payload?.branding?.evidenceStamp ?? {};
 
-    const propertyName =
-      (typeof payload?.job?.property?.name === "string" && payload.job.property.name.trim()) || "";
-    const propertySuburb =
-      (typeof payload?.job?.property?.suburb === "string" && payload.job.property.suburb.trim()) || "";
-    const reference = [propertyName, propertySuburb].filter(Boolean).join(" · ") || undefined;
+    const prop = payload?.job?.property ?? {};
+    const propertyName = (typeof prop.name === "string" && prop.name.trim()) || "";
+    const addressParts = [prop.address, prop.suburb, prop.state, prop.postcode]
+      .filter((v: unknown) => typeof v === "string" && v.trim())
+      .map((v: string) => v.trim());
+    const address = addressParts.join(", ") || undefined;
+    // Property NAME stays as the small reference; the address line is the
+    // headline locator on the stamp.
+    const reference = propertyName || undefined;
 
     let contextLabel: string | undefined;
     if (fieldId) {
@@ -841,7 +881,20 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       }
     }
 
-    return { capturerName, companyName, logoUrl, timezone, gps, reference, contextLabel };
+    return {
+      capturerName,
+      companyName,
+      logoUrl,
+      timezone,
+      gps,
+      address,
+      reference,
+      contextLabel,
+      tag: tag ?? deriveTag(fieldId),
+      dateFormat: typeof stampFormat.dateFormat === "string" ? stampFormat.dateFormat : undefined,
+      timeFormat: typeof stampFormat.timeFormat === "string" ? stampFormat.timeFormat : undefined,
+      showWeekday: typeof stampFormat.showWeekday === "boolean" ? stampFormat.showWeekday : undefined,
+    };
   }
 
   /**
@@ -5308,6 +5361,33 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                       />
                     </label>
                   </div>
+                  {field.mediaMode === "both" ? (
+                    <div className="mt-2 w-full border-t border-dashed border-muted-foreground/30 pt-2">
+                      <p className="mb-1 text-center text-[11px] text-muted-foreground">or record a video</p>
+                      <VideoRecorder
+                        capturerName={
+                          (typeof payload?.viewerName === "string" && payload.viewerName.trim()) || "Cleaner"
+                        }
+                        timezone={
+                          (typeof payload?.startVerification?.timezone === "string" &&
+                            payload.startVerification.timezone) ||
+                          "Australia/Sydney"
+                        }
+                        maxDurationSec={
+                          typeof field.maxDurationSec === "number" && field.maxDurationSec > 0
+                            ? field.maxDurationSec
+                            : 60
+                        }
+                        disabled={
+                          field.maxFiles !== undefined &&
+                          (uploads[field.id]?.length ?? 0) >= field.maxFiles
+                        }
+                        onRecorded={async (file) => {
+                          await handleUpload(field.id, [file], "gallery");
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 {renderUnifiedUploadList(field.id)}
               </div>

@@ -31,6 +31,8 @@ export async function GET(
             name: true,
             address: true,
             suburb: true,
+            state: true,
+            postcode: true,
             accessInfo: true,
             hasBalcony: true,
             bedrooms: true,
@@ -258,6 +260,7 @@ export async function GET(
       branding: {
         companyName: settings.companyName,
         logoUrl: settings.logoUrl,
+        evidenceStamp: settings.evidenceStamp,
       },
       template: resolvedTemplate,
       templateSource,

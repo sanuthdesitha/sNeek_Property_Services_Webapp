@@ -114,6 +114,11 @@ export interface FormField {
   maxFiles?: number;
   // video: max recording length in seconds for in-app recording (default ~60).
   maxDurationSec?: number;
+  // Capture type for media/upload fields. Only meaningful when type is
+  // "photo" or "video". "both" lets the cleaner capture photos AND videos for
+  // the same field (offers both capture buttons + the in-app recorder).
+  // When unset it follows field.type (photo => photo, video => video).
+  mediaMode?: "photo" | "video" | "both";
   // numeric / slider / scale / counter
   min?: number;
   max?: number;
