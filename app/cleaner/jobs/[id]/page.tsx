@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square, PauseCircle, TimerReset, Navigation, TrafficCone } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Camera, Clock, Eye, MapPin, Play, Send, Square, PauseCircle, TimerReset, Navigation, TrafficCone, Plus, Pencil, Trash2, HandCoins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,9 +28,11 @@ import {
   fieldDetailsKey,
 } from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import { stampImage, isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 import { FieldRenderer } from "@/components/forms/field-renderer";
 import { FieldReferences } from "@/components/forms/field-references";
 import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
+import { VideoRecorder } from "@/components/forms/video-recorder";
 import {
   INVENTORY_LOCATIONS,
   INVENTORY_LOCATION_LABELS,
@@ -52,6 +54,7 @@ import {
   formatJobStatusLabel,
 } from "@/lib/jobs/assignment-workflow";
 import { ensureGoogleMaps, resolveBrowserMapsKey } from "@/lib/maps/loader";
+import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 
 type Step = "briefing" | "checklist" | "uploads" | "laundry" | "submit";
 type FormPageSlot = "auto" | "checklist" | "uploads" | "laundry" | "submit";
@@ -81,9 +84,6 @@ const LAUNDRY_SKIP_REASONS = [
 ];
 const CLIENT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const CLIENT_MAX_VIDEO_BYTES = 150 * 1024 * 1024;
-const IMAGE_MAX_DIMENSION = 1600;
-const IMAGE_TARGET_BYTES = 1.5 * 1024 * 1024;
-const IMAGE_MIN_QUALITY = 0.45;
 type UploadItemStatus = "queued" | "uploading" | "uploaded" | "failed";
 type UploadSource = "camera" | "gallery";
 
@@ -189,6 +189,106 @@ function carryForwardPhotoFieldId(taskId: string) {
 const DAMAGE_UPLOAD_FIELD_ID = "__damage_report_photos";
 const PAY_REQUEST_UPLOAD_FIELD_ID = "__pay_request_photos";
 
+type DamageItem = {
+  id: string;
+  title: string;
+  area: string;
+  description: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  estimatedCost: string;
+  photoFieldId: string;
+};
+
+type PayRequestItem = {
+  id: string;
+  title: string;
+  description: string;
+  type: "HOURLY" | "FIXED";
+  hours: string;
+  rate: string;
+  amount: string;
+  photoFieldId: string;
+};
+
+const DAMAGE_SEVERITY_OPTIONS: Array<{ value: DamageItem["severity"]; label: string }> = [
+  { value: "LOW", label: "Low" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HIGH", label: "High" },
+  { value: "CRITICAL", label: "Critical" },
+];
+
+function createLineItemId() {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function damageItemPhotoFieldId(itemId: string) {
+  return `__damage_item_${itemId}_photos`;
+}
+
+function payRequestItemPhotoFieldId(itemId: string) {
+  return `__pay_request_item_${itemId}_photos`;
+}
+
+function payRequestItemAmount(item: Pick<PayRequestItem, "type" | "hours" | "rate" | "amount">) {
+  if (item.type === "HOURLY") {
+    return Number(item.hours || 0) * Number(item.rate || 0);
+  }
+  return Number(item.amount || 0);
+}
+
+function normalizeDamageSeverity(value: unknown): DamageItem["severity"] {
+  return value === "LOW" || value === "MEDIUM" || value === "HIGH" || value === "CRITICAL"
+    ? value
+    : "HIGH";
+}
+
+function sanitizeDamageItems(value: unknown): DamageItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => {
+      const id = typeof item.id === "string" && item.id ? item.id : createLineItemId();
+      return {
+        id,
+        title: typeof item.title === "string" ? item.title : "",
+        area: typeof item.area === "string" ? item.area : "",
+        description: typeof item.description === "string" ? item.description : "",
+        severity: ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(item.severity as string)
+          ? (item.severity as DamageItem["severity"])
+          : "HIGH",
+        estimatedCost: typeof item.estimatedCost === "string" ? item.estimatedCost : "0",
+        photoFieldId:
+          typeof item.photoFieldId === "string" && item.photoFieldId
+            ? item.photoFieldId
+            : damageItemPhotoFieldId(id),
+      };
+    })
+    .filter((item) => item.title.trim().length > 0);
+}
+
+function sanitizePayRequestItems(value: unknown): PayRequestItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => {
+      const id = typeof item.id === "string" && item.id ? item.id : createLineItemId();
+      return {
+        id,
+        title: typeof item.title === "string" ? item.title : "",
+        description: typeof item.description === "string" ? item.description : "",
+        type: item.type === "HOURLY" ? ("HOURLY" as const) : ("FIXED" as const),
+        hours: typeof item.hours === "string" ? item.hours : "1",
+        rate: typeof item.rate === "string" ? item.rate : "",
+        amount: typeof item.amount === "string" ? item.amount : "0",
+        photoFieldId:
+          typeof item.photoFieldId === "string" && item.photoFieldId
+            ? item.photoFieldId
+            : payRequestItemPhotoFieldId(id),
+      };
+    })
+    .filter((item) => item.title.trim().length > 0);
+}
+
 function formatLaundryOutcomeLabelValue(outcome: LaundryOutcome) {
   switch (outcome) {
     case "READY_FOR_PICKUP":
@@ -279,6 +379,8 @@ function shouldDiscardLocalDraft(draft: Record<string, any> | null, body: any) {
   if (draft.hasMissedTask || draft.extraPaymentRequired || draft.damageFound || draft.showRescheduleForm) {
     return true;
   }
+  if (Array.isArray(draft.damageItems) && draft.damageItems.length > 0) return true;
+  if (Array.isArray(draft.payRequestItems) && draft.payRequestItems.length > 0) return true;
   return false;
 }
 
@@ -331,8 +433,17 @@ export default function CleanerJobPage() {
   const [extraPaymentRequired, setExtraPaymentRequired] = useState(false);
   const [damageFound, setDamageFound] = useState(false);
   const [damageTitle, setDamageTitle] = useState("");
+  const [damageArea, setDamageArea] = useState("");
+  const [damageSeverity, setDamageSeverity] = useState<DamageItem["severity"]>("HIGH");
   const [damageDescription, setDamageDescription] = useState("");
   const [damageEstimatedCost, setDamageEstimatedCost] = useState("0");
+  // Committed lists. Items here are guaranteed to be submitted with the job —
+  // they never depend on a "save draft" step and survive reloads via the draft
+  // snapshot. The single-field state above is just the working mini-form.
+  const [damageItems, setDamageItems] = useState<DamageItem[]>([]);
+  const [payRequestItems, setPayRequestItems] = useState<PayRequestItem[]>([]);
+  const [editingDamageId, setEditingDamageId] = useState<string | null>(null);
+  const [editingPayRequestId, setEditingPayRequestId] = useState<string | null>(null);
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [reschedulePreferredDate, setReschedulePreferredDate] = useState("");
   const [rescheduleRemainingHours, setRescheduleRemainingHours] = useState("");
@@ -391,7 +502,10 @@ export default function CleanerJobPage() {
   const flushingPingsRef = useRef(false);
   const lastUploadRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const lastFixRef = useRef<GpsFix | null>(null);
-  const logoImagePromiseRef = useRef<Promise<HTMLImageElement | null> | null>(null);
+  // Cached GPS fix for evidence stamping, fetched once per capture session and
+  // reused across shots so continuous capture is never blocked on geolocation.
+  const stampGpsRef = useRef<{ lat: number; lng: number; accuracy: number | null } | null>(null);
+  const stampGpsPromiseRef = useRef<Promise<{ lat: number; lng: number; accuracy: number | null } | null> | null>(null);
   const editorSessionIdRef = useRef(createEditorSessionId());
   const lastKnownSharedDraftAtRef = useRef<string | null>(null);
   const suppressDraftSyncUntilRef = useRef(0);
@@ -502,8 +616,12 @@ export default function CleanerJobPage() {
       approvalRate,
       approvalAmount,
       damageTitle,
+      damageArea,
+      damageSeverity,
       damageDescription,
       damageEstimatedCost,
+      damageItems,
+      payRequestItems,
       showRescheduleForm,
       missedTaskNotes,
     };
@@ -556,8 +674,14 @@ export default function CleanerJobPage() {
     setApprovalRate(typeof draft.approvalRate === "string" ? draft.approvalRate : "");
     setApprovalAmount(typeof draft.approvalAmount === "string" ? draft.approvalAmount : "0");
     setDamageTitle(typeof draft.damageTitle === "string" ? draft.damageTitle : "");
+    setDamageArea(typeof draft.damageArea === "string" ? draft.damageArea : "");
+    setDamageSeverity(normalizeDamageSeverity(draft.damageSeverity));
     setDamageDescription(typeof draft.damageDescription === "string" ? draft.damageDescription : "");
     setDamageEstimatedCost(typeof draft.damageEstimatedCost === "string" ? draft.damageEstimatedCost : "0");
+    setDamageItems(sanitizeDamageItems(draft.damageItems));
+    setPayRequestItems(sanitizePayRequestItems(draft.payRequestItems));
+    setEditingDamageId(null);
+    setEditingPayRequestId(null);
     const draftSavedLaundryUpdate =
       draft.savedLaundryUpdate && typeof draft.savedLaundryUpdate === "object"
         ? (draft.savedLaundryUpdate as SavedLaundryUpdate)
@@ -620,21 +744,6 @@ export default function CleanerJobPage() {
     return file.type?.toLowerCase().startsWith("image/") || /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(file.name ?? "");
   }
 
-function formatPhotoTimestamp(timezone: string) {
-    try {
-      return new Intl.DateTimeFormat("en-AU", {
-        timeZone: timezone || "Australia/Sydney",
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date());
-    } catch {
-      return new Date().toLocaleString("en-AU");
-  }
-}
-
 function formatDateTimeLabel(value: string | undefined) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -665,186 +774,98 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 }
 
-  async function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error("Could not load image."));
-      image.src = url;
-    });
-  }
-
-  async function loadImageFromFile(file: File): Promise<HTMLImageElement> {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      return await loadImageFromUrl(objectUrl);
-    } finally {
-      URL.revokeObjectURL(objectUrl);
+  /**
+   * Resolve the GPS fix used for evidence stamping. Fetched at most once per
+   * capture session and cached on a ref so continuous shooting never blocks on
+   * geolocation. Reuses the most recent en-route / check-in fix when present,
+   * otherwise asks for an accurate position. Never throws — a missing fix just
+   * means the stamp omits coordinates.
+   */
+  async function resolveStampGps(): Promise<{ lat: number; lng: number; accuracy: number | null } | null> {
+    if (stampGpsRef.current) return stampGpsRef.current;
+    const recent = lastFixRef.current;
+    if (recent && Number.isFinite(recent.lat) && Number.isFinite(recent.lng)) {
+      stampGpsRef.current = { lat: recent.lat, lng: recent.lng, accuracy: recent.accuracy ?? null };
+      return stampGpsRef.current;
     }
-  }
-
-  function getScaledDimensions(width: number, height: number, maxDimension: number) {
-    if (!width || !height) return { width: maxDimension, height: maxDimension };
-    const ratio = Math.min(1, maxDimension / Math.max(width, height));
-    return {
-      width: Math.max(1, Math.round(width * ratio)),
-      height: Math.max(1, Math.round(height * ratio)),
-    };
-  }
-
-  async function canvasToCompressedJpeg(
-    canvas: HTMLCanvasElement,
-    originalName: string,
-    targetBytes: number
-  ): Promise<File | null> {
-    let quality = 0.82;
-    let width = canvas.width;
-    let height = canvas.height;
-    let workingCanvas = canvas;
-    let blob: Blob | null = null;
-
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      blob = await new Promise<Blob | null>((resolve) =>
-        workingCanvas.toBlob(resolve, "image/jpeg", quality)
-      );
-      if (!blob) return null;
-      if (blob.size <= targetBytes || (quality <= IMAGE_MIN_QUALITY && attempt >= 2)) {
-        break;
-      }
-
-      if (quality > IMAGE_MIN_QUALITY) {
-        quality = Math.max(IMAGE_MIN_QUALITY, quality - 0.1);
-        continue;
-      }
-
-      width = Math.max(900, Math.round(width * 0.85));
-      height = Math.max(900, Math.round(height * 0.85));
-      const resized = document.createElement("canvas");
-      resized.width = width;
-      resized.height = height;
-      const ctx = resized.getContext("2d");
-      if (!ctx) break;
-      ctx.drawImage(workingCanvas, 0, 0, width, height);
-      workingCanvas = resized;
-    }
-
-    if (!blob) return null;
-    const baseName = originalName.replace(/\.[^.]+$/, "") || "upload";
-    return new File([blob], `${baseName}.jpg`, {
-      type: "image/jpeg",
-      lastModified: Date.now(),
-    });
-  }
-
-  async function getBrandLogoImage(logoUrl: string): Promise<HTMLImageElement | null> {
-    if (!logoUrl) return null;
-    if (!logoImagePromiseRef.current) {
-      logoImagePromiseRef.current = (async () => {
+    if (!stampGpsPromiseRef.current) {
+      stampGpsPromiseRef.current = (async () => {
         try {
-          const response = await fetch(logoUrl, { cache: "force-cache" });
-          if (!response.ok) return null;
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          try {
-            return await loadImageFromUrl(url);
-          } finally {
-            URL.revokeObjectURL(url);
-          }
+          const fix = await getAccuratePosition();
+          lastFixRef.current = fix;
+          return { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy ?? null };
         } catch {
           return null;
         }
       })();
     }
-    return logoImagePromiseRef.current;
+    const resolved = await stampGpsPromiseRef.current;
+    if (resolved) stampGpsRef.current = resolved;
+    return resolved;
   }
 
-  async function stampCameraPhoto(file: File, options: { cleanerName: string; companyName: string; logoUrl: string; timezone: string }) {
-    const sourceImage = await loadImageFromFile(file);
-    const canvas = document.createElement("canvas");
-    const dimensions = getScaledDimensions(
-      sourceImage.naturalWidth || sourceImage.width,
-      sourceImage.naturalHeight || sourceImage.height,
-      IMAGE_MAX_DIMENSION
-    );
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-
-    ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
-
-    const padding = Math.max(14, Math.round(canvas.width * 0.015));
-    const fontSize = Math.max(14, Math.round(canvas.width * 0.018));
-    const lineHeight = Math.round(fontSize * 1.3);
-    const logoSize = Math.max(26, Math.round(fontSize * 1.9));
-    const gap = Math.max(8, Math.round(fontSize * 0.6));
-    const timestamp = formatPhotoTimestamp(options.timezone);
-    const lines = [options.cleanerName || "Cleaner", timestamp, options.companyName || "sNeek Property Services"];
-
-    ctx.font = `600 ${fontSize}px Arial, sans-serif`;
-    const maxTextWidth = lines.reduce((max, line) => Math.max(max, Math.ceil(ctx.measureText(line).width)), 0);
-    const blockHeight = Math.max(logoSize, lineHeight * lines.length);
-    const hasLogo = Boolean(options.logoUrl);
-    const contentWidth = (hasLogo ? logoSize + gap : 0) + maxTextWidth;
-    const boxWidth = contentWidth + padding * 2;
-    const boxHeight = blockHeight + padding * 2;
-    const boxX = padding;
-    const boxY = Math.max(padding, canvas.height - boxHeight - padding);
-
-    ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
-    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-
-    const logo = hasLogo ? await getBrandLogoImage(options.logoUrl) : null;
-    const leftContentX = boxX + padding;
-    const centerY = boxY + padding + blockHeight / 2;
-    let textStartX = leftContentX;
-    if (logo) {
-      const logoY = Math.round(centerY - logoSize / 2);
-      ctx.drawImage(logo, leftContentX, logoY, logoSize, logoSize);
-      textStartX = leftContentX + logoSize + gap;
-    }
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.textBaseline = "top";
-    let textY = boxY + padding + Math.max(0, Math.floor((blockHeight - lineHeight * lines.length) / 2));
-    for (const line of lines) {
-      ctx.fillText(line, textStartX, textY);
-      textY += lineHeight;
-    }
-
-    const compressed = await canvasToCompressedJpeg(canvas, file.name, IMAGE_TARGET_BYTES);
-    return compressed ?? file;
-  }
-
-  async function compressGalleryImage(file: File): Promise<File> {
-    const sourceImage = await loadImageFromFile(file);
-    const canvas = document.createElement("canvas");
-    const dimensions = getScaledDimensions(
-      sourceImage.naturalWidth || sourceImage.width,
-      sourceImage.naturalHeight || sourceImage.height,
-      IMAGE_MAX_DIMENSION
-    );
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-    ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
-    const compressed = await canvasToCompressedJpeg(canvas, file.name, IMAGE_TARGET_BYTES);
-    return compressed ?? file;
-  }
-
-  async function preprocessFilesForUpload(files: File[], source: UploadSource): Promise<File[]> {
-    const cleanerName =
-      (typeof payload?.viewerName === "string" && payload.viewerName.trim()) ||
-      "Cleaner";
+  /** Build the evidence stamp options shared by every job photo. */
+  function buildStampOptions(
+    gps: { lat: number; lng: number; accuracy: number | null } | null,
+    fieldId?: string
+  ): StampOptions {
+    const capturerName =
+      (typeof payload?.viewerName === "string" && payload.viewerName.trim()) || "Cleaner";
     const companyName =
       (typeof payload?.branding?.companyName === "string" && payload.branding.companyName.trim()) ||
       "sNeek Property Services";
-    const logoUrl =
-      typeof payload?.branding?.logoUrl === "string" ? payload.branding.logoUrl : "";
+    const logoUrl = typeof payload?.branding?.logoUrl === "string" ? payload.branding.logoUrl : "";
     const timezone =
       (typeof payload?.startVerification?.timezone === "string" && payload.startVerification.timezone) ||
       "Australia/Sydney";
+
+    const propertyName =
+      (typeof payload?.job?.property?.name === "string" && payload.job.property.name.trim()) || "";
+    const propertySuburb =
+      (typeof payload?.job?.property?.suburb === "string" && payload.job.property.suburb.trim()) || "";
+    const reference = [propertyName, propertySuburb].filter(Boolean).join(" · ") || undefined;
+
+    let contextLabel: string | undefined;
+    if (fieldId) {
+      const match = visibleSections
+        .flatMap((section: any) => (section.fields ?? []).map((f: any) => ({ f, section })))
+        .find((entry: any) => entry.f?.id === fieldId);
+      if (match) {
+        const sectionLabel =
+          (typeof match.section?.label === "string" && match.section.label.trim()) ||
+          (typeof match.section?.title === "string" && match.section.title.trim()) ||
+          "";
+        const fieldLabel =
+          (typeof match.f?.label === "string" && match.f.label.trim()) || "";
+        contextLabel = [sectionLabel, fieldLabel].filter(Boolean).join(" · ") || undefined;
+      }
+    }
+
+    return { capturerName, companyName, logoUrl, timezone, gps, reference, contextLabel };
+  }
+
+  /**
+   * Evidence-prepare a single captured image: stamp (camera + gallery both get
+   * stamped — every job photo is evidence), then the stamp itself produces a
+   * sized JPEG. Never throws; falls back to the raw file when canvas is absent.
+   */
+  async function prepareEvidenceImage(
+    file: File,
+    gps: { lat: number; lng: number; accuracy: number | null } | null,
+    fieldId?: string
+  ): Promise<File> {
+    if (!isStampableImage(file)) return file;
+    return stampImage(file, buildStampOptions(gps, fieldId));
+  }
+
+  async function preprocessFilesForUpload(
+    files: File[],
+    source: UploadSource,
+    fieldId?: string
+  ): Promise<File[]> {
+    const hasImage = files.some((file) => isImageFile(file) && !isVideoFile(file));
+    // Fetch the session GPS once if any image needs stamping (reused for all).
+    const gps = hasImage ? await resolveStampGps() : null;
 
     const processed: File[] = [];
     let imagePrepFailures = 0;
@@ -854,11 +875,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         continue;
       }
       try {
-        const prepared =
-          source === "camera"
-            ? await stampCameraPhoto(file, { cleanerName, companyName, logoUrl, timezone })
-            : await compressGalleryImage(file);
-        processed.push(prepared);
+        processed.push(await prepareEvidenceImage(file, gps, fieldId));
       } catch {
         imagePrepFailures += 1;
         processed.push(file);
@@ -866,11 +883,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
     if (imagePrepFailures > 0) {
       toast({
-        title: "Some images were not compressed",
-        description:
-          source === "camera"
-            ? `${imagePrepFailures} camera photo(s) were uploaded without full optimization.`
-            : `${imagePrepFailures} gallery image(s) were uploaded without compression.`,
+        title: "Some images were not stamped",
+        description: `${imagePrepFailures} photo(s) were uploaded without the evidence stamp.`,
         variant: "destructive",
       });
     }
@@ -1046,12 +1060,18 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         typeof carryoverSnapshot?.approvalAmount === "string" ? carryoverSnapshot.approvalAmount : "0"
       );
       setDamageTitle(typeof carryoverSnapshot?.damageTitle === "string" ? carryoverSnapshot.damageTitle : "");
+      setDamageArea(typeof carryoverSnapshot?.damageArea === "string" ? carryoverSnapshot.damageArea : "");
+      setDamageSeverity(normalizeDamageSeverity(carryoverSnapshot?.damageSeverity));
       setDamageDescription(
         typeof carryoverSnapshot?.damageDescription === "string" ? carryoverSnapshot.damageDescription : ""
       );
       setDamageEstimatedCost(
         typeof carryoverSnapshot?.damageEstimatedCost === "string" ? carryoverSnapshot.damageEstimatedCost : "0"
       );
+      setDamageItems(sanitizeDamageItems(carryoverSnapshot?.damageItems));
+      setPayRequestItems(sanitizePayRequestItems(carryoverSnapshot?.payRequestItems));
+      setEditingDamageId(null);
+      setEditingPayRequestId(null);
       setSavedLaundryUpdate(null);
       setLastLaundrySubmittedAt(null);
       setLaundryUpdateCollapsed(false);
@@ -1343,8 +1363,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     bagLocationSelection,
     confirmChecklist,
     confirmOnSite,
+    damageArea,
+    damageSeverity,
     damageDescription,
     damageEstimatedCost,
+    damageItems,
+    payRequestItems,
     formData,
     hasMissedTask,
     jobId,
@@ -1395,8 +1419,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     bagLocationSelection,
     confirmChecklist,
     confirmOnSite,
+    damageArea,
+    damageSeverity,
     damageDescription,
     damageEstimatedCost,
+    damageItems,
+    payRequestItems,
     damageFound,
     damageTitle,
     extraPaymentRequired,
@@ -2464,7 +2492,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
 
   async function uploadFilesForField(fieldId: string, files: FileList | File[], source: UploadSource = "gallery") {
     const originalFiles = Array.from(files);
-    const fileArray = await preprocessFilesForUpload(originalFiles, source);
+    const fileArray = await preprocessFilesForUpload(originalFiles, source, fieldId);
     if (fileArray.length === 0) return { uploadedKeys: [] as string[], failedCount: 0 };
     const sizeError = validateUploadSizes(fileArray);
     if (sizeError) {
@@ -3191,51 +3219,28 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       });
       return null;
     }
-    if (damageFound) {
-      const damageMediaKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
-      if (!damageTitle.trim()) {
-        toast({ title: "Damage title is required", variant: "destructive" });
-        return null;
-      }
-      if (damageMediaKeys.length === 0) {
-        toast({
-          title: "Damage evidence required",
-          description: "Upload at least one damage photo before submitting.",
-          variant: "destructive",
-        });
-        return null;
-      }
+    // Damage + pay requests are committed lists now. A half-typed working item
+    // is never silently dropped: the submit handler prompts the cleaner before
+    // we get here. If they chose to keep it, we auto-commit it; if it can't be
+    // committed (e.g. missing photo) we block submission with a clear message.
+    if (damageWorkingFieldsDirty()) {
+      if (!commitDamageWorkingItem()) return null;
     }
-    if (extraPaymentRequired) {
-      const pendingPayUploads = (uploadStates[PAY_REQUEST_UPLOAD_FIELD_ID] ?? []).some(
-        (item) => item.status === "queued" || item.status === "uploading"
-      );
-      if (pendingPayUploads) {
-        toast({
-          title: "Pay request uploads in progress",
-          description: "Wait until pay request evidence uploads finish.",
-          variant: "destructive",
-        });
-        return null;
-      }
-      if (!approvalTitle.trim()) {
-        toast({ title: "Pay request title is required", variant: "destructive" });
-        return null;
-      }
-      if (approvalType === "HOURLY") {
-        const hours = Number(approvalHours || 0);
-        const rate = Number(approvalRate || 0);
-        if (!Number.isFinite(hours) || hours <= 0 || !Number.isFinite(rate) || rate <= 0) {
-          toast({ title: "Enter valid hours and rate", variant: "destructive" });
-          return null;
-        }
-      } else {
-        const amount = Number(approvalAmount || 0);
-        if (!Number.isFinite(amount) || amount <= 0) {
-          toast({ title: "Enter a valid pay request amount", variant: "destructive" });
-          return null;
-        }
-      }
+    if (payRequestWorkingFieldsDirty()) {
+      if (!commitPayRequestWorkingItem()) return null;
+    }
+    const anyPendingItemUploads = [...damageItems, ...payRequestItems].some((item) =>
+      (uploadStates[item.photoFieldId] ?? []).some(
+        (upload) => upload.status === "queued" || upload.status === "uploading"
+      )
+    );
+    if (anyPendingItemUploads) {
+      toast({
+        title: "Evidence uploads in progress",
+        description: "Wait until all damage / pay request photos finish uploading.",
+        variant: "destructive",
+      });
+      return null;
     }
     for (const task of specialRequestTasks) {
       const doneFieldId = adminRequestedTaskDoneFieldId(task.id);
@@ -3339,29 +3344,23 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       laundrySkipReasonCode,
       laundrySkipReasonNote,
       bagLocation,
-      draftDamagePayload: damageFound
-        ? {
-            title: damageTitle.trim(),
-            description: damageDescription.trim(),
-            estimatedCost: Number(damageEstimatedCost || 0),
-            severity: "HIGH",
-            mediaKeys: uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [],
-          }
-        : undefined,
-      draftPayRequestPayload: extraPaymentRequired
-        ? {
-            title: approvalTitle.trim(),
-            cleanerNote: approvalDescription.trim(),
-            type: approvalType,
-            requestedHours: approvalType === "HOURLY" ? Number(approvalHours || 0) : undefined,
-            requestedRate: approvalType === "HOURLY" ? Number(approvalRate || 0) : undefined,
-            requestedAmount:
-              approvalType === "HOURLY"
-                ? Number(approvalHours || 0) * Number(approvalRate || 0)
-                : Number(approvalAmount || 0),
-            mediaKeys: uploads[PAY_REQUEST_UPLOAD_FIELD_ID] ?? [],
-          }
-        : undefined,
+      draftDamageItems: damageItems.map((item) => ({
+        title: item.title,
+        description: item.description,
+        area: item.area || undefined,
+        estimatedCost: Number(item.estimatedCost || 0),
+        severity: item.severity,
+        mediaKeys: uploads[item.photoFieldId] ?? [],
+      })),
+      draftPayRequestItems: payRequestItems.map((item) => ({
+        title: item.title,
+        cleanerNote: item.description,
+        type: item.type,
+        requestedHours: item.type === "HOURLY" ? Number(item.hours || 0) : undefined,
+        requestedRate: item.type === "HOURLY" ? Number(item.rate || 0) : undefined,
+        requestedAmount: payRequestItemAmount(item),
+        mediaKeys: uploads[item.photoFieldId] ?? [],
+      })),
       data: {
         ...formData,
         uploads,
@@ -3494,6 +3493,43 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   async function handleSubmit() {
+    // Nothing the cleaner typed is silently lost: if a damage / pay request
+    // mini-form is half-filled but not yet Added, ask before submitting.
+    if (damageWorkingFieldsDirty()) {
+      const keep = window.confirm(
+        "You have a damage item you started but haven't added yet.\n\nClick OK to add it now (it will be submitted), or Cancel to keep editing."
+      );
+      if (!keep) {
+        setStep("submit");
+        toast({
+          title: "Add or clear your damage item",
+          description: "Press \"Add damage item\" to include it, or remove the details, then submit.",
+        });
+        return;
+      }
+      if (!commitDamageWorkingItem()) {
+        setStep("submit");
+        return;
+      }
+    }
+    if (payRequestWorkingFieldsDirty()) {
+      const keep = window.confirm(
+        "You have an extra pay request you started but haven't added yet.\n\nClick OK to add it now (it will be submitted), or Cancel to keep editing."
+      );
+      if (!keep) {
+        setStep("submit");
+        toast({
+          title: "Add or clear your pay request",
+          description: "Press \"Add pay request\" to include it, or remove the details, then submit.",
+        });
+        return;
+      }
+      if (!commitPayRequestWorkingItem()) {
+        setStep("submit");
+        return;
+      }
+    }
+
     const payloadToSubmit = buildSubmissionPayload();
     if (!payloadToSubmit) return;
 
@@ -3511,77 +3547,282 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     setSubmitting(false);
   }
 
-  async function handleRequestClientApproval() {
-    if (!extraPaymentRequired) {
-      toast({ title: "Select extra payment required first.", variant: "destructive" });
-      return;
-    }
-    const pendingPayUploads = (uploadStates[PAY_REQUEST_UPLOAD_FIELD_ID] ?? []).some(
-      (item) => item.status === "queued" || item.status === "uploading"
+  // ---- Damage items: explicit Add → committed list ----------------------
+
+  function damageWorkingFieldsDirty() {
+    return Boolean(
+      damageTitle.trim() ||
+        damageArea.trim() ||
+        damageDescription.trim() ||
+        (uploads[DAMAGE_UPLOAD_FIELD_ID]?.length ?? 0) > 0 ||
+        Number(damageEstimatedCost || 0) > 0
     );
-    if (pendingPayUploads) {
-      toast({
-        title: "Pay request uploads in progress",
-        description: "Wait until pay request evidence uploads finish.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!approvalTitle.trim()) {
-      toast({ title: "Request title is required", variant: "destructive" });
-      return;
-    }
-    if (approvalType === "HOURLY") {
-      const hours = Number(approvalHours || 0);
-      const rate = Number(approvalRate || 0);
-      if (!Number.isFinite(hours) || hours <= 0) {
-        toast({ title: "Hours must be greater than 0", variant: "destructive" });
-        return;
-      }
-      if (!Number.isFinite(rate) || rate <= 0) {
-        toast({ title: "Rate must be greater than 0", variant: "destructive" });
-        return;
-      }
-    } else {
-      const amount = Number(approvalAmount || 0);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        toast({ title: "Amount must be greater than 0", variant: "destructive" });
-        return;
-      }
-    }
-    showPopupNotification("Pay request saved", "It will be submitted together with the job form.");
   }
 
-  async function handleReportDamage() {
-    if (!damageFound) {
-      toast({ title: "Tick damage found first.", variant: "destructive" });
-      return;
-    }
+  function resetDamageWorkingFields() {
+    setDamageTitle("");
+    setDamageArea("");
+    setDamageSeverity("HIGH");
+    setDamageDescription("");
+    setDamageEstimatedCost("0");
+    setEditingDamageId(null);
+    // Clear the shared working upload bucket so the next item starts fresh.
+    setUploads((prev) => ({ ...prev, [DAMAGE_UPLOAD_FIELD_ID]: [] }));
+    setUploadStates((prev) => ({ ...prev, [DAMAGE_UPLOAD_FIELD_ID]: [] }));
+  }
+
+  // Validate + commit the in-progress damage mini-form to the list. Returns
+  // true when an item was committed. Photos move into the item's own field id.
+  function commitDamageWorkingItem(options: { silent?: boolean } = {}): boolean {
     if (!damageTitle.trim()) {
-      toast({ title: "Damage title is required", variant: "destructive" });
-      return;
+      if (!options.silent) toast({ title: "Damage title is required", variant: "destructive" });
+      return false;
     }
-    const mediaKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
     const pendingDamageUploads = (uploadStates[DAMAGE_UPLOAD_FIELD_ID] ?? []).some(
       (item) => item.status === "queued" || item.status === "uploading"
     );
     if (pendingDamageUploads) {
-      toast({
-        title: "Damage uploads in progress",
-        description: "Wait until evidence uploads finish.",
-        variant: "destructive",
-      });
-      return;
+      if (!options.silent)
+        toast({
+          title: "Damage uploads in progress",
+          description: "Wait until evidence uploads finish before adding this item.",
+          variant: "destructive",
+        });
+      return false;
     }
-    if (mediaKeys.length === 0) {
-      toast({
-        title: "Damage photo required",
-        description: "Upload or capture at least one photo as evidence.",
-        variant: "destructive",
-      });
-      return;
+    const workingKeys = uploads[DAMAGE_UPLOAD_FIELD_ID] ?? [];
+    if (workingKeys.length === 0) {
+      if (!options.silent)
+        toast({
+          title: "Damage photo required",
+          description: "Capture or upload at least one photo as evidence.",
+          variant: "destructive",
+        });
+      return false;
     }
-    showPopupNotification("Damage report saved", "It will be submitted with the full job form.");
+
+    const itemId = editingDamageId ?? createLineItemId();
+    const photoFieldId = damageItemPhotoFieldId(itemId);
+    const item: DamageItem = {
+      id: itemId,
+      title: damageTitle.trim(),
+      area: damageArea.trim(),
+      severity: damageSeverity,
+      description: damageDescription.trim(),
+      estimatedCost: damageEstimatedCost,
+      photoFieldId,
+    };
+
+    // Move the working photos into the item's dedicated upload bucket.
+    setUploads((prev) => {
+      const next = { ...prev };
+      next[photoFieldId] = [...workingKeys];
+      next[DAMAGE_UPLOAD_FIELD_ID] = [];
+      return next;
+    });
+    setUploadStates((prev) => ({ ...prev, [DAMAGE_UPLOAD_FIELD_ID]: [] }));
+
+    setDamageItems((prev) => {
+      const exists = prev.some((existing) => existing.id === itemId);
+      return exists ? prev.map((existing) => (existing.id === itemId ? item : existing)) : [...prev, item];
+    });
+
+    resetDamageWorkingFields();
+    return true;
+  }
+
+  function handleAddDamageItem() {
+    const wasEditing = Boolean(editingDamageId);
+    if (commitDamageWorkingItem()) {
+      showPopupNotification(
+        wasEditing ? "Damage item updated" : "Damage item added",
+        "It is in your list and will be submitted with the job."
+      );
+    }
+  }
+
+  function handleEditDamageItem(itemId: string) {
+    const item = damageItems.find((existing) => existing.id === itemId);
+    if (!item) return;
+    if (damageWorkingFieldsDirty() && editingDamageId !== itemId) {
+      // Don't silently lose a half-typed new item — commit or keep it.
+      if (!commitDamageWorkingItem({ silent: true })) {
+        toast({
+          title: "Finish the current damage item first",
+          description: "Add or clear the item you are entering before editing another.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    setEditingDamageId(itemId);
+    setDamageTitle(item.title);
+    setDamageArea(item.area);
+    setDamageSeverity(item.severity);
+    setDamageDescription(item.description);
+    setDamageEstimatedCost(item.estimatedCost);
+    setUploads((prev) => ({ ...prev, [DAMAGE_UPLOAD_FIELD_ID]: [...(prev[item.photoFieldId] ?? [])] }));
+    setUploadStates((prev) => ({ ...prev, [DAMAGE_UPLOAD_FIELD_ID]: [] }));
+  }
+
+  function handleRemoveDamageItem(itemId: string) {
+    const item = damageItems.find((existing) => existing.id === itemId);
+    setDamageItems((prev) => prev.filter((existing) => existing.id !== itemId));
+    if (item) {
+      setUploads((prev) => {
+        const next = { ...prev };
+        delete next[item.photoFieldId];
+        return next;
+      });
+      setUploadStates((prev) => {
+        const next = { ...prev };
+        delete next[item.photoFieldId];
+        return next;
+      });
+    }
+    if (editingDamageId === itemId) resetDamageWorkingFields();
+    showPopupNotification("Damage item removed");
+  }
+
+  // ---- Pay request items: explicit Add → committed list -----------------
+
+  function payRequestWorkingFieldsDirty() {
+    return Boolean(
+      approvalTitle.trim() ||
+        approvalDescription.trim() ||
+        (uploads[PAY_REQUEST_UPLOAD_FIELD_ID]?.length ?? 0) > 0 ||
+        (approvalType === "HOURLY"
+          ? Number(approvalHours || 0) > 0 || Number(approvalRate || 0) > 0
+          : Number(approvalAmount || 0) > 0)
+    );
+  }
+
+  function resetPayRequestWorkingFields() {
+    setApprovalTitle("");
+    setApprovalDescription("");
+    setApprovalType("FIXED");
+    setApprovalHours("1");
+    setApprovalRate("");
+    setApprovalAmount("0");
+    setEditingPayRequestId(null);
+    setUploads((prev) => ({ ...prev, [PAY_REQUEST_UPLOAD_FIELD_ID]: [] }));
+    setUploadStates((prev) => ({ ...prev, [PAY_REQUEST_UPLOAD_FIELD_ID]: [] }));
+  }
+
+  function commitPayRequestWorkingItem(options: { silent?: boolean } = {}): boolean {
+    const pendingPayUploads = (uploadStates[PAY_REQUEST_UPLOAD_FIELD_ID] ?? []).some(
+      (item) => item.status === "queued" || item.status === "uploading"
+    );
+    if (pendingPayUploads) {
+      if (!options.silent)
+        toast({
+          title: "Pay request uploads in progress",
+          description: "Wait until evidence uploads finish before adding this request.",
+          variant: "destructive",
+        });
+      return false;
+    }
+    if (!approvalTitle.trim()) {
+      if (!options.silent) toast({ title: "Request title is required", variant: "destructive" });
+      return false;
+    }
+    if (approvalType === "HOURLY") {
+      const hours = Number(approvalHours || 0);
+      const rate = Number(approvalRate || 0);
+      if (!Number.isFinite(hours) || hours <= 0 || !Number.isFinite(rate) || rate <= 0) {
+        if (!options.silent) toast({ title: "Enter valid hours and rate", variant: "destructive" });
+        return false;
+      }
+    } else {
+      const amount = Number(approvalAmount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        if (!options.silent) toast({ title: "Enter a valid amount", variant: "destructive" });
+        return false;
+      }
+    }
+
+    const itemId = editingPayRequestId ?? createLineItemId();
+    const photoFieldId = payRequestItemPhotoFieldId(itemId);
+    const workingKeys = uploads[PAY_REQUEST_UPLOAD_FIELD_ID] ?? [];
+    const item: PayRequestItem = {
+      id: itemId,
+      title: approvalTitle.trim(),
+      description: approvalDescription.trim(),
+      type: approvalType,
+      hours: approvalHours,
+      rate: approvalRate,
+      amount: approvalAmount,
+      photoFieldId,
+    };
+
+    setUploads((prev) => {
+      const next = { ...prev };
+      next[photoFieldId] = [...workingKeys];
+      next[PAY_REQUEST_UPLOAD_FIELD_ID] = [];
+      return next;
+    });
+    setUploadStates((prev) => ({ ...prev, [PAY_REQUEST_UPLOAD_FIELD_ID]: [] }));
+
+    setPayRequestItems((prev) => {
+      const exists = prev.some((existing) => existing.id === itemId);
+      return exists ? prev.map((existing) => (existing.id === itemId ? item : existing)) : [...prev, item];
+    });
+
+    resetPayRequestWorkingFields();
+    return true;
+  }
+
+  function handleAddPayRequestItem() {
+    const wasEditing = Boolean(editingPayRequestId);
+    if (commitPayRequestWorkingItem()) {
+      showPopupNotification(
+        wasEditing ? "Pay request updated" : "Pay request added",
+        "It is in your list and will be submitted with the job."
+      );
+    }
+  }
+
+  function handleEditPayRequestItem(itemId: string) {
+    const item = payRequestItems.find((existing) => existing.id === itemId);
+    if (!item) return;
+    if (payRequestWorkingFieldsDirty() && editingPayRequestId !== itemId) {
+      if (!commitPayRequestWorkingItem({ silent: true })) {
+        toast({
+          title: "Finish the current pay request first",
+          description: "Add or clear the request you are entering before editing another.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    setEditingPayRequestId(itemId);
+    setApprovalTitle(item.title);
+    setApprovalDescription(item.description);
+    setApprovalType(item.type);
+    setApprovalHours(item.hours);
+    setApprovalRate(item.rate);
+    setApprovalAmount(item.amount);
+    setUploads((prev) => ({ ...prev, [PAY_REQUEST_UPLOAD_FIELD_ID]: [...(prev[item.photoFieldId] ?? [])] }));
+    setUploadStates((prev) => ({ ...prev, [PAY_REQUEST_UPLOAD_FIELD_ID]: [] }));
+  }
+
+  function handleRemovePayRequestItem(itemId: string) {
+    const item = payRequestItems.find((existing) => existing.id === itemId);
+    setPayRequestItems((prev) => prev.filter((existing) => existing.id !== itemId));
+    if (item) {
+      setUploads((prev) => {
+        const next = { ...prev };
+        delete next[item.photoFieldId];
+        return next;
+      });
+      setUploadStates((prev) => {
+        const next = { ...prev };
+        delete next[item.photoFieldId];
+        return next;
+      });
+    }
+    if (editingPayRequestId === itemId) resetPayRequestWorkingFields();
+    showPopupNotification("Pay request removed");
   }
 
   async function handleRequestReschedule() {
@@ -3625,8 +3866,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           approvalAmount,
           damageFound,
           damageTitle,
+          damageArea,
+          damageSeverity,
           damageDescription,
           damageEstimatedCost,
+          damageItems,
+          payRequestItems,
         },
       }),
     });
@@ -3764,6 +4009,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         <Badge variant={job?.status === "OFFERED" ? "warning" : "secondary"}>
           {formatJobStatusLabel(job?.status)}
         </Badge>
+        {job?.jobType === "AIRBNB_TURNOVER" && job?.propertyId ? (
+          <ReportMaintenanceSheet propertyId={job.propertyId} jobId={jobId} />
+        ) : null}
       </div>
 
       {(cleanerTags.length > 0 || Boolean(cleanerInstructionText) || hasJobNotes) ? (
@@ -4941,7 +5189,13 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             <Button
               type="button"
               className="h-12 w-full text-base font-semibold"
-              onClick={() => setGuidedCaptureOpen(true)}
+              onClick={() => {
+                // Refresh the session GPS for the new capture run.
+                stampGpsRef.current = null;
+                stampGpsPromiseRef.current = null;
+                void resolveStampGps();
+                setGuidedCaptureOpen(true);
+              }}
             >
               <Camera className="mr-2 h-5 w-5" />
               Guided photo capture
@@ -4964,6 +5218,51 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 : isFileField
                   ? "application/pdf,image/*,video/*"
                   : "image/*,video/*";
+              if (isVideoField) {
+                // In-app recording (MediaRecorder + canvas timestamp overlay)
+                // with a file-upload fallback. Spans both columns.
+                return (
+                  <div key={field.id} className="col-span-2 space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {field.label}
+                      {field.required ? " *" : ""}
+                    </p>
+                    <FieldReferences references={field.references} />
+                    <div
+                      className={`space-y-2 rounded-lg border-2 border-dashed p-3 transition-colors ${
+                        uploadFieldComplete(field.id) ? "border-primary bg-primary/5" : "border-muted-foreground/30"
+                      }`}
+                    >
+                      <span className="text-xs text-muted-foreground">{uploadFieldStatus(field.id)}</span>
+                      <VideoRecorder
+                        capturerName={
+                          (typeof payload?.viewerName === "string" && payload.viewerName.trim()) || "Cleaner"
+                        }
+                        timezone={
+                          (typeof payload?.startVerification?.timezone === "string" &&
+                            payload.startVerification.timezone) ||
+                          "Australia/Sydney"
+                        }
+                        maxDurationSec={
+                          typeof field.maxDurationSec === "number" && field.maxDurationSec > 0
+                            ? field.maxDurationSec
+                            : 60
+                        }
+                        disabled={
+                          field.maxFiles !== undefined &&
+                          (uploads[field.id]?.length ?? 0) >= field.maxFiles
+                        }
+                        onRecorded={async (file) => {
+                          // Videos already carry the burned timestamp; route via
+                          // "gallery" so they skip the image stamper.
+                          await handleUpload(field.id, [file], "gallery");
+                        }}
+                      />
+                    </div>
+                    {renderUnifiedUploadList(field.id)}
+                  </div>
+                );
+              }
               return (
               <div key={field.id} className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
@@ -4982,10 +5281,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                     {!isFileField ? (
                       <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted">
                         <Camera className="h-3.5 w-3.5" />
-                        {isVideoField ? "Record video" : "Take photo"}
+                        Take photo
                         <input
                           type="file"
-                          accept={isVideoField ? "video/*" : "image/*"}
+                          accept="image/*"
                           capture="environment"
                           className="hidden"
                           onChange={(e) => {
@@ -4996,7 +5295,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                       </label>
                     ) : null}
                     <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted">
-                      {isFileField ? "Upload file" : isVideoField ? "Upload video" : "Upload media"}
+                      {isFileField ? "Upload file" : "Upload media"}
                       <input
                         type="file"
                         accept={galleryAccept}
@@ -5035,8 +5334,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           counts={guidedCaptureCounts}
           pendingCounts={guidedCapturePending}
           thumbnails={guidedCaptureThumbnails}
-          onFiles={async (fieldId, files) => {
-            const result = await handleUpload(fieldId, files, "camera");
+          onFiles={async (fieldId, files, source) => {
+            const result = await handleUpload(fieldId, files, source);
             return { failedCount: result?.failedCount ?? 0 };
           }}
           onClose={() => setGuidedCaptureOpen(false)}
@@ -5344,6 +5643,18 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 <span className="text-muted-foreground">Laundry</span>
                 <span>{laundryOutcomeLabel}</span>
               </div>
+              {damageItems.length > 0 ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Damage items</span>
+                  <span>{damageItems.length} to report</span>
+                </div>
+              ) : null}
+              {payRequestItems.length > 0 ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Extra pay requests</span>
+                  <span>{payRequestItems.length} to submit</span>
+                </div>
+              ) : null}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Time logged</span>
                 <span>{formatDuration(elapsed)}</span>
@@ -5365,195 +5676,362 @@ function clockLimitSourceLabel(value: string | null | undefined) {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Extra Pay Request (Admin Review)</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <HandCoins className="h-4 w-4 text-muted-foreground" />
+                  Extra Pay Requests
+                </CardTitle>
+                {payRequestItems.length > 0 ? (
+                  <Badge variant="secondary">
+                    {payRequestItems.length} added
+                  </Badge>
+                ) : null}
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm">
-                <Checkbox
-                  checked={extraPaymentRequired}
-                  onCheckedChange={(checked) => setExtraPaymentRequired(checked === true)}
+            <CardContent className="space-y-3">
+              {payRequestItems.length > 0 ? (
+                <div className="space-y-2">
+                  {payRequestItems.map((item) => {
+                    const photoCount = uploads[item.photoFieldId]?.length ?? 0;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-md border p-2.5 ${
+                          editingPayRequestId === item.id ? "border-primary bg-primary/5" : ""
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.title}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.type === "HOURLY"
+                                ? `${item.hours || 0}h × $${Number(item.rate || 0).toFixed(2)} = $${payRequestItemAmount(item).toFixed(2)}`
+                                : `Fixed · $${payRequestItemAmount(item).toFixed(2)}`}
+                              {photoCount > 0 ? ` · ${photoCount} photo${photoCount === 1 ? "" : "s"}` : ""}
+                            </p>
+                            {item.description ? (
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              onClick={() => handleEditPayRequestItem(item.id)}
+                              aria-label="Edit pay request"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              onClick={() => handleRemovePayRequestItem(item.id)}
+                              aria-label="Remove pay request"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Need extra pay for this job? Fill the form below and tap "Add pay request". You can add more than one.
+                </p>
+              )}
+
+              <div className="space-y-2 rounded-md border border-dashed p-3">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {editingPayRequestId ? "Edit pay request" : "New pay request"}
+                </p>
+                <Input
+                  className="h-11"
+                  placeholder="Request title (e.g. extra hour for heavy soiling)"
+                  value={approvalTitle}
+                  onChange={(e) => setApprovalTitle(e.target.value)}
                 />
-                Extra payment required for this job
-              </label>
-              {extraPaymentRequired ? (
-                <>
-                  <Input
-                    placeholder="Request title"
-                    value={approvalTitle}
-                    onChange={(e) => setApprovalTitle(e.target.value)}
-                  />
-                  <Textarea
-                    rows={2}
-                    placeholder="Add details for admin review (optional)."
-                    value={approvalDescription}
-                    onChange={(e) => setApprovalDescription(e.target.value)}
-                  />
-                  <div className="space-y-2 rounded-md border p-2">
-                    <p className="text-xs font-medium text-muted-foreground">Pay request evidence images (optional)</p>
-                    <div className="flex flex-wrap gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                        Take photo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "camera");
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                        Upload photos
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "gallery");
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {renderUnifiedUploadList(PAY_REQUEST_UPLOAD_FIELD_ID)}
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">Request type</p>
-                    <Select value={approvalType} onValueChange={(value) => setApprovalType(value as "HOURLY" | "FIXED")}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="FIXED">Fixed amount</SelectItem>
-                        <SelectItem value="HOURLY">Hourly</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {approvalType === "HOURLY" ? (
-                      <>
-                        <Input
-                          type="number"
-                          min={0}
-                          step="0.25"
-                          placeholder="Hours"
-                          value={approvalHours}
-                          onChange={(e) => setApprovalHours(e.target.value)}
-                        />
-                        <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          placeholder="Rate"
-                          value={approvalRate}
-                          onChange={(e) => setApprovalRate(e.target.value)}
-                        />
-                      </>
-                    ) : (
+                <Textarea
+                  rows={2}
+                  placeholder="Add details for admin review (optional)."
+                  value={approvalDescription}
+                  onChange={(e) => setApprovalDescription(e.target.value)}
+                />
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Request type</p>
+                  <Select value={approvalType} onValueChange={(value) => setApprovalType(value as "HOURLY" | "FIXED")}>
+                    <SelectTrigger className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FIXED">Fixed amount</SelectItem>
+                      <SelectItem value="HOURLY">Hourly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  {approvalType === "HOURLY" ? (
+                    <>
                       <Input
+                        className="h-11"
+                        type="number"
+                        min={0}
+                        step="0.25"
+                        placeholder="Extra hours"
+                        value={approvalHours}
+                        onChange={(e) => setApprovalHours(e.target.value)}
+                      />
+                      <Input
+                        className="h-11"
                         type="number"
                         min={0}
                         step="0.01"
-                        placeholder="Amount"
-                        value={approvalAmount}
-                        onChange={(e) => setApprovalAmount(e.target.value)}
+                        placeholder="Rate"
+                        value={approvalRate}
+                        onChange={(e) => setApprovalRate(e.target.value)}
                       />
-                    )}
-                    <Button variant="outline" onClick={handleRequestClientApproval}>
-                      Save draft
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This request stays attached to the form and is submitted with the full job submission.
-                  </p>
-                </>
-              ) : (
-                <p className="text-xs text-muted-foreground">Select the option above to create an extra pay request.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className={damageFound ? "border-destructive/50" : ""}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Damage Report + Cost Recovery</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <label className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
-                <Checkbox
-                  checked={damageFound}
-                  onCheckedChange={(checked) => setDamageFound(checked === true)}
-                />
-                Damage found at this property
-              </label>
-              {damageFound ? (
-                <>
-                  <p className="text-xs font-medium text-destructive">
-                    This opens a priority case for admin. Evidence photos are required.
-                  </p>
-                  <Input placeholder="Damage title" value={damageTitle} onChange={(e) => setDamageTitle(e.target.value)} />
-                  <Textarea
-                    rows={2}
-                    placeholder="Describe damage evidence and context"
-                    value={damageDescription}
-                    onChange={(e) => setDamageDescription(e.target.value)}
-                  />
-                  <div className="space-y-2 rounded-md border p-2">
-                    <p className="text-xs font-medium text-muted-foreground">Damage evidence photos</p>
-                    <div className="flex flex-wrap gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                        Take photo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.length) handleUpload(DAMAGE_UPLOAD_FIELD_ID, e.target.files, "camera");
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                        Upload photos
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.length) handleUpload(DAMAGE_UPLOAD_FIELD_ID, e.target.files, "gallery");
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {renderUnifiedUploadList(DAMAGE_UPLOAD_FIELD_ID)}
-                  </div>
-                  <div className="flex items-center gap-2">
+                    </>
+                  ) : (
                     <Input
+                      className="h-11"
                       type="number"
                       min={0}
                       step="0.01"
-                      placeholder="Estimated recovery cost"
-                      value={damageEstimatedCost}
-                      onChange={(e) => setDamageEstimatedCost(e.target.value)}
+                      placeholder="Amount"
+                      value={approvalAmount}
+                      onChange={(e) => setApprovalAmount(e.target.value)}
                     />
-                    <Button variant="outline" onClick={handleReportDamage}>
-                      Save draft
-                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2 rounded-md border p-2">
+                  <p className="text-xs font-medium text-muted-foreground">Evidence images (optional)</p>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex h-11 cursor-pointer items-center gap-1 rounded-md border px-3 text-xs hover:bg-muted">
+                      <Camera className="h-3.5 w-3.5" /> Take photo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "camera");
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className="inline-flex h-11 cursor-pointer items-center gap-1 rounded-md border px-3 text-xs hover:bg-muted">
+                      <Plus className="h-3.5 w-3.5" /> Upload photos
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.length) handleUpload(PAY_REQUEST_UPLOAD_FIELD_ID, e.target.files, "gallery");
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    The damage case is created only when the full form is submitted.
-                  </p>
-                </>
+                  {renderUnifiedUploadList(PAY_REQUEST_UPLOAD_FIELD_ID)}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" className="h-11 flex-1" onClick={handleAddPayRequestItem}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    {editingPayRequestId ? "Save changes" : "Add pay request"}
+                  </Button>
+                  {editingPayRequestId || payRequestWorkingFieldsDirty() ? (
+                    <Button type="button" variant="outline" className="h-11" onClick={resetPayRequestWorkingFields}>
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Added requests are submitted with the job and appear under Pay Requests with status Pending.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={damageItems.length > 0 ? "border-destructive/50" : ""}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  Damage Report + Cost Recovery
+                </CardTitle>
+                {damageItems.length > 0 ? (
+                  <Badge variant="destructive">
+                    {damageItems.length} damage item{damageItems.length === 1 ? "" : "s"} added
+                  </Badge>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {damageItems.length > 0 ? (
+                <div className="space-y-2">
+                  {damageItems.map((item) => {
+                    const photoCount = uploads[item.photoFieldId]?.length ?? 0;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-md border p-2.5 ${
+                          editingDamageId === item.id ? "border-primary bg-primary/5" : "border-destructive/30 bg-destructive/5"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.title}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {[
+                                item.area ? item.area : null,
+                                `Severity: ${item.severity}`,
+                                Number(item.estimatedCost || 0) > 0
+                                  ? `Est. $${Number(item.estimatedCost || 0).toFixed(2)}`
+                                  : null,
+                                `${photoCount} photo${photoCount === 1 ? "" : "s"}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                            {item.description ? (
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              onClick={() => handleEditDamageItem(item.id)}
+                              aria-label="Edit damage item"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              onClick={() => handleRemoveDamageItem(item.id)}
+                              aria-label="Remove damage item"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Tick "Damage found" to open a damage case.</p>
+                <p className="text-xs text-muted-foreground">
+                  Found damage? Fill the form below and tap "Add damage item". Each item opens its own priority case for admin
+                  when you submit. You can add more than one.
+                </p>
               )}
+
+              <div className="space-y-2 rounded-md border border-dashed border-destructive/40 p-3">
+                <p className="text-xs font-semibold text-destructive">
+                  {editingDamageId ? "Edit damage item" : "New damage item"}
+                </p>
+                <Input
+                  className="h-11"
+                  placeholder="Damage title (e.g. cracked shower screen)"
+                  value={damageTitle}
+                  onChange={(e) => setDamageTitle(e.target.value)}
+                />
+                <Input
+                  className="h-11"
+                  placeholder="Area / room (e.g. main bathroom)"
+                  value={damageArea}
+                  onChange={(e) => setDamageArea(e.target.value)}
+                />
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Severity</p>
+                  <Select value={damageSeverity} onValueChange={(value) => setDamageSeverity(value as DamageItem["severity"])}>
+                    <SelectTrigger className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DAMAGE_SEVERITY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Textarea
+                  rows={2}
+                  placeholder="Describe the damage and context"
+                  value={damageDescription}
+                  onChange={(e) => setDamageDescription(e.target.value)}
+                />
+                <Input
+                  className="h-11"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Estimated recovery cost (optional)"
+                  value={damageEstimatedCost}
+                  onChange={(e) => setDamageEstimatedCost(e.target.value)}
+                />
+                <div className="space-y-2 rounded-md border p-2">
+                  <p className="text-xs font-medium text-muted-foreground">Damage evidence photos (required)</p>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex h-11 cursor-pointer items-center gap-1 rounded-md border px-3 text-xs hover:bg-muted">
+                      <Camera className="h-3.5 w-3.5" /> Take photo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.length) handleUpload(DAMAGE_UPLOAD_FIELD_ID, e.target.files, "camera");
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className="inline-flex h-11 cursor-pointer items-center gap-1 rounded-md border px-3 text-xs hover:bg-muted">
+                      <Plus className="h-3.5 w-3.5" /> Upload photos
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.length) handleUpload(DAMAGE_UPLOAD_FIELD_ID, e.target.files, "gallery");
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {renderUnifiedUploadList(DAMAGE_UPLOAD_FIELD_ID)}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="destructive" className="h-11 flex-1" onClick={handleAddDamageItem}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    {editingDamageId ? "Save changes" : "Add damage item"}
+                  </Button>
+                  {editingDamageId || damageWorkingFieldsDirty() ? (
+                    <Button type="button" variant="outline" className="h-11" onClick={resetDamageWorkingFields}>
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Added items are submitted with the job; each opens a priority damage case for admin.
+                </p>
+              </div>
             </CardContent>
           </Card>
 

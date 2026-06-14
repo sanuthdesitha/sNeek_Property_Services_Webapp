@@ -367,6 +367,130 @@ model WebAuthnCredential {
   @@index([userId])
 }
 
+/// A browser/PWA Web Push subscription (VAPID). Lets us deliver real push
+/// notifications (WhatsApp-style) to a user's device for the "web" channel,
+/// not just email. endpoint is the unique push service URL; p256dh/auth are
+/// the subscription's encryption keys.
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique @db.Text
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// An item on a property that needs maintenance, repair, or replacement —
+/// outdated/worn/broken things that hurt the guest experience, appearance, or
+/// quality. Reported by cleaners, clients, or QA inspectors (and admins), and
+/// worked down to resolution. Scoped to Airbnb-style properties in app logic.
+model PropertyMaintenanceItem {
+  id               String                  @id @default(cuid())
+  propertyId       String
+  jobId            String?
+  reportedByUserId String
+  source           MaintenanceSource
+  category         MaintenanceCategory     @default(OTHER)
+  area             String?
+  title            String
+  description      String?                 @db.Text
+  recommendedAction MaintenanceAction      @default(REPLACE)
+  priority         MaintenancePriority     @default(MEDIUM)
+  status           MaintenanceStatus       @default(OPEN)
+  photoKeys        Json?
+  estimatedCost    Float?
+  clientVisible    Boolean                 @default(true)
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  resolutionNote   String?                 @db.Text
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  property   Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  job        Job?                       @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  reportedBy User                       @relation("MaintenanceReportedBy", fields: [reportedByUserId], references: [id])
+  resolvedBy User?                      @relation("MaintenanceResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  events     PropertyMaintenanceEvent[]
+
+  @@index([propertyId, status])
+  @@index([status, priority])
+  @@index([reportedByUserId])
+}
+
+/// Lifecycle/audit trail for a maintenance item (status changes, notes), so the
+/// list stays automatically tracked over time.
+model PropertyMaintenanceEvent {
+  id         String            @id @default(cuid())
+  itemId     String
+  userId     String?
+  fromStatus MaintenanceStatus?
+  toStatus   MaintenanceStatus
+  note       String?           @db.Text
+  createdAt  DateTime          @default(now())
+
+  item PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user User?                   @relation("MaintenanceEventBy", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, createdAt])
+}
+
+enum MaintenanceSource {
+  CLEANER
+  CLIENT
+  QA
+  ADMIN
+}
+
+enum MaintenanceCategory {
+  FURNITURE
+  APPLIANCE
+  ELECTRONICS
+  LINEN
+  BEDDING
+  FIXTURE
+  LIGHTING
+  PLUMBING
+  FLOORING
+  WALLS
+  DECOR
+  KITCHENWARE
+  BATHROOM
+  SAFETY
+  OUTDOOR
+  OTHER
+}
+
+enum MaintenanceAction {
+  REPLACE
+  REPAIR
+  DEEP_CLEAN
+  MONITOR
+  REMOVE
+  RESTOCK
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  ORDERED
+  RESOLVED
+  DISMISSED
+}
+
 model UserInvitation {
   id          String    @id @default(cuid())
   userId      String    @unique
@@ -415,6 +539,10 @@ model User {
   qaReworkAsCleaner            QaReworkTransfer[]          @relation("QaReworkCleaner")
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
   webauthnCredentials          WebAuthnCredential[]
+  pushSubscriptions            PushSubscription[]
+  maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")
+  maintenanceResolved          PropertyMaintenanceItem[]   @relation("MaintenanceResolvedBy")
+  maintenanceEvents            PropertyMaintenanceEvent[]  @relation("MaintenanceEventBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
   mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")
@@ -615,6 +743,7 @@ model Property {
   payAdjustments   CleanerPayAdjustment[]
   jobTasks         JobTask[]
   qaFormTemplates  QaFormTemplate[]
+  maintenanceItems PropertyMaintenanceItem[]
 
   @@index([placeId])
   @@index([suburb])
@@ -771,6 +900,7 @@ model Job {
   qaFormSubmissions       QaFormSubmission[]
   qaReworkTransfers       QaReworkTransfer[]
   mediaOverrideRequests   MediaOverrideRequest[]
+  maintenanceItems        PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?
   issueTickets           IssueTicket[]

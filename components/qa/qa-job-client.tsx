@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
+import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import { toast } from "@/hooks/use-toast";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { FieldInput } from "@/components/forms/field-input";
@@ -58,6 +60,9 @@ const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
 
 export function QaJobClient({ jobId }: { jobId: string }) {
+  const { data: authSession } = useSession();
+  // Evidence stamp identity for QA photos (timestamp + inspector name + sNeek mark).
+  const evidenceStamp = { capturerName: authSession?.user?.name ?? "QA Inspector" };
   const [payload, setPayload] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -352,6 +357,13 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           <h1 className="truncate text-2xl font-bold tracking-tight">{job.property?.name}</h1>
           <p className="text-sm text-muted-foreground">{job.property?.address}, {job.property?.suburb}</p>
         </div>
+        {job.jobType === "AIRBNB_TURNOVER" && job.propertyId ? (
+          <ReportMaintenanceSheet
+            propertyId={job.propertyId}
+            jobId={jobId}
+            triggerLabel="Flag for maintenance"
+          />
+        ) : null}
         <Badge variant={job.status === "COMPLETED" ? "success" : "warning"}>{String(job.status).replace(/_/g, " ")}</Badge>
       </div>
 
@@ -508,6 +520,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                     jobId={jobId}
                     accept="image/*"
                     maxFiles={6}
+                    stamp={evidenceStamp}
                     onUploaded={(r) => updateDamage(entry.id, { photoKeys: [...entry.photoKeys, r.key] })}
                   />
                   <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDamage(entry.id)}>
@@ -852,6 +865,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         jobId={jobId}
                         accept="image/*"
                         maxFiles={6}
+                        stamp={evidenceStamp}
                         onUploaded={(r) => addSectionPhoto(section.id, r.key)}
                       />
                     ) : null}
