@@ -114,10 +114,26 @@ export default function AdminPayAdjustmentsPage() {
   const [linkPropertyId, setLinkPropertyId] = useState<string>("__none__");
   const [linkTitle, setLinkTitle] = useState("");
   const [savingLink, setSavingLink] = useState(false);
+  // Full request edit (amount/type/reason) — works at any status.
+  const [editRequestFor, setEditRequestFor] = useState<PayAdjustmentRow | null>(null);
+  const [editType, setEditType] = useState<"HOURLY" | "FIXED">("FIXED");
+  const [editTitle, setEditTitle] = useState("");
+  const [editHours, setEditHours] = useState("");
+  const [editRate, setEditRate] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  // Reverse a previous decision back to pending (or flip approved<->rejected).
+  const [reverseFor, setReverseFor] = useState<PayAdjustmentRow | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<"PENDING" | "APPROVED" | "REJECTED">("PENDING");
+  const [reverseNote, setReverseNote] = useState("");
+  const [reverseAmount, setReverseAmount] = useState("");
+  const [savingReverse, setSavingReverse] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/admin/pay-adjustments");
+    const res = await fetch("/api/admin/pay-adjustments", { cache: "no-store" });
     const body = await res.json().catch(() => []);
     setRows(Array.isArray(body) ? body : []);
     setLoading(false);
@@ -310,6 +326,145 @@ export default function AdminPayAdjustmentsPage() {
     await load();
   }
 
+  function openEditRequest(row: PayAdjustmentRow) {
+    setEditRequestFor(row);
+    setEditType(row.type);
+    setEditTitle(row.title ?? "");
+    setEditHours(row.requestedHours != null ? String(row.requestedHours) : "");
+    setEditRate(row.requestedRate != null ? String(row.requestedRate) : "");
+    setEditAmount(String(Number(row.cleanerRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)));
+    setEditReason("");
+  }
+
+  async function submitEditRequest() {
+    if (!editRequestFor) return;
+    const payload: Record<string, unknown> = { type: editType };
+    if (editTitle.trim()) payload.title = editTitle.trim();
+    if (editReason.trim()) payload.adminNote = editReason.trim();
+    if (editType === "HOURLY") {
+      const hours = Number(editHours || 0);
+      const rate = Number(editRate || 0);
+      if (!Number.isFinite(hours) || hours <= 0) {
+        toast({ title: "Enter valid hours.", variant: "destructive" });
+        return;
+      }
+      if (!Number.isFinite(rate) || rate <= 0) {
+        toast({ title: "Enter a valid rate.", variant: "destructive" });
+        return;
+      }
+      payload.requestedHours = hours;
+      payload.requestedRate = rate;
+    } else {
+      const amount = Number(editAmount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast({ title: "Enter a valid amount.", variant: "destructive" });
+        return;
+      }
+      payload.requestedAmount = amount;
+      payload.requestedHours = null;
+      payload.requestedRate = null;
+    }
+    setSavingEdit(true);
+    const res = await fetch(`/api/admin/pay-adjustments/${editRequestFor.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingEdit(false);
+    if (!res.ok) {
+      toast({ title: "Update failed", description: body.error ?? "Could not update request.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Request updated", description: "The cleaner and client now see the new values." });
+    setEditRequestFor(null);
+    await load();
+  }
+
+  function openReverse(row: PayAdjustmentRow) {
+    setReverseFor(row);
+    // Default action: send an actioned request back to pending.
+    setReverseTarget(row.status === "PENDING" ? "APPROVED" : "PENDING");
+    setReverseNote("");
+    setReverseAmount(String(Number(row.approvedAmount ?? getPrimaryAmount(row)).toFixed(2)));
+  }
+
+  async function submitReverse() {
+    if (!reverseFor) return;
+    if (reverseTarget === reverseFor.status) {
+      toast({ title: "Pick a different status to change to.", variant: "destructive" });
+      return;
+    }
+    const payload: Record<string, unknown> = { status: reverseTarget };
+    if (reverseNote.trim()) payload.adminNote = reverseNote.trim();
+    if (reverseTarget === "APPROVED") {
+      const amount = Number(reverseAmount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast({ title: "A valid approved amount is required.", variant: "destructive" });
+        return;
+      }
+      payload.approvedAmount = amount;
+    }
+    const verb =
+      reverseTarget === "PENDING"
+        ? "set this request back to PENDING"
+        : reverseTarget === "APPROVED"
+        ? "change this request to APPROVED"
+        : "change this request to REJECTED";
+    if (
+      !window.confirm(
+        `This will ${verb}. The change updates immediately for the cleaner${
+          reverseFor.status === "APPROVED" && reverseTarget !== "APPROVED" ? " and removes it from payroll" : ""
+        }. Continue?`
+      )
+    ) {
+      return;
+    }
+    setSavingReverse(true);
+    const res = await fetch(`/api/admin/pay-adjustments/${reverseFor.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingReverse(false);
+    if (!res.ok) {
+      toast({ title: "Could not change status", description: body.error ?? "Request failed.", variant: "destructive" });
+      return;
+    }
+    toast({ title: `Request changed to ${reverseTarget}` });
+    setReverseFor(null);
+    await load();
+  }
+
+  async function deleteRequest(row: PayAdjustmentRow) {
+    if (row.status === "APPROVED") {
+      toast({
+        title: "Cannot delete an approved request",
+        description: "Reverse it back to pending first, then delete.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      !window.confirm(
+        "Delete this pay request permanently? This removes it for the cleaner and the client. This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setDeletingId(row.id);
+    const res = await fetch(`/api/admin/pay-adjustments/${row.id}`, { method: "DELETE" });
+    const body = await res.json().catch(() => ({}));
+    setDeletingId(null);
+    if (!res.ok) {
+      toast({ title: "Delete failed", description: body.error ?? "Could not delete request.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Request deleted" });
+    await load();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -383,6 +538,12 @@ export default function AdminPayAdjustmentsPage() {
                             {row.property ? "Re-link" : "Link property"}
                           </Button>
                         ) : null}
+                        <Button size="sm" variant="outline" onClick={() => openEditRequest(row)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => openReverse(row)}>
+                          {row.status === "PENDING" ? "Change status" : "Reverse"}
+                        </Button>
                         {row.status !== "REJECTED" ? (
                           <Button
                             size="sm"
@@ -419,6 +580,17 @@ export default function AdminPayAdjustmentsPage() {
                         {row.status === "APPROVED" ? (
                           <Button size="sm" variant="outline" onClick={() => openEditAmount(row)}>
                             Edit amount
+                          </Button>
+                        ) : null}
+                        {row.status !== "APPROVED" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => deleteRequest(row)}
+                            disabled={deletingId === row.id}
+                            className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                          >
+                            {deletingId === row.id ? "Deleting..." : "Delete"}
                           </Button>
                         ) : null}
                       </div>
@@ -554,6 +726,106 @@ export default function AdminPayAdjustmentsPage() {
             </div>
             <Button className="w-full" onClick={saveLink} disabled={savingLink}>
               {savingLink ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editRequestFor)} onOpenChange={(open) => !open && setEditRequestFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Editing updates the single shared record. The cleaner and client (if sent) see the new values on
+              their next load.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select value={editType} onValueChange={(value) => setEditType(value as "HOURLY" | "FIXED")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HOURLY">Hourly</SelectItem>
+                  <SelectItem value="FIXED">Fixed amount</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editType === "HOURLY" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label>Hours</Label>
+                  <Input type="number" min={0} step="0.25" value={editHours} onChange={(e) => setEditHours(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Rate</Label>
+                  <Input type="number" min={0} step="0.01" value={editRate} onChange={(e) => setEditRate(e.target.value)} />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Amount</Label>
+                <Input type="number" min={0} step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Reason / admin note (optional)</Label>
+              <Textarea value={editReason} onChange={(e) => setEditReason(e.target.value)} />
+            </div>
+            {editRequestFor?.status === "APPROVED" ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                This request is approved. Editing the requested values here does not change the approved amount
+                that feeds payroll — use "Edit amount" for that, or "Reverse" to send it back to pending.
+              </div>
+            ) : null}
+            <Button className="w-full" onClick={submitEditRequest} disabled={savingEdit}>
+              {savingEdit ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(reverseFor)} onOpenChange={(open) => !open && setReverseFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{reverseFor?.status === "PENDING" ? "Change status" : "Reverse decision"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Change this request's status at any time — even after it was sent. Reversing an approved request
+              back to pending removes it from payroll automatically.
+            </p>
+            <div className="space-y-1.5">
+              <Label>New status</Label>
+              <Select value={reverseTarget} onValueChange={(value) => setReverseTarget(value as "PENDING" | "APPROVED" | "REJECTED")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="REJECTED">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {reverseTarget === "APPROVED" ? (
+              <div className="space-y-1.5">
+                <Label>Approved amount</Label>
+                <Input type="number" min={0} step="0.01" value={reverseAmount} onChange={(e) => setReverseAmount(e.target.value)} />
+              </div>
+            ) : null}
+            <div className="space-y-1.5">
+              <Label>Audit note (optional)</Label>
+              <Textarea value={reverseNote} onChange={(e) => setReverseNote(e.target.value)} />
+            </div>
+            <Button className="w-full" onClick={submitReverse} disabled={savingReverse}>
+              {savingReverse ? "Saving..." : "Apply status change"}
             </Button>
           </div>
         </DialogContent>
