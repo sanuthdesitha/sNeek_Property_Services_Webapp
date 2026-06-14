@@ -6,10 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Moon, Sun, Palette, Fingerprint, Trash2 } from "lucide-react";
+import { Moon, Sun, Palette, Fingerprint, Trash2, CheckCircle2 } from "lucide-react";
 import type { PortalTheme } from "@/lib/settings";
+import type { AddressResult } from "@/lib/google-maps/types";
+import { requiredProfileFields, type ProfileFieldCheck } from "@/lib/profile/completeness";
 import {
   browserSupportsWebAuthn,
   platformAuthenticatorIsAvailable,
@@ -34,6 +37,25 @@ interface ProfilePayload {
     phone: string | null;
     role: string;
     image?: string | null;
+    // Extended cleaner contractor fields (may be absent for non-extended roles).
+    dateOfBirth?: string | null;
+    address?: string | null;
+    suburb?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    placeId?: string | null;
+    abn?: string | null;
+    visaStatus?: string | null;
+    employmentType?: string | null;
+    taxFileNumberOnFile?: boolean | null;
+    bankAccountName?: string | null;
+    bankBsb?: string | null;
+    bankAccountNumber?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+    emergencyContactRelation?: string | null;
   };
   editPolicy: {
     canEditName: boolean;
@@ -53,6 +75,7 @@ interface ProfilePayload {
 export function ProfileSettings() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingExtended, setSavingExtended] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -66,6 +89,26 @@ export function ProfileSettings() {
     email: "",
     phone: "",
     image: "",
+  });
+  const [extendedForm, setExtendedForm] = useState({
+    dateOfBirth: "",
+    address: "",
+    suburb: "",
+    state: "",
+    postcode: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
+    abn: "",
+    visaStatus: "",
+    employmentType: "",
+    taxFileNumberOnFile: false,
+    bankAccountName: "",
+    bankBsb: "",
+    bankAccountNumber: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelation: "",
   });
   const [notificationPreferences, setNotificationPreferences] = useState<ProfilePayload["notificationPreferences"]>({});
   const [passwordForm, setPasswordForm] = useState({
@@ -189,6 +232,26 @@ export function ProfileSettings() {
       phone: body.user.phone ?? "",
       image: body.user.image ?? "",
     });
+    setExtendedForm({
+      dateOfBirth: body.user.dateOfBirth ? String(body.user.dateOfBirth).slice(0, 10) : "",
+      address: body.user.address ?? "",
+      suburb: body.user.suburb ?? "",
+      state: body.user.state ?? "",
+      postcode: body.user.postcode ?? "",
+      latitude: body.user.latitude ?? null,
+      longitude: body.user.longitude ?? null,
+      placeId: body.user.placeId ?? null,
+      abn: body.user.abn ?? "",
+      visaStatus: body.user.visaStatus ?? "",
+      employmentType: body.user.employmentType ?? "",
+      taxFileNumberOnFile: Boolean(body.user.taxFileNumberOnFile),
+      bankAccountName: body.user.bankAccountName ?? "",
+      bankBsb: body.user.bankBsb ?? "",
+      bankAccountNumber: body.user.bankAccountNumber ?? "",
+      emergencyContactName: body.user.emergencyContactName ?? "",
+      emergencyContactPhone: body.user.emergencyContactPhone ?? "",
+      emergencyContactRelation: body.user.emergencyContactRelation ?? "",
+    });
     setNotificationPreferences(body.notificationPreferences ?? {});
     setLoading(false);
   }
@@ -275,6 +338,56 @@ export function ProfileSettings() {
       return;
     }
     toast({ title: "Profile updated" });
+    await load();
+  }
+
+  function onAddressSelect(result: AddressResult) {
+    setExtendedForm((prev) => ({
+      ...prev,
+      address: result.formattedAddress,
+      suburb: result.suburb ?? "",
+      state: result.state ?? "",
+      postcode: result.postcode ?? "",
+      latitude: result.lat,
+      longitude: result.lng,
+      placeId: result.placeId ?? null,
+    }));
+  }
+
+  async function saveExtended() {
+    setSavingExtended(true);
+    const payload = {
+      dateOfBirth: extendedForm.dateOfBirth || null,
+      address: extendedForm.address,
+      suburb: extendedForm.suburb,
+      state: extendedForm.state,
+      postcode: extendedForm.postcode,
+      latitude: extendedForm.latitude,
+      longitude: extendedForm.longitude,
+      placeId: extendedForm.placeId,
+      abn: extendedForm.abn,
+      visaStatus: extendedForm.visaStatus || null,
+      employmentType: extendedForm.employmentType || null,
+      taxFileNumberOnFile: extendedForm.taxFileNumberOnFile,
+      bankAccountName: extendedForm.bankAccountName,
+      bankBsb: extendedForm.bankBsb,
+      bankAccountNumber: extendedForm.bankAccountNumber,
+      emergencyContactName: extendedForm.emergencyContactName,
+      emergencyContactPhone: extendedForm.emergencyContactPhone,
+      emergencyContactRelation: extendedForm.emergencyContactRelation,
+    };
+    const res = await fetch("/api/me/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingExtended(false);
+    if (!res.ok) {
+      toast({ title: "Could not save details", description: body.error ?? "Try again.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Details saved" });
     await load();
   }
 
@@ -413,12 +526,66 @@ export function ProfileSettings() {
   const policy = data.editPolicy;
   const notificationCategories = Object.entries(notificationPreferences);
 
+  // CLEANER profile-completeness — mirrors the gate at /api/me/profile-completeness.
+  // Evaluated against the persisted values on `data.user` (what the gate sees),
+  // so the indicator matches the nag exactly rather than unsaved edits.
+  const isCleaner = data.user.role === "CLEANER";
+  const completenessFields: ProfileFieldCheck[] = isCleaner
+    ? requiredProfileFields("CLEANER")
+    : [];
+  const isFieldBlank = (key: string) => {
+    const value = (data.user as Record<string, unknown>)[key];
+    return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+  };
+  const missingCompletenessFields = completenessFields.filter((field) => isFieldBlank(field.key));
+  const completenessPct = completenessFields.length
+    ? Math.round(((completenessFields.length - missingCompletenessFields.length) / completenessFields.length) * 100)
+    : 100;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Profile</h1>
         <p className="text-sm text-muted-foreground">Manage your account details and password.</p>
       </div>
+
+      {isCleaner ? (
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {completenessPct === 100 ? (
+                  <CheckCircle2 className="size-5 text-emerald-500" />
+                ) : null}
+                <p className="text-sm font-medium">Profile completeness</p>
+              </div>
+              <span className="text-sm font-semibold tabular-nums">{completenessPct}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  completenessPct === 100 ? "bg-emerald-500" : "bg-primary"
+                )}
+                style={{ width: `${completenessPct}%` }}
+              />
+            </div>
+            {missingCompletenessFields.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Still needed:{" "}
+                <span className="font-medium text-foreground">
+                  {missingCompletenessFields.map((field) => field.label).join(", ")}
+                </span>
+                . Fill these in below to clear the reminder.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                All required details are complete. Thank you.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -503,6 +670,218 @@ export function ProfileSettings() {
           </div>
         </CardContent>
       </Card>
+
+      {isCleaner ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Contractor & pay details</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              We use these for your invoices, payments, and HR records. Completing them clears the
+              &ldquo;update your missing info&rdquo; reminder.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-8">
+            {/* Identity */}
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold">Identity</h3>
+              <div className="space-y-1.5">
+                <Label>Date of birth</Label>
+                <Input
+                  type="date"
+                  className="h-11 rounded-lg"
+                  value={extendedForm.dateOfBirth}
+                  onChange={(e) => setExtendedForm((prev) => ({ ...prev, dateOfBirth: e.target.value }))}
+                />
+              </div>
+            </section>
+
+            {/* Address */}
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold">Residential address</h3>
+              <div className="space-y-1.5">
+                <Label>Address</Label>
+                <AddressAutocomplete
+                  value={extendedForm.address}
+                  onChange={(text) => setExtendedForm((prev) => ({ ...prev, address: text }))}
+                  onSelect={onAddressSelect}
+                  placeholder="Start typing your address..."
+                  className="h-11 rounded-lg"
+                />
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Suburb</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    value={extendedForm.suburb}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, suburb: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>State</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    value={extendedForm.state}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, state: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Postcode</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={extendedForm.postcode}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, postcode: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Banking / Pay */}
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold">Banking & pay</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>ABN</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    inputMode="numeric"
+                    maxLength={20}
+                    placeholder="11 digit ABN"
+                    value={extendedForm.abn}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, abn: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Bank account name</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    value={extendedForm.bankAccountName}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, bankAccountName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>BSB</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    inputMode="numeric"
+                    maxLength={7}
+                    placeholder="000-000"
+                    value={extendedForm.bankBsb}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, bankBsb: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Bank account number</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    inputMode="numeric"
+                    maxLength={30}
+                    value={extendedForm.bankAccountNumber}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, bankAccountNumber: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Emergency contact */}
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold">Emergency contact</h3>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    maxLength={100}
+                    value={extendedForm.emergencyContactName}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, emergencyContactName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Phone</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    type="tel"
+                    inputMode="tel"
+                    maxLength={30}
+                    value={extendedForm.emergencyContactPhone}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, emergencyContactPhone: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Relationship</Label>
+                  <Input
+                    className="h-11 rounded-lg"
+                    maxLength={50}
+                    placeholder="e.g. Partner, Parent"
+                    value={extendedForm.emergencyContactRelation}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, emergencyContactRelation: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Compliance */}
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold">Compliance</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="visaStatus">Visa / residency status</Label>
+                  <select
+                    id="visaStatus"
+                    className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={extendedForm.visaStatus}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, visaStatus: e.target.value }))}
+                  >
+                    <option value="">Select...</option>
+                    <option value="CITIZEN">Citizen</option>
+                    <option value="PERMANENT_RESIDENT">Permanent resident</option>
+                    <option value="WORK_VISA">Work visa</option>
+                    <option value="STUDENT_VISA">Student visa</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="employmentType">Employment type</Label>
+                  <select
+                    id="employmentType"
+                    className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={extendedForm.employmentType}
+                    onChange={(e) => setExtendedForm((prev) => ({ ...prev, employmentType: e.target.value }))}
+                  >
+                    <option value="">Select...</option>
+                    <option value="CONTRACTOR">Contractor</option>
+                    <option value="CASUAL">Casual</option>
+                    <option value="PART_TIME">Part time</option>
+                    <option value="FULL_TIME">Full time</option>
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Tax File Number provided</p>
+                  <p className="text-xs text-muted-foreground">
+                    Tick once you&rsquo;ve supplied your TFN to the office. We don&rsquo;t store the number here.
+                  </p>
+                </div>
+                <Switch
+                  checked={extendedForm.taxFileNumberOnFile}
+                  onCheckedChange={(value) =>
+                    setExtendedForm((prev) => ({ ...prev, taxFileNumberOnFile: value }))
+                  }
+                />
+              </label>
+            </section>
+
+            <div className="flex justify-end">
+              <Button className="h-11 rounded-lg" onClick={saveExtended} disabled={savingExtended}>
+                {savingExtended ? "Saving..." : "Save details"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

@@ -61,6 +61,27 @@ export async function GET() {
         role: true,
         image: true,
         profileEditingEnabled: true,
+        // Extended profile fields (cleaner contractor details). Surfaced so the
+        // profile settings page can prefill the same fields the completeness
+        // gate checks. The PATCH route already accepts all of these.
+        dateOfBirth: true,
+        address: true,
+        suburb: true,
+        state: true,
+        postcode: true,
+        latitude: true,
+        longitude: true,
+        placeId: true,
+        abn: true,
+        visaStatus: true,
+        employmentType: true,
+        taxFileNumberOnFile: true,
+        bankAccountName: true,
+        bankBsb: true,
+        bankAccountNumber: true,
+        emergencyContactName: true,
+        emergencyContactPhone: true,
+        emergencyContactRelation: true,
       },
     });
     if (!user) {

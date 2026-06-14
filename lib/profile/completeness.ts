@@ -46,7 +46,8 @@ const CLEANER_EXTRA_FIELDS: ProfileFieldCheck[] = [
 export function profileFixUrl(role: Role): string {
   switch (role) {
     case "CLEANER":
-      return "/cleaner/profile";
+      // Cleaners fill every required field on their normal settings page.
+      return "/cleaner/settings";
     case "QA_INSPECTOR":
       return "/qa/profile";
     case "LAUNDRY":
