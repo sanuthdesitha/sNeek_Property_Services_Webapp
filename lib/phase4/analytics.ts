@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getBranchById, listBranches, resolveBranchPropertyIds } from "@/lib/phase3/branches";
 import { suggestAutoAssignment } from "@/lib/ops/dispatch";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { computeCleanerPay } from "@/lib/finance/job-money";
 
 function parseDateOnly(value?: string | null, endOfDay = false) {
   if (!value) return null;
@@ -140,6 +142,7 @@ export async function buildBranchScorecards(input?: {
   const branches = await listBranches();
   const activeBranches = branches.filter((branch) => branch.isActive);
 
+  const settings = await getAppSettings();
   const jobs = await db.job.findMany({
     where: { scheduledDate: { gte: start, lte: end } },
     select: {
@@ -147,10 +150,11 @@ export async function buildBranchScorecards(input?: {
       propertyId: true,
       status: true,
       estimatedHours: true,
+      internalNotes: true,
       jobType: true,
       assignments: {
         where: { removedAt: null },
-        select: { payRate: true },
+        select: { userId: true, payRate: true, user: { select: { hourlyRate: true } } },
       },
       qaReviews: { select: { score: true } },
     },
@@ -196,15 +200,26 @@ export async function buildBranchScorecards(input?: {
     );
     const qaScores = branchJobs.flatMap((job) => job.qaReviews.map((qa) => Number(qa.score || 0))).filter((v) => v > 0);
     const estimatedLaborCost = branchJobs.reduce((sum, job) => {
-      const hours = Number(job.estimatedHours ?? 0);
-      if (hours <= 0) return sum;
       const split = Math.max(1, job.assignments.length);
-      const avgRate =
-        job.assignments.length > 0
-          ? job.assignments.reduce((n, assignment) => n + Number(assignment.payRate ?? 40), 0) /
-            job.assignments.length
-          : 40;
-      return sum + (hours / split) * avgRate;
+      if (job.assignments.length === 0) return sum;
+      const jobMeta = parseJobInternalNotes(job.internalNotes);
+      // Canonical cleaner-pay math, so branch scorecards match payroll/invoices.
+      let jobCost = 0;
+      for (const assignment of job.assignments) {
+        const pay = computeCleanerPay(
+          { jobType: job.jobType, estimatedHours: job.estimatedHours },
+          { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+          { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
+          {
+            cleanerId: assignment.userId,
+            activeAssignmentCount: split,
+            customPayout: jobMeta.cleanerPayouts?.[assignment.userId],
+            transportAllowance: jobMeta.transportAllowances?.[assignment.userId],
+          }
+        );
+        jobCost += pay.total;
+      }
+      return sum + jobCost;
     }, 0);
     const lowStockCount = lowStockRows.filter(
       (row) => propertySet.has(row.propertyId) && row.onHand <= row.reorderThreshold

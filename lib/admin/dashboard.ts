@@ -1,29 +1,18 @@
 import { db } from "@/lib/db";
-import { JobStatus, Role, QaAssignmentStatus, ClientInvoiceStatus } from "@prisma/client";
+import { JobStatus, Role, QaAssignmentStatus, ClientInvoiceStatus, JobType } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { computeClientCharge, type ClientChargeRates } from "@/lib/finance/job-money";
 
 const TZ = "Australia/Sydney";
 
 type RawJob = {
   id: string;
   status: JobStatus;
-  estimatedHours: number | null;
-  actualHours: number | null;
-  assignments: { payRate: number | null }[];
+  jobType: JobType;
+  propertyId: string;
+  fixedPrice: number | null;
 };
-
-function jobValueEstimate(job: RawJob): number {
-  const hours = job.actualHours ?? job.estimatedHours ?? 0;
-  if (!hours) return 0;
-  const rates = job.assignments
-    .map((a) => a.payRate ?? 0)
-    .filter((r) => r > 0);
-  if (rates.length === 0) return 0;
-  // crude proxy: bill = pay-rate × hours × 2.2 markup (rough industry markup)
-  const avgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
-  return Math.round(avgRate * hours * 2.2);
-}
 
 const COMPLETED_STATUSES: JobStatus[] = [
   JobStatus.COMPLETED,
@@ -57,9 +46,9 @@ export async function getDashboardMetrics() {
         select: {
           id: true,
           status: true,
-          estimatedHours: true,
-          actualHours: true,
-          assignments: { select: { payRate: true } },
+          jobType: true,
+          propertyId: true,
+          fixedPrice: true,
         },
       })
       .catch(() => [] as RawJob[]),
@@ -125,14 +114,43 @@ export async function getDashboardMetrics() {
     getTopCleanerThisWeek(weekStart, todayEnd),
   ]);
 
-  // Revenue today: completed/invoiced jobs only
+  // Revenue today: completed/invoiced jobs only, using the REAL client-charge
+  // function (fixed job price → property rate → job-type price). No markup proxy.
   const completedToday = todayJobsRaw.filter((j) =>
     COMPLETED_STATUSES.includes(j.status),
   );
-  const revenueToday = completedToday.reduce(
-    (sum, j) => sum + jobValueEstimate(j),
-    0,
-  );
+  let revenueToday = 0;
+  let revenueRateMissingCount = 0;
+  if (completedToday.length > 0) {
+    const propertyIds = Array.from(new Set(completedToday.map((j) => j.propertyId)));
+    const [propertyRateRows, priceBookRows] = await Promise.all([
+      db.propertyClientRate
+        .findMany({
+          where: { propertyId: { in: propertyIds }, isActive: true },
+          select: { propertyId: true, jobType: true, baseCharge: true, defaultDescription: true },
+        })
+        .catch(() => [] as ClientChargeRates["propertyRates"]),
+      db.priceBook
+        .findMany({ where: { isActive: true }, select: { jobType: true, baseRate: true } })
+        .catch(() => [] as ClientChargeRates["priceBook"]),
+    ]);
+    const rates: ClientChargeRates = {
+      propertyRates: propertyRateRows ?? [],
+      priceBook: priceBookRows ?? [],
+    };
+    for (const job of completedToday) {
+      const charge = computeClientCharge(
+        { jobType: job.jobType, propertyId: job.propertyId, fixedPrice: job.fixedPrice },
+        rates,
+      );
+      if (charge.amount == null) {
+        revenueRateMissingCount += 1;
+      } else {
+        revenueToday += charge.amount;
+      }
+    }
+    revenueToday = Number(revenueToday.toFixed(2));
+  }
   const remainingToday = todayJobsRaw.filter(
     (j) => !COMPLETED_STATUSES.includes(j.status),
   ).length;
@@ -149,6 +167,7 @@ export async function getDashboardMetrics() {
   return {
     today: {
       revenueAud: revenueToday,
+      revenueRateMissingCount,
       completed: completedToday.length,
       remaining: remainingToday,
       total: todayJobsRaw.length,

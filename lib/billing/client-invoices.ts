@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
+import { computeClientCharge } from "@/lib/finance/job-money";
 
 function money(value: number) {
   return `$${value.toFixed(2)}`;
@@ -97,7 +98,7 @@ export async function generateClientInvoice(input: {
   periodEnd?: Date | null;
   gstEnabled?: boolean;
 }) {
-  const [client, rates, existingInvoiced, settings] = await Promise.all([
+  const [client, rates, existingInvoiced, settings, priceBook] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
     db.propertyClientRate.findMany({
       where: {
@@ -115,13 +116,22 @@ export async function generateClientInvoice(input: {
       select: { jobId: true },
     }),
     getAppSettings(),
+    db.priceBook.findMany({
+      where: { isActive: true },
+      select: { jobType: true, baseRate: true },
+    }),
   ]);
   if (!client) {
     throw new Error("Client not found.");
   }
 
   const invoicedJobIds = new Set(existingInvoiced.map((row) => row.jobId).filter((value): value is string => Boolean(value)));
-  const rateMap = new Map(rates.map((rate) => [`${rate.propertyId}:${rate.jobType}`, rate]));
+  const propertyRates = rates.map((rate) => ({
+    propertyId: rate.propertyId,
+    jobType: rate.jobType,
+    baseCharge: rate.baseCharge,
+    defaultDescription: rate.defaultDescription,
+  }));
 
   const jobs = await db.job.findMany({
     where: {
@@ -159,11 +169,21 @@ export async function generateClientInvoice(input: {
 
   const unInvoicedJobs = jobs.filter((job) => !invoicedJobIds.has(job.id));
 
-  // Check for missing rates before silently skipping jobs. Jobs with an agreed
-  // fixed price don't need a rate-table entry.
-  const missingRateJobs = unInvoicedJobs.filter(
-    (job) => job.fixedPrice == null && !rateMap.has(`${job.propertyId}:${job.jobType}`)
+  // Canonical client charge per job (fixed job price → property rate → job-type
+  // price). Compute once and reuse for both the missing-rate guard and the lines,
+  // so the invoice can never silently drop a job that DID have a resolvable charge.
+  const chargeByJob = new Map(
+    unInvoicedJobs.map((job) => [
+      job.id,
+      computeClientCharge(
+        { jobType: job.jobType, propertyId: job.propertyId, fixedPrice: job.fixedPrice },
+        { propertyRates, priceBook }
+      ),
+    ])
   );
+
+  // Check for missing rates before silently skipping jobs.
+  const missingRateJobs = unInvoicedJobs.filter((job) => chargeByJob.get(job.id)?.rateMissing);
   if (missingRateJobs.length > 0) {
     const details = missingRateJobs
       .map((j) => `${j.jobNumber || j.id} (${j.jobType}) at ${j.property.name}`)
@@ -175,15 +195,13 @@ export async function generateClientInvoice(input: {
 
   const lines = unInvoicedJobs
     .map((job) => {
-      const rate = rateMap.get(`${job.propertyId}:${job.jobType}`);
-      const hasFixedPrice = job.fixedPrice != null && Number.isFinite(job.fixedPrice);
-      // A fixed price overrides the rate table; otherwise the rate is required.
-      if (!rate && !hasFixedPrice) return null;
+      const charge = chargeByJob.get(job.id);
+      if (!charge || charge.amount == null) return null;
       const lineDate = job.completedAt ?? job.scheduledDate;
       const description =
-        rate?.defaultDescription?.trim() ||
+        charge.description?.trim() ||
         `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${format(new Date(lineDate), "dd MMM yyyy")}`;
-      const lineTotal = hasFixedPrice ? Number(job.fixedPrice) : Number(rate?.baseCharge || 0);
+      const lineTotal = charge.amount;
       return {
         jobId: job.id,
         shoppingRunId: null,

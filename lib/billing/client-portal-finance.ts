@@ -1,8 +1,9 @@
 import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { computeClientCharge } from "@/lib/finance/job-money";
 
 export async function getClientFinanceOverview(clientId: string) {
-  const [rates, existingInvoiceLines, invoices, completedJobs] = await Promise.all([
+  const [rates, existingInvoiceLines, invoices, completedJobs, priceBook] = await Promise.all([
     db.propertyClientRate.findMany({
       where: {
         property: { clientId },
@@ -56,6 +57,7 @@ export async function getClientFinanceOverview(clientId: string) {
         status: true,
         scheduledDate: true,
         propertyId: true,
+        fixedPrice: true,
         property: {
           select: {
             name: true,
@@ -66,31 +68,46 @@ export async function getClientFinanceOverview(clientId: string) {
       orderBy: [{ scheduledDate: "desc" }],
       take: 50,
     }),
+    db.priceBook.findMany({
+      where: { isActive: true },
+      select: { jobType: true, baseRate: true },
+    }),
   ]);
 
   const invoicedJobIds = new Set(
     existingInvoiceLines.map((row) => row.jobId).filter((value): value is string => Boolean(value))
   );
-  const rateMap = new Map(rates.map((rate) => [`${rate.propertyId}:${rate.jobType}`, rate]));
+  const propertyRates = rates.map((rate) => ({
+    propertyId: rate.propertyId,
+    jobType: rate.jobType,
+    baseCharge: rate.baseCharge,
+    defaultDescription: rate.defaultDescription,
+  }));
 
-  const recentCharges = completedJobs
-    .map((job) => {
-      const rate = rateMap.get(`${job.propertyId}:${job.jobType}`);
-      if (!rate) return null;
-      return {
-        jobId: job.id,
-        jobNumber: job.jobNumber,
-        propertyName: job.property.name,
-        suburb: job.property.suburb,
-        jobType: job.jobType,
-        scheduledDate: job.scheduledDate,
-        amount: Number(rate.baseCharge || 0),
-        invoiced: invoicedJobIds.has(job.id),
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+  // Canonical client-charge math — same precedence (fixed job price → property
+  // rate → job-type price) as the invoice generator, so the portal never drifts
+  // from the admin invoice. Jobs with no resolvable charge are flagged, not hidden.
+  const recentCharges = completedJobs.map((job) => {
+    const charge = computeClientCharge(
+      { jobType: job.jobType, propertyId: job.propertyId, fixedPrice: job.fixedPrice },
+      { propertyRates, priceBook }
+    );
+    return {
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      propertyName: job.property.name,
+      suburb: job.property.suburb,
+      jobType: job.jobType,
+      scheduledDate: job.scheduledDate,
+      amount: charge.amount ?? 0,
+      chargeSource: charge.source,
+      rateMissing: charge.rateMissing,
+      invoiced: invoicedJobIds.has(job.id),
+    };
+  });
 
-  const pendingCharges = recentCharges.filter((row) => !row.invoiced);
+  // Only charges with a resolved amount count toward the pending total.
+  const pendingCharges = recentCharges.filter((row) => !row.invoiced && !row.rateMissing);
   const totalBilled = Number(
     invoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount || 0), 0).toFixed(2)
   );

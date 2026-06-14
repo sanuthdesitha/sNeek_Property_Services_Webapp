@@ -3,7 +3,7 @@ import { PayAdjustmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
-import { DEFAULT_CLEANER_HOURLY_RATE } from "@/lib/finance/pay-rates";
+import { computeCleanerPay } from "@/lib/finance/job-money";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -125,27 +125,26 @@ export async function getPayrollSummary(input: {
       const timerHours = job.timeLogs
         .filter((row) => row.userId === cleaner.id)
         .reduce((sum, row) => sum + Number(row.durationM ?? 0) / 60, 0);
-      const allocatedHours = Number(job.estimatedHours ?? 0);
-      const paidHours = allocatedHours > 0 ? allocatedHours / splitCount : timerHours;
-      // Resolve the rate from the most specific source available; flag when none
-      // is configured and we fall back to the shared default (so it can be fixed).
-      const configuredRate =
-        assignment.payRate ?? cleaner.hourlyRate ?? settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? null;
-      const rateMissing = configuredRate == null;
-      const rate = Number(configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE);
 
       // Job meta carries per-cleaner overrides (transport allowance + custom payout).
       const notes = parseJobInternalNotes(job.internalNotes as string | null);
-      const customPayout = notes.cleanerPayouts?.[cleaner.id];
-      const hasCustomPayout = typeof customPayout === "number" && Number.isFinite(customPayout);
-      // A custom payout REPLACES this cleaner's computed hours×rate base pay.
-      const baseGross = hasCustomPayout
-        ? Number(customPayout.toFixed(2))
-        : Number((paidHours * rate).toFixed(2));
 
-      const allowances = notes.transportAllowances ?? {};
-      const transportAllowance = Number(allowances[cleaner.id] ?? 0);
-      const gross = baseGross + transportAllowance;
+      // Canonical cleaner-pay math (single source of truth). Approved adjustments
+      // are listed separately as adjustment rows below, so they are NOT passed
+      // here (would otherwise be double-counted in grossPay).
+      const pay = computeCleanerPay(
+        { jobType: job.jobType, estimatedHours: job.estimatedHours },
+        { payRate: assignment.payRate, userHourlyRate: cleaner.hourlyRate },
+        { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
+        {
+          cleanerId: cleaner.id,
+          activeAssignmentCount: splitCount,
+          timerHours,
+          customPayout: notes.cleanerPayouts?.[cleaner.id],
+          transportAllowance: notes.transportAllowances?.[cleaner.id],
+          approvedAdjustments: 0,
+        }
+      );
 
       return [{
         id: job.id,
@@ -154,13 +153,13 @@ export async function getPayrollSummary(input: {
         suburb: job.property.suburb,
         jobType: job.jobType,
         scheduledDate: job.completedAt ?? job.scheduledDate,
-        hours: Number(paidHours.toFixed(2)),
-        rate,
-        rateMissing: rateMissing && !hasCustomPayout,
-        baseGross,
-        isCustomPayout: hasCustomPayout,
-        transportAllowance,
-        gross,
+        hours: pay.hours,
+        rate: pay.rate,
+        rateMissing: pay.rateMissing,
+        baseGross: pay.base,
+        isCustomPayout: pay.source === "CUSTOM",
+        transportAllowance: pay.transportAllowance,
+        gross: pay.total,
       }];
     });
 

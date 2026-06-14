@@ -2,6 +2,8 @@ import { JobStatus, PayAdjustmentStatus, QuoteStatus, StockTxType } from "@prism
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getInventoryUnitCosts } from "@/lib/inventory/unit-costs";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { computeCleanerPay } from "@/lib/finance/job-money";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -105,11 +107,18 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       },
       include: {
         property: { select: { clientId: true, client: { select: { name: true } } } },
-        assignments: { select: { userId: true, payRate: true, removedAt: true } },
+        assignments: {
+          select: {
+            userId: true,
+            payRate: true,
+            removedAt: true,
+            user: { select: { hourlyRate: true } },
+          },
+        },
         timeLogs: { select: { userId: true, durationM: true, stoppedAt: true } },
         payAdjustments: {
           where: { status: PayAdjustmentStatus.APPROVED },
-          select: { approvedAmount: true, requestedAmount: true },
+          select: { cleanerId: true, approvedAmount: true, requestedAmount: true },
         },
       },
     }),
@@ -151,27 +160,43 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
     const row = ensureClientRow(byClient, job.property.clientId, job.property.client?.name ?? null);
     const assignments = job.assignments.filter((assignment) => !assignment.removedAt);
     const splitCount = Math.max(1, assignments.length);
-    const allocatedHours = Number(job.estimatedHours ?? 0);
-    const hasAllocatedHours = Number.isFinite(allocatedHours) && allocatedHours > 0;
-    const paidHoursPerCleaner = hasAllocatedHours ? allocatedHours / splitCount : 0;
+    const jobMeta = parseJobInternalNotes(job.internalNotes);
 
-    let jobCleanerCost = 0;
+    // Approved adjustments attributed per cleaner (so each cleaner's pay carries
+    // its own extras exactly once, via the canonical computeCleanerPay).
+    const adjustmentsByCleaner = new Map<string, number>();
+    for (const adjustment of job.payAdjustments) {
+      const amount = Number(adjustment.approvedAmount ?? adjustment.requestedAmount ?? 0);
+      adjustmentsByCleaner.set(
+        adjustment.cleanerId,
+        (adjustmentsByCleaner.get(adjustment.cleanerId) ?? 0) + amount
+      );
+    }
+    // Adjustments whose cleaner is no longer on the job still count toward cost.
+    const assignedIds = new Set(assignments.map((a) => a.userId));
+    const orphanAdjustmentTotal = Array.from(adjustmentsByCleaner.entries())
+      .filter(([cleanerId]) => !assignedIds.has(cleanerId))
+      .reduce((sum, [, amount]) => sum + amount, 0);
+
+    let jobCleanerCost = orphanAdjustmentTotal;
     for (const assignment of assignments) {
-      const configuredRate =
-        settings.cleanerJobHourlyRates?.[assignment.userId]?.[job.jobType] ?? null;
-      const rate = Number(assignment.payRate ?? configuredRate ?? 40);
-      if (!(rate > 0)) continue;
       const timerHoursForCleaner = job.timeLogs
         .filter((log) => log.userId === assignment.userId && log.stoppedAt)
         .reduce((sum, log) => sum + Number(log.durationM ?? 0) / 60, 0);
-      const paidHours = hasAllocatedHours ? paidHoursPerCleaner : Math.max(0, timerHoursForCleaner);
-      if (paidHours > 0) {
-        jobCleanerCost += paidHours * rate;
-      }
-    }
-
-    for (const adjustment of job.payAdjustments) {
-      jobCleanerCost += Number(adjustment.approvedAmount ?? adjustment.requestedAmount ?? 0);
+      const pay = computeCleanerPay(
+        { jobType: job.jobType, estimatedHours: job.estimatedHours },
+        { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+        { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
+        {
+          cleanerId: assignment.userId,
+          activeAssignmentCount: splitCount,
+          timerHours: timerHoursForCleaner,
+          customPayout: jobMeta.cleanerPayouts?.[assignment.userId],
+          transportAllowance: jobMeta.transportAllowances?.[assignment.userId],
+          approvedAdjustments: adjustmentsByCleaner.get(assignment.userId) ?? 0,
+        }
+      );
+      jobCleanerCost += pay.total;
     }
 
     cleanerCost += jobCleanerCost;

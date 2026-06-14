@@ -124,9 +124,11 @@ export default async function ClientFinancePage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
-                        <Badge variant={row.invoiced ? "success" : "warning"}>
-                          {row.invoiced ? "Invoiced" : "Pending invoice"}
+                        <p className="text-sm font-semibold tabular-nums">
+                          {row.rateMissing ? "Rate not set" : money(row.amount)}
+                        </p>
+                        <Badge variant={row.rateMissing ? "secondary" : row.invoiced ? "success" : "warning"}>
+                          {row.rateMissing ? "No rate" : row.invoiced ? "Invoiced" : "Pending invoice"}
                         </Badge>
                       </div>
                     </div>

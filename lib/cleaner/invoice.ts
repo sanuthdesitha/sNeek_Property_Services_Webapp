@@ -2,7 +2,7 @@ import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
-import { DEFAULT_CLEANER_HOURLY_RATE } from "@/lib/finance/pay-rates";
+import { computeCleanerPay } from "@/lib/finance/job-money";
 import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
@@ -217,38 +217,50 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       if (!cleanerAssignment) return null;
 
       const timerHours = Math.max(0, spentByJob.get(job.id) ?? 0);
-      const allocatedHours = Number(job.estimatedHours ?? 0);
-      const hasAllocatedHours = Number.isFinite(allocatedHours) && allocatedHours > 0;
-      const payBasis: "ALLOCATED" | "TIMER" = hasAllocatedHours ? "ALLOCATED" : "TIMER";
-      const originalPaidHours = hasAllocatedHours ? allocatedHours / splitCount : timerHours;
       const overrideRaw = options.jobHourOverrides?.[job.id];
       const hasOverride =
         overrideRaw != null &&
         Number.isFinite(Number(overrideRaw)) &&
         Number(overrideRaw) >= 0;
-      const paidHours = hasOverride ? Number(overrideRaw) : originalPaidHours;
-      // Same fallback chain + default as the payroll run, so the cleaner's invoice
-      // and the payroll run never disagree on what a job pays.
-      const configuredRateRaw =
-        cleanerAssignment.payRate ?? user.hourlyRate ?? settings.cleanerJobHourlyRates?.[options.userId]?.[job.jobType] ?? null;
-      const configuredRate =
-        configuredRateRaw != null && Number.isFinite(Number(configuredRateRaw)) && Number(configuredRateRaw) > 0
-          ? Number(configuredRateRaw)
-          : null;
       const jobMeta = parseJobInternalNotes(job.internalNotes);
-      const customPayout = jobMeta.cleanerPayouts?.[options.userId];
-      const hasCustomPayout = typeof customPayout === "number" && Number.isFinite(customPayout);
-      const rateMissing = configuredRate == null && !hasCustomPayout;
-      // Effective rate falls back to the shared default when nothing is configured.
-      const rate = hasCustomPayout ? configuredRate : configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE;
-      // A custom payout REPLACES this cleaner's computed hours×rate base pay.
-      const baseAmount = hasCustomPayout
-        ? Number(customPayout)
-        : paidHours * (configuredRate ?? DEFAULT_CLEANER_HOURLY_RATE);
       const approvedExtraAmount = extrasByJob.get(job.id) ?? 0;
-      const transportAllowance = Number(jobMeta.transportAllowances?.[options.userId] ?? 0);
       const comment = options.jobComments?.[job.id]?.trim() || "";
-      const isHoursOverridden = hasOverride && Math.abs(paidHours - originalPaidHours) > 0.0001;
+
+      // Canonical cleaner-pay math (single source of truth) — the cleaner invoice
+      // and the payroll run / finance summary never disagree on what a job pays.
+      // We compute the un-overridden pay first to report originalHours, then the
+      // overridden pay for the actual amounts.
+      const original = computeCleanerPay(
+        { jobType: job.jobType, estimatedHours: job.estimatedHours },
+        { payRate: cleanerAssignment.payRate, userHourlyRate: user.hourlyRate },
+        { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
+        {
+          cleanerId: options.userId,
+          activeAssignmentCount: splitCount,
+          timerHours,
+          customPayout: jobMeta.cleanerPayouts?.[options.userId],
+          transportAllowance: jobMeta.transportAllowances?.[options.userId],
+          approvedAdjustments: approvedExtraAmount,
+        }
+      );
+      const pay = hasOverride
+        ? computeCleanerPay(
+            { jobType: job.jobType, estimatedHours: job.estimatedHours },
+            { payRate: cleanerAssignment.payRate, userHourlyRate: user.hourlyRate },
+            { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
+            {
+              cleanerId: options.userId,
+              activeAssignmentCount: splitCount,
+              timerHours,
+              customPayout: jobMeta.cleanerPayouts?.[options.userId],
+              transportAllowance: jobMeta.transportAllowances?.[options.userId],
+              approvedAdjustments: approvedExtraAmount,
+              hoursOverride: Number(overrideRaw),
+            }
+          )
+        : original;
+
+      const isHoursOverridden = hasOverride && Math.abs(pay.hours - original.hours) > 0.0001;
 
       return {
         jobId: job.id,
@@ -256,21 +268,22 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         jobName: `${job.property.name} - ${job.jobType.replace(/_/g, " ")}`,
         property: job.property.name,
         jobType: job.jobType.replace(/_/g, " "),
-        split: hasAllocatedHours ? splitCount : 1,
-        payBasis,
-        rate,
-        rateMissing,
-        hours: paidHours,
-        originalHours: originalPaidHours,
+        split: pay.split,
+        payBasis: pay.payBasis,
+        // Surface null when the rate is genuinely missing so the UI shows "Not set".
+        rate: pay.rateMissing ? null : pay.rate,
+        rateMissing: pay.rateMissing,
+        hours: pay.hours,
+        originalHours: original.hours,
         isHoursOverridden,
         hoursChangeNote: isHoursOverridden
-          ? `${originalPaidHours.toFixed(2)} -> ${paidHours.toFixed(2)}`
+          ? `${original.hours.toFixed(2)} -> ${pay.hours.toFixed(2)}`
           : undefined,
         spentHours: showSpentHours ? timerHours : null,
-        baseAmount,
-        approvedExtraAmount,
-        transportAllowance: Number.isFinite(transportAllowance) && transportAllowance > 0 ? transportAllowance : 0,
-        amount: baseAmount + approvedExtraAmount + (transportAllowance > 0 ? transportAllowance : 0),
+        baseAmount: pay.base,
+        approvedExtraAmount: pay.adjustments,
+        transportAllowance: pay.transportAllowance,
+        amount: pay.total,
         extraRequestNote: (extraNotesByJob.get(job.id) ?? []).join(" | "),
         comment,
       };
