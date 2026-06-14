@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { z } from "zod";
+import { getServerMapsKey } from "@/lib/maps/server-key";
+
+export const dynamic = "force-dynamic";
 
 const schema = z.object({
   query: z.string().min(3).max(200),
@@ -42,9 +45,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid" }, { status: 400 });
   }
 
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // Runtime key (Settings credential → server env). Must NOT use the build-time
+  // NEXT_PUBLIC var, which is empty in the production Docker container.
+  const apiKey = await getServerMapsKey();
   if (!apiKey) {
-    return NextResponse.json({ error: "Maps API not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Maps API key not configured. Set it in Admin → Settings → Integrations (Google Maps API key)." },
+      { status: 500 }
+    );
   }
 
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {

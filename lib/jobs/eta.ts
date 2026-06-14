@@ -1,3 +1,5 @@
+import { getServerMapsKey } from "@/lib/maps/server-key";
+
 /**
  * Returns estimated driving time in minutes.
  * Origin can be lat/lng coordinates, destination can be lat/lng or an address string.
@@ -11,9 +13,7 @@ export async function getEtaMinutes(input: {
   toLng?: number | null;
   toAddress?: string | null;
 }): Promise<number | null> {
-  const apiKey =
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
-    process.env.GOOGLE_MAPS_API_KEY?.trim();
+  const apiKey = await getServerMapsKey();
   if (!apiKey) return null;
 
   const destination =
@@ -48,9 +48,7 @@ export async function getEtaMinutes(input: {
  * Only works if the Geocoding API is enabled. Falls back to null.
  */
 export async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const apiKey =
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
-    process.env.GOOGLE_MAPS_API_KEY?.trim();
+  const apiKey = await getServerMapsKey();
   if (!apiKey) return null;
 
   try {

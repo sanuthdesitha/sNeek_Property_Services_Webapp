@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
+import { getServerMapsKey } from "@/lib/maps/server-key";
+
+// Resolves the key at RUNTIME (Settings credential → server env) so the live
+// site picks it up without a rebuild. The key can change in Settings, so this
+// must not be statically cached.
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const apiKey =
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || process.env.GOOGLE_MAPS_API_KEY?.trim() || "";
+  const apiKey = await getServerMapsKey();
 
   return NextResponse.json(
     {
@@ -11,7 +16,7 @@ export async function GET() {
     },
     {
       headers: {
-        "Cache-Control": "public, max-age=300",
+        "Cache-Control": "private, max-age=60",
       },
     }
   );
