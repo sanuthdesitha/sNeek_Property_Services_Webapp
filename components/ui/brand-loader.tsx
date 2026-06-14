@@ -1,24 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
  * BrandLoader — the branded full-surface loading state.
  *
- * A centred company logo (or a clean "sNeek" monogram fallback) sits inside a
- * slowly rotating ring drawn in the brand primary colour. The mark gently
- * pulses. Both animations come from globals.css (`.brand-loader-ring`,
- * `.brand-loader-mark`) and automatically collapse to a calm fade under
- * `prefers-reduced-motion` — no spin, just a gentle opacity breathe.
+ * The company logo image (or a clean "sNeek" wordmark fallback) is the hero of
+ * the loader. It sits on a tasteful rounded surface so the mark reads on any
+ * background (logos shipped on dark backgrounds previously washed out — the
+ * surface + ring gives them a dependable backdrop here).
+ *
+ * On every mount the loader randomly selects ONE of several premium animation
+ * variants (see VARIANTS) so the experience feels alive and never repetitive.
+ * All variants are pure transform/opacity (GPU-friendly) and live in
+ * globals.css; under `prefers-reduced-motion` every variant collapses to a
+ * calm opacity breathe (`.brand-loader--reduced`).
  *
  * Logo resolution:
  *   1. If a `logoUrl` prop is provided (portal shells already have it from
  *      getAppSettings), it is used immediately.
  *   2. Otherwise the loader fetches `/api/public/branding`
  *      ({ companyName, logoUrl }) on mount and swaps the logo in when ready.
- *   3. If no logo URL is ever available, it falls back to the "sNeek" wordmark
- *      monogram rendered in the brand primary token.
+ *   3. If no logo URL is ever available (or it fails to load), it falls back to
+ *      the "sNeek" wordmark rendered in the brand primary token.
  *
  * `surface` controls the palette:
  *   - "portal" (default): standard token theme (bg-background / text-primary).
@@ -41,6 +46,21 @@ export interface BrandLoaderProps {
   className?: string;
 }
 
+/**
+ * The premium animation variants. One is chosen at random per mount. Each value
+ * is the modifier class appended to `.brand-loader` and switched on in
+ * globals.css. Keep this list in sync with the CSS.
+ */
+const VARIANTS = [
+  "pulse-glow", // breathing glow ring behind the logo
+  "orbit", // dots orbiting the mark
+  "scan", // sweeping shimmer/scan band over the logo
+  "flip", // gentle 3D-ish flip + scale of the mark
+  "ripple", // concentric rings rippling outward
+] as const;
+
+type Variant = (typeof VARIANTS)[number];
+
 export function BrandLoader({
   logoUrl,
   companyName,
@@ -52,6 +72,12 @@ export function BrandLoader({
   const [resolvedLogo, setResolvedLogo] = useState<string | null>(logoUrl ?? null);
   const [name, setName] = useState<string | null>(companyName ?? null);
   const [logoFailed, setLogoFailed] = useState(false);
+
+  // Pick a random variant once, on mount (client-side; Math.random is fine here).
+  const variant: Variant = useMemo(
+    () => VARIANTS[Math.floor(Math.random() * VARIANTS.length)],
+    []
+  );
 
   // Only self-fetch branding when no logo was handed in by a server layout.
   useEffect(() => {
@@ -68,7 +94,7 @@ export function BrandLoader({
         if (typeof data?.companyName === "string" && data.companyName) setName(data.companyName);
       })
       .catch(() => {
-        /* monogram fallback covers this */
+        /* wordmark fallback covers this */
       });
     return () => {
       active = false;
@@ -89,56 +115,80 @@ export function BrandLoader({
         className
       )}
     >
-      <div className="relative flex h-32 w-32 items-center justify-center">
-        {/* Rotating brand ring */}
+      <div
+        className={cn(
+          "brand-loader text-primary",
+          `brand-loader--${variant}`,
+          isPublic && "brand-loader--public"
+        )}
+      >
+        {/* Glow halo — used by the pulse-glow / ripple variants. */}
+        <span className="brand-loader__glow" aria-hidden="true" />
+
+        {/* Concentric ripple rings (ripple variant). */}
+        <span className="brand-loader__ripple" aria-hidden="true" />
+        <span className="brand-loader__ripple brand-loader__ripple--2" aria-hidden="true" />
+        <span className="brand-loader__ripple brand-loader__ripple--3" aria-hidden="true" />
+
+        {/* Sweeping arc ring. */}
         <svg
           viewBox="0 0 100 100"
-          className="brand-loader-ring absolute inset-0 h-full w-full text-primary"
+          className="brand-loader__ring"
           aria-hidden="true"
         >
-          {/* faint full track */}
           <circle
             cx="50"
             cy="50"
-            r="44"
+            r="45"
             fill="none"
             stroke="currentColor"
             strokeOpacity="0.14"
-            strokeWidth="3"
+            strokeWidth="2.5"
           />
-          {/* bright sweeping arc */}
           <circle
+            className="brand-loader__arc"
             cx="50"
             cy="50"
-            r="44"
+            r="45"
             fill="none"
             stroke="currentColor"
-            strokeWidth="3"
+            strokeWidth="2.5"
             strokeLinecap="round"
-            strokeDasharray="70 210"
+            strokeDasharray="70 220"
           />
         </svg>
 
-        {/* Centred mark */}
-        <div className="brand-loader-mark flex h-20 w-20 items-center justify-center">
-          {showLogo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={resolvedLogo as string}
-              alt={name || "sNeek Property Services"}
-              className="max-h-16 max-w-16 object-contain"
-              onError={() => setLogoFailed(true)}
-            />
-          ) : (
-            <span
-              className={cn(
-                "select-none text-3xl font-semibold tracking-tight text-primary",
-                isPublic && "font-display-serif"
-              )}
-            >
-              sNeek
-            </span>
-          )}
+        {/* Orbiting dots (orbit variant). */}
+        <span className="brand-loader__orbit" aria-hidden="true">
+          <span className="brand-loader__dot" />
+          <span className="brand-loader__dot brand-loader__dot--2" />
+          <span className="brand-loader__dot brand-loader__dot--3" />
+        </span>
+
+        {/* Logo surface — keeps the mark legible on any background. */}
+        <div className="brand-loader__mark">
+          <div className="brand-loader__plate">
+            {showLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={resolvedLogo as string}
+                alt={name || "sNeek Property Services"}
+                className="brand-loader__logo"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span
+                className={cn(
+                  "brand-loader__wordmark",
+                  isPublic && "font-display-serif"
+                )}
+              >
+                sNeek
+              </span>
+            )}
+            {/* Scan band (scan variant) — sweeps across the plate. */}
+            <span className="brand-loader__scan" aria-hidden="true" />
+          </div>
         </div>
       </div>
 

@@ -340,21 +340,203 @@
   }
 
   /* ── Branded loader (BrandLoader) ──────────────────────────────
-     A logo/monogram centred inside a slowly rotating ring. The ring
-     uses the brand primary token; the mark gently pulses. Reduced
-     motion drops the spin/pulse and uses a calm fade instead. */
-  .brand-loader-ring {
-    animation: brandLoaderSpin 1.4s linear infinite;
+     The company logo (or "sNeek" wordmark) is the hero, sitting on a
+     tasteful plate so it reads on any background. One of several premium
+     animation variants is chosen at random per mount (.brand-loader--*).
+     Every variant is pure transform/opacity (GPU-friendly) and the brand
+     primary token drives the colour. Under prefers-reduced-motion all
+     variants collapse to a calm opacity breathe. */
+  .brand-loader {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 9rem;
+    height: 9rem;
   }
-  .brand-loader-mark {
-    animation: brandLoaderPulse 2.2s ease-in-out infinite;
+
+  /* Sweeping arc ring (shared chrome). */
+  .brand-loader__ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
+  .brand-loader__arc {
+    transform-origin: 50% 50%;
+    animation: brandLoaderSpin 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  /* Soft glow halo behind the mark. */
+  .brand-loader__glow {
+    position: absolute;
+    inset: 12%;
+    border-radius: 9999px;
+    background: radial-gradient(
+      circle,
+      hsl(var(--primary) / 0.28) 0%,
+      hsl(var(--primary) / 0) 70%
+    );
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+
+  /* Concentric ripple rings. */
+  .brand-loader__ripple {
+    position: absolute;
+    inset: 18%;
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--primary) / 0.45);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+
+  /* Orbiting dots. */
+  .brand-loader__orbit {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .brand-loader__dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin: -0.25rem 0 0 -0.25rem;
+    border-radius: 9999px;
+    background: hsl(var(--primary));
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+
+  /* Logo plate — the legible surface for the mark. */
+  .brand-loader__mark {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    will-change: transform, opacity;
+  }
+  .brand-loader__plate {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 5.5rem;
+    height: 5.5rem;
+    padding: 0.85rem;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    background: hsl(var(--card) / 0.92);
+    box-shadow:
+      0 1px 0 hsl(var(--primary) / 0.08) inset,
+      0 8px 24px hsl(var(--primary) / 0.12);
+    border: 1px solid hsl(var(--primary) / 0.14);
+    backdrop-filter: blur(2px);
+  }
+  .brand-loader__logo {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .brand-loader__wordmark {
+    user-select: none;
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: hsl(var(--primary));
+  }
+  .brand-loader--public .brand-loader__plate {
+    border-radius: 1rem;
+  }
+
+  /* Scan / shimmer band swept across the plate. */
+  .brand-loader__scan {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      hsl(var(--primary) / 0.22) 50%,
+      transparent 65%
+    );
+    transform: translateX(-120%);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+
+  /* ── Variant: pulse-glow ── */
+  .brand-loader--pulse-glow .brand-loader__glow {
+    animation: brandLoaderGlow 2s ease-in-out infinite;
+  }
+  .brand-loader--pulse-glow .brand-loader__mark {
+    animation: brandLoaderPulse 2s ease-in-out infinite;
+  }
+
+  /* ── Variant: orbit ── */
+  .brand-loader--orbit .brand-loader__orbit {
+    animation: brandLoaderSpin 3.2s linear infinite;
+  }
+  .brand-loader--orbit .brand-loader__dot {
+    opacity: 1;
+    transform: translateY(-3.6rem);
+  }
+  .brand-loader--orbit .brand-loader__dot--2 {
+    transform: rotate(120deg) translateY(-3.6rem);
+  }
+  .brand-loader--orbit .brand-loader__dot--3 {
+    transform: rotate(240deg) translateY(-3.6rem);
+  }
+  .brand-loader--orbit .brand-loader__mark {
+    animation: brandLoaderPulse 2.6s ease-in-out infinite;
+  }
+
+  /* ── Variant: scan ── */
+  .brand-loader--scan .brand-loader__scan {
+    opacity: 1;
+    animation: brandLoaderScan 1.9s ease-in-out infinite;
+  }
+  .brand-loader--scan .brand-loader__mark {
+    animation: brandLoaderFloat 3s ease-in-out infinite;
+  }
+
+  /* ── Variant: flip ── */
+  .brand-loader--flip .brand-loader__mark {
+    animation: brandLoaderFlip 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+
+  /* ── Variant: ripple ── */
+  .brand-loader--ripple .brand-loader__ripple {
+    animation: brandLoaderRipple 2.4s ease-out infinite;
+  }
+  .brand-loader--ripple .brand-loader__ripple--2 {
+    animation-delay: 0.8s;
+  }
+  .brand-loader--ripple .brand-loader__ripple--3 {
+    animation-delay: 1.6s;
+  }
+  .brand-loader--ripple .brand-loader__mark {
+    animation: brandLoaderPulse 2.4s ease-in-out infinite;
+  }
+
+  /* Calm fade for reduced motion — disable every variant's motion. */
   @media (prefers-reduced-motion: reduce) {
-    .brand-loader-ring {
-      animation: brandLoaderFade 2.4s ease-in-out infinite;
+    .brand-loader .brand-loader__arc,
+    .brand-loader .brand-loader__glow,
+    .brand-loader .brand-loader__orbit,
+    .brand-loader .brand-loader__dot,
+    .brand-loader .brand-loader__ripple,
+    .brand-loader .brand-loader__scan {
+      animation: none !important;
     }
-    .brand-loader-mark {
-      animation: brandLoaderFade 2.4s ease-in-out infinite;
+    .brand-loader .brand-loader__scan,
+    .brand-loader .brand-loader__ripple {
+      opacity: 0 !important;
+    }
+    .brand-loader .brand-loader__mark {
+      animation: brandLoaderFade 2.4s ease-in-out infinite !important;
     }
   }
 }
@@ -430,8 +612,40 @@
 }
 
 @keyframes brandLoaderPulse {
-  0%, 100% { opacity: 0.78; transform: scale(0.97); }
-  50%      { opacity: 1;    transform: scale(1.02); }
+  0%, 100% { opacity: 0.82; transform: scale(0.97); }
+  50%      { opacity: 1;    transform: scale(1.03); }
+}
+
+/* Breathing radial glow (pulse-glow variant). */
+@keyframes brandLoaderGlow {
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1.12); }
+}
+
+/* Sweeping shimmer band across the logo plate (scan variant). */
+@keyframes brandLoaderScan {
+  0%   { transform: translateX(-120%); }
+  60%  { transform: translateX(120%); }
+  100% { transform: translateX(120%); }
+}
+
+/* Gentle vertical float (scan variant mark). */
+@keyframes brandLoaderFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+
+/* 3D-ish flip + scale of the mark (flip variant). */
+@keyframes brandLoaderFlip {
+  0%, 100% { transform: perspective(420px) rotateY(0deg) scale(1); }
+  50%      { transform: perspective(420px) rotateY(180deg) scale(0.92); }
+}
+
+/* Concentric ring rippling outward (ripple variant). */
+@keyframes brandLoaderRipple {
+  0%   { opacity: 0.55; transform: scale(0.6); }
+  80%  { opacity: 0;    transform: scale(1.8); }
+  100% { opacity: 0;    transform: scale(1.8); }
 }
 
 /* Gentle fade used for reduced-motion (no spin, no scale). */
