@@ -471,11 +471,28 @@ export async function POST(
       });
     }
 
-    if (body.draftDamagePayload?.title?.trim()) {
+    // Damage items: accept both the new multi-item array and the legacy single
+    // payload, dedupe, and open one DAMAGE case per committed item. Nothing the
+    // cleaner added in the form is dropped.
+    const damageItems = [
+      ...(Array.isArray(body.draftDamageItems) ? body.draftDamageItems : []),
+      ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
+    ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0);
+
+    for (const damage of damageItems) {
+      const damageTitle = (damage.title ?? "").trim();
+      if (!damageTitle) continue;
+      const damageArea = damage.area?.trim();
+      const damageBody = [
+        damageArea ? `Area / room: ${damageArea}` : "",
+        damage.description?.trim() || "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       const createdCase = await createCase({
-        title: `Damage: ${body.draftDamagePayload.title.trim()}`,
-        description: body.draftDamagePayload.description?.trim() || "",
-        severity: body.draftDamagePayload.severity ?? "HIGH",
+        title: `Damage: ${damageTitle}`,
+        description: damageBody,
+        severity: damage.severity ?? "HIGH",
         status: "OPEN",
         caseType: "DAMAGE",
         source: "CLEANER_SUBMIT",
@@ -485,15 +502,16 @@ export async function POST(
         clientVisible: true,
         clientCanReply: true,
         metadata: {
-          estimatedCost: body.draftDamagePayload.estimatedCost ?? null,
+          estimatedCost: damage.estimatedCost ?? null,
+          area: damageArea || null,
           tags: ["damage", "submission"],
         },
         comment: {
           authorUserId: session.user.id,
-          body: body.draftDamagePayload.description?.trim() || body.draftDamagePayload.title.trim(),
+          body: damageBody || damageTitle,
           isInternal: false,
         },
-        attachments: (body.draftDamagePayload.mediaKeys ?? []).map((key) => ({
+        attachments: (damage.mediaKeys ?? []).map((key) => ({
           uploadedByUserId: session.user.id,
           s3Key: key,
         })),
@@ -506,34 +524,31 @@ export async function POST(
       }
     }
 
-    if (
-      body.draftPayRequestPayload?.requestedAmount != null &&
-      Number(body.draftPayRequestPayload.requestedAmount) > 0
-    ) {
+    // Pay requests: same dual shape. Each committed request becomes a PENDING
+    // CleanerPayAdjustment that lands in the admin pay-adjustments queue.
+    const payRequestItems = [
+      ...(Array.isArray(body.draftPayRequestItems) ? body.draftPayRequestItems : []),
+      ...(body.draftPayRequestPayload ? [body.draftPayRequestPayload] : []),
+    ].filter((item) => item && item.requestedAmount != null && Number(item.requestedAmount) > 0);
+
+    for (const payRequest of payRequestItems) {
       await db.cleanerPayAdjustment.create({
         data: {
           jobId: job.id,
           propertyId: job.propertyId,
           cleanerId: session.user.id,
           scope: "JOB",
-          title: body.draftPayRequestPayload.title?.trim() || "Extra payment request",
-          type: body.draftPayRequestPayload.type === "HOURLY" ? "HOURLY" : "FIXED",
+          title: payRequest.title?.trim() || "Extra payment request",
+          type: payRequest.type === "HOURLY" ? "HOURLY" : "FIXED",
           requestedHours:
-            body.draftPayRequestPayload.requestedHours != null
-              ? Number(body.draftPayRequestPayload.requestedHours)
-              : null,
+            payRequest.requestedHours != null ? Number(payRequest.requestedHours) : null,
           requestedRate:
-            body.draftPayRequestPayload.requestedRate != null
-              ? Number(body.draftPayRequestPayload.requestedRate)
-              : null,
-          requestedAmount: Number(body.draftPayRequestPayload.requestedAmount),
-          cleanerNote:
-            body.draftPayRequestPayload.cleanerNote?.trim() ||
-            body.draftPayRequestPayload.title?.trim() ||
-            null,
+            payRequest.requestedRate != null ? Number(payRequest.requestedRate) : null,
+          requestedAmount: Number(payRequest.requestedAmount),
+          cleanerNote: payRequest.cleanerNote?.trim() || payRequest.title?.trim() || null,
           attachmentKeys:
-            body.draftPayRequestPayload.mediaKeys && body.draftPayRequestPayload.mediaKeys.length > 0
-              ? (body.draftPayRequestPayload.mediaKeys as any)
+            payRequest.mediaKeys && payRequest.mediaKeys.length > 0
+              ? (payRequest.mediaKeys as any)
               : undefined,
         },
       });

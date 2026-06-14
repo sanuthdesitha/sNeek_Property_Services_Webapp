@@ -116,6 +116,42 @@ export async function GET(req: NextRequest) {
   }
 }
 
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await requireRole([Role.CLEANER]);
+    const settings = await getAppSettings();
+    if (!isCleanerModuleEnabled(settings, "payRequests")) {
+      return NextResponse.json({ error: "Pay requests are disabled for cleaners." }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = (searchParams.get("id") ?? "").trim();
+    if (!id) {
+      return NextResponse.json({ error: "A request id is required." }, { status: 400 });
+    }
+
+    const existing = await db.cleanerPayAdjustment.findUnique({
+      where: { id },
+      select: { id: true, cleanerId: true, status: true },
+    });
+    if (!existing || existing.cleanerId !== session.user.id) {
+      return NextResponse.json({ error: "Request not found." }, { status: 404 });
+    }
+    if (existing.status !== PayAdjustmentStatus.PENDING) {
+      return NextResponse.json(
+        { error: "Only pending requests can be withdrawn." },
+        { status: 400 }
+      );
+    }
+
+    await db.cleanerPayAdjustment.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message ?? "Could not withdraw request." }, { status });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.CLEANER]);

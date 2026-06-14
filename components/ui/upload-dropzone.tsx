@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { Upload, AlertCircle } from "lucide-react";
-import { compressImage } from "@/lib/uploads/compress";
+import { compressImage, prepareUploadFile } from "@/lib/uploads/compress";
+import type { StampOptions } from "@/lib/uploads/stamp";
 import { uploadMultipart } from "@/lib/uploads/multipart-client";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,13 @@ export interface UploadDropzoneProps {
   accept?: string;
   maxFiles?: number;
   className?: string;
+  /**
+   * Evidence stamping. When stamp options are supplied (a job/QA/maintenance
+   * context), every stampable image is burned with the evidence overlay BEFORE
+   * compression + upload. Leave undefined for non-evidence uploads (marketing
+   * assets, report logos, avatars) — those are compressed but never stamped.
+   */
+  stamp?: StampOptions;
 }
 
 interface FileState {
@@ -81,6 +89,7 @@ export function UploadDropzone({
   accept,
   maxFiles = 10,
   className,
+  stamp,
 }: UploadDropzoneProps) {
   const [files, setFiles] = React.useState<FileState[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
@@ -91,11 +100,25 @@ export function UploadDropzone({
       setFiles((prev) => prev.map((f, i) => (i === idx ? { ...f, status: "compressing" } : f)));
 
       let blob: Blob = file;
-      try {
-        const cr = await compressImage(file);
-        blob = cr.blob;
-      } catch {
-        // compression failed; upload original
+      let uploadName = file.name;
+      let uploadType = file.type;
+      if (stamp) {
+        // Evidence context: stamp (when image) then compress, in one helper.
+        try {
+          const prepared = await prepareUploadFile(file, stamp);
+          blob = prepared;
+          uploadName = prepared.name;
+          uploadType = prepared.type || file.type;
+        } catch {
+          // prepare failed; upload original
+        }
+      } else {
+        try {
+          const cr = await compressImage(file);
+          blob = cr.blob;
+        } catch {
+          // compression failed; upload original
+        }
       }
 
       const useMultipart = blob.size > MULTIPART_THRESHOLD;
@@ -109,7 +132,7 @@ export function UploadDropzone({
           );
           let result: { url: string; key: string };
           if (useMultipart) {
-            result = await uploadMultipart(blob, file.name, file.type, (p) => {
+            result = await uploadMultipart(blob, uploadName, uploadType, (p) => {
               setFiles((prev) =>
                 prev.map((f, i) =>
                   i === idx ? { ...f, progress: (p.bytesUploaded / p.totalBytes) * 100 } : f
@@ -117,13 +140,13 @@ export function UploadDropzone({
               );
             });
           } else {
-            result = await uploadSinglePut(blob, file.name, file.type);
+            result = await uploadSinglePut(blob, uploadName, uploadType);
             setFiles((prev) => prev.map((f, i) => (i === idx ? { ...f, progress: 100 } : f)));
           }
           setFiles((prev) =>
             prev.map((f, i) => (i === idx ? { ...f, status: "done", progress: 100 } : f))
           );
-          onUploaded({ ...result, filename: file.name, size: file.size, mime: file.type });
+          onUploaded({ ...result, filename: uploadName, size: blob.size, mime: uploadType });
           return;
         } catch (err) {
           if (attempt >= MAX_RETRIES) {
@@ -140,7 +163,7 @@ export function UploadDropzone({
         }
       }
     },
-    [onUploaded, onFailure, jobId]
+    [onUploaded, onFailure, jobId, stamp]
   );
 
   const handleFiles = (incoming: File[]) => {

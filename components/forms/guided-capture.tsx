@@ -3,9 +3,9 @@
 import * as React from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   Camera,
   Check,
+  CircleDot,
   ImagePlus,
   Loader2,
   MapPin,
@@ -35,19 +35,35 @@ export interface GuidedCaptureProps {
   thumbnails: Record<string, string[]>;
   /**
    * Called with the captured files. Must run the regular field upload
-   * pipeline (compress → presign → attach keys to the field's value).
+   * pipeline (stamp → compress → presign → attach keys to the field's value).
    * Resolves with the number of failed files so they can be retried here.
+   * `source` lets the page choose camera vs gallery handling.
    */
-  onFiles: (fieldId: string, files: File[]) => Promise<{ failedCount: number }>;
+  onFiles: (
+    fieldId: string,
+    files: File[],
+    source: "camera" | "gallery"
+  ) => Promise<{ failedCount: number }>;
   onClose: () => void;
 }
 
 /**
- * Full-screen "keep shooting" camera flow. Builds on the dependable
- * <input type="file" capture="environment"> pattern: after every shot the
- * input is re-opened automatically so the cleaner just keeps pressing the
- * one big button while the overlay tells them what to photograph next.
- * Failed uploads are kept locally and can be retried without re-shooting.
+ * Full-screen "keep shooting" camera flow.
+ *
+ * Primary path: a live getUserMedia rear-camera preview fills the middle of the
+ * overlay with the current target title overlaid. A big shutter button grabs a
+ * frame from the stream (canvas → JPEG), runs it through onFiles, and stays
+ * live for the next shot — auto-advancing once minPhotos is met. A second
+ * button uploads existing images from the gallery (also stamped upstream).
+ *
+ * Fallback path: when getUserMedia is unavailable or denied (iOS quirks, no
+ * permission), it degrades to the dependable <input capture="environment">
+ * pattern, re-opened after each shot. Failed uploads are kept locally for retry
+ * without re-shooting.
+ *
+ * Layout: fixed full-screen, no page scroll — header (progress + close), the
+ * live preview filling the middle with the target title, a horizontally
+ * scrolling thumbnails strip, and a fixed bottom action bar.
  */
 export function GuidedCapture({
   items,
@@ -58,7 +74,6 @@ export function GuidedCapture({
   onClose,
 }: GuidedCaptureProps) {
   const [index, setIndex] = React.useState(() => {
-    // Start on the first field that still needs photos.
     const firstIncomplete = items.findIndex(
       (item) => (item.minPhotos ?? 1) > 0 && (counts[item.fieldId] ?? 0) < (item.minPhotos ?? 1)
     );
@@ -66,19 +81,72 @@ export function GuidedCapture({
   });
   // "+1 more" override: suppress auto-advance for this field until it fires once.
   const [stayFieldId, setStayFieldId] = React.useState<string | null>(null);
-  // Files that failed to upload, retryable per field.
   const [failedFiles, setFailedFiles] = React.useState<Record<string, File[]>>({});
   const [retrying, setRetrying] = React.useState(false);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const [capturing, setCapturing] = React.useState(false);
+
+  // Live-camera state.
+  const [liveReady, setLiveReady] = React.useState(false);
+  const [useFallback, setUseFallback] = React.useState(false);
+  const [flash, setFlash] = React.useState(false);
+
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
   const advanceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const item = items[index];
   const total = items.length;
+  const indexRef = React.useRef(index);
+  indexRef.current = index;
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- Live camera lifecycle ----
+  const stopStream = React.useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setLiveReady(false);
+  }, []);
+
+  const startStream = React.useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setUseFallback(true);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      video.srcObject = stream;
+      await video.play().catch(() => undefined);
+      setLiveReady(true);
+      setUseFallback(false);
+    } catch {
+      // Denied / unavailable (common on iOS in some webviews) — degrade.
+      setUseFallback(true);
+      setLiveReady(false);
+    }
+  }, []);
 
   React.useEffect(() => {
+    void startStream();
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      stopStream();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!item) return null;
@@ -104,45 +172,100 @@ export function GuidedCapture({
     setIndex(Math.min(total - 1, Math.max(0, nextIndex)));
   }
 
-  function openCamera() {
-    inputRef.current?.click();
+  function scheduleAfterShot(fieldId: string, addedCount: number) {
+    const itemNow = items[indexRef.current];
+    if (!itemNow || itemNow.fieldId !== fieldId) return;
+    const requiredHere = Math.max(0, itemNow.minPhotos ?? 1);
+    const newCount = (counts[fieldId] ?? 0) + addedCount;
+    const wantsToStay = stayFieldId === fieldId;
+    const reached = requiredHere > 0 && newCount >= requiredHere;
+    const reachedMax = itemNow.maxFiles !== undefined && newCount >= itemNow.maxFiles;
+
+    if ((reached || reachedMax) && !wantsToStay && indexRef.current < total - 1) {
+      advanceTimer.current = setTimeout(() => {
+        setStayFieldId(null);
+        setIndex((prev) => Math.min(total - 1, prev + 1));
+      }, 650);
+    } else if (wantsToStay) {
+      setStayFieldId(null);
+    }
   }
 
-  async function handleFiles(files: File[], fieldId: string) {
+  async function handleFiles(files: File[], fieldId: string, source: "camera" | "gallery") {
     if (files.length === 0) return;
-    const result = await onFiles(fieldId, files).catch(() => ({ failedCount: files.length }));
+    const result = await onFiles(fieldId, files, source).catch(() => ({ failedCount: files.length }));
     if (result.failedCount > 0) {
-      // Keep the tail of the batch for retry — uploads run in order, so the
-      // failed ones are the last N files.
       const kept = files.slice(files.length - result.failedCount);
       setFailedFiles((prev) => ({ ...prev, [fieldId]: [...(prev[fieldId] ?? []), ...kept] }));
     }
   }
 
-  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // ---- Live shutter: grab a frame from the video stream ----
+  async function captureFromStream() {
+    const video = videoRef.current;
+    if (!video || !liveReady || capturing || atMax) return;
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return;
+    setCapturing(true);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), reduceMotion ? 0 : 140);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setCapturing(false);
+        return;
+      }
+      ctx.drawImage(video, 0, 0, width, height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.92)
+      );
+      if (!blob) {
+        setCapturing(false);
+        return;
+      }
+      const file = new File([blob], `capture-${Date.now()}.jpg`, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+      const fieldId = item.fieldId;
+      // Fire-and-forget the upload (stamped + compressed upstream); keep the
+      // preview live so the cleaner can immediately take the next shot.
+      void handleFiles([file], fieldId, "camera");
+      scheduleAfterShot(fieldId, 1);
+    } finally {
+      setCapturing(false);
+    }
+  }
+
+  // ---- Fallback file-input handlers ----
+  function onCameraInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files ? Array.from(e.target.files) : [];
     e.currentTarget.value = "";
     if (files.length === 0) return;
     const fieldId = item.fieldId;
-    const requiredHere = Math.max(0, item.minPhotos ?? 1);
-    const newCount = (counts[fieldId] ?? 0) + files.length;
-    void handleFiles(files, fieldId);
+    void handleFiles(files, fieldId, "camera");
+    scheduleAfterShot(fieldId, files.length);
+  }
 
-    const wantsToStay = stayFieldId === fieldId;
-    const reached = requiredHere > 0 && newCount >= requiredHere;
-    const reachedMax = item.maxFiles !== undefined && newCount >= item.maxFiles;
+  function onGalleryInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    e.currentTarget.value = "";
+    if (files.length === 0) return;
+    const fieldId = item.fieldId;
+    void handleFiles(files, fieldId, "gallery");
+    scheduleAfterShot(fieldId, files.length);
+  }
 
-    if ((reached || reachedMax) && !wantsToStay && index < total - 1) {
-      // Auto-advance to the next requirement, straight on the capture button.
-      advanceTimer.current = setTimeout(() => {
-        setStayFieldId(null);
-        setIndex((prev) => Math.min(total - 1, prev + 1));
-      }, 650);
-    } else if (!reachedMax) {
-      // Stay on this field and immediately re-open the camera for the next shot.
-      if (wantsToStay) setStayFieldId(null);
-      advanceTimer.current = setTimeout(() => inputRef.current?.click(), 350);
+  function onShutterClick() {
+    if (useFallback || !liveReady) {
+      cameraInputRef.current?.click();
+      return;
     }
+    void captureFromStream();
   }
 
   async function retryFailed() {
@@ -150,60 +273,101 @@ export function GuidedCapture({
     if (files.length === 0 || retrying) return;
     setRetrying(true);
     setFailedFiles((prev) => ({ ...prev, [item.fieldId]: [] }));
-    await handleFiles(files, item.fieldId);
+    await handleFiles(files, item.fieldId, "camera");
     setRetrying(false);
   }
 
+  const shutterDisabled = atMax || capturing;
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
-      {/* Hidden persistent camera input, re-triggered after every shot. */}
+    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-black text-white">
+      {/* Hidden inputs for the fallback + gallery paths. */}
       <input
-        ref={inputRef}
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
         multiple
         className="hidden"
-        onChange={onInputChange}
+        onChange={onCameraInputChange}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={onGalleryInputChange}
       />
 
-      {/* Header: progress */}
-      <div className="border-b px-4 py-3">
+      {/* Header: progress + close. */}
+      <div className="shrink-0 px-4 pb-2 pt-[max(env(safe-area-inset-top),0.75rem)]">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-semibold tabular-nums">
             Field {index + 1} of {total} · {progressPct}%
           </p>
-          <Button type="button" variant="ghost" size="icon" className="h-11 w-11" onClick={onClose} aria-label="Exit guided capture">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 text-white hover:bg-white/10 hover:text-white"
+            onClick={onClose}
+            aria-label="Exit guided capture"
+          >
             <X className="size-5" />
           </Button>
         </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/20">
           <div
-            className="h-full rounded-full bg-primary transition-all"
+            className={`h-full rounded-full bg-primary ${reduceMotion ? "" : "transition-all"}`}
             style={{ width: `${progressPct}%` }}
           />
         </div>
       </div>
 
-      {/* Current target */}
-      <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4">
-        <div className="space-y-1.5">
+      {/* Live preview area (fills the middle). */}
+      <div className="relative min-h-0 flex-1">
+        {!useFallback ? (
+          <video
+            ref={videoRef}
+            className="absolute inset-0 h-full w-full bg-black object-cover"
+            muted
+            playsInline
+            autoPlay
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-900 px-6 text-center">
+            <Camera className="size-10 text-white/50" />
+            <p className="text-sm text-white/70">
+              Live camera unavailable — tap the shutter to use your device camera.
+            </p>
+          </div>
+        )}
+
+        {/* Shutter flash. */}
+        {flash ? <div className="absolute inset-0 bg-white/80" aria-hidden /> : null}
+
+        {/* Target title overlay (top of preview). */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-4">
           {item.sectionLabel ? (
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-xs font-medium uppercase tracking-wide text-white/70">
               {item.sectionLabel}
             </p>
           ) : null}
-          <h2 className="text-2xl font-bold leading-tight">{item.label}</h2>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <h2 className="text-2xl font-bold leading-tight drop-shadow">{item.label}</h2>
+          {item.description ? (
+            <p className="mt-1 text-sm text-white/85 drop-shadow">{item.description}</p>
+          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {item.locationTag ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              <span className="inline-flex items-center gap-1 rounded-md bg-white/15 px-2 py-0.5 text-xs font-medium text-white">
                 <MapPin className="size-3" />
                 {item.locationTag}
               </span>
             ) : null}
             <span
               className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums ${
-                met ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                met ? "bg-success/80 text-white" : "bg-white/15 text-white"
               }`}
             >
               {met ? <Check className="size-3" /> : <Camera className="size-3" />}
@@ -211,102 +375,143 @@ export function GuidedCapture({
               {required > 0 ? ` / ${required}` : ""} photo{count === 1 ? "" : "s"}
             </span>
             {pending > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
+              <span className="inline-flex items-center gap-1 rounded-md bg-white/15 px-2 py-0.5 text-xs text-white">
+                <Loader2 className={`size-3 ${reduceMotion ? "" : "animate-spin"}`} />
                 {pending} uploading
               </span>
             ) : null}
           </div>
-          {item.description ? (
-            <p className="text-sm text-muted-foreground">{item.description}</p>
-          ) : null}
         </div>
 
-        {/* Thumbnails strip */}
+        {/* Failed-upload retry banner (over the preview, tappable). */}
+        {failed.length > 0 ? (
+          <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-2 rounded-lg border border-destructive/50 bg-black/70 px-3 py-2 backdrop-blur">
+            <p className="text-xs text-red-300">
+              {failed.length} photo{failed.length === 1 ? "" : "s"} failed (kept on device).
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 border-white/30 bg-transparent text-white hover:bg-white/10"
+              onClick={retryFailed}
+              disabled={retrying}
+            >
+              {retrying ? (
+                <Loader2 className={`mr-1 size-3.5 ${reduceMotion ? "" : "animate-spin"}`} />
+              ) : (
+                <RefreshCcw className="mr-1 size-3.5" />
+              )}
+              Retry
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Thumbnails strip (the only scrollable region). */}
+      <div className="shrink-0 px-3 py-2">
         {thumbs.length > 0 ? (
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {thumbs.map((url, i) => (
               <img
                 key={`${url}-${i}`}
                 src={url}
                 alt={`${item.label} photo ${i + 1}`}
-                className="h-20 w-20 shrink-0 rounded-lg border object-cover"
+                className="h-16 w-16 shrink-0 rounded-lg border border-white/20 object-cover"
               />
             ))}
+            {pending > 0 ? (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/5">
+                <Loader2 className={`size-5 text-white/70 ${reduceMotion ? "" : "animate-spin"}`} />
+              </div>
+            ) : null}
           </div>
         ) : (
-          <div className="mt-4 flex h-24 items-center justify-center rounded-xl border-2 border-dashed text-xs text-muted-foreground">
-            No photos for this field yet — press the big button below.
-          </div>
+          <p className="px-1 text-center text-xs text-white/50">
+            No photos for this field yet — press the shutter below.
+          </p>
         )}
-
-        {failed.length > 0 ? (
-          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
-            <p className="text-xs text-destructive">
-              {failed.length} photo{failed.length === 1 ? "" : "s"} failed to upload (kept on device).
-            </p>
-            <Button type="button" size="sm" variant="outline" className="h-9" onClick={retryFailed} disabled={retrying}>
-              {retrying ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCcw className="mr-1 size-3.5" />}
-              Retry
-            </Button>
-          </div>
-        ) : null}
-
-        {met && index < total - 1 ? (
-          <button
-            type="button"
-            className="mt-3 self-start text-xs font-medium text-primary underline-offset-2 hover:underline"
-            onClick={() => {
-              setStayFieldId(item.fieldId);
-              openCamera();
-            }}
-          >
-            +1 more for this field
-          </button>
-        ) : null}
       </div>
 
-      {/* Controls */}
-      <div className="space-y-3 border-t px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3">
-        <Button
-          type="button"
-          className="h-14 w-full text-base font-semibold"
-          onClick={openCamera}
-          disabled={atMax}
-        >
-          <ImagePlus className="mr-2 size-5" />
-          {atMax ? "Max photos reached" : count > 0 ? "Capture another photo" : "Capture photo"}
-        </Button>
-        <div className="flex gap-2">
+      {/* Fixed bottom action bar. */}
+      <div className="shrink-0 border-t border-white/10 bg-black/60 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          {/* Gallery upload. */}
           <Button
             type="button"
             variant="outline"
-            className="h-11 flex-1"
+            className="h-12 flex-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={atMax}
+          >
+            <ImagePlus className="mr-2 size-5" />
+            Gallery
+          </Button>
+
+          {/* Shutter. */}
+          <button
+            type="button"
+            onClick={onShutterClick}
+            disabled={shutterDisabled}
+            aria-label={atMax ? "Max photos reached" : "Capture photo"}
+            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-white ${
+              reduceMotion ? "" : "transition-transform active:scale-95"
+            } ${shutterDisabled ? "opacity-40" : "bg-white/10"}`}
+          >
+            {capturing ? (
+              <Loader2 className={`size-7 ${reduceMotion ? "" : "animate-spin"}`} />
+            ) : (
+              <CircleDot className="size-9" />
+            )}
+          </button>
+
+          {/* Advance / done. */}
+          {index >= total - 1 ? (
+            <Button
+              type="button"
+              className="h-12 flex-1"
+              onClick={onClose}
+            >
+              Done
+              <Check className="ml-1 size-4" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 flex-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              onClick={() => goTo(index + 1)}
+            >
+              {met ? "Next" : "Skip"}
+            </Button>
+          )}
+        </div>
+
+        {/* Back + "+1 more" row. */}
+        <div className="mt-2 flex items-center justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 text-white/80 hover:bg-white/10 hover:text-white"
             disabled={index === 0}
             onClick={() => goTo(index - 1)}
           >
             <ArrowLeft className="mr-1 size-4" />
             Back
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 flex-1"
-            disabled={index >= total - 1}
-            onClick={() => goTo(index + 1)}
-          >
-            Skip
-          </Button>
-          {index >= total - 1 ? (
-            <Button type="button" className="h-11 flex-1" onClick={onClose}>
-              Done
-              <Check className="ml-1 size-4" />
-            </Button>
+          {met && index < total - 1 ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setStayFieldId(item.fieldId)}
+            >
+              Keep shooting this field
+            </button>
           ) : (
-            <Button type="button" className="h-11 flex-1" onClick={() => goTo(index + 1)}>
-              Next field
-              <ArrowRight className="ml-1 size-4" />
-            </Button>
+            <span className="text-[11px] text-white/40">
+              {atMax ? "Max photos reached" : "Tap the shutter to capture"}
+            </span>
           )}
         </div>
       </div>

@@ -307,18 +307,20 @@ export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableF
 
             {isUpload && (
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor={`field-min-photos-${field.id}`}>Min files</Label>
-                  <Input
-                    id={`field-min-photos-${field.id}`}
-                    type="number"
-                    min={0}
-                    value={field.minPhotos ?? 0}
-                    onChange={(e) =>
-                      onUpdate({ ...field, minPhotos: Math.max(0, parseInt(e.target.value, 10) || 0) })
-                    }
-                  />
-                </div>
+                {field.type !== "video" && (
+                  <div className="space-y-1">
+                    <Label htmlFor={`field-min-photos-${field.id}`}>Min files</Label>
+                    <Input
+                      id={`field-min-photos-${field.id}`}
+                      type="number"
+                      min={0}
+                      value={field.minPhotos ?? 0}
+                      onChange={(e) =>
+                        onUpdate({ ...field, minPhotos: Math.max(0, parseInt(e.target.value, 10) || 0) })
+                      }
+                    />
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label htmlFor={`field-max-files-${field.id}`}>Max files</Label>
                   <Input
@@ -329,6 +331,19 @@ export function FieldEditor({ field, onUpdate, onRemove, onDuplicate, availableF
                     onChange={(e) => onUpdate({ ...field, maxFiles: num(e.target.value) })}
                   />
                 </div>
+                {field.type === "video" && (
+                  <div className="space-y-1">
+                    <Label htmlFor={`field-max-duration-${field.id}`}>Max duration (sec)</Label>
+                    <Input
+                      id={`field-max-duration-${field.id}`}
+                      type="number"
+                      min={1}
+                      placeholder="60"
+                      value={field.maxDurationSec ?? ""}
+                      onChange={(e) => onUpdate({ ...field, maxDurationSec: num(e.target.value) })}
+                    />
+                  </div>
+                )}
               </div>
             )}
 

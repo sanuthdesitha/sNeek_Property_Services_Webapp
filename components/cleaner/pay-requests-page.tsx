@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MediaGallery } from "@/components/shared/media-gallery";
@@ -73,9 +72,9 @@ export function CleanerPayRequestsPage({
   const [payRate, setPayRate] = useState("");
   const [payAmount, setPayAmount] = useState("");
   const [payNote, setPayNote] = useState("");
-  const [extraPaymentRequired, setExtraPaymentRequired] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ key: string; url: string; label: string }>>([]);
   const [uploading, setUploading] = useState(false);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
 
   async function loadPayRequests() {
     setLoadingPayRequests(true);
@@ -106,11 +105,23 @@ export function CleanerPayRequestsPage({
     }
   }
 
-  async function submitPayRequest() {
-    if (!extraPaymentRequired) {
-      toast({ title: "Select extra payment required first.", variant: "destructive" });
+  async function withdrawPayRequest(id: string) {
+    if (!window.confirm("Withdraw this pending pay request? This cannot be undone.")) return;
+    setWithdrawingId(id);
+    const res = await fetch(`/api/cleaner/pay-adjustments?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    const body = await res.json().catch(() => ({}));
+    setWithdrawingId(null);
+    if (!res.ok) {
+      toast({ title: "Could not withdraw", description: body.error ?? "Please retry.", variant: "destructive" });
       return;
     }
+    toast({ title: "Request withdrawn" });
+    await loadPayRequests();
+  }
+
+  async function submitPayRequest() {
     if (!title.trim()) {
       toast({ title: "Request title is required.", variant: "destructive" });
       return;
@@ -175,9 +186,11 @@ export function CleanerPayRequestsPage({
     setPayHours("1");
     setPayRate("");
     setAttachments([]);
-    setExtraPaymentRequired(false);
     setPropertyId(properties[0]?.id ?? "");
-    toast({ title: "Extra payment request submitted" });
+    toast({
+      title: "Extra payment request submitted",
+      description: "It is now Pending admin review and appears in the list below.",
+    });
     await loadPayRequests();
   }
 
@@ -205,20 +218,10 @@ export function CleanerPayRequestsPage({
           <CardTitle className="text-base">Submit Request</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm">
-            <Checkbox
-              checked={extraPaymentRequired}
-              onCheckedChange={(checked) => setExtraPaymentRequired(checked === true)}
-            />
-            Extra payment required
-          </label>
-
-          {!extraPaymentRequired ? (
-            <p className="text-xs text-muted-foreground">
-              Select the option above to reveal and submit a request.
-            </p>
-          ) : (
-            <>
+          <p className="text-xs text-muted-foreground">
+            Fill in the fields and tap Submit. Your request is sent to admin straight away and shows below as Pending.
+          </p>
+          <div className="space-y-3">
               <div>
                 <Label className="text-xs text-muted-foreground">Request scope</Label>
                 <Select value={scope} onValueChange={(value) => setScope(value as "JOB" | "PROPERTY" | "STANDALONE")}>
@@ -345,11 +348,10 @@ export function CleanerPayRequestsPage({
                 )}
               </div>
 
-              <Button onClick={submitPayRequest} disabled={savingPayRequest || uploading} className="w-full">
+              <Button onClick={submitPayRequest} disabled={savingPayRequest || uploading} className="h-11 w-full">
                 {savingPayRequest ? "Submitting..." : "Submit Extra Payment Request"}
               </Button>
-            </>
-          )}
+          </div>
         </CardContent>
       </Card>
 
@@ -411,6 +413,19 @@ export function CleanerPayRequestsPage({
                     {galleryItems.length > 0 ? (
                       <div className="mt-3">
                         <MediaGallery items={galleryItems} title="Pay request evidence" className="grid grid-cols-2 gap-2 md:grid-cols-3" />
+                      </div>
+                    ) : null}
+                    {row.status === "PENDING" ? (
+                      <div className="mt-2 flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-9 text-destructive"
+                          disabled={withdrawingId === row.id}
+                          onClick={() => withdrawPayRequest(row.id)}
+                        >
+                          {withdrawingId === row.id ? "Withdrawing..." : "Withdraw request"}
+                        </Button>
                       </div>
                     ) : null}
                   </div>

@@ -138,6 +138,25 @@ export const assignJobSchema = z.object({
   confirmCompletedReset: z.boolean().optional(),
 });
 
+const draftDamageItemSchema = z.object({
+  title: z.string().trim().max(160).optional(),
+  description: z.string().trim().max(6000).optional(),
+  estimatedCost: z.number().min(0).optional().nullable(),
+  severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+  area: z.string().trim().max(160).optional(),
+  mediaKeys: z.array(z.string().trim().min(1)).max(20).optional(),
+});
+
+const draftPayRequestItemSchema = z.object({
+  type: z.enum(["HOURLY", "FIXED"]).optional(),
+  requestedHours: z.number().min(0).optional().nullable(),
+  requestedRate: z.number().min(0).optional().nullable(),
+  requestedAmount: z.number().min(0).optional().nullable(),
+  cleanerNote: z.string().trim().max(4000).optional(),
+  title: z.string().trim().max(160).optional(),
+  mediaKeys: z.array(z.string().trim().min(1).max(300)).max(8).optional(),
+});
+
 export const submitJobSchema = z.object({
   templateId: z.string().min(1),
   data: z.record(z.unknown()),
@@ -162,26 +181,13 @@ export const submitJobSchema = z.object({
       reason: z.string().trim().max(4000).optional(),
     })
     .optional(),
-  draftDamagePayload: z
-    .object({
-      title: z.string().trim().max(160).optional(),
-      description: z.string().trim().max(6000).optional(),
-      estimatedCost: z.number().min(0).optional().nullable(),
-      severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      mediaKeys: z.array(z.string().trim().min(1)).max(20).optional(),
-    })
-    .optional(),
-  draftPayRequestPayload: z
-    .object({
-      type: z.enum(["HOURLY", "FIXED"]).optional(),
-      requestedHours: z.number().min(0).optional().nullable(),
-      requestedRate: z.number().min(0).optional().nullable(),
-      requestedAmount: z.number().min(0).optional().nullable(),
-      cleanerNote: z.string().trim().max(4000).optional(),
-      title: z.string().trim().max(160).optional(),
-      mediaKeys: z.array(z.string().trim().min(1).max(300)).max(8).optional(),
-    })
-    .optional(),
+  // Single-item shape kept for backwards compatibility with older clients.
+  draftDamagePayload: draftDamageItemSchema.optional(),
+  // New multi-item shape: the cleaner can add several damage items, each
+  // becomes its own DAMAGE case on submit. Nothing the cleaner added is lost.
+  draftDamageItems: z.array(draftDamageItemSchema).max(20).optional(),
+  draftPayRequestPayload: draftPayRequestItemSchema.optional(),
+  draftPayRequestItems: z.array(draftPayRequestItemSchema).max(20).optional(),
 });
 
 export const cleanerLaundryStatusSchema = z.object({

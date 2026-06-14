@@ -112,6 +112,8 @@ export interface FormField {
   // media
   minPhotos?: number;
   maxFiles?: number;
+  // video: max recording length in seconds for in-app recording (default ~60).
+  maxDurationSec?: number;
   // numeric / slider / scale / counter
   min?: number;
   max?: number;

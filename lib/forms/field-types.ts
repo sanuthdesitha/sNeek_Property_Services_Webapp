@@ -115,7 +115,7 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
 
   // ---- media ----
   photo: { type: "photo", label: "Photo", icon: "Camera", category: "media", isUpload: true, scorable: true, defaultConfig: { minPhotos: 1 }, formatValue: fmtUpload },
-  video: { type: "video", label: "Video", icon: "Video", category: "media", isUpload: true, formatValue: fmtUpload },
+  video: { type: "video", label: "Video", icon: "Video", category: "media", isUpload: true, defaultConfig: { maxDurationSec: 60 }, formatValue: fmtUpload },
   file: { type: "file", label: "Document / file", icon: "FileText", category: "media", isUpload: true, formatValue: fmtUpload },
   signature: { type: "signature", label: "Signature", icon: "PenLine", category: "media", formatValue: (_f, v) => (typeof v === "string" && v.startsWith("data:image/") ? "Signed" : EMPTY) },
 
