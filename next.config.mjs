@@ -60,6 +60,9 @@ const nextConfig = {
 
 const withPWA = withPWAInit({
   dest: "public",
+  // Custom worker for Web Push handlers — next-pwa compiles worker/index.ts and
+  // injects it into the generated public/sw.js via importScripts at build time.
+  customWorkerSrc: "worker",
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
   reloadOnOnline: true,

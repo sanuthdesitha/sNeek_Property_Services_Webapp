@@ -45,6 +45,7 @@
     "vitest.setup.ts",
     "playwright.config.ts",
     "tests/**",
-    "e2e/**"
+    "e2e/**",
+    "worker/**"
   ]
 }

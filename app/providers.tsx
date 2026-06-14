@@ -8,6 +8,7 @@ import { GlobalRequestProgress } from "@/components/shared/global-request-progre
 import { ReturnSync } from "@/components/shared/return-sync";
 import { LiveNotifications } from "@/components/shared/live-notifications";
 import { NativeDevicePushRegistration } from "@/components/shared/native-device-push-registration";
+import { WebPushSubscriber } from "@/components/notifications/web-push-subscriber";
 import { AppInstallPrompt } from "@/components/shared/app-install-prompt";
 import { useEffect, useState } from "react";
 
@@ -70,6 +71,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <GlobalRequestProgress />
         <LiveNotifications />
         <NativeDevicePushRegistration />
+        <WebPushSubscriber />
         <AppInstallPrompt />
         <TextHistorySuggestions />
         <Toaster />

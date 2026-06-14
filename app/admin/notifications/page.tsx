@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Bell, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { Bell, BellRing, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -150,6 +150,7 @@ export default function NotificationsPage() {
   const [loadingLog, setLoadingLog] = useState(true);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
 
   async function loadControl() {
     setLoadingControl(true);
@@ -275,6 +276,28 @@ export default function NotificationsPage() {
     setClientEditor(null);
   }
 
+  async function sendTestPush() {
+    setTestingPush(true);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Test push not sent",
+          description: body.error ?? "Could not send the test push.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Test push sent",
+        description: `Dispatched to ${body.devices ?? 0} device(s). Check your browser/PWA.`,
+      });
+    } finally {
+      setTestingPush(false);
+    }
+  }
+
   async function clearAll() {
     setClearing(true);
     const res = await fetch("/api/admin/notifications/log", { method: "DELETE" });
@@ -297,6 +320,10 @@ export default function NotificationsPage() {
         description="Defaults, timed automation, profile overrides, and delivery history."
         actions={
           <>
+            <Button variant="outline" onClick={sendTestPush} disabled={testingPush}>
+              <BellRing className="mr-2 h-4 w-4" />
+              {testingPush ? "Sending..." : "Send me a test push"}
+            </Button>
             <Button variant="outline" onClick={() => { loadControl(); loadLog(); }}>
               <RefreshCcw className="mr-2 h-4 w-4" />
               Refresh

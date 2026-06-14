@@ -4,6 +4,9 @@ import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { type NotificationCategory } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
+import { sendWebPushToUser } from "@/lib/notifications/web-push";
+import { resolveNotificationHrefForRole } from "@/lib/notifications/feed";
+import { logger } from "@/lib/logger";
 
 type Recipient = {
   id: string;
@@ -29,6 +32,8 @@ type DeliveryInput = {
   category: NotificationCategory;
   jobId?: string | null;
   web: NotificationPayload;
+  /** Optional explicit deep-link for the device push. Falls back to a role-based href. */
+  url?: string | null;
   email?: EmailPayload | ((recipient: Recipient) => EmailPayload | null | undefined) | null;
   sms?: string | ((recipient: Recipient) => string | null | undefined) | null;
 };
@@ -79,7 +84,22 @@ function resolveSmsBody(input: DeliveryInput, recipient: Recipient) {
   return typeof input.sms === "function" ? input.sms(recipient) : input.sms ?? null;
 }
 
+function resolveWebPushUrl(input: DeliveryInput, recipient: Recipient): string {
+  const explicit = input.url?.trim();
+  if (explicit) return explicit;
+  // Derive a role-appropriate deep-link from the notification + jobId.
+  return resolveNotificationHrefForRole(
+    {
+      jobId: input.jobId ?? null,
+      subject: input.web.subject,
+      body: input.web.body,
+    },
+    recipient.role ?? Role.CLIENT
+  );
+}
+
 async function createWebNotification(input: DeliveryInput, recipient: Recipient) {
+  // 1) In-app feed row (unchanged behaviour).
   await db.notification.create({
     data: {
       userId: recipient.id,
@@ -91,6 +111,20 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
       sentAt: new Date(),
     },
   });
+
+  // 2) Real device Web Push (WhatsApp-style). Best-effort: never block the
+  // email/SMS path and never throw out of delivery. Only reached when the
+  // recipient's web/push channel preference is enabled (allowWeb gate upstream).
+  try {
+    await sendWebPushToUser(recipient.id, {
+      title: input.web.subject,
+      body: input.web.body,
+      url: resolveWebPushUrl(input, recipient),
+      tag: input.jobId ? `job-${input.jobId}` : undefined,
+    });
+  } catch (err) {
+    logger.warn({ err, userId: recipient.id }, "Web push dispatch failed (non-fatal)");
+  }
 }
 
 async function sendEmailNotification(input: DeliveryInput, recipient: Recipient, emailPayload: EmailPayload) {
