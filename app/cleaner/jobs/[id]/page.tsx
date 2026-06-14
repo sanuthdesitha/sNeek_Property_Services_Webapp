@@ -822,7 +822,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
    * here we look at the section title for clearly pre-clean / arrival wording,
    * otherwise default to "after" (completion / checklist evidence).
    */
-  function deriveTag(fieldId?: string): "before" | "after" | "damage" {
+  function deriveTag(fieldId?: string): string {
     if (!fieldId) return "after";
     // Damage uploaders use synthetic field ids (DAMAGE_UPLOAD_FIELD_ID and
     // damageItemPhotoFieldId) that don't live in the form sections.
@@ -833,6 +833,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       .flatMap((section: any) => (section.fields ?? []).map((f: any) => ({ f, section })))
       .find((entry: any) => entry.f?.id === fieldId);
     if (!match) return "after";
+    // An explicit per-field stamp tag set in the form builder wins over the
+    // wording heuristic ("auto"/empty falls through to the heuristic below).
+    const explicit =
+      typeof match.f?.stampTag === "string" ? match.f.stampTag.trim().toLowerCase() : "";
+    if (explicit && explicit !== "auto") return explicit;
     const haystack = [
       match.section?.title,
       match.section?.label,
@@ -4081,8 +4086,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="ghost" size="icon" asChild className="shrink-0">
           <Link href="/cleaner">
             <ArrowLeft className="h-5 w-5" />
           </Link>
@@ -4090,23 +4095,34 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         <div className="min-w-0 flex-1">
           <p className="truncate font-bold">{job?.property?.name}</p>
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <MapPin className="h-3 w-3" />
-            {job?.property?.address}
+            <MapPin className="h-3 w-3 shrink-0" />
+            <span className="truncate">{job?.property?.address}</span>
           </p>
         </div>
-        {mapsUrl ? (
-          <Button size="sm" variant="outline" asChild>
-            <a href={mapsUrl} target="_blank" rel="noreferrer">
-              <MapPin className="mr-2 h-4 w-4" />
-              Open in Maps
-            </a>
-          </Button>
-        ) : null}
-        <Badge variant={job?.status === "OFFERED" ? "warning" : "secondary"}>
+        <Badge variant={job?.status === "OFFERED" ? "warning" : "secondary"} className="shrink-0">
           {formatJobStatusLabel(job?.status)}
         </Badge>
-        {job?.jobType === "AIRBNB_TURNOVER" && job?.propertyId ? (
-          <ReportMaintenanceSheet propertyId={job.propertyId} jobId={jobId} />
+        {/* Actions wrap onto their own full-width row on narrow screens so the
+            long "Report fix / replace" trigger never overflows the viewport. */}
+        {mapsUrl || (job?.jobType === "AIRBNB_TURNOVER" && job?.propertyId) ? (
+          <div className="flex w-full flex-wrap items-center gap-2">
+            {mapsUrl ? (
+              <Button size="sm" variant="outline" asChild className="flex-1 sm:flex-none">
+                <a href={mapsUrl} target="_blank" rel="noreferrer">
+                  <MapPin className="mr-2 h-4 w-4" />
+                  Open in Maps
+                </a>
+              </Button>
+            ) : null}
+            {job?.jobType === "AIRBNB_TURNOVER" && job?.propertyId ? (
+              <ReportMaintenanceSheet
+                propertyId={job.propertyId}
+                jobId={jobId}
+                triggerLabel="Report fix / replace"
+                triggerClassName="flex-1 sm:flex-none"
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
 

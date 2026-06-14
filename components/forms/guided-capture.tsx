@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   Camera,
@@ -90,6 +91,21 @@ export function GuidedCapture({
   const [useFallback, setUseFallback] = React.useState(false);
   const [starting, setStarting] = React.useState(true);
   const [flash, setFlash] = React.useState(false);
+
+  // Portal target only exists after mount. We render the overlay through a
+  // portal to <body> so a transformed/overflow ancestor on the host page can't
+  // trap our position:fixed (which made the overlay collapse to a strip at the
+  // top of the page instead of covering the viewport — and hid the live cam).
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    setMounted(true);
+    // Lock the page behind the full-screen camera so it doesn't scroll under us.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
@@ -322,8 +338,8 @@ export function GuidedCapture({
 
   const shutterDisabled = atMax || capturing;
 
-  return (
-    <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col overflow-hidden bg-black text-white">
+  const overlay = (
+    <div className="fixed inset-0 z-[100] flex h-[100dvh] flex-col overflow-hidden bg-black text-white">
       {/* Hidden inputs for the fallback + gallery paths. */}
       <input
         ref={cameraInputRef}
@@ -337,7 +353,7 @@ export function GuidedCapture({
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={onGalleryInputChange}
@@ -584,4 +600,7 @@ export function GuidedCapture({
       </div>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(overlay, document.body);
 }

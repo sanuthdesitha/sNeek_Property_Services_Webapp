@@ -119,6 +119,10 @@ export interface FormField {
   // the same field (offers both capture buttons + the in-app recorder).
   // When unset it follows field.type (photo => photo, video => video).
   mediaMode?: "photo" | "video" | "both";
+  // Evidence stamp tag burned into the top-left chip of every photo captured
+  // for this field ("before" / "after" / "damage", or a custom label). When
+  // unset (or "auto") the cleaner app derives it from the section/field wording.
+  stampTag?: "before" | "after" | "damage" | string;
   // numeric / slider / scale / counter
   min?: number;
   max?: number;

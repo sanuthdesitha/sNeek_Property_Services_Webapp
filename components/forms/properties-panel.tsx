@@ -301,6 +301,30 @@ export function PropertiesPanel({
                   </div>
                 )}
 
+                <div className="space-y-1.5">
+                  <Label htmlFor={`pp-stamp-tag-${field.id}`}>Evidence stamp tag</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Burned into the top-left chip of every photo for this field. &ldquo;Auto&rdquo;
+                    guesses from the section wording.
+                  </p>
+                  <Select
+                    value={field.stampTag && field.stampTag.trim() ? field.stampTag : "auto"}
+                    onValueChange={(v) =>
+                      onUpdate({ ...field, stampTag: v === "auto" ? undefined : v })
+                    }
+                  >
+                    <SelectTrigger id={`pp-stamp-tag-${field.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto (from wording)</SelectItem>
+                      <SelectItem value="before">Before</SelectItem>
+                      <SelectItem value="after">After</SelectItem>
+                      <SelectItem value="damage">Damage</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   {field.type !== "video" && (
                     <div className="space-y-1">
