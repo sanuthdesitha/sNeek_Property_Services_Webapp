@@ -194,10 +194,13 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         id: true,
         _count: {
           select: {
+            // Real operational / financial history that must be preserved —
+            // these block a hard delete (disable the account instead). Audit
+            // logs are intentionally NOT here: they're the actor trail of an
+            // admin/ops account and shouldn't keep a mistaken account undeletable.
             jobAssignments: true,
             timeLogs: true,
             formSubmissions: true,
-            auditLogs: true,
             payAdjustmentRequests: true,
             payAdjustmentReviews: true,
           },
@@ -212,19 +215,29 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       existing._count.jobAssignments +
       existing._count.timeLogs +
       existing._count.formSubmissions +
-      existing._count.auditLogs +
       existing._count.payAdjustmentRequests +
       existing._count.payAdjustmentReviews;
 
     if (protectedCount > 0) {
       return NextResponse.json(
-        { error: "This user has activity history. Disable the account instead of deleting it." },
+        {
+          error:
+            "This account has operational history (jobs, time logs, forms or pay records). Disable it instead — disabling logs it out and stops all notifications immediately.",
+        },
         { status: 409 }
       );
     }
 
     await db.$transaction(async (tx) => {
+      // Clean up the account's personal/owned records that hold a required FK
+      // back to the user, then delete the user. Audit logs the user authored are
+      // removed here so an erroneously-created account can be fully deleted.
+      await tx.auditLog.deleteMany({ where: { userId: params.id } });
       await tx.notification.deleteMany({ where: { userId: params.id } });
+      await tx.userNotificationPreference.deleteMany({ where: { userId: params.id } });
+      await tx.pushSubscription.deleteMany({ where: { userId: params.id } });
+      await tx.userPushDevice.deleteMany({ where: { userId: params.id } });
+      await tx.webAuthnCredential.deleteMany({ where: { userId: params.id } });
       await tx.session.deleteMany({ where: { userId: params.id } });
       await tx.account.deleteMany({ where: { userId: params.id } });
       await tx.user.delete({ where: { id: params.id } });
@@ -241,6 +254,18 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
+    const prismaCode = err?.code ?? err?.cause?.code;
+    // A remaining required foreign key (e.g. QA reviews, cases, documents the
+    // account is still referenced by) — guide the admin to disable instead.
+    if (prismaCode === "P2003") {
+      return NextResponse.json(
+        {
+          error:
+            "This account is still linked to other records (e.g. QA reviews, cases, or documents) and can't be fully deleted. Disable it instead — that logs it out and stops all notifications immediately.",
+        },
+        { status: 409 }
+      );
+    }
     const status =
       err.message === "UNAUTHORIZED"
         ? 401

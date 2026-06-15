@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ChartCard, KpiTile } from "@/components/charts";
 import { ClientDetailWorkspace } from "@/components/admin/client-detail-workspace";
 import { ClientInviteButton } from "@/components/admin/client-invite-button";
+import { ClientDeleteButton } from "@/components/admin/client-delete-button";
 import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { getClientStats, getClientExtras } from "@/lib/accounts/client-stats";
 import { ClientTrendChart } from "@/components/accounts/client-trend-chart";
@@ -130,6 +131,7 @@ export default async function ClientSummaryPage({ params }: { params: { id: stri
                   Message
                 </Link>
               </Button>
+              <ClientDeleteButton clientId={client.id} clientName={client.name} />
             </div>
           }
         />

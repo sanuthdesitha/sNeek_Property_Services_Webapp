@@ -113,7 +113,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           internalNotes: true,
           property: { select: { name: true, address: true } },
           assignments: {
-            where: { removedAt: null },
+            where: { removedAt: null, user: { isActive: true } },
             select: { user: { select: { name: true, email: true } } },
           },
         },
@@ -234,7 +234,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           internalNotes: true,
           property: { select: { name: true, address: true } },
           assignments: {
-            where: { removedAt: null },
+            where: { removedAt: null, user: { isActive: true } },
             select: { user: { select: { name: true, phone: true } } },
           },
         },
@@ -353,7 +353,7 @@ export async function resendJobReminder(
       internalNotes: true,
       property: { select: { name: true, address: true } },
       assignments: {
-        where: { removedAt: null },
+        where: { removedAt: null, user: { isActive: true } },
         select: { user: { select: { name: true, email: true, phone: true } } },
       },
     },
