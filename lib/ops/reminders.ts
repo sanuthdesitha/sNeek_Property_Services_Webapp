@@ -5,7 +5,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { logger } from "@/lib/logger";
-import { sendEmail } from "@/lib/notifications/email";
+import { sendEmail, sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { getAppSettings } from "@/lib/settings";
 
@@ -15,6 +15,18 @@ export interface DispatchJobRemindersOptions {
   force?: boolean;
   ignoreEnabled?: boolean;
   useNextAvailableDate?: boolean;
+}
+
+/** Per-recipient outcome so admins can retry a single failed send (not the whole batch). */
+export interface ReminderRecipientResult {
+  jobId: string;
+  jobNumber: string;
+  propertyName: string;
+  recipient: string;
+  contact: string;
+  channel: "email" | "sms";
+  status: "sent" | "failed" | "skipped";
+  error?: string;
 }
 
 function toUtcDayRange(date: Date) {
@@ -75,6 +87,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
     shortNoPhone: 0,
     shortFailed: 0,
     skipped: [] as string[],
+    recipients: [] as ReminderRecipientResult[],
   };
 
   if ((options.reminderType === "LONG" || options.reminderType === "ALL" || !options.reminderType)) {
@@ -145,16 +158,30 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
       for (const job of effectiveJobsLong) {
         const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ") || "No special timing notes";
         let delivered = false;
+        const jobRef = getJobReference(job);
         for (const assignment of job.assignments) {
-          if (!assignment.user.email) continue;
+          const displayName = assignment.user.name ?? assignment.user.email ?? "Team member";
+          if (!assignment.user.email) {
+            summary.recipients.push({
+              jobId: job.id,
+              jobNumber: jobRef,
+              propertyName: job.property.name,
+              recipient: displayName,
+              contact: "",
+              channel: "email",
+              status: "skipped",
+              error: "No email on file",
+            });
+            continue;
+          }
           const emailTemplate = renderEmailTemplate(settings, "jobReminder24h", {
-            userName: assignment.user.name ?? assignment.user.email ?? "Team member",
+            userName: displayName,
             jobType: job.jobType.replace(/_/g, " "),
             propertyName: job.property.name,
             propertyAddress: job.property.address,
             when: job.startTime ?? "Time TBD",
             timingFlags: timingText,
-            jobNumber: getJobReference(job),
+            jobNumber: jobRef,
             jobUrl: "/cleaner/jobs",
             actionUrl: "/cleaner/jobs",
             actionLabel: "Open jobs",
@@ -165,6 +192,16 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             html: emailTemplate.html,
           });
           delivered = delivered || ok;
+          summary.recipients.push({
+            jobId: job.id,
+            jobNumber: jobRef,
+            propertyName: job.property.name,
+            recipient: displayName,
+            contact: assignment.user.email,
+            channel: "email",
+            status: ok ? "sent" : "failed",
+            error: ok ? undefined : "Email provider rejected the send",
+          });
         }
         if (delivered) {
           summary.longSent += 1;
@@ -198,7 +235,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           property: { select: { name: true, address: true } },
           assignments: {
             where: { removedAt: null },
-            select: { user: { select: { phone: true } } },
+            select: { user: { select: { name: true, phone: true } } },
           },
         },
       });
@@ -227,7 +264,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
               property: { select: { name: true, address: true } },
               assignments: {
                 where: { removedAt: null },
-                select: { user: { select: { phone: true } } },
+                select: { user: { select: { name: true, phone: true } } },
               },
             },
             orderBy: { scheduledDate: "asc" },
@@ -243,9 +280,21 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
         const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
         const timingSuffix = timingText ? ` ${timingText}.` : "";
         let delivered = false;
+        const jobRefShort = getJobReference(job);
         for (const assignment of job.assignments) {
+          const displayName = assignment.user.name ?? assignment.user.phone ?? "Team member";
           if (!assignment.user.phone) {
             summary.shortNoPhone += 1;
+            summary.recipients.push({
+              jobId: job.id,
+              jobNumber: jobRefShort,
+              propertyName: job.property.name,
+              recipient: displayName,
+              contact: "",
+              channel: "sms",
+              status: "skipped",
+              error: "No phone on file",
+            });
             continue;
           }
           const result = await sendSmsDetailed(
@@ -258,6 +307,16 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
           if (!result.ok) {
             summary.shortFailed += 1;
           }
+          summary.recipients.push({
+            jobId: job.id,
+            jobNumber: jobRefShort,
+            propertyName: job.property.name,
+            recipient: displayName,
+            contact: assignment.user.phone,
+            channel: "sms",
+            status: result.ok ? "sent" : "failed",
+            error: result.ok ? undefined : result.error ?? "SMS provider rejected the send",
+          });
         }
         if (delivered) {
           summary.shortSent += 1;
@@ -269,4 +328,96 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
 
   logger.info({ ...summary, force: Boolean(options.force) }, "Reminder dispatch run complete");
   return summary;
+}
+
+/**
+ * Resend a single job's reminder to its assigned cleaners on one channel — used
+ * by the admin "Resend" action so a single failed recipient can be retried
+ * without re-blasting the whole batch.
+ */
+export async function resendJobReminder(
+  jobId: string,
+  channel: "email" | "sms"
+): Promise<{ recipients: ReminderRecipientResult[] }> {
+  const settings = await getAppSettings();
+  const job = await db.job.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      jobNumber: true,
+      jobType: true,
+      scheduledDate: true,
+      startTime: true,
+      dueTime: true,
+      endTime: true,
+      internalNotes: true,
+      property: { select: { name: true, address: true } },
+      assignments: {
+        where: { removedAt: null },
+        select: { user: { select: { name: true, email: true, phone: true } } },
+      },
+    },
+  });
+  if (!job) throw new Error("Job not found.");
+
+  const jobRef = getJobReference(job);
+  const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
+  const recipients: ReminderRecipientResult[] = [];
+
+  for (const assignment of job.assignments) {
+    const displayName = assignment.user.name ?? assignment.user.email ?? assignment.user.phone ?? "Team member";
+    if (channel === "email") {
+      if (!assignment.user.email) {
+        recipients.push({
+          jobId: job.id, jobNumber: jobRef, propertyName: job.property.name,
+          recipient: displayName, contact: "", channel: "email", status: "skipped", error: "No email on file",
+        });
+        continue;
+      }
+      const emailTemplate = renderEmailTemplate(settings, "jobReminder24h", {
+        userName: displayName,
+        jobType: job.jobType.replace(/_/g, " "),
+        propertyName: job.property.name,
+        propertyAddress: job.property.address,
+        when: job.startTime ?? "Time TBD",
+        timingFlags: timingText || "No special timing notes",
+        jobNumber: jobRef,
+        jobUrl: "/cleaner/jobs",
+        actionUrl: "/cleaner/jobs",
+        actionLabel: "Open jobs",
+      });
+      const res = await sendEmailDetailed({
+        to: assignment.user.email,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+      });
+      recipients.push({
+        jobId: job.id, jobNumber: jobRef, propertyName: job.property.name,
+        recipient: displayName, contact: assignment.user.email, channel: "email",
+        status: res.ok ? "sent" : "failed",
+        error: res.ok ? undefined : res.error ?? "Email provider rejected the send",
+      });
+    } else {
+      if (!assignment.user.phone) {
+        recipients.push({
+          jobId: job.id, jobNumber: jobRef, propertyName: job.property.name,
+          recipient: displayName, contact: "", channel: "sms", status: "skipped", error: "No phone on file",
+        });
+        continue;
+      }
+      const timingSuffix = timingText ? ` ${timingText}.` : "";
+      const res = await sendSmsDetailed(
+        assignment.user.phone,
+        `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${job.property.address}.${timingSuffix}`
+      );
+      recipients.push({
+        jobId: job.id, jobNumber: jobRef, propertyName: job.property.name,
+        recipient: displayName, contact: assignment.user.phone, channel: "sms",
+        status: res.ok ? "sent" : "failed",
+        error: res.ok ? undefined : res.error ?? "SMS provider rejected the send",
+      });
+    }
+  }
+
+  return { recipients };
 }

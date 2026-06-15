@@ -1136,11 +1136,9 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
               </div>
             </section>
 
-            {editingUser ? (
-              <ProfileActivityLog endpoint={`/api/admin/users/${editingUser.id}/activity`} title="Profile Activity" />
-            ) : null}
-
-            <div className="flex justify-end gap-2">
+            {/* Primary save sits directly under the editable fields — above the
+                read-only activity log — so admins don't scroll past the log to save. */}
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
               {editingUser?.role === "CLEANER" ? (
                 <Button variant="outline" asChild>
                   <Link href={`/admin/workforce/performance/${editingUser.id}`}>
@@ -1154,6 +1152,10 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
                 {busyUserId === editingUser?.id ? "Saving..." : "Save account"}
               </Button>
             </div>
+
+            {editingUser ? (
+              <ProfileActivityLog endpoint={`/api/admin/users/${editingUser.id}/activity`} title="Profile Activity" />
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

@@ -232,8 +232,12 @@ export function ReportMaintenanceSheet({
                   address: propertyAddress?.trim() || undefined,
                 }}
                 onUploaded={(r) => setPhotoKeys((prev) => [...prev, r.key])}
-                onFailure={(name) =>
-                  toast({ title: "Upload failed", description: `${name} could not be uploaded.`, variant: "destructive" })
+                onFailure={(name, reason) =>
+                  toast({
+                    title: "Upload failed",
+                    description: `${name} could not be uploaded${reason ? `: ${reason}` : "."}`,
+                    variant: "destructive",
+                  })
                 }
               />
               {photoKeys.length > 0 ? (

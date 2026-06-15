@@ -32,6 +32,7 @@ import {
 } from "@/lib/inventory/locations";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
 import { PropertyStatsPanelLoader } from "@/components/accounts/property-stats-panel-loader";
+import { PropertyJobsTab } from "@/components/admin/property-jobs-tab";
 
 type FormTemplateOption = {
   id: string;
@@ -706,6 +707,7 @@ export default function PropertyDetailPage() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="jobs">Jobs &amp; History</TabsTrigger>
           <TabsTrigger value="edit">Edit</TabsTrigger>
           <TabsTrigger value="forms">Forms</TabsTrigger>
           <TabsTrigger value="integration">
@@ -844,6 +846,10 @@ export default function PropertyDetailPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="jobs" className="space-y-4">
+          <PropertyJobsTab propertyId={String(params.id)} />
         </TabsContent>
 
         <TabsContent value="edit" className="space-y-4">

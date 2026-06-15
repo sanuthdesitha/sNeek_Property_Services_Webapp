@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ChartCard, KpiTile } from "@/components/charts";
 import { ClientDetailWorkspace } from "@/components/admin/client-detail-workspace";
+import { ClientInviteButton } from "@/components/admin/client-invite-button";
 import { ProfileActivityLog } from "@/components/admin/profile-activity-log";
 import { getClientStats, getClientExtras } from "@/lib/accounts/client-stats";
 import { ClientTrendChart } from "@/components/accounts/client-trend-chart";
@@ -116,6 +117,7 @@ export default async function ClientSummaryPage({ params }: { params: { id: stri
           description="Client account summary — properties, jobs, invoices, satisfaction & more."
           actions={
             <div className="flex flex-wrap items-center gap-2">
+              <ClientInviteButton clientId={client.id} hasEmail={Boolean(client.email?.trim())} />
               <Button variant="outline" asChild>
                 <Link href={`/admin/clients/${client.id}/hub`}>
                   <RadioTower className="mr-2 h-4 w-4" />

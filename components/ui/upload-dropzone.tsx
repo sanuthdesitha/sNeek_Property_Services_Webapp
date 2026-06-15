@@ -227,9 +227,12 @@ export function UploadDropzone({
               </span>
               {f.status === "done" && <span className="text-success">✓</span>}
               {f.status === "failed" && (
-                <span className="flex items-center gap-1 text-destructive">
+                <span
+                  className="flex items-center gap-1 text-destructive"
+                  title={f.error ?? "Upload failed"}
+                >
                   <AlertCircle className="size-3" />
-                  Failed
+                  {f.error ? `Failed: ${f.error}` : "Failed"}
                 </span>
               )}
               {(f.status === "uploading" || f.status === "compressing") && (

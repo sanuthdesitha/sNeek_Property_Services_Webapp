@@ -9,6 +9,17 @@ import type { ScheduledNotificationSettings } from "@/lib/settings";
 
 type DispatchType = "REMINDER_24H" | "REMINDER_2H" | "TOMORROW_PREP" | "STOCK_ALERTS" | "ADMIN_ATTENTION";
 
+type RecipientResult = {
+  jobId: string;
+  jobNumber: string;
+  propertyName: string;
+  recipient: string;
+  contact: string;
+  channel: "email" | "sms";
+  status: "sent" | "failed" | "skipped";
+  error?: string;
+};
+
 interface ScheduledNotificationControlsProps {
   settings: ScheduledNotificationSettings;
 }
@@ -47,6 +58,43 @@ const DISPATCH_ROWS: Array<{
 
 export function ScheduledNotificationControls({ settings }: ScheduledNotificationControlsProps) {
   const [runningType, setRunningType] = useState<DispatchType | null>(null);
+  const [recipientsByType, setRecipientsByType] = useState<Partial<Record<DispatchType, RecipientResult[]>>>({});
+  const [resendingKey, setResendingKey] = useState<string | null>(null);
+
+  async function resendOne(dispatchType: DispatchType, target: RecipientResult, index: number) {
+    const key = `${dispatchType}-${index}`;
+    setResendingKey(key);
+    try {
+      const res = await fetch("/api/admin/notifications/dispatch/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: target.jobId, channel: target.channel }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload.ok === false) {
+        throw new Error(payload.error ?? "Resend failed.");
+      }
+      // Reflect the new status for this job/channel from the resend result.
+      const updated: RecipientResult[] = Array.isArray(payload.recipients) ? payload.recipients : [];
+      const match = updated.find((r) => r.contact === target.contact) ?? updated[0];
+      if (match) {
+        setRecipientsByType((prev) => {
+          const list = [...(prev[dispatchType] ?? [])];
+          list[index] = match;
+          return { ...prev, [dispatchType]: list };
+        });
+      }
+      toast({
+        title: match?.status === "sent" ? "Resent" : "Resend did not deliver",
+        description: `${target.recipient} — ${match?.status ?? "unknown"}${match?.error ? `: ${match.error}` : ""}`,
+        variant: match?.status === "sent" ? undefined : "destructive",
+      });
+    } catch (err: any) {
+      toast({ title: "Resend failed", description: err.message ?? "Could not resend.", variant: "destructive" });
+    } finally {
+      setResendingKey(null);
+    }
+  }
 
   function describeResult(dispatchType: DispatchType, result: any) {
     if (!result || typeof result !== "object") return "Dispatch finished.";
@@ -93,6 +141,9 @@ export function ScheduledNotificationControls({ settings }: ScheduledNotificatio
       if (!res.ok || payload.ok === false) {
         throw new Error(payload.error ?? "Manual dispatch failed.");
       }
+      if (Array.isArray(payload.result?.recipients)) {
+        setRecipientsByType((prev) => ({ ...prev, [dispatchType]: payload.result.recipients }));
+      }
       toast({
         title: "Manual dispatch complete",
         description: describeResult(dispatchType, payload.result),
@@ -135,18 +186,72 @@ export function ScheduledNotificationControls({ settings }: ScheduledNotificatio
                 : null;
 
           return (
-            <div key={row.type} className="flex flex-col gap-3 rounded-lg border p-3 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium">{row.title}</p>
-                  <Badge variant={enabled ? "success" : "secondary"}>{enabled ? "Enabled" : "Disabled"}</Badge>
-                  {timeLabel ? <Badge variant="outline">{timeLabel}</Badge> : null}
+            <div key={row.type} className="space-y-3 rounded-lg border p-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{row.title}</p>
+                    <Badge variant={enabled ? "success" : "secondary"}>{enabled ? "Enabled" : "Disabled"}</Badge>
+                    {timeLabel ? <Badge variant="outline">{timeLabel}</Badge> : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{row.description}</p>
                 </div>
-                <p className="text-xs text-muted-foreground">{row.description}</p>
+                <Button onClick={() => runDispatch(row.type)} disabled={runningType === row.type}>
+                  {runningType === row.type ? "Sending..." : "Send now"}
+                </Button>
               </div>
-              <Button onClick={() => runDispatch(row.type)} disabled={runningType === row.type}>
-                {runningType === row.type ? "Sending..." : "Send now"}
-              </Button>
+              {(() => {
+                const recips = recipientsByType[row.type] ?? [];
+                if (recips.length === 0) return null;
+                const failed = recips.filter((r) => r.status !== "sent").length;
+                return (
+                  <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
+                    <p className="text-xs font-medium">
+                      {recips.length} recipient(s) · {recips.length - failed} sent
+                      {failed > 0 ? ` · ${failed} need attention` : ""}
+                    </p>
+                    <div className="space-y-1">
+                      {recips.map((r, index) => {
+                        const key = `${row.type}-${index}`;
+                        return (
+                          <div
+                            key={key}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background px-2 py-1.5 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <span className="font-medium">{r.recipient}</span>
+                              <span className="text-muted-foreground">
+                                {" "}· {r.jobNumber} · {r.propertyName}
+                              </span>
+                              {r.error ? <span className="block text-destructive">{r.error}</span> : null}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant={
+                                  r.status === "sent" ? "success" : r.status === "failed" ? "destructive" : "secondary"
+                                }
+                              >
+                                {r.status}
+                              </Badge>
+                              {r.status !== "sent" ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  disabled={resendingKey === key}
+                                  onClick={() => resendOne(row.type, r, index)}
+                                >
+                                  {resendingKey === key ? "Resending…" : "Resend"}
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
