@@ -1187,3 +1187,21 @@ gmp-place-autocomplete::part(prediction-item-selected) {
 .address-autocomplete-wrapper {
   width: 100%;
 }
+
+/* ---------------------------------------------------------------------
+ * Mobile overflow safety net — long dynamic text (property names, emails,
+ * addresses, IDs) in portal headings must wrap instead of pushing the
+ * layout past the viewport. Scoped to portals so the marketing serif
+ * headings are untouched.
+ * --------------------------------------------------------------------- */
+[data-portal-theme] h1,
+[data-portal-theme] h2,
+[data-portal-theme] h3,
+[data-portal-theme] h4 {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-portal-theme] {
+  max-width: 100%;
+}

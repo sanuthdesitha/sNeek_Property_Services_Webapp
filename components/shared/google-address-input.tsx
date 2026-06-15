@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
-import { ensureGoogleMaps } from "@/lib/maps/loader";
+import { AddressSearchInput } from "@/components/shared/address-search-input";
 
 type AddressParts = {
   address?: string;
@@ -68,11 +66,10 @@ function parseNewPlaceToParts(place: any): AddressParts {
 }
 
 /**
- * Public-shape Google address input.
- *
- * Migrated to use the **new** `PlaceAutocompleteElement` (Places API New).
- * When the new element is unavailable or the SDK fails, we fall back to a
- * plain typed input so users can still complete forms manually.
+ * Public-shape Google address input. Thin adapter over the themed
+ * {@link AddressSearchInput} — keeps the previous (value / onChange / onResolved)
+ * contract so every existing form keeps working, but now renders our own themed
+ * suggestion dropdown and stays a normal, re-searchable text field.
  */
 export function GoogleAddressInput({
   id,
@@ -83,139 +80,19 @@ export function GoogleAddressInput({
   onChange,
   onResolved,
 }: GoogleAddressInputProps) {
-  const fallbackId = useId();
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const fallbackInputRef = useRef<HTMLInputElement | null>(null);
-  const [mode, setMode] = useState<"loading" | "ready" | "fallback">("loading");
-
-  useEffect(() => {
-    let active = true;
-    let cleanup: (() => void) | null = null;
-
-    async function setupAutocomplete() {
-      if (!containerRef.current || disabled) return;
-      try {
-        await ensureGoogleMaps();
-        if (!active || !containerRef.current) return;
-        const g: any = (window as any).google;
-        if (!g?.maps?.importLibrary) {
-          throw new Error("Google Maps importLibrary unavailable");
-        }
-        const placesLib: any = await g.maps.importLibrary("places");
-        if (!active || !containerRef.current) return;
-        const ElementCtor = placesLib?.PlaceAutocompleteElement;
-        if (!ElementCtor) {
-          throw new Error("PlaceAutocompleteElement unavailable");
-        }
-
-        let el: any;
-        try {
-          el = new ElementCtor({
-            componentRestrictions: { country: ["au"] },
-            types: ["address"],
-          });
-        } catch {
-          el = new ElementCtor();
-          try {
-            el.componentRestrictions = { country: ["au"] };
-          } catch {
-            /* ignore */
-          }
-          try {
-            el.types = ["address"];
-          } catch {
-            /* ignore */
-          }
-        }
-        el.id = id ?? fallbackId;
-        if (placeholder) {
-          try {
-            el.setAttribute("placeholder", placeholder);
-          } catch {
-            /* ignore */
-          }
-        }
-        if (disabled) {
-          try {
-            el.setAttribute("disabled", "");
-          } catch {
-            /* ignore */
-          }
-        }
-
-        containerRef.current.innerHTML = "";
-        containerRef.current.appendChild(el);
-
-        const onPlaceSelect = async (event: any) => {
-          try {
-            const placeLike = event?.place ?? event?.placePrediction?.toPlace?.();
-            if (!placeLike) return;
-            if (typeof placeLike.fetchFields === "function") {
-              await placeLike.fetchFields({
-                fields: [
-                  "addressComponents",
-                  "formattedAddress",
-                  "location",
-                  "id",
-                  "displayName",
-                ],
-              });
-            }
-            const parsed = parseNewPlaceToParts(placeLike);
-            if (parsed.address) onChange(parsed.address);
-            onResolved?.(parsed);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error("[GoogleAddressInput] place fetch failed", err);
-          }
-        };
-        el.addEventListener("gmp-placeselect", onPlaceSelect);
-        el.addEventListener("gmp-select", onPlaceSelect);
-
-        cleanup = () => {
-          el.removeEventListener("gmp-placeselect", onPlaceSelect);
-          el.removeEventListener("gmp-select", onPlaceSelect);
-          try {
-            el.remove();
-          } catch {
-            /* ignore */
-          }
-        };
-        if (active) setMode("ready");
-      } catch {
-        // Fail open: fall back to plain input
-        if (active) setMode("fallback");
-      }
-    }
-
-    setupAutocomplete();
-
-    return () => {
-      active = false;
-      if (cleanup) cleanup();
-    };
-  }, [disabled, onChange, onResolved, id, fallbackId, placeholder]);
-
-  if (mode === "fallback") {
-    return (
-      <Input
-        id={id ?? fallbackId}
-        ref={fallbackInputRef}
-        value={value}
-        placeholder={placeholder}
-        className={className}
-        disabled={disabled}
-        autoComplete="off"
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-
   return (
-    <div
-      ref={containerRef}
-      className={className ?? "address-autocomplete-wrapper"}
-      style={{ display: "block", width: "100%" }}
+    <AddressSearchInput
+      id={id}
+      value={value}
+      placeholder={placeholder ?? "Start typing an address…"}
+      className={className}
+      disabled={disabled}
+      onChange={onChange}
+      onPlaceSelected={(place) => {
+        const parts = parseNewPlaceToParts(place);
+        if (parts.address) onChange(parts.address);
+        onResolved?.(parts);
+      }}
     />
   );
 }

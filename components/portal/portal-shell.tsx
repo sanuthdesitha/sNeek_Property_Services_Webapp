@@ -324,7 +324,7 @@ export function PortalShell({
         </header>
 
         {/* Content */}
-        <main className="page-fade flex-1 overflow-y-auto p-4 pb-24 sm:p-5 md:p-6 md:pb-6">
+        <main className="page-fade min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 sm:p-5 md:p-6 md:pb-6">
           <ProfileCompletionGate />
           {children}
         </main>
