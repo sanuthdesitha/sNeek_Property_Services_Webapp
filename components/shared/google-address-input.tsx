@@ -35,6 +35,7 @@ function getNewComponent(
 }
 
 function parseNewPlaceToParts(place: any): AddressParts {
+  const subpremise = getNewComponent(place, "subpremise"); // unit / apartment no.
   const streetNumber = getNewComponent(place, "street_number");
   const route = getNewComponent(place, "route");
   const suburb =
@@ -44,7 +45,16 @@ function parseNewPlaceToParts(place: any): AddressParts {
     getNewComponent(place, "administrative_area_level_2");
   const state = getNewComponent(place, "administrative_area_level_1", "shortText");
   const postcode = getNewComponent(place, "postal_code");
-  const streetAddress = [streetNumber, route].filter(Boolean).join(" ").trim();
+
+  // AU street line keeps the unit + street number: "5/12 Main Street".
+  const numberPart = [subpremise, streetNumber].filter(Boolean).join("/");
+  const reassembled = [numberPart, route].filter(Boolean).join(" ").trim();
+  // Fall back to the street segment of the formatted address (which always
+  // includes the unit + number) when the structured components are incomplete —
+  // this is what previously saved "just the street" with no number.
+  const formatted = typeof place?.formattedAddress === "string" ? place.formattedAddress : "";
+  const formattedStreet = formatted ? formatted.split(",")[0]?.trim() ?? "" : "";
+  const streetAddress = reassembled || formattedStreet;
 
   const loc = place?.location;
   const lat =

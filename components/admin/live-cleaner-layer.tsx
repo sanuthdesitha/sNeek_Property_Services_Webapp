@@ -112,8 +112,6 @@ export function LiveCleanerLayer() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
-  if (locations.length === 0 && !error) return null;
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
@@ -131,6 +129,12 @@ export function LiveCleanerLayer() {
       </CardHeader>
       <CardContent>
         {error && <p className="text-sm text-muted-foreground">Could not load live locations.</p>}
+        {!error && locations.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No cleaners are live right now. Cleaners appear here while driving (en route) or on-site
+            during a clean.
+          </p>
+        ) : null}
         <div className="divide-y">
           {locations.map((loc) => {
             const mapsUrl =

@@ -1247,10 +1247,18 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     if (finishedState) clearDraftState();
     if (finishedState) clearPendingSubmission();
     if (finishedState) void clearSharedDraftState();
-    if (body?.job?.status === "EN_ROUTE" && !body?.job?.drivingPausedAt && !body?.job?.arrivedAt && watchIdRef.current == null) {
+    // Keep ops live-tracking alive for the whole active window: while driving
+    // (EN_ROUTE, not paused/arrived) AND while the clean is underway
+    // (IN_PROGRESS). Previously tracking stopped at arrival, so on-site cleaners
+    // dropped off the ops map after the 10-minute stale-ping window.
+    const liveStatus = body?.job?.status;
+    const shouldTrack =
+      (liveStatus === "EN_ROUTE" && !body?.job?.drivingPausedAt && !body?.job?.arrivedAt) ||
+      liveStatus === "IN_PROGRESS";
+    if (shouldTrack && watchIdRef.current == null) {
       startLocationTracking();
     }
-    if ((body?.job?.status !== "EN_ROUTE" || body?.job?.drivingPausedAt || body?.job?.arrivedAt) && watchIdRef.current != null) {
+    if (!shouldTrack && watchIdRef.current != null) {
       stopLocationTracking();
     }
     hydratedRef.current = true;
@@ -1356,11 +1364,28 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     document.addEventListener("visibilitychange", onVisibilityChange);
     const clockId = window.setInterval(() => setPingClock(Date.now()), 5000);
 
+    // Heartbeat: re-send the last known fix every 60s. watchPosition can go quiet
+    // when the cleaner is stationary on-site, so this guarantees a fresh ping lands
+    // inside the ops map's 10-minute live window for the whole clean.
+    const heartbeatId = window.setInterval(() => {
+      const fix = lastFixRef.current;
+      if (!fix) return;
+      pendingPingsRef.current.push({
+        lat: fix.lat,
+        lng: fix.lng,
+        accuracy: fix.accuracy,
+        heading: fix.heading,
+        speed: fix.speed,
+      });
+      void flushQueuedPings();
+    }, 60_000);
+
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.clearInterval(clockId);
+      window.clearInterval(heartbeatId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackingActive, jobId]);
