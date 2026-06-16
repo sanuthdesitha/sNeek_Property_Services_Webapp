@@ -372,6 +372,7 @@ model WebAuthnCredential {
 /// not just email. endpoint is the unique push service URL; p256dh/auth are
 /// the subscription's encryption keys.
 model PushSubscription {
+  organizationId String?
   id         String    @id @default(cuid())
   userId     String
   endpoint   String    @unique @db.Text
@@ -384,6 +385,7 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([organizationId])
 }
 
 /// An item on a property that needs maintenance, repair, or replacement —
@@ -391,6 +393,7 @@ model PushSubscription {
 /// quality. Reported by cleaners, clients, or QA inspectors (and admins), and
 /// worked down to resolution. Scoped to Airbnb-style properties in app logic.
 model PropertyMaintenanceItem {
+  organizationId String?
   id               String                  @id @default(cuid())
   propertyId       String
   jobId            String?
@@ -421,11 +424,13 @@ model PropertyMaintenanceItem {
   @@index([propertyId, status])
   @@index([status, priority])
   @@index([reportedByUserId])
+  @@index([organizationId])
 }
 
 /// Lifecycle/audit trail for a maintenance item (status changes, notes), so the
 /// list stays automatically tracked over time.
 model PropertyMaintenanceEvent {
+  organizationId String?
   id         String            @id @default(cuid())
   itemId     String
   userId     String?
@@ -438,6 +443,7 @@ model PropertyMaintenanceEvent {
   user User?                   @relation("MaintenanceEventBy", fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([itemId, createdAt])
+  @@index([organizationId])
 }
 
 enum MaintenanceSource {
@@ -492,6 +498,7 @@ enum MaintenanceStatus {
 }
 
 model UserInvitation {
+  organizationId String?
   id          String    @id @default(cuid())
   userId      String    @unique
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -504,6 +511,7 @@ model UserInvitation {
 
   @@index([token])
   @@index([expiresAt])
+  @@index([organizationId])
 }
 
 model User {
@@ -661,6 +669,7 @@ model User {
 // ─────────────────────────────────────────────
 
 model Client {
+  organizationId String?
   id                        String   @id @default(cuid())
   name                      String
   email                     String?
@@ -699,9 +708,11 @@ model Client {
   lastReviewRequestSentAt DateTime?
   onboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingExistingClient")
   createdOnboardingSurveys PropertyOnboardingSurvey[] @relation("OnboardingCreatedClient")
+  @@index([organizationId])
 }
 
 model Property {
+  organizationId String?
   id                     String   @id @default(cuid())
   clientId               String
   name                   String
@@ -755,9 +766,11 @@ model Property {
 
   @@index([placeId])
   @@index([suburb])
+  @@index([organizationId])
 }
 
 model Integration {
+  organizationId String?
   id               String              @id @default(cuid())
   propertyId       String              @unique
   provider         IntegrationProvider @default(ICAL_HOSPITABLE)
@@ -774,9 +787,11 @@ model Integration {
 
   property Property      @relation(fields: [propertyId], references: [id])
   syncRuns IcalSyncRun[]
+  @@index([organizationId])
 }
 
 model IcalSyncRun {
+  organizationId String?
   id            String    @id @default(cuid())
   integrationId String
   propertyId    String
@@ -798,9 +813,11 @@ model IcalSyncRun {
 
   @@index([integrationId, createdAt])
   @@index([propertyId, createdAt])
+  @@index([organizationId])
 }
 
 model Reservation {
+  organizationId String?
   id              String    @id @default(cuid())
   propertyId      String
   uid             String // iCal UID
@@ -828,6 +845,7 @@ model Reservation {
   job      Job?
 
   @@unique([propertyId, uid])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -835,6 +853,7 @@ model Reservation {
 // ─────────────────────────────────────────────
 
 model Job {
+  organizationId String?
   id                    String    @id @default(cuid())
   jobNumber             String    @unique
   propertyId            String
@@ -937,9 +956,11 @@ model Job {
   @@index([completedAt])
   @@index([status, completedAt])
   @@index([payrollRunId])
+  @@index([organizationId])
 }
 
 model CleanerPayAdjustment {
+  organizationId String?
   id              String              @id @default(cuid())
   jobId           String?
   propertyId      String?
@@ -969,9 +990,11 @@ model CleanerPayAdjustment {
   @@index([cleanerId, status])
   @@index([jobId, status])
   @@index([propertyId, status])
+  @@index([organizationId])
 }
 
 model JobAssignment {
+  organizationId String?
   id                       String                      @id @default(cuid())
   jobId                    String
   userId                   String
@@ -990,9 +1013,11 @@ model JobAssignment {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([jobId, userId])
+  @@index([organizationId])
 }
 
 model TimeLog {
+  organizationId String?
   id        String    @id @default(cuid())
   jobId     String
   userId    String
@@ -1004,9 +1029,11 @@ model TimeLog {
   job                Job                        @relation(fields: [jobId], references: [id])
   user               User                       @relation(fields: [userId], references: [id])
   adjustmentRequests TimeLogAdjustmentRequest[]
+  @@index([organizationId])
 }
 
 model TimeLogAdjustmentRequest {
+  organizationId String?
   id                 String               @id @default(cuid())
   timeLogId          String
   jobId              String
@@ -1031,6 +1058,7 @@ model TimeLogAdjustmentRequest {
   @@index([status, createdAt])
   @@index([jobId, status])
   @@index([cleanerId, status])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -1038,6 +1066,7 @@ model TimeLogAdjustmentRequest {
 // ─────────────────────────────────────────────
 
 model FormTemplate {
+  organizationId String?
   id               String    @id @default(cuid())
   name             String
   serviceType      JobType
@@ -1056,9 +1085,11 @@ model FormTemplate {
   submissions FormSubmission[]
 
   @@index([kind, isActive])
+  @@index([organizationId])
 }
 
 model FormSubmission {
+  organizationId String?
   id                       String          @id @default(cuid())
   jobId                    String
   templateId               String
@@ -1082,9 +1113,11 @@ model FormSubmission {
   media       SubmissionMedia[]
   stockTxs    StockTx[]
   mediaOverrideRequests MediaOverrideRequest[]
+  @@index([organizationId])
 }
 
 model SubmissionMedia {
+  organizationId String?
   id           String    @id @default(cuid())
   submissionId String
   fieldId      String
@@ -1102,9 +1135,11 @@ model SubmissionMedia {
   createdAt    DateTime  @default(now())
 
   submission FormSubmission @relation(fields: [submissionId], references: [id])
+  @@index([organizationId])
 }
 
 model QAReview {
+  organizationId String?
   id           String   @id @default(cuid())
   jobId        String
   reviewedById String? // null if auto-generated
@@ -1120,9 +1155,11 @@ model QAReview {
 
   @@index([jobId])
   @@index([createdAt])
+  @@index([organizationId])
 }
 
 model QaFormTemplate {
+  organizationId String?
   id          String   @id @default(cuid())
   name        String
   serviceType JobType
@@ -1138,9 +1175,11 @@ model QaFormTemplate {
 
   @@index([serviceType, isActive, version])
   @@index([propertyId, serviceType, isActive])
+  @@index([organizationId])
 }
 
 model QaAssignment {
+  organizationId String?
   id           String             @id @default(cuid())
   jobId        String
   assignedToId String?
@@ -1167,6 +1206,7 @@ model QaAssignment {
   @@index([status, dueAt])
   @@index([assignedToId, status])
   @@index([jobId, status])
+  @@index([organizationId])
 }
 
 /// A QA-initiated correction record: the inspector flags work the cleaner
@@ -1175,6 +1215,7 @@ model QaAssignment {
 /// cleaner's quality stats reflect the miss. Mirrors the existing pay/time
 /// adjustment + approval-gate patterns.
 model QaReworkTransfer {
+  organizationId String?
   id              String                 @id @default(cuid())
   jobId           String
   assignmentId    String?
@@ -1202,6 +1243,7 @@ model QaReworkTransfer {
   @@index([jobId, status])
   @@index([cleanerUserId, status])
   @@index([qaUserId, status])
+  @@index([organizationId])
 }
 
 enum QaReworkSeverity {
@@ -1217,6 +1259,7 @@ enum QaReworkTransferStatus {
 }
 
 model QaFormSubmission {
+  organizationId String?
   id             String   @id @default(cuid())
   jobId          String
   templateId     String
@@ -1240,9 +1283,11 @@ model QaFormSubmission {
 
   @@index([jobId, createdAt])
   @@index([submittedById, createdAt])
+  @@index([organizationId])
 }
 
 model MediaOverrideRequest {
+  organizationId String?
   id                String              @id @default(cuid())
   jobId             String
   submissionId      String?
@@ -1265,9 +1310,11 @@ model MediaOverrideRequest {
   @@index([jobId, status])
   @@index([requestedById, status])
   @@unique([jobId, requestedById, fieldId, status])
+  @@index([organizationId])
 }
 
 model IssueTicket {
+  organizationId String?
   id               String   @id @default(cuid())
   jobId            String?
   clientId         String?
@@ -1297,9 +1344,11 @@ model IssueTicket {
   comments    CaseComment[]
   attachments CaseAttachment[]
   transitions CaseTransition[]
+  @@index([organizationId])
 }
 
 model CaseTransition {
+  organizationId String?
   id         String      @id @default(cuid())
   caseId     String
   case       IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
@@ -1312,9 +1361,11 @@ model CaseTransition {
 
   @@index([caseId, occurredAt])
   @@index([toState])
+  @@index([organizationId])
 }
 
 model JobTask {
+  organizationId String?
   id                String                 @id @default(cuid())
   jobId             String?
   propertyId        String
@@ -1351,9 +1402,11 @@ model JobTask {
   @@index([propertyId, approvalStatus, executionStatus])
   @@index([clientId, approvalStatus, executionStatus])
   @@index([autoApproveAt, approvalStatus])
+  @@index([organizationId])
 }
 
 model JobTaskAttachment {
+  organizationId String?
   id               String    @id @default(cuid())
   taskId           String
   uploadedByUserId String?
@@ -1368,9 +1421,11 @@ model JobTaskAttachment {
   uploadedBy User?   @relation("JobTaskAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
 
   @@index([taskId, kind])
+  @@index([organizationId])
 }
 
 model JobTaskEvent {
+  organizationId String?
   id          String   @id @default(cuid())
   taskId      String
   actorUserId String?
@@ -1383,6 +1438,7 @@ model JobTaskEvent {
   actor User?   @relation("JobTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([taskId, createdAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -1390,6 +1446,7 @@ model JobTaskEvent {
 // ─────────────────────────────────────────────
 
 model InventoryItem {
+  organizationId String?
   id        String   @id @default(cuid())
   name      String
   sku       String?  @unique
@@ -1403,9 +1460,11 @@ model InventoryItem {
 
   propertyStocks   PropertyStock[]
   shoppingRunLines ShoppingRunLine[]
+  @@index([organizationId])
 }
 
 model PropertyStock {
+  organizationId String?
   id               String   @id @default(cuid())
   propertyId       String
   itemId           String
@@ -1421,9 +1480,11 @@ model PropertyStock {
   stockRunLines StockRunLine[]
 
   @@unique([propertyId, itemId])
+  @@index([organizationId])
 }
 
 model StockTx {
+  organizationId String?
   id              String      @id @default(cuid())
   propertyStockId String
   submissionId    String?
@@ -1434,6 +1495,7 @@ model StockTx {
 
   propertyStock PropertyStock   @relation(fields: [propertyStockId], references: [id])
   submission    FormSubmission? @relation(fields: [submissionId], references: [id])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -1441,6 +1503,7 @@ model StockTx {
 // ─────────────────────────────────────────────
 
 model LaundryTask {
+  organizationId String?
   id                String        @id @default(cuid())
   jobId             String        @unique
   propertyId        String
@@ -1473,9 +1536,11 @@ model LaundryTask {
 
   @@index([droppedAt])
   @@index([status])
+  @@index([organizationId])
 }
 
 model LaundryConfirmation {
+  organizationId String?
   id            String   @id @default(cuid())
   laundryTaskId String
   confirmedById String
@@ -1487,6 +1552,7 @@ model LaundryConfirmation {
   createdAt     DateTime @default(now())
 
   laundryTask LaundryTask @relation(fields: [laundryTaskId], references: [id])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -1494,6 +1560,7 @@ model LaundryConfirmation {
 // ─────────────────────────────────────────────
 
 model Report {
+  organizationId String?
   id                    String    @id @default(cuid())
   jobId                 String    @unique
   htmlContent           String?   @db.Text
@@ -1519,6 +1586,7 @@ model Report {
   visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
 
   @@index([themeId])
+  @@index([organizationId])
 }
 
 enum ReportThemeKind {
@@ -1529,6 +1597,7 @@ enum ReportThemeKind {
 }
 
 model ReportTheme {
+  organizationId String?
   id              String          @id @default(cuid())
   name            String
   kind            ReportThemeKind @default(CUSTOM)
@@ -1548,9 +1617,11 @@ model ReportTheme {
 
   @@index([isActive])
   @@index([isDefault])
+  @@index([organizationId])
 }
 
 model CaseComment {
+  organizationId String?
   id           String   @id @default(cuid())
   caseId       String
   authorUserId String
@@ -1560,9 +1631,11 @@ model CaseComment {
 
   issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
   author      User        @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 model CaseAttachment {
+  organizationId String?
   id               String   @id @default(cuid())
   caseId           String
   uploadedByUserId String
@@ -1574,6 +1647,7 @@ model CaseAttachment {
 
   issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
   uploadedBy  User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -1581,6 +1655,7 @@ model CaseAttachment {
 // ─────────────────────────────────────────────
 
 model PriceBook {
+  organizationId String?
   id               String   @id @default(cuid())
   jobType          JobType
   bedrooms         Int?
@@ -1595,9 +1670,11 @@ model PriceBook {
   updatedAt        DateTime @updatedAt
 
   @@unique([jobType, bedrooms, bathrooms])
+  @@index([organizationId])
 }
 
 model DiscountCampaign {
+  organizationId String?
   id            String    @id @default(cuid())
   code          String    @unique
   title         String
@@ -1613,9 +1690,11 @@ model DiscountCampaign {
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  @@index([organizationId])
 }
 
 model SubscriptionPlan {
+  organizationId String?
   id             String   @id @default(cuid())
   slug           String   @unique
   name           String
@@ -1633,9 +1712,11 @@ model SubscriptionPlan {
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  @@index([organizationId])
 }
 
 model QuoteLead {
+  organizationId String?
   id                    String     @id @default(cuid())
   clientId              String?
   serviceType           JobType
@@ -1659,9 +1740,11 @@ model QuoteLead {
 
   client Client? @relation(fields: [clientId], references: [id])
   quotes Quote[]
+  @@index([organizationId])
 }
 
 model Quote {
+  organizationId String?
   id             String      @id @default(cuid())
   leadId         String?
   clientId       String?
@@ -1682,9 +1765,11 @@ model Quote {
 
   lead   QuoteLead? @relation(fields: [leadId], references: [id])
   client Client?    @relation(fields: [clientId], references: [id])
+  @@index([organizationId])
 }
 
 model ShoppingRun {
+  organizationId String?
   id           String            @id @default(cuid())
   ownerUserId  String
   clientId     String?
@@ -1705,9 +1790,11 @@ model ShoppingRun {
   receipts     ShoppingReceipt[]
   settlements  ShoppingSettlement[]
   invoiceLines ClientInvoiceLine[]
+  @@index([organizationId])
 }
 
 model ShoppingRunLine {
+  organizationId String?
   id            String   @id @default(cuid())
   shoppingRunId String
   propertyId    String
@@ -1728,9 +1815,11 @@ model ShoppingRunLine {
   shoppingRun ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
   property    Property       @relation(fields: [propertyId], references: [id])
   item        InventoryItem? @relation(fields: [itemId], references: [id])
+  @@index([organizationId])
 }
 
 model ShoppingReceipt {
+  organizationId String?
   id               String   @id @default(cuid())
   shoppingRunId    String
   uploadedByUserId String
@@ -1743,9 +1832,11 @@ model ShoppingReceipt {
 
   shoppingRun ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
   uploadedBy  User        @relation("ShoppingReceiptUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 model ShoppingSettlement {
+  organizationId String?
   id                                   String                @id @default(cuid())
   shoppingRunId                        String
   paymentMethod                        ShoppingPaymentMethod
@@ -1769,9 +1860,11 @@ model ShoppingSettlement {
   clientInvoice ClientInvoice? @relation(fields: [includedInClientInvoiceId], references: [id])
 
   @@index([includedInPayrollRunId])
+  @@index([organizationId])
 }
 
 model StockRun {
+  organizationId String?
   id                String         @id @default(cuid())
   propertyId        String
   requestedByUserId String
@@ -1788,9 +1881,11 @@ model StockRun {
   property    Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   requestedBy User           @relation("StockRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Cascade)
   lines       StockRunLine[]
+  @@index([organizationId])
 }
 
 model StockRunLine {
+  organizationId String?
   id               String   @id @default(cuid())
   stockRunId       String
   propertyStockId  String
@@ -1804,9 +1899,11 @@ model StockRunLine {
 
   stockRun      StockRun      @relation(fields: [stockRunId], references: [id], onDelete: Cascade)
   propertyStock PropertyStock @relation(fields: [propertyStockId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 model PropertyClientRate {
+  organizationId String?
   id                 String   @id @default(cuid())
   propertyId         String
   jobType            JobType
@@ -1820,9 +1917,11 @@ model PropertyClientRate {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@unique([propertyId, jobType])
+  @@index([organizationId])
 }
 
 model ClientInvoice {
+  organizationId String?
   id                    String              @id @default(cuid())
   clientId              String
   invoiceNumber         String              @unique
@@ -1849,9 +1948,11 @@ model ClientInvoice {
 
   @@index([status])
   @@index([clientId, status])
+  @@index([organizationId])
 }
 
 model ClientInvoiceLine {
+  organizationId String?
   id            String   @id @default(cuid())
   invoiceId     String
   jobId         String?
@@ -1872,18 +1973,22 @@ model ClientInvoiceLine {
   // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
   @@index([jobId])
   @@index([invoiceId])
+  @@index([organizationId])
 }
 
 model UserNotificationPreference {
+  organizationId String?
   userId     String   @id
   categories Json
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 model BlogPost {
+  organizationId String?
   id            String    @id @default(cuid())
   slug          String    @unique
   title         String
@@ -1897,9 +2002,11 @@ model BlogPost {
   authorName    String    @default("sNeek Team")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  @@index([organizationId])
 }
 
 model ClientSatisfactionRating {
+  organizationId String?
   id        String   @id @default(cuid())
   jobId     String   @unique
   clientId  String
@@ -1911,9 +2018,11 @@ model ClientSatisfactionRating {
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
+  @@index([organizationId])
 }
 
 model LoyaltyAccount {
+  organizationId String?
   id        String   @id @default(cuid())
   clientId  String   @unique
   points    Int      @default(0)
@@ -1922,9 +2031,11 @@ model LoyaltyAccount {
 
   client       Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
   transactions LoyaltyTransaction[]
+  @@index([organizationId])
 }
 
 model LoyaltyTransaction {
+  organizationId String?
   id          String   @id @default(cuid())
   accountId   String
   points      Int
@@ -1935,9 +2046,11 @@ model LoyaltyTransaction {
   account LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
+  @@index([organizationId])
 }
 
 model Referral {
+  organizationId String?
   id                     String    @id @default(cuid())
   referrerId             String
   refereeEmail           String
@@ -1955,9 +2068,11 @@ model Referral {
 
   @@index([referrerId, createdAt])
   @@index([refereeEmail])
+  @@index([organizationId])
 }
 
 model ClientMessage {
+  organizationId String?
   id          String   @id @default(cuid())
   clientId    String
   sentById    String
@@ -1971,9 +2086,11 @@ model ClientMessage {
 
   @@index([clientId, createdAt])
   @@index([clientId, isRead])
+  @@index([organizationId])
 }
 
 model EmailCampaign {
+  organizationId String?
   id             String    @id @default(cuid())
   name           String
   subject        String
@@ -1997,6 +2114,7 @@ model EmailCampaign {
   createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
 
   @@index([campaignStatus, scheduledFor])
+  @@index([organizationId])
 }
 
 enum CampaignChannel {
@@ -2031,6 +2149,7 @@ enum SocialPostStatus {
 }
 
 model MarketingAsset {
+  organizationId String?
   id           String   @id @default(cuid())
   name         String
   url          String   @db.Text
@@ -2050,9 +2169,11 @@ model MarketingAsset {
 
   @@index([mediaType])
   @@index([createdAt])
+  @@index([organizationId])
 }
 
 model SocialPost {
+  organizationId String?
   id            String           @id @default(cuid())
   channel       SocialChannel
   status        SocialPostStatus @default(DRAFT)
@@ -2071,9 +2192,11 @@ model SocialPost {
 
   @@index([channel, status])
   @@index([scheduledFor])
+  @@index([organizationId])
 }
 
 model SocialPostAsset {
+  organizationId String?
   socialPostId String
   socialPost   SocialPost     @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
   assetId      String
@@ -2081,9 +2204,11 @@ model SocialPostAsset {
   order        Int            @default(0)
 
   @@id([socialPostId, assetId])
+  @@index([organizationId])
 }
 
 model LaundrySupplier {
+  organizationId String?
   id               String   @id @default(cuid())
   name             String
   phone            String?
@@ -2099,9 +2224,11 @@ model LaundrySupplier {
 
   laundryTasks LaundryTask[]
   onboardingSurveys PropertyOnboardingSurvey[]
+  @@index([organizationId])
 }
 
 model CleanerAvailability {
+  organizationId String?
   id          String    @id @default(cuid())
   userId      String
   dayOfWeek   Int?
@@ -2116,6 +2243,7 @@ model CleanerAvailability {
 
   @@index([userId, dayOfWeek])
   @@index([userId, date])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2123,6 +2251,7 @@ model CleanerAvailability {
 // ─────────────────────────────────────────────
 
 model Notification {
+  organizationId String?
   id             String              @id @default(cuid())
   userId         String?
   jobId          String?
@@ -2142,9 +2271,11 @@ model Notification {
   // seconds per connected user — must be indexed to avoid full table scans.
   @@index([userId, channel, createdAt])
   @@index([createdAt])
+  @@index([organizationId])
 }
 
 model UserPushDevice {
+  organizationId String?
   id         String   @id @default(cuid())
   userId     String
   token      String   @unique
@@ -2159,9 +2290,11 @@ model UserPushDevice {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isActive])
+  @@index([organizationId])
 }
 
 model AuditLog {
+  organizationId String?
   id        String   @id @default(cuid())
   userId    String
   jobId     String?
@@ -2180,9 +2313,11 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([userId, createdAt])
   @@index([jobId])
+  @@index([organizationId])
 }
 
 model TeamGroup {
+  organizationId String?
   id             String   @id @default(cuid())
   name           String
   description    String?  @db.Text
@@ -2196,9 +2331,11 @@ model TeamGroup {
   createdBy    User              @relation("TeamGroupCreatedBy", fields: [createdById], references: [id])
   members      TeamGroupMember[]
   chatChannels ChatChannel[]
+  @@index([organizationId])
 }
 
 model TeamGroupMember {
+  organizationId String?
   id        String   @id @default(cuid())
   groupId   String
   userId    String
@@ -2208,9 +2345,11 @@ model TeamGroupMember {
   user  User      @relation("TeamGroupMembershipUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, userId])
+  @@index([organizationId])
 }
 
 model WorkforcePost {
+  organizationId String?
   id                        String    @id @default(cuid())
   type                      String    @default("ANNOUNCEMENT")
   title                     String
@@ -2227,9 +2366,11 @@ model WorkforcePost {
 
   createdBy User?               @relation("WorkforcePostCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   reads     WorkforcePostRead[]
+  @@index([organizationId])
 }
 
 model WorkforcePostRead {
+  organizationId String?
   id     String   @id @default(cuid())
   postId String
   userId String
@@ -2239,9 +2380,11 @@ model WorkforcePostRead {
   user User          @relation("WorkforcePostReadUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
+  @@index([organizationId])
 }
 
 model ChatChannel {
+  organizationId String?
   id            String   @id @default(cuid())
   name          String
   description   String?  @db.Text
@@ -2256,9 +2399,11 @@ model ChatChannel {
   createdBy User?             @relation("ChatChannelCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   messages  ChatMessage[]
   reads     ChatChannelRead[]
+  @@index([organizationId])
 }
 
 model ChatMessage {
+  organizationId String?
   id          String    @id @default(cuid())
   channelId   String
   senderId    String
@@ -2271,9 +2416,11 @@ model ChatMessage {
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   sender  User        @relation("ChatMessageSender", fields: [senderId], references: [id])
+  @@index([organizationId])
 }
 
 model ChatChannelRead {
+  organizationId String?
   id         String   @id @default(cuid())
   channelId  String
   userId     String
@@ -2283,9 +2430,11 @@ model ChatChannelRead {
   user    User        @relation("ChatChannelReadUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, userId])
+  @@index([organizationId])
 }
 
 model LearningPath {
+  organizationId String?
   id            String   @id @default(cuid())
   title         String
   slug          String   @unique
@@ -2302,9 +2451,11 @@ model LearningPath {
 
   createdBy   User                 @relation("LearningPathCreatedBy", fields: [createdById], references: [id])
   assignments LearningAssignment[]
+  @@index([organizationId])
 }
 
 model LearningAssignment {
+  organizationId String?
   id           String    @id @default(cuid())
   pathId       String
   userId       String
@@ -2323,9 +2474,11 @@ model LearningAssignment {
   user User         @relation("LearningAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([pathId, userId])
+  @@index([organizationId])
 }
 
 model StaffDocument {
+  organizationId String?
   id                String    @id @default(cuid())
   userId            String
   uploadedById      String
@@ -2348,9 +2501,11 @@ model StaffDocument {
   uploadedBy        User                   @relation("StaffDocumentUploadedBy", fields: [uploadedById], references: [id])
   verifiedBy        User?                  @relation("StaffDocumentVerifiedBy", fields: [verifiedById], references: [id])
   fulfilledRequests StaffDocumentRequest[] @relation("StaffDocumentRequestFulfilledDocument")
+  @@index([organizationId])
 }
 
 model StaffDocumentRequest {
+  organizationId String?
   id                  String    @id @default(cuid())
   userId              String
   requestedById       String
@@ -2369,9 +2524,11 @@ model StaffDocumentRequest {
 
   @@index([userId, status])
   @@index([requestedById, status])
+  @@index([organizationId])
 }
 
 model StaffRecognition {
+  organizationId String?
   id               String   @id @default(cuid())
   userId           String
   sentById         String
@@ -2384,9 +2541,11 @@ model StaffRecognition {
 
   user   User @relation("RecognitionReceivedBy", fields: [userId], references: [id], onDelete: Cascade)
   sentBy User @relation("RecognitionSentBy", fields: [sentById], references: [id])
+  @@index([organizationId])
 }
 
 model HiringPosition {
+  organizationId String?
   id                String   @id @default(cuid())
   title             String
   slug              String   @unique
@@ -2403,9 +2562,11 @@ model HiringPosition {
 
   createdBy    User                @relation("HiringPositionCreatedBy", fields: [createdById], references: [id])
   applications HiringApplication[]
+  @@index([organizationId])
 }
 
 model HiringApplication {
+  organizationId String?
   id              String    @id @default(cuid())
   positionId      String
   fullName        String
@@ -2430,13 +2591,16 @@ model HiringApplication {
   position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
   reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
   hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
+  @@index([organizationId])
 }
 
 model AppSetting {
+  organizationId String?
   key       String   @id
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2444,6 +2608,7 @@ model AppSetting {
 // ─────────────────────────────────────────────
 
 model CleanerLocationPing {
+  organizationId String?
   id        String   @id @default(cuid())
   jobId     String
   userId    String
@@ -2459,6 +2624,7 @@ model CleanerLocationPing {
 
   @@index([jobId, timestamp])
   @@index([userId, timestamp])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2466,6 +2632,7 @@ model CleanerLocationPing {
 // ─────────────────────────────────────────────
 
 model ClientNotificationPreference {
+  organizationId String?
   clientId             String  @id
   notificationsEnabled Boolean @default(true)
   notifyOnEnRoute      Boolean @default(true)
@@ -2476,6 +2643,7 @@ model ClientNotificationPreference {
   updatedAt            DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2483,6 +2651,7 @@ model ClientNotificationPreference {
 // ─────────────────────────────────────────────
 
 model MessageTemplate {
+  organizationId String?
   id          String   @id @default(cuid())
   name        String
   triggerType String   @default("MANUAL") // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
@@ -2500,6 +2669,7 @@ model MessageTemplate {
   emailCampaigns  EmailCampaign[]        @relation("MessageTemplateCampaigns")
 
   @@index([category, isActive])
+  @@index([organizationId])
 }
 
 enum MessageCategory {
@@ -2517,6 +2687,7 @@ enum MessageCategory {
 }
 
 model ClientAutomationRule {
+  organizationId String?
   id           String   @id @default(cuid())
   clientId     String
   triggerType  String   // "POST_JOB_REVIEW" | "POST_JOB_NEXT_CLEAN" | "POST_JOB_DISCOUNT" | "POST_JOB_CUSTOM"
@@ -2532,6 +2703,7 @@ model ClientAutomationRule {
   template MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   @@index([clientId, isEnabled])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2539,6 +2711,7 @@ model ClientAutomationRule {
 // ─────────────────────────────────────────────
 
 model JobFeedback {
+  organizationId String?
   id             String    @id @default(cuid())
   jobId          String    @unique
   clientId       String
@@ -2551,6 +2724,7 @@ model JobFeedback {
 
   job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2620,6 +2794,7 @@ enum OnboardingSourceType {
 }
 
 model PayrollRun {
+  organizationId String?
   id                        String            @id @default(cuid())
   periodStart               DateTime
   periodEnd                 DateTime
@@ -2647,9 +2822,11 @@ model PayrollRun {
 
   @@index([status, createdAt])
   @@index([periodStart, periodEnd])
+  @@index([organizationId])
 }
 
 model Payout {
+  organizationId String?
   id                    String        @id @default(cuid())
   payrollRunId          String
   cleanerId             String
@@ -2676,9 +2853,11 @@ model Payout {
 
   @@index([payrollRunId, status])
   @@index([cleanerId, status])
+  @@index([organizationId])
 }
 
 model PaymentGateway {
+  organizationId String?
   id               String          @id @default(cuid())
   provider         GatewayProvider
   status           GatewayStatus   @default(ACTIVE)
@@ -2695,9 +2874,11 @@ model PaymentGateway {
   payments ClientPayment[]
 
   @@index([status, priority])
+  @@index([organizationId])
 }
 
 model ClientPayment {
+  organizationId String?
   id               String   @id @default(cuid())
   invoiceId        String?
   quoteId          String?
@@ -2722,9 +2903,11 @@ model ClientPayment {
 
   @@index([invoiceId, status])
   @@index([gatewayId, status])
+  @@index([organizationId])
 }
 
 model XeroConnection {
+  organizationId String?
   id            String    @id @default(cuid())
   tenantId      String    @unique
   tenantName    String
@@ -2737,9 +2920,11 @@ model XeroConnection {
   lastSyncError String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  @@index([organizationId])
 }
 
 model NotificationTemplate {
+  organizationId String?
   id            String   @id @default(cuid())
   eventKey      String   @unique
   label         String
@@ -2754,9 +2939,11 @@ model NotificationTemplate {
   availableVars Json
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  @@index([organizationId])
 }
 
 model NotificationPreference {
+  organizationId String?
   id            String                  @id @default(cuid())
   eventKey      String
   recipientRole NotificationRecipientRole
@@ -2767,9 +2954,11 @@ model NotificationPreference {
 
   @@unique([eventKey, recipientRole, channel])
   @@index([eventKey])
+  @@index([organizationId])
 }
 
 model NotificationLog {
+  organizationId String?
   id             String   @id @default(cuid())
   eventKey       String
   recipientEmail String?
@@ -2783,6 +2972,7 @@ model NotificationLog {
 
   @@index([eventKey, createdAt])
   @@index([recipientEmail, createdAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────
@@ -2790,6 +2980,7 @@ model NotificationLog {
 // ─────────────────────────────────────────────
 
 model PropertyOnboardingSurvey {
+  organizationId String?
   id                    String                  @id @default(cuid())
   surveyNumber          String                  @unique
   sourceType            OnboardingSourceType    @default(ADMIN_CREATED)
@@ -2863,9 +3054,11 @@ model PropertyOnboardingSurvey {
   @@index([sourceType, status])
   @@index([existingClientId])
   @@index([createdPropertyId])
+  @@index([organizationId])
 }
 
 model OnboardingAppliance {
+  organizationId String?
   id            String                    @id @default(cuid())
   surveyId      String
   applianceType String                    // OVEN, FRIDGE, DISHWASHER, WASHER, DRYER, RANGEHOOD, MICROWAVE
@@ -2875,9 +3068,11 @@ model OnboardingAppliance {
   survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
+  @@index([organizationId])
 }
 
 model OnboardingSpecialRequest {
+  organizationId String?
   id            String                    @id @default(cuid())
   surveyId      String
   description   String                    @db.Text
@@ -2887,9 +3082,11 @@ model OnboardingSpecialRequest {
   survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
+  @@index([organizationId])
 }
 
 model OnboardingLaundryDetail {
+  organizationId String?
   id              String                    @id @default(cuid())
   surveyId        String                    @unique
   hasLaundry      Boolean                   @default(false)
@@ -2901,9 +3098,11 @@ model OnboardingLaundryDetail {
   notes           String?                   @db.Text
 
   survey          PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  @@index([organizationId])
 }
 
 model OnboardingAccessDetail {
+  organizationId String?
   id            String                    @id @default(cuid())
   surveyId      String
   detailType    String                    // LOCKBOX, KEY_LOCATION, PARKING, ENTRY_PHOTO, BUILDING_ACCESS
@@ -2916,9 +3115,11 @@ model OnboardingAccessDetail {
   survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
+  @@index([organizationId])
 }
 
 model OnboardingJobTypeAnswer {
+  organizationId String?
   id            String                    @id @default(cuid())
   surveyId      String
   jobType       JobType
@@ -2929,9 +3130,11 @@ model OnboardingJobTypeAnswer {
 
   @@unique([surveyId, jobType])
   @@index([surveyId])
+  @@index([organizationId])
 }
 
 model UploadFailure {
+  organizationId String?
   id          String    @id @default(cuid())
   userId      String?
   user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -2952,10 +3155,12 @@ model UploadFailure {
   @@index([userId, occurredAt])
   @@index([jobId])
   @@index([resolvedAt])
+  @@index([organizationId])
 }
 
 // Geocode failures (Plan D backfill)
 model GeocodeFailure {
+  organizationId String?
   id          String   @id @default(cuid())
   modelType   String   // "Property" | "User" | "Client"
   modelId     String
@@ -2965,6 +3170,7 @@ model GeocodeFailure {
   resolvedAt  DateTime?
   @@index([modelType, modelId])
   @@index([resolvedAt])
+  @@index([organizationId])
 }
 
 // ─────────────────────────────────────────────

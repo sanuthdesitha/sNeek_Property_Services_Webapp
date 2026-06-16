@@ -39,4 +39,18 @@ describe("tenant-model registry", () => {
       expect(isTenantOwned(m)).toBe(true);
     }
   });
+
+  it("every TENANT_OWNED model actually has an organizationId column", () => {
+    // Guards against drift between the registry and the schema rollout: if a
+    // model is scoped but lacks the column, the fail-closed middleware would
+    // throw on every query against it.
+    const missing: string[] = [];
+    for (const model of Prisma.dmmf.datamodel.models) {
+      if (!TENANT_OWNED_MODELS.has(model.name)) continue;
+      if (!model.fields.some((f) => f.name === "organizationId")) {
+        missing.push(model.name);
+      }
+    }
+    expect(missing, `TENANT_OWNED models without an organizationId column: ${missing.join(", ")}`).toEqual([]);
+  });
 });
