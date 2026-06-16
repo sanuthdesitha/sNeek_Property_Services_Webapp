@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Save, Trash2, ListChecks } from "lucide-react";
+import { Loader2, Plus, Save, Trash2, ListChecks, ClipboardList } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ export default function ChecklistsPage() {
   const [active, setActive] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -77,6 +78,28 @@ export default function ChecklistsPage() {
     }
   }
 
+  async function generateForm() {
+    if (!active) return;
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/admin/checklists/generate-form", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobType: active }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not generate form.");
+      toast({
+        title: "Job form generated",
+        description: "A draft form was created from this checklist — open Forms to review, tweak and publish it.",
+      });
+    } catch (err: any) {
+      toast({ title: "Generate failed", description: err.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   const coveredCount = useMemo(
     () => (checklist?.sections ?? []).reduce((n, s) => n + s.items.filter((i) => i.covered).length, 0),
     [checklist]
@@ -110,8 +133,12 @@ export default function ChecklistsPage() {
             </Select>
           </div>
           {checklist ? (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-muted-foreground">{coveredCount} covered items</span>
+              <Button variant="outline" onClick={generateForm} disabled={generating}>
+                <ClipboardList className="mr-2 h-4 w-4" />
+                {generating ? "Generating…" : "Generate job form"}
+              </Button>
               <Button onClick={save} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving…" : "Save checklist"}
