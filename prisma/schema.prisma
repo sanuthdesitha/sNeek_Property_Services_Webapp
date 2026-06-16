@@ -566,6 +566,10 @@ model User {
   shoppingSettlementsPaid      ShoppingSettlement[]        @relation("ShoppingSettlementPaidBy")
   reportVisibilityUpdates      Report[]                    @relation("ReportVisibilityUpdatedBy")
   ownedOrganizations           Organization[]              @relation("OrgOwner")
+  // SaaS tenancy: the workspace this user belongs to (nullable during the
+  // Phase 1b rollout; backfilled to Org #1 for the existing business).
+  organizationId               String?
+  organization                 Organization?               @relation("OrgMembers", fields: [organizationId], references: [id])
   // Client link (optional)
   clientId                     String?
   client                       Client?                     @relation(fields: [clientId], references: [id])
@@ -3007,6 +3011,7 @@ model Organization {
   updatedAt        DateTime   @updatedAt
 
   subscription     Subscription?
+  members          User[]     @relation("OrgMembers")
 
   @@index([status])
   @@index([planKey])

@@ -91,6 +91,8 @@ export default withAuth(
           pathname === "/register" ||
           pathname === "/unauthorized" ||
           pathname === "/" ||
+          pathname === "/platform" ||
+          pathname === "/get-started" ||
           pathname.startsWith("/rate/") ||
           pathname === "/services" ||
           pathname.startsWith("/services/") ||

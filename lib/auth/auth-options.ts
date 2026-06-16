@@ -152,6 +152,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
               name: user.name,
               image: user.image,
               role: user.role,
+              organizationId: user.organizationId ?? null,
             };
           }
 
@@ -163,6 +164,8 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
 
           const valid = await bcrypt.compare(credentials.password, user.passwordHash);
           if (!valid) return null;
+
+          const organizationId = user.organizationId ?? null;
 
           const settings = await getAppSettings();
           const maintenanceMode = settings.websiteContent.maintenanceMode;
@@ -181,6 +184,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             name: user.name,
             image: user.image,
             role: user.role,
+            organizationId,
           };
         },
       }),
@@ -244,6 +248,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             name: verifiedUser.name,
             image: verifiedUser.image,
             role: verifiedUser.role as Role,
+            organizationId: (verifiedUser as { organizationId?: string | null }).organizationId ?? null,
           };
         },
       }),
@@ -260,6 +265,8 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
         if (user) {
           token.id = user.id;
           token.role = (user as unknown as { role: Role }).role;
+          token.organizationId =
+            (user as unknown as { organizationId?: string | null }).organizationId ?? null;
         }
         return token;
       },
@@ -267,6 +274,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
         if (session.user) {
           session.user.id = token.id as string;
           session.user.role = token.role as Role;
+          session.user.organizationId = (token.organizationId as string | null) ?? null;
         }
         return session;
       },

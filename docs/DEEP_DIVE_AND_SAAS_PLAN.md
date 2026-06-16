@@ -174,10 +174,17 @@ The **isolation engine is now built and committed** (all behind flags, INERT —
 3. Call `registerTenantScoping(prisma)` in `lib/db.ts` and set `SNEEK_MULTITENANCY=1` in a **staging** env with 2 seeded orgs.
 4. Run the leak audit (every list endpoint as tenant A must never return tenant B's rows; nested writes + raw SQL reviewed). Only then enable in prod + add the Postgres RLS backstop (Phase 2).
 
-### ⏸ Phase 1c — Stripe Billing + public signup (depends on 1b)
-Stripe SDK + Checkout (`mode: subscription`) + Customer Portal + a separate billing webhook; `trialEndsAt` logic; workspace-lock guard (402 on mutations when `LOCKED`); SaaS `/pricing` + `/signup` provisioning (org + owner ADMIN + seeded defaults). **Needs your Stripe keys/price IDs.**
+### 🟢 Phase 1c — Stripe Billing + public signup BUILT (flag-gated, tsc + build + tests green)
+Everything is built, committed and verified — gated OFF so it can't run prematurely (signup can't mint an un-isolated admin until 1b is live + audited):
+- **Session carries org:** `User.organizationId` (nullable, migration `20260617010000_…`) threaded through NextAuth `authorize`/`jwt`/`session` + type augmentation. `lib/saas/request-tenant.ts` (`withRequestTenant`) wraps a handler in the session's tenant — transparent while the flag is off, so handlers can adopt it incrementally.
+- **Stripe billing** (`lib/saas/billing.ts`, raw-fetch REST, **no new dependency**): `ensureStripeCustomer`, `createSubscriptionCheckout` (`mode: subscription`), `createBillingPortalSession`, signature verification + `handleBillingEvent` (checkout/subscription/invoice lifecycle → syncs `Subscription` + `Organization.status`).
+- **Routes:** `POST /api/saas/billing/webhook` (separate secret from the invoice webhook), `POST /api/saas/billing/checkout`, `POST /api/saas/billing/portal` — all `404` unless `SNEEK_BILLING=1`.
+- **Public signup:** `lib/saas/signup.ts` + `POST /api/saas/signup` (provisions org + owner ADMIN + 30-day trial + TRIALING subscription) — `404` unless `SNEEK_SIGNUP=1`.
+- **SaaS marketing surface** (decision made: separate `(saas)` route group on the root domain, so it never entangles with the tenant marketing site): `/platform` (luxury slate+gold landing + pricing from the plan catalog) and `/get-started` (signup form). Added to the middleware public allowlist.
 
-### ⚠️ Open decision for 1c — the domain model
-Your existing `app/(public)` site is the **tenant's own customer marketing site** (their service plans at `/subscriptions`). The SaaS "buy sNeek" landing is a *separate* surface. Decide:
-- **Root domain** = SaaS marketing + `/signup` (e.g. `sneek.com`, `app.sneek.com`); **each tenant** gets their marketing site on a **subdomain** (`acme.sneek.com`) or custom domain.
-This routing choice gates where `/pricing` and `/signup` live, so I held off building those pages to avoid entangling them with the tenant marketing site.
+**To switch on (after 1b is live + audited):** set env `SNEEK_MULTITENANCY=1`, `SNEEK_SIGNUP=1`, `SNEEK_BILLING=1`; set `STRIPE_SECRET_KEY` + `STRIPE_BILLING_WEBHOOK_SECRET`; create 3 recurring Prices in Stripe and put their ids on the `Plan` rows (`stripePriceId`); point a Stripe webhook at `/api/saas/billing/webhook`. Then add a trial-status banner + "Upgrade"/"Manage billing" buttons in `/admin` (wired to the checkout/portal routes), and run a scheduled sweep that flips expired trials to `LOCKED`.
+
+### ⚠️ Remaining (the data-leak-critical core — needs you + a DB clone)
+The only thing between this and a sellable product is **Phase 1b going live**: the `organizationId`-column rollout across the ~95 tenant models, backfilling your business as Org #1, wiring `withRequestTenant` into handlers + workers, calling `registerTenantScoping` in `lib/db.ts`, then the **2-tenant leak audit**. The engine, registry (with its fail-closed CI test), billing and signup are all ready and waiting on that switch.
+
+> ⚠️ **Branch note:** `saas-phase-1` now expects its two migrations applied (`prisma migrate deploy`) before the app runs, because `User` now selects `organizationId`. `main` is untouched and unaffected.
