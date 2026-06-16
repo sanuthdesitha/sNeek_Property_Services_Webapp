@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     const html = buildQuoteHtml(previewQuote, {
       companyName: settings.companyName,
-      logoUrl: settings.logoUrl,
+      logoUrl: settings.reportLogoUrl || settings.logoUrl,
     });
     try {
       const { renderPdfFromHtml } = await import("@/lib/reports/pdf");

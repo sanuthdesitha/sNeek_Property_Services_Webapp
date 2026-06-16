@@ -65,7 +65,7 @@ export async function POST(
     const subject = body.subject || settings.quoteDefaultEmailSubject;
     const html = buildQuoteHtml(quote, {
       companyName: settings.companyName,
-      logoUrl: settings.logoUrl,
+      logoUrl: settings.reportLogoUrl || settings.logoUrl,
     });
 
     const sentResult = await sendEmailDetailed({
