@@ -95,6 +95,9 @@ export interface FormField {
   type: FormFieldType;
   label: string;
   helpText?: string;
+  // Longer "how to clean this" instructions revealed in a popup (text shown
+  // alongside reference images/video). Distinct from the short inline helpText.
+  instructions?: string;
   placeholder?: string;
   required?: boolean;
   options?: string[];

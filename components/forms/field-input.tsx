@@ -17,6 +17,7 @@ import {
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { FormField } from "@/lib/forms/types";
 import { ExampleOnTickReferences, FieldReferences } from "./field-references";
+import { InstructionsReveal } from "./instructions-reveal";
 import { useFormTheme } from "./form-theme";
 import { isDividerField } from "./form-blocks";
 
@@ -74,6 +75,7 @@ function FieldShell({
         </Label>
       )}
       {field.helpText ? <p className="text-xs text-muted-foreground">{field.helpText}</p> : null}
+      <InstructionsReveal title={field.label} instructions={field.instructions} references={field.references} />
       <FieldReferenceBlock field={field} value={value} />
       {children}
     </div>

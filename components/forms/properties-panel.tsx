@@ -148,6 +148,17 @@ export function PropertiesPanel({
                 />
               </div>
 
+              <div className="space-y-1">
+                <Label htmlFor={`pp-instructions-${field.id}`}>How-to instructions (reveal popup)</Label>
+                <Textarea
+                  id={`pp-instructions-${field.id}`}
+                  value={field.instructions ?? ""}
+                  onChange={(e) => onUpdate({ ...field, instructions: e.target.value || undefined })}
+                  placeholder="Step-by-step how to clean this — shown behind a 'How to clean this' button with any reference images/video"
+                  rows={3}
+                />
+              </div>
+
               {!isReadOnly && !isUpload && (
                 <div className="space-y-1">
                   <Label htmlFor={`pp-placeholder-${field.id}`}>Placeholder</Label>
