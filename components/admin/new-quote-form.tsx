@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
+import { EXTRAS_CATALOG, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 interface Option { id: string; name: string; email: string; }
@@ -49,6 +51,7 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
   const [bandIndex, setBandIndex] = useState("0");
 
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [pricing, setPricing] = useState(false);
   const [notes, setNotes] = useState("");
   const [validUntilDate, setValidUntilDate] = useState("");
@@ -56,10 +59,22 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
 
   const service = useMemo(() => services.find((s) => s.jobType === serviceType) ?? services[0], [services, serviceType]);
 
+  // Selected extras become their own line items (kept separate from the base so
+  // they can flow to the job form as an "Additionals" section with how-to).
+  const extraLines = useMemo<LineItem[]>(
+    () =>
+      selectedExtras
+        .map((id) => EXTRAS_BY_ID[id])
+        .filter(Boolean)
+        .map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
+    [selectedExtras]
+  );
+  const allLines = useMemo(() => [...lineItems, ...extraLines], [lineItems, extraLines]);
+
   const { subtotal, gstAmount, totalAmount } = useMemo(() => {
-    const sum = lineItems.reduce((acc, li) => acc + (Number(li.total) || 0), 0);
+    const sum = allLines.reduce((acc, li) => acc + (Number(li.total) || 0), 0);
     return calculateGstBreakdown(Math.max(0, Number(sum.toFixed(2))), { gstEnabled });
-  }, [lineItems, gstEnabled]);
+  }, [allLines, gstEnabled]);
   const gstLabel = useMemo(() => getGstDisplayLabel({ gstEnabled }), [gstEnabled]);
 
   function applyLead(id: string) {
@@ -132,9 +147,19 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
 
   function buildMeta() {
     const m = service?.model;
-    if (m === "ROOMS") return { bedrooms: Number(bedrooms) || 0, bathrooms: Number(bathrooms) || 0 };
-    if (m === "AREA") return { sqm: Number(sqm) || 0 };
-    return {};
+    const base: Record<string, unknown> = {};
+    if (m === "ROOMS") {
+      base.bedrooms = Number(bedrooms) || 0;
+      base.bathrooms = Number(bathrooms) || 0;
+    } else if (m === "AREA") {
+      base.sqm = Number(sqm) || 0;
+    }
+    // Structured extras so they flow into the job form as Additionals on conversion.
+    base.extras = selectedExtras
+      .map((id) => EXTRAS_BY_ID[id])
+      .filter(Boolean)
+      .map((e) => ({ id: e.id, label: e.label, instructions: e.instructions }));
+    return base;
   }
 
   function buildPayload() {
@@ -145,7 +170,7 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
         ? { name: newLead.name.trim(), email: newLead.email.trim(), phone: newLead.phone.trim() || undefined, suburb: newLead.suburb.trim() || undefined }
         : undefined,
       serviceType,
-      lineItems,
+      lineItems: allLines,
       subtotal,
       gstAmount,
       totalAmount,
@@ -159,8 +184,8 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
       toast({ title: "Choose a recipient", description: "Select a client/lead or enter new lead details.", variant: "destructive" });
       return;
     }
-    if (lineItems.length === 0 || subtotal <= 0) {
-      toast({ title: "Add pricing", description: "Calculate from the rate card or add line items.", variant: "destructive" });
+    if (allLines.length === 0 || subtotal <= 0) {
+      toast({ title: "Add pricing", description: "Calculate from the rate card, add line items, or pick extras.", variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -283,6 +308,37 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
             {pricing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
             Calculate from rate card
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Extras / add-ons */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Extras / add-ons</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Added to the price and carried into the job form as &quot;Additionals&quot; so cleaners see exactly what extra work was quoted.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {EXTRAS_CATALOG.map((e) => {
+              const checked = selectedExtras.includes(e.id);
+              return (
+                <label key={e.id} className="flex items-center justify-between gap-2 rounded-md border p-2.5 text-sm">
+                  <span className="flex items-center gap-2">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(v) =>
+                        setSelectedExtras((prev) => (v === true ? [...prev, e.id] : prev.filter((id) => id !== e.id)))
+                      }
+                    />
+                    {e.label}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">${e.price}</span>
+                </label>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
