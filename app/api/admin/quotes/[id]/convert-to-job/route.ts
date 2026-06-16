@@ -5,11 +5,37 @@ import { z } from "zod";
 import { Role, QuoteStatus } from "@prisma/client";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { serializeJobInternalNotes, type JobAdditional } from "@/lib/jobs/meta";
 
 const schema = z.object({
   propertyId: z.string().min(1),
   scheduledDate: z.string().datetime(),
 });
+
+/** Pull the structured extras the admin/client picked, out of the quote notes META. */
+function extrasFromQuoteNotes(notes: string | null | undefined): JobAdditional[] {
+  if (!notes) return [];
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return [];
+  try {
+    const meta = JSON.parse(match[1]) as { extras?: unknown };
+    if (!Array.isArray(meta.extras)) return [];
+    return meta.extras
+      .map((raw, i) => {
+        const e = (raw ?? {}) as Record<string, unknown>;
+        const label = typeof e.label === "string" ? e.label.trim() : "";
+        if (!label) return null;
+        return {
+          id: typeof e.id === "string" && e.id.trim() ? e.id.trim() : `extra-${i + 1}`,
+          label,
+          instructions: typeof e.instructions === "string" ? e.instructions.trim() || undefined : undefined,
+        } as JobAdditional;
+      })
+      .filter((x): x is JobAdditional => x !== null);
+  } catch {
+    return [];
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -29,6 +55,7 @@ export async function POST(
     }
 
     const jobNumber = await reserveJobNumber(db);
+    const additionals = extrasFromQuoteNotes(quote.notes);
     const job = await db.job.create({
       data: {
         jobNumber,
@@ -36,6 +63,9 @@ export async function POST(
         jobType: quote.serviceType,
         scheduledDate: new Date(scheduledDate),
         notes: `Converted from quote #${params.id}`,
+        // Carry the quoted extras onto the job so the cleaner's form shows them
+        // as an "Additionals" section with how-to instructions.
+        internalNotes: additionals.length > 0 ? serializeJobInternalNotes({ additionals }) : undefined,
       },
     });
 

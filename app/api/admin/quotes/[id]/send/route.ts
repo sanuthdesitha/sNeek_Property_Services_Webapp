@@ -6,12 +6,35 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { buildQuoteHtml } from "@/lib/pricing/quote-report";
 import { getAppSettings } from "@/lib/settings";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
+import { getChecklist } from "@/lib/checklists/store";
+import { buildChecklistHtml, type ChecklistPdfExtra } from "@/lib/checklists/checklist-pdf";
 import { z } from "zod";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]).optional(),
   subject: z.string().trim().optional(),
 });
+
+/** Pull the structured extras the admin/client added, out of the quote notes META. */
+function extrasFromNotes(notes: string | null | undefined): ChecklistPdfExtra[] {
+  if (!notes) return [];
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return [];
+  try {
+    const meta = JSON.parse(match[1]) as { extras?: unknown };
+    if (!Array.isArray(meta.extras)) return [];
+    const out: ChecklistPdfExtra[] = [];
+    for (const raw of meta.extras) {
+      const e = (raw ?? {}) as Record<string, unknown>;
+      const label = typeof e.label === "string" ? e.label.trim() : "";
+      if (!label) continue;
+      out.push({ label, instructions: typeof e.instructions === "string" ? e.instructions : undefined });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -68,10 +91,31 @@ export async function POST(
       logoUrl: settings.reportLogoUrl || settings.logoUrl,
     });
 
+    // Best-effort: attach the service checklist (covered/not-covered + extras)
+    // as a PDF. Never blocks the quote email if PDF rendering is unavailable.
+    const attachments: Array<{ filename: string; content: Buffer }> = [];
+    try {
+      const checklist = await getChecklist(String(quote.serviceType));
+      if (checklist) {
+        const checklistHtml = buildChecklistHtml(checklist, {
+          companyName: settings.companyName,
+          logoUrl: settings.reportLogoUrl || settings.logoUrl,
+          serviceLabel: String(quote.serviceType).replace(/_/g, " "),
+          extras: extrasFromNotes(quote.notes),
+        });
+        const { renderPdfFromHtml } = await import("@/lib/reports/pdf");
+        const pdf = await renderPdfFromHtml(checklistHtml, "quote checklist PDF");
+        if (pdf) attachments.push({ filename: "service-checklist.pdf", content: pdf as Buffer });
+      }
+    } catch {
+      // checklist PDF is non-critical
+    }
+
     const sentResult = await sendEmailDetailed({
       to: recipients,
       subject,
       html,
+      attachments: attachments.length ? attachments : undefined,
     });
     const sent = sentResult.ok;
 

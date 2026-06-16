@@ -228,6 +228,40 @@ export async function GET(
     }
     const continuationProgressSnapshot = await getApprovedContinuationProgressSnapshot(job.id);
     const resolvedTemplate = await resolveTemplateReferenceUrls(template);
+
+    // Inject quote extras as an "Additionals" section so the cleaner sees the
+    // base checklist PLUS exactly the extras that were quoted, each with its
+    // how-to. Appended to whatever template applies (or stands alone if none).
+    let templateWithExtras: any = resolvedTemplate;
+    if (jobMeta.additionals.length > 0) {
+      const additionalsSection = {
+        id: "additionals",
+        title: "Additionals (client-requested)",
+        description: "Extra work added on the quote for this job.",
+        fields: jobMeta.additionals.map((extra) => ({
+          id: extra.id,
+          type: "checkbox",
+          label: extra.label,
+          required: false,
+          instructions: extra.instructions,
+        })),
+      };
+      if (templateWithExtras) {
+        const schema = (templateWithExtras.schema as any) ?? {};
+        const sections = Array.isArray(schema.sections) ? schema.sections : [];
+        templateWithExtras = {
+          ...templateWithExtras,
+          schema: { ...schema, sections: [...sections, additionalsSection] },
+        };
+      } else {
+        templateWithExtras = {
+          id: "additionals-only",
+          name: "Job additionals",
+          serviceType: job.jobType,
+          schema: { sections: [additionalsSection] },
+        };
+      }
+    }
     const currentAssignment =
       session.user.role === Role.CLEANER
         ? job.assignments.find((assignment) => assignment.userId === session.user.id) ?? null
@@ -262,7 +296,7 @@ export async function GET(
         logoUrl: settings.logoUrl,
         evidenceStamp: settings.evidenceStamp,
       },
-      template: resolvedTemplate,
+      template: templateWithExtras,
       templateSource,
       configuredPropertyTemplateId,
       inventoryStock,

@@ -52,6 +52,14 @@ export interface JobSpecialRequestTask {
   requiresNote: boolean;
 }
 
+/** A client/admin-requested extra carried from a quote onto the job, surfaced
+ *  to the cleaner as an "Additionals" form item with how-to instructions. */
+export interface JobAdditional {
+  id: string;
+  label: string;
+  instructions?: string;
+}
+
 export interface JobMeta {
   version: 1;
   internalNoteText: string;
@@ -68,6 +76,8 @@ export interface JobMeta {
   cleanerPayouts: Record<string, number>;
   serviceContext?: JobServiceContext;
   reservationContext?: JobReservationContext;
+  // Quote extras that became part of this job (rendered as Additionals).
+  additionals: JobAdditional[];
 }
 
 const DEFAULT_RULE: JobTimingRule = {
@@ -89,7 +99,26 @@ export function defaultJobMeta(): JobMeta {
     cleanerPayouts: {},
     serviceContext: undefined,
     reservationContext: undefined,
+    additionals: [],
   };
+}
+
+/** Normalize the additionals list (quote extras carried onto the job). */
+function normalizeAdditionals(input: unknown): JobAdditional[] {
+  if (!Array.isArray(input)) return [];
+  const out: JobAdditional[] = [];
+  input.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
+    const item = raw as Record<string, unknown>;
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    if (!label) return;
+    out.push({
+      id: typeof item.id === "string" && item.id.trim() ? item.id.trim() : `extra-${index + 1}`,
+      label,
+      instructions: typeof item.instructions === "string" ? item.instructions.trim() || undefined : undefined,
+    });
+  });
+  return out;
 }
 
 // Normalize a per-cleaner amount map (userId -> number). `allowZero` controls
@@ -284,6 +313,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       cleanerPayouts: normalizeCleanerAmountMap(parsed.cleanerPayouts, true),
       serviceContext: normalizeServiceContext(parsed.serviceContext),
       reservationContext: normalizeReservationContext(parsed.reservationContext),
+      additionals: normalizeAdditionals(parsed.additionals),
     };
   } catch {
     return { ...fallback, internalNoteText: raw };
@@ -306,6 +336,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     cleanerPayouts: normalizeCleanerAmountMap(input.cleanerPayouts, true),
     serviceContext: normalizeServiceContext(input.serviceContext),
     reservationContext: normalizeReservationContext(input.reservationContext),
+    additionals: normalizeAdditionals(input.additionals),
   };
 
   const hasStructuredData =
@@ -318,7 +349,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     Object.keys(meta.transportAllowances).length > 0 ||
     Object.keys(meta.cleanerPayouts).length > 0 ||
     Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
-    Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0);
+    Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0) ||
+    meta.additionals.length > 0;
 
   if (!hasStructuredData) {
     return meta.internalNoteText.trim() || undefined;
@@ -337,6 +369,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     cleanerPayouts: meta.cleanerPayouts,
     serviceContext: meta.serviceContext,
     reservationContext: meta.reservationContext,
+    additionals: meta.additionals,
   });
 }
 
