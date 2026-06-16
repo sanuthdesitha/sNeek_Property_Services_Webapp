@@ -7,7 +7,7 @@ import { generateJobReport } from "@/lib/reports/generator";
 import { publicUrl } from "@/lib/s3";
 import { resolveAppUrl } from "@/lib/app-url";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
-import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { parseJobInternalNotes, buildAdditionalsSection } from "@/lib/jobs/meta";
 import { createCase } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
 import { getAppSettings } from "@/lib/settings";
@@ -387,6 +387,18 @@ export async function POST(
 
     // Carry-forward tasks are advisory in this workflow and must not block submission.
 
+    // Snapshot the EFFECTIVE schema (template + the job's quoted "Additionals"
+    // section) so the completed report shows the extras and the cleaner's answers
+    // for them — matching exactly what was rendered in the form.
+    const additionalsSection = buildAdditionalsSection(jobMeta.additionals);
+    const baseSchema = (template.schema as any) ?? {};
+    const effectiveTemplateSchema = additionalsSection
+      ? {
+          ...baseSchema,
+          sections: [...(Array.isArray(baseSchema.sections) ? baseSchema.sections : []), additionalsSection],
+        }
+      : template.schema;
+
     const submission = await db.formSubmission.create({
       data: {
         jobId: params.id,
@@ -394,7 +406,7 @@ export async function POST(
         submittedById: session.user.id,
         data: {
           ...(body.data as Record<string, unknown>),
-          __templateSchema: template.schema,
+          __templateSchema: effectiveTemplateSchema,
           __templateVersion: template.id,
           __adminRequestedTasks: adminRequestedTasks,
           __jobTasks: unifiedTaskSnapshot,

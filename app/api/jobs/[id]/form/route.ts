@@ -5,7 +5,7 @@ import { Role } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import { getJobTimingHighlights, parseJobInternalNotes, buildAdditionalsSection } from "@/lib/jobs/meta";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
@@ -233,19 +233,8 @@ export async function GET(
     // base checklist PLUS exactly the extras that were quoted, each with its
     // how-to. Appended to whatever template applies (or stands alone if none).
     let templateWithExtras: any = resolvedTemplate;
-    if (jobMeta.additionals.length > 0) {
-      const additionalsSection = {
-        id: "additionals",
-        title: "Additionals (client-requested)",
-        description: "Extra work added on the quote for this job.",
-        fields: jobMeta.additionals.map((extra) => ({
-          id: extra.id,
-          type: "checkbox",
-          label: extra.label,
-          required: false,
-          instructions: extra.instructions,
-        })),
-      };
+    const additionalsSection = buildAdditionalsSection(jobMeta.additionals);
+    if (additionalsSection) {
       if (templateWithExtras) {
         const schema = (templateWithExtras.schema as any) ?? {};
         const sections = Array.isArray(schema.sections) ? schema.sections : [];

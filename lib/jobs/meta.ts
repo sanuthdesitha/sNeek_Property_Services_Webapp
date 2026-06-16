@@ -103,6 +103,29 @@ export function defaultJobMeta(): JobMeta {
   };
 }
 
+/**
+ * Build the "Additionals" form section from a job's quoted extras. Field ids are
+ * namespaced ("additional__<id>") so they can never collide with real template
+ * field ids, and the section id is "__additionals". Used by BOTH the live job
+ * form (so the cleaner sees + ticks them) and the submit snapshot (so the
+ * completed report shows them) — keep them identical.
+ */
+export function buildAdditionalsSection(additionals: JobAdditional[]) {
+  if (!additionals || additionals.length === 0) return null;
+  return {
+    id: "__additionals",
+    title: "Additionals (client-requested)",
+    description: "Extra work added on the quote for this job.",
+    fields: additionals.map((extra) => ({
+      id: `additional__${extra.id}`,
+      type: "checkbox",
+      label: extra.label,
+      required: false,
+      instructions: extra.instructions,
+    })),
+  };
+}
+
 /** Normalize the additionals list (quote extras carried onto the job). */
 function normalizeAdditionals(input: unknown): JobAdditional[] {
   if (!Array.isArray(input)) return [];

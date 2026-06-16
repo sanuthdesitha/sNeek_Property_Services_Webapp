@@ -406,7 +406,7 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
 
       return `
         <div class="section">
-          <h3 style="margin:0 0 8px 0;">${escapeHtml(section.label ?? "Section")}</h3>
+          <h3 style="margin:0 0 8px 0;">${escapeHtml(section.title ?? section.label ?? "Section")}</h3>
           <table style="width:100%;border-collapse:collapse;">
             <thead>
               <tr>

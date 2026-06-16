@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { createQuoteSchema } from "@/lib/validations/quote";
+import { getAppSettings } from "@/lib/settings";
+import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { Role } from "@prisma/client";
 
 export async function GET() {
@@ -41,7 +43,22 @@ export async function POST(req: NextRequest) {
       leadId = lead.id;
     }
 
-    const quote = await db.quote.create({ data: { ...quoteData, leadId } });
+    // Never trust client money: recompute each line total (unit × qty), the
+    // subtotal, and GST on the server so the saved totals always agree with the
+    // line items and the configured GST setting.
+    const settings = await getAppSettings();
+    const lineItems = quoteData.lineItems.map((li) => ({
+      ...li,
+      total: Number((Number(li.unitPrice) * Number(li.qty)).toFixed(2)),
+    }));
+    const computedSubtotal = Number(lineItems.reduce((sum, li) => sum + li.total, 0).toFixed(2));
+    const { subtotal, gstAmount, totalAmount } = calculateGstBreakdown(Math.max(0, computedSubtotal), {
+      gstEnabled: settings.pricing.gstEnabled,
+    });
+
+    const quote = await db.quote.create({
+      data: { ...quoteData, leadId, lineItems, subtotal, gstAmount, totalAmount },
+    });
     return NextResponse.json(quote, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

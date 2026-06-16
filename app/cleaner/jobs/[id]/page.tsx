@@ -1782,7 +1782,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       .flatMap((section) =>
         (section.fields ?? [])
           .filter((field: any) => field._resolvedStep === "uploads" && isUploadFieldType(field.type))
-          .map((field: any) => ({ ...field, sectionLabel: section.label }))
+          .map((field: any) => ({ ...field, sectionLabel: section.title ?? section.label }))
       );
     return all.filter(
       (field: any, index: number, arr: any[]) => arr.findIndex((x: any) => x.id === field.id) === index
@@ -1794,7 +1794,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       .flatMap((section) =>
         (section.fields ?? [])
           .filter((field: any) => field._resolvedStep === "laundry")
-          .map((field: any) => ({ ...field, sectionLabel: section.label, _section: section }))
+          .map((field: any) => ({ ...field, sectionLabel: section.title ?? section.label, _section: section }))
       );
     return all.filter(
       (field: any, index: number, arr: any[]) => arr.findIndex((x: any) => x.id === field.id) === index
@@ -1828,7 +1828,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       .flatMap((section) =>
         (section.fields ?? [])
           .filter((field: any) => field._resolvedStep === "submit" && !isUploadFieldType(field.type))
-          .map((field: any) => ({ ...field, sectionLabel: section.label, _section: section }))
+          .map((field: any) => ({ ...field, sectionLabel: section.title ?? section.label, _section: section }))
       );
     return all.filter(
       (field: any, index: number, arr: any[]) => arr.findIndex((x: any) => x.id === field.id) === index
@@ -5132,7 +5132,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           {checklistSections.map((section: any) => (
             <Card key={section.id}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{section.label}</CardTitle>
+                <CardTitle className="text-sm">{section.title ?? section.label}</CardTitle>
               </CardHeader>
                 <CardContent className="space-y-3">
                 {(section.fields ?? []).map((field: any) => (
