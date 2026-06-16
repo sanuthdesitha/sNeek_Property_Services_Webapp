@@ -94,6 +94,15 @@ export const leadSchema = z.object({
 export const createQuoteSchema = z.object({
   leadId: z.string().min(1).optional(),
   clientId: z.string().min(1).optional(),
+  // When set, a new QuoteLead is created for this recipient and linked to the quote.
+  newLead: z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      email: z.string().trim().email(),
+      phone: z.string().trim().max(20).optional(),
+      suburb: z.string().trim().max(120).optional(),
+    })
+    .optional(),
   serviceType: z.nativeEnum(JobType),
   lineItems: z.array(
     z.object({

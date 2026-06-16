@@ -23,8 +23,25 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = createQuoteSchema.parse(await req.json());
-    const quote = await db.quote.create({ data: body });
+    const { newLead, ...quoteData } = createQuoteSchema.parse(await req.json());
+
+    let leadId = quoteData.leadId;
+    // A brand-new recipient with their details → create the lead, link it.
+    if (newLead) {
+      const lead = await db.quoteLead.create({
+        data: {
+          name: newLead.name,
+          email: newLead.email.toLowerCase(),
+          phone: newLead.phone || null,
+          suburb: newLead.suburb || null,
+          serviceType: quoteData.serviceType,
+          status: "QUOTED",
+        },
+      });
+      leadId = lead.id;
+    }
+
+    const quote = await db.quote.create({ data: { ...quoteData, leadId } });
     return NextResponse.json(quote, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

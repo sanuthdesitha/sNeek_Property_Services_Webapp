@@ -3,7 +3,7 @@ import { NewQuoteForm } from "@/components/admin/new-quote-form";
 import { getAppSettings } from "@/lib/settings";
 
 export default async function NewQuotePage() {
-  const [leads, settings] = await Promise.all([
+  const [leads, clients, settings] = await Promise.all([
     db.quoteLead.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -19,8 +19,20 @@ export default async function NewQuotePage() {
         estimateMax: true,
       },
     }),
+    db.client.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      take: 500,
+      select: { id: true, name: true, email: true, suburb: true },
+    }),
     getAppSettings(),
   ]);
 
-  return <NewQuoteForm leads={leads} gstEnabled={settings.pricing.gstEnabled} />;
+  return (
+    <NewQuoteForm
+      leads={leads}
+      clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb }))}
+      gstEnabled={settings.pricing.gstEnabled}
+    />
+  );
 }
