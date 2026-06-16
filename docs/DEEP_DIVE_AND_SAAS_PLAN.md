@@ -144,3 +144,26 @@ Working-tree edits (uncommitted), all type-checked + production-built:
 - `docs/DEEP_DIVE_AND_SAAS_PLAN.md` — this document.
 
 Nothing pushed. Tell me when you want it committed/pushed, and give me the go (and tenancy confirmation) on the SaaS Phase 1.
+
+---
+
+## 8. Progress log — SaaS Phase 1 (after you said "go")
+
+All work is on a **local branch `saas-phase-1`**, committed but **NOT pushed**. Nothing touches your database.
+
+### ✅ Phase 1a — additive data model (DONE, committed locally, tsc + build green)
+- `prisma/schema.prisma`: new `Organization`, `Plan`, `Subscription` models + `OrgStatus` / `SubscriptionStatus` enums. **New tables only** — no existing table altered, no `organizationId` on existing models yet → safe to apply to the live single-tenant DB with zero data migration. (`User.ownedOrganizations` is a virtual relation field → no new column on `User`.)
+- `lib/saas/plans.ts`: platform plan catalog — **Starter A$49 / Pro A$149 / Scale A$349** per month, all with a **30-day, card-not-required trial**, each with an entitlements map (module access + soft seat/property limits).
+- `lib/saas/seed-plans.ts`: idempotent Plan-table sync.
+- `prisma/migrations/20260617000000_saas_org_plan_subscription/migration.sql`: BOM-free, new-tables-only. **Apply with `prisma migrate deploy` after you review** — I did not run it against your DB.
+
+### ⏸ Phase 1b — org-scoping retrofit (GATED, needs you)
+Add `organizationId` to every tenant-owned model, backfill your business as **Org #1**, add a fail-closed Prisma AsyncLocalStorage auto-scoping extension, carry org on the session, and rework workers/webhooks. **This is the data-leak-critical part.** Acceptance gate = a **2-tenant leak audit**. I deliberately did not run this unsupervised. Recommend: do it on this branch against a **clone of your DB backup**, with the leak audit as the merge gate.
+
+### ⏸ Phase 1c — Stripe Billing + public signup (depends on 1b)
+Stripe SDK + Checkout (`mode: subscription`) + Customer Portal + a separate billing webhook; `trialEndsAt` logic; workspace-lock guard (402 on mutations when `LOCKED`); SaaS `/pricing` + `/signup` provisioning (org + owner ADMIN + seeded defaults). **Needs your Stripe keys/price IDs.**
+
+### ⚠️ Open decision for 1c — the domain model
+Your existing `app/(public)` site is the **tenant's own customer marketing site** (their service plans at `/subscriptions`). The SaaS "buy sNeek" landing is a *separate* surface. Decide:
+- **Root domain** = SaaS marketing + `/signup` (e.g. `sneek.com`, `app.sneek.com`); **each tenant** gets their marketing site on a **subdomain** (`acme.sneek.com`) or custom domain.
+This routing choice gates where `/pricing` and `/signup` live, so I held off building those pages to avoid entangling them with the tenant marketing site.
