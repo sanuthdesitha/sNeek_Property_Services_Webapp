@@ -10,50 +10,28 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 
-const SERVICE_TYPES: Array<{ value: JobType; label: string }> = [
-  { value: JobType.AIRBNB_TURNOVER, label: "Airbnb Turnover" },
-  { value: JobType.GENERAL_CLEAN, label: "General Clean" },
-  { value: JobType.SPRING_CLEANING, label: "Spring Cleaning" },
-  { value: JobType.DEEP_CLEAN, label: "Deep Clean" },
-  { value: JobType.END_OF_LEASE, label: "End of Lease" },
-  { value: JobType.CARPET_STEAM_CLEAN, label: "Carpet Steam Clean" },
-  { value: JobType.WINDOW_CLEAN, label: "Window Clean" },
-  { value: JobType.PRESSURE_WASH, label: "Pressure Wash" },
-  { value: JobType.UPHOLSTERY_CLEANING, label: "Upholstery Cleaning" },
-  { value: JobType.TILE_GROUT_CLEANING, label: "Tile & Grout Cleaning" },
-  { value: JobType.POST_CONSTRUCTION, label: "Post Construction" },
-  { value: JobType.COMMERCIAL_RECURRING, label: "Commercial Recurring" },
-  { value: JobType.SPECIAL_CLEAN, label: "Special Clean" },
-];
-
-const ADD_ONS: Array<{ key: string; label: string }> = [
-  { key: "oven", label: "Oven" },
-  { key: "fridge", label: "Fridge" },
-  { key: "interiorWindows", label: "Interior windows" },
-  { key: "smallBalcony", label: "Balcony" },
-  { key: "carpetSteam", label: "Carpet steam" },
-  { key: "garage", label: "Garage" },
-  { key: "insideCupboards", label: "Inside cupboards" },
-  { key: "heavyMess", label: "Heavy soiling" },
-  { key: "sameDay", label: "Same-day" },
-  { key: "pets", label: "Pets" },
-];
-
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
-interface Option { id: string; name: string; email: string; suburb?: string | null; serviceType?: JobType; bedrooms?: number | null; bathrooms?: number | null; }
+interface Option { id: string; name: string; email: string; }
+interface ServiceOption {
+  jobType: string;
+  label: string;
+  model: "ROOMS" | "AREA" | "WINDOWS" | "ITEMS" | "BANDS" | "HOURLY";
+  itemLabel: string | null;
+  unitLabel: string | null;
+  bands: { label: string }[];
+}
 interface NewQuoteFormProps {
-  leads: Option[];
+  leads: (Option & { serviceType?: JobType; bedrooms?: number | null; bathrooms?: number | null })[];
   clients: Option[];
+  services: ServiceOption[];
   gstEnabled: boolean;
 }
 
-export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) {
+export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteFormProps) {
   const router = useRouter();
 
   const [recipientMode, setRecipientMode] = useState<"client" | "lead" | "new">("client");
@@ -61,23 +39,22 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
   const [leadId, setLeadId] = useState("");
   const [newLead, setNewLead] = useState({ name: "", email: "", phone: "", suburb: "" });
 
-  const [serviceType, setServiceType] = useState<JobType>(JobType.AIRBNB_TURNOVER);
+  const [serviceType, setServiceType] = useState<string>(services[0]?.jobType ?? "AIRBNB_TURNOVER");
   const [bedrooms, setBedrooms] = useState("2");
   const [bathrooms, setBathrooms] = useState("1");
-  const [frequency, setFrequency] = useState<"one_off" | "weekly" | "fortnightly" | "monthly">("one_off");
-  const [conditionLevel, setConditionLevel] = useState<"light" | "standard" | "heavy">("standard");
-  const [promoCode, setPromoCode] = useState("");
-  const [addOns, setAddOns] = useState<Record<string, boolean>>({});
+  const [sqm, setSqm] = useState("50");
+  const [windows, setWindows] = useState("10");
+  const [items, setItems] = useState("3");
+  const [hours, setHours] = useState("3");
+  const [bandIndex, setBandIndex] = useState("0");
 
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [pricing, setPricing] = useState(false);
-  const [discountClamped, setDiscountClamped] = useState(false);
   const [notes, setNotes] = useState("");
   const [validUntilDate, setValidUntilDate] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const bedsN = Number(bedrooms) || 0;
-  const bathsN = Number(bathrooms) || 0;
+  const service = useMemo(() => services.find((s) => s.jobType === serviceType) ?? services[0], [services, serviceType]);
 
   const { subtotal, gstAmount, totalAmount } = useMemo(() => {
     const sum = lineItems.reduce((acc, li) => acc + (Number(li.total) || 0), 0);
@@ -89,46 +66,46 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
     setLeadId(id);
     const lead = leads.find((l) => l.id === id);
     if (!lead) return;
-    if (lead.serviceType) setServiceType(lead.serviceType);
+    if (lead.serviceType && services.some((s) => s.jobType === lead.serviceType)) setServiceType(lead.serviceType);
     if (lead.bedrooms != null) setBedrooms(String(lead.bedrooms));
     if (lead.bathrooms != null) setBathrooms(String(lead.bathrooms));
   }
 
+  function priceInputs() {
+    const model = service?.model;
+    return {
+      serviceType,
+      bedrooms: model === "ROOMS" ? Number(bedrooms) || 0 : undefined,
+      bathrooms: model === "ROOMS" ? Number(bathrooms) || 0 : undefined,
+      sqm: model === "AREA" ? Number(sqm) || 0 : undefined,
+      windows: model === "WINDOWS" ? Number(windows) || 0 : undefined,
+      items: model === "ITEMS" ? Number(items) || 0 : undefined,
+      hours: model === "HOURLY" ? Number(hours) || 0 : undefined,
+      bandIndex: model === "BANDS" ? Number(bandIndex) || 0 : undefined,
+    };
+  }
+
   async function autoPrice() {
     setPricing(true);
-    setDiscountClamped(false);
     try {
       const res = await fetch("/api/admin/quotes/price", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceType,
-          bedrooms: bedsN,
-          bathrooms: bathsN,
-          frequency,
-          conditionLevel,
-          addOns,
-          promoCode: promoCode.trim() || undefined,
-        }),
+        body: JSON.stringify(priceInputs()),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not price this quote.");
       if (body.requiresManualQuote) {
-        toast({ title: "Manual quote needed", description: body.message ?? "Add line items by hand.", });
+        toast({ title: "Manual quote needed", description: body.message ?? "Add line items by hand." });
         return;
       }
-      const result = body.result;
-      const items: LineItem[] = Array.isArray(result?.lineItems) ? result.lineItems : [];
+      const items: LineItem[] = Array.isArray(body.result?.lineItems) ? body.result.lineItems : [];
       if (items.length === 0) {
         toast({ title: "No price returned", description: "Add line items manually.", variant: "destructive" });
         return;
       }
       setLineItems(items.map((i) => ({ label: i.label, unitPrice: Number(i.unitPrice), qty: Number(i.qty), total: Number(i.total) })));
-      setDiscountClamped(Boolean(result?.discountClamped));
-      toast({
-        title: "Priced from rate card",
-        description: result?.discountClamped ? "Discount capped to keep the margin floor." : `${items.length} line item(s) added.`,
-      });
+      toast({ title: "Priced from rate card", description: `${items.length} line item(s) added.` });
     } catch (err: any) {
       toast({ title: "Pricing failed", description: err.message, variant: "destructive" });
     } finally {
@@ -153,6 +130,13 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
     return Boolean(newLead.name.trim() && newLead.email.trim());
   }
 
+  function buildMeta() {
+    const m = service?.model;
+    if (m === "ROOMS") return { bedrooms: Number(bedrooms) || 0, bathrooms: Number(bathrooms) || 0 };
+    if (m === "AREA") return { sqm: Number(sqm) || 0 };
+    return {};
+  }
+
   function buildPayload() {
     return {
       clientId: recipientMode === "client" ? clientId : undefined,
@@ -165,7 +149,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
       subtotal,
       gstAmount,
       totalAmount,
-      notes: [notes.trim(), `[[META:${JSON.stringify({ bedrooms: bedsN, bathrooms: bathsN })}]]`].filter(Boolean).join("\n") || undefined,
+      notes: [notes.trim(), `[[META:${JSON.stringify(buildMeta())}]]`].filter(Boolean).join("\n") || undefined,
       validUntil: validUntilDate ? new Date(`${validUntilDate}T23:59:59`).toISOString() : undefined,
     };
   }
@@ -192,11 +176,8 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
       if (send) {
         const sendRes = await fetch(`/api/admin/quotes/${quote.id}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
         const sendBody = await sendRes.json().catch(() => ({}));
-        if (!sendRes.ok) {
-          toast({ title: "Quote created, but send failed", description: sendBody.error ?? "Open the quote to resend.", variant: "destructive" });
-        } else {
-          toast({ title: "Quote sent", description: "The luxury quote was emailed to the recipient." });
-        }
+        if (!sendRes.ok) toast({ title: "Quote created, but send failed", description: sendBody.error ?? "Open the quote to resend.", variant: "destructive" });
+        else toast({ title: "Quote sent", description: "Emailed to the recipient." });
       } else {
         toast({ title: "Quote created", description: "Saved as a draft." });
       }
@@ -214,7 +195,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">New Quote</h2>
-          <p className="text-sm text-muted-foreground">Quote an existing client or a new lead, priced from your rate card.</p>
+          <p className="text-sm text-muted-foreground">Quote an existing client or a new lead, priced per service from your rate card.</p>
         </div>
         <Button asChild variant="outline"><Link href="/admin/quotes">Back to quotes</Link></Button>
       </div>
@@ -225,9 +206,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {([["client", "Existing client"], ["lead", "Existing lead"], ["new", "New lead"]] as const).map(([m, label]) => (
-              <Button key={m} type="button" size="sm" variant={recipientMode === m ? "default" : "outline"} onClick={() => setRecipientMode(m)}>
-                {label}
-              </Button>
+              <Button key={m} type="button" size="sm" variant={recipientMode === m ? "default" : "outline"} onClick={() => setRecipientMode(m)}>{label}</Button>
             ))}
           </div>
           {recipientMode === "client" ? (
@@ -235,9 +214,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
               <Label>Client</Label>
               <Select value={clientId} onValueChange={setClientId}>
                 <SelectTrigger><SelectValue placeholder="Select a client" /></SelectTrigger>
-                <SelectContent>
-                  {clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.email ? ` — ${c.email}` : ""}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.email ? ` — ${c.email}` : ""}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           ) : recipientMode === "lead" ? (
@@ -245,9 +222,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
               <Label>Lead</Label>
               <Select value={leadId} onValueChange={applyLead}>
                 <SelectTrigger><SelectValue placeholder="Select a lead" /></SelectTrigger>
-                <SelectContent>
-                  {leads.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} — {l.email}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{leads.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} — {l.email}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           ) : (
@@ -265,62 +240,49 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
       <Card>
         <CardHeader><CardTitle className="text-base">Service &amp; pricing</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Service</Label>
-              <Select value={serviceType} onValueChange={(v: JobType) => setServiceType(v)}>
+              <Select value={serviceType} onValueChange={(v) => setServiceType(v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{SERVICE_TYPES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                <SelectContent>{services.map((s) => <SelectItem key={s.jobType} value={s.jobType}>{s.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5"><Label>Bedrooms</Label><Input type="number" min="0" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Bathrooms</Label><Input type="number" min="0" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} /></div>
-            <div className="space-y-1.5">
-              <Label>Frequency</Label>
-              <Select value={frequency} onValueChange={(v: any) => setFrequency(v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="one_off">One-off</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="fortnightly">Fortnightly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Condition</Label>
-              <Select value={conditionLevel} onValueChange={(v: any) => setConditionLevel(v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="standard">Standard</SelectItem>
-                  <SelectItem value="heavy">Heavy</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5"><Label>Promo code (optional)</Label><Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="e.g. FIRSTCLEAN" /></div>
-          </div>
-
-          <div className="rounded-md border p-3">
-            <p className="mb-2 text-sm font-medium">Add-ons</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              {ADD_ONS.map((a) => (
-                <label key={a.key} className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={Boolean(addOns[a.key])} onCheckedChange={(v) => setAddOns((p) => ({ ...p, [a.key]: v === true }))} />
-                  {a.label}
-                </label>
-              ))}
-            </div>
+            {/* Per-model fields */}
+            {service?.model === "ROOMS" ? (
+              <>
+                <div className="space-y-1.5"><Label>Bedrooms</Label><Input type="number" min="0" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Bathrooms</Label><Input type="number" min="0" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} /></div>
+              </>
+            ) : null}
+            {service?.model === "AREA" ? (
+              <div className="space-y-1.5"><Label>Area ({service.unitLabel ?? "sqm"})</Label><Input type="number" min="0" value={sqm} onChange={(e) => setSqm(e.target.value)} /></div>
+            ) : null}
+            {service?.model === "WINDOWS" ? (
+              <div className="space-y-1.5"><Label>Number of windows</Label><Input type="number" min="0" value={windows} onChange={(e) => setWindows(e.target.value)} /></div>
+            ) : null}
+            {service?.model === "ITEMS" ? (
+              <div className="space-y-1.5"><Label>Number of {service.itemLabel ?? "item"}s</Label><Input type="number" min="0" value={items} onChange={(e) => setItems(e.target.value)} /></div>
+            ) : null}
+            {service?.model === "HOURLY" ? (
+              <div className="space-y-1.5"><Label>Hours</Label><Input type="number" min="0" step="0.5" value={hours} onChange={(e) => setHours(e.target.value)} /></div>
+            ) : null}
+            {service?.model === "BANDS" ? (
+              <div className="space-y-1.5">
+                <Label>Size</Label>
+                <Select value={bandIndex} onValueChange={setBandIndex}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{(service.bands ?? []).map((b, i) => <SelectItem key={i} value={String(i)}>{b.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
 
           <Button type="button" onClick={autoPrice} disabled={pricing}>
             {pricing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
             Calculate from rate card
           </Button>
-          {discountClamped ? <Badge variant="warning" className="ml-2">Discount capped to margin floor</Badge> : null}
         </CardContent>
       </Card>
 
@@ -348,8 +310,7 @@ export function NewQuoteForm({ leads, clients, gstEnabled }: NewQuoteFormProps) 
               </div>
             ))
           )}
-
-          <div className="grid gap-4 md:grid-cols-3 pt-2">
+          <div className="grid gap-4 pt-2 md:grid-cols-3">
             <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Subtotal</p><p className="text-lg font-semibold tabular-nums">${subtotal.toFixed(2)}</p></div>
             <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">{gstLabel}</p><p className="text-lg font-semibold tabular-nums">${gstAmount.toFixed(2)}</p></div>
             <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-semibold tabular-nums">${totalAmount.toFixed(2)}</p></div>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Save, DollarSign } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Save, DollarSign } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,44 +11,66 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/hooks/use-toast";
 
-type Pricing = {
-  cleanerHourlyCost: number;
-  rackHourlyRate: number;
-  marginFloorPercent: number;
-  gstEnabled: boolean;
+type Band = { label: string; price: number };
+type Rate = {
+  base?: number;
+  perBedroom?: number;
+  perBathroom?: number;
+  perSqm?: number;
+  perWindow?: number;
+  perItem?: number;
+  hourly?: number;
+  bands?: Band[];
+  minCharge: number;
 };
-type Row = {
-  id: string;
+type Service = {
   jobType: string;
   label: string;
-  bedrooms: number | null;
-  bathrooms: number | null;
-  hours: number;
-  baseRate: number;
-  margin: number | null;
+  model: "ROOMS" | "AREA" | "WINDOWS" | "ITEMS" | "BANDS" | "HOURLY";
+  itemLabel: string | null;
+  unitLabel: string | null;
+  rate: Rate;
 };
 
+const MODEL_LABEL: Record<Service["model"], string> = {
+  ROOMS: "Per bedroom + bathroom",
+  AREA: "Per area",
+  WINDOWS: "Per window",
+  ITEMS: "Per item",
+  BANDS: "Size bands",
+  HOURLY: "Hourly",
+};
+
+function NumField({ label, value, onChange }: { label: string; value: number | undefined; onChange: (n: number) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      <div className="flex items-center gap-1">
+        <span className="text-muted-foreground">$</span>
+        <Input type="number" className="h-9" value={value ?? 0} onChange={(e) => onChange(Number(e.target.value))} />
+      </div>
+    </div>
+  );
+}
+
 export default function PricingPage() {
-  const [pricing, setPricing] = useState<Pricing | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [seeded, setSeeded] = useState(false);
+  const [services, setServices] = useState<Service[]>([]);
+  const [gstEnabled, setGstEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [savingCfg, setSavingCfg] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [savingRow, setSavingRow] = useState<string | null>(null);
+  const [savingType, setSavingType] = useState<string | null>(null);
+  const [savingGst, setSavingGst] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/pricing/rate-card", { cache: "no-store" });
+      const res = await fetch("/api/admin/pricing/services", { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast({ title: "Could not load pricing", description: body.error ?? "Retry.", variant: "destructive" });
         return;
       }
-      setPricing(body.pricing);
-      setRows(body.rows ?? []);
-      setSeeded(Boolean(body.seeded));
+      setServices(body.services ?? []);
+      setGstEnabled(Boolean(body.gstEnabled));
     } finally {
       setLoading(false);
     }
@@ -57,74 +79,53 @@ export default function PricingPage() {
     load();
   }, []);
 
-  async function saveConfig() {
-    if (!pricing) return;
-    setSavingCfg(true);
+  function patchRate(jobType: string, patch: Partial<Rate>) {
+    setServices((prev) => prev.map((s) => (s.jobType === jobType ? { ...s, rate: { ...s.rate, ...patch } } : s)));
+  }
+  function patchBand(jobType: string, idx: number, patch: Partial<Band>) {
+    setServices((prev) =>
+      prev.map((s) => {
+        if (s.jobType !== jobType) return s;
+        const bands = (s.rate.bands ?? []).map((b, i) => (i === idx ? { ...b, ...patch } : b));
+        return { ...s, rate: { ...s.rate, bands } };
+      })
+    );
+  }
+
+  async function saveService(s: Service) {
+    setSavingType(s.jobType);
     try {
-      const res = await fetch("/api/admin/settings", {
+      const res = await fetch("/api/admin/pricing/services", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pricing }),
+        body: JSON.stringify({ jobType: s.jobType, rate: s.rate }),
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b.error ?? "Save failed.");
       }
-      toast({ title: "Pricing settings saved" });
-      await load();
+      toast({ title: `${s.label} saved` });
     } catch (err: any) {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
     } finally {
-      setSavingCfg(false);
+      setSavingType(null);
     }
   }
 
-  async function regenerate() {
-    setGenerating(true);
+  async function saveGst(next: boolean) {
+    setGstEnabled(next);
+    setSavingGst(true);
     try {
-      const res = await fetch("/api/admin/pricing/rate-card", { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not generate.");
-      toast({ title: "Rate card generated", description: `${body.generated} price points created from $${pricing?.rackHourlyRate}/hr.` });
-      await load();
-    } catch (err: any) {
-      toast({ title: "Generate failed", description: err.message, variant: "destructive" });
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function saveRow(row: Row) {
-    setSavingRow(row.id);
-    try {
-      const res = await fetch("/api/admin/pricing/rate-card", {
+      await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, baseRate: row.baseRate }),
+        body: JSON.stringify({ pricing: { gstEnabled: next } }),
       });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        throw new Error(b.error ?? "Save failed.");
-      }
-      toast({ title: "Price updated" });
-      await load();
-    } catch (err: any) {
-      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+      toast({ title: "GST setting saved" });
     } finally {
-      setSavingRow(null);
+      setSavingGst(false);
     }
   }
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, { label: string; rows: Row[] }>();
-    for (const r of rows) {
-      if (!map.has(r.jobType)) map.set(r.jobType, { label: r.label, rows: [] });
-      map.get(r.jobType)!.rows.push(r);
-    }
-    return Array.from(map.values());
-  }, [rows]);
-
-  const floor = pricing?.marginFloorPercent ?? 40;
 
   if (loading) {
     return (
@@ -138,158 +139,83 @@ export default function PricingPage() {
     <div className="space-y-6">
       <PageHeader
         icon={<DollarSign />}
-        title="Pricing & rate card"
-        description="Set the labour cost, rack rate, and margin floor — then generate every service price. Edit any price directly; all quotes use these."
+        title="Service pricing"
+        description="Each service is priced by the fields that matter for it. Rates are ex-GST and feed every quote. Edit and save per service."
       />
 
-      {/* Pricing model */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pricing model</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {pricing ? (
-            <>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label>Cleaner pay ($/hr)</Label>
-                  <Input
-                    type="number"
-                    value={pricing.cleanerHourlyCost}
-                    onChange={(e) => setPricing({ ...pricing, cleanerHourlyCost: Number(e.target.value) })}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Your cost base for the margin calc.</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Rack rate ($/hr)</Label>
-                  <Input
-                    type="number"
-                    value={pricing.rackHourlyRate}
-                    onChange={(e) => setPricing({ ...pricing, rackHourlyRate: Number(e.target.value) })}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Customer-facing effective hourly rate the card is built on.</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Margin floor (%)</Label>
-                  <Input
-                    type="number"
-                    value={pricing.marginFloorPercent}
-                    onChange={(e) => setPricing({ ...pricing, marginFloorPercent: Number(e.target.value) })}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Discounts never drop a quote below this.</p>
-                </div>
-              </div>
-              <label className="flex items-center gap-3 rounded-md border p-3">
-                <Switch
-                  checked={pricing.gstEnabled}
-                  onCheckedChange={(v) => setPricing({ ...pricing, gstEnabled: v })}
-                />
-                <span className="text-sm">Add GST (10%) to quotes</span>
-              </label>
-              <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
-                At ${pricing.cleanerHourlyCost}/hr cost and ${pricing.rackHourlyRate}/hr rack rate, baseline margin is{" "}
-                <strong className="text-foreground">
-                  {pricing.rackHourlyRate > 0
-                    ? Math.round(((pricing.rackHourlyRate - pricing.cleanerHourlyCost) / pricing.rackHourlyRate) * 100)
-                    : 0}
-                  %
-                </strong>
-                . Floor is {floor}% — the most you can discount before a quote is capped is about{" "}
-                {pricing.rackHourlyRate > 0
-                  ? Math.max(
-                      0,
-                      Math.round(
-                        (1 - (pricing.cleanerHourlyCost / pricing.rackHourlyRate) / (1 - floor / 100)) * 100
-                      )
-                    )
-                  : 0}
-                %.
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={saveConfig} disabled={savingCfg}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {savingCfg ? "Saving…" : "Save pricing model"}
-                </Button>
-                <Button variant="outline" onClick={regenerate} disabled={generating}>
-                  {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                  {seeded ? "Regenerate rate card" : "Generate rate card"}
-                </Button>
-              </div>
-            </>
-          ) : null}
+        <CardContent className="flex items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-sm font-medium">Add GST (10%) to quotes</p>
+            <p className="text-xs text-muted-foreground">Rates below are ex-GST; GST is added on top when enabled.</p>
+          </div>
+          <Switch checked={gstEnabled} disabled={savingGst} onCheckedChange={saveGst} />
         </CardContent>
       </Card>
 
-      {/* Rate card */}
-      {grouped.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No rate card yet. Set your rack rate above and click <strong>Generate rate card</strong> to price every
-            service × size combination.
-          </CardContent>
-        </Card>
-      ) : (
-        grouped.map((group) => (
-          <Card key={group.label}>
-            <CardHeader>
-              <CardTitle className="text-base">{group.label}</CardTitle>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {services.map((s) => (
+          <Card key={s.jobType}>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">{s.label}</CardTitle>
+                <Badge variant="outline" className="mt-1">{MODEL_LABEL[s.model]}</Badge>
+              </div>
+              <Button size="sm" onClick={() => saveService(s)} disabled={savingType === s.jobType}>
+                <Save className="mr-1.5 h-4 w-4" />
+                {savingType === s.jobType ? "Saving…" : "Save"}
+              </Button>
             </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2">Bed</th>
-                    <th className="px-4 py-2">Bath</th>
-                    <th className="px-4 py-2">Est. hrs</th>
-                    <th className="px-4 py-2">Price (GST-inc)</th>
-                    <th className="px-4 py-2">Margin</th>
-                    <th className="px-4 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => {
-                    const belowFloor = row.margin != null && row.margin < floor;
-                    return (
-                      <tr key={row.id} className="border-b last:border-b-0">
-                        <td className="px-4 py-2 tabular-nums">{row.bedrooms}</td>
-                        <td className="px-4 py-2 tabular-nums">{row.bathrooms}</td>
-                        <td className="px-4 py-2 tabular-nums text-muted-foreground">{row.hours}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1">
-                            <span className="text-muted-foreground">$</span>
-                            <Input
-                              type="number"
-                              className="h-8 w-24"
-                              value={row.baseRate}
-                              onChange={(e) =>
-                                setRows((prev) =>
-                                  prev.map((r) => (r.id === row.id ? { ...r, baseRate: Number(e.target.value) } : r))
-                                )
-                              }
-                            />
-                          </div>
-                        </td>
-                        <td className="px-4 py-2">
-                          {row.margin != null ? (
-                            <Badge variant={belowFloor ? "destructive" : "success"}>{row.margin}%</Badge>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <Button size="sm" variant="outline" disabled={savingRow === row.id} onClick={() => saveRow(row)}>
-                            {savingRow === row.id ? "Saving…" : "Save"}
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {s.model === "ROOMS" ? (
+                  <>
+                    <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
+                    <NumField label="Per bedroom" value={s.rate.perBedroom} onChange={(n) => patchRate(s.jobType, { perBedroom: n })} />
+                    <NumField label="Per bathroom" value={s.rate.perBathroom} onChange={(n) => patchRate(s.jobType, { perBathroom: n })} />
+                  </>
+                ) : null}
+                {s.model === "AREA" ? (
+                  <>
+                    <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
+                    <NumField label={`Per ${s.unitLabel ?? "sqm"}`} value={s.rate.perSqm} onChange={(n) => patchRate(s.jobType, { perSqm: n })} />
+                  </>
+                ) : null}
+                {s.model === "WINDOWS" ? (
+                  <>
+                    <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
+                    <NumField label="Per window" value={s.rate.perWindow} onChange={(n) => patchRate(s.jobType, { perWindow: n })} />
+                  </>
+                ) : null}
+                {s.model === "ITEMS" ? (
+                  <>
+                    <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
+                    <NumField label={`Per ${s.itemLabel ?? "item"}`} value={s.rate.perItem} onChange={(n) => patchRate(s.jobType, { perItem: n })} />
+                  </>
+                ) : null}
+                {s.model === "HOURLY" ? (
+                  <>
+                    <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
+                    <NumField label="Per hour" value={s.rate.hourly} onChange={(n) => patchRate(s.jobType, { hourly: n })} />
+                  </>
+                ) : null}
+                <NumField label="Minimum charge" value={s.rate.minCharge} onChange={(n) => patchRate(s.jobType, { minCharge: n })} />
+              </div>
+
+              {s.model === "BANDS" ? (
+                <div className="space-y-2">
+                  {(s.rate.bands ?? []).map((b, i) => (
+                    <div key={i} className="grid grid-cols-3 items-center gap-2">
+                      <Input className="col-span-2 h-9" value={b.label} onChange={(e) => patchBand(s.jobType, i, { label: e.target.value })} />
+                      <div className="flex items-center gap-1"><span className="text-muted-foreground">$</span><Input className="h-9" type="number" value={b.price} onChange={(e) => patchBand(s.jobType, i, { price: Number(e.target.value) })} /></div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
-        ))
-      )}
+        ))}
+      </div>
     </div>
   );
 }

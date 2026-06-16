@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NewQuoteForm } from "@/components/admin/new-quote-form";
 import { getAppSettings } from "@/lib/settings";
+import { SERVICE_CATALOG } from "@/lib/pricing/service-catalog";
 
 export default async function NewQuotePage() {
   const [leads, clients, settings] = await Promise.all([
@@ -28,10 +29,20 @@ export default async function NewQuotePage() {
     getAppSettings(),
   ]);
 
+  const serviceOptions = SERVICE_CATALOG.map((c) => ({
+    jobType: c.jobType as string,
+    label: c.label,
+    model: c.model,
+    itemLabel: c.itemLabel ?? null,
+    unitLabel: c.unitLabel ?? null,
+    bands: (c.rate.bands ?? []).map((b) => ({ label: b.label })),
+  }));
+
   return (
     <NewQuoteForm
       leads={leads}
-      clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb }))}
+      clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "" }))}
+      services={serviceOptions}
       gstEnabled={settings.pricing.gstEnabled}
     />
   );
