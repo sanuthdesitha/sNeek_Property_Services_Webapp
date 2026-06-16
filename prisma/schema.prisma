@@ -565,6 +565,7 @@ model User {
   shoppingReceipts             ShoppingReceipt[]           @relation("ShoppingReceiptUploadedBy")
   shoppingSettlementsPaid      ShoppingSettlement[]        @relation("ShoppingSettlementPaidBy")
   reportVisibilityUpdates      Report[]                    @relation("ReportVisibilityUpdatedBy")
+  ownedOrganizations           Organization[]              @relation("OrgOwner")
   // Client link (optional)
   clientId                     String?
   client                       Client?                     @relation(fields: [clientId], references: [id])
@@ -2960,4 +2961,92 @@ model GeocodeFailure {
   resolvedAt  DateTime?
   @@index([modelType, modelId])
   @@index([resolvedAt])
+}
+
+// ─────────────────────────────────────────────
+// SaaS multi-tenancy + subscription billing (Phase 1a — additive)
+//
+// These are NEW tables only. No `organizationId` is added to existing models
+// yet; that row-level-isolation retrofit is Phase 1b and is gated behind a
+// 2-tenant leak audit. Until 1b lands, the app stays single-tenant and these
+// rows are inert scaffolding. The existing business becomes Organization #1
+// during the 1b backfill.
+// ─────────────────────────────────────────────
+
+enum OrgStatus {
+  TRIALING   // inside the 30-day free trial, no card required
+  ACTIVE     // paid subscription in good standing
+  PAST_DUE   // payment failed, in dunning grace
+  LOCKED     // trial ended / dunning lapsed → workspace read-only
+  CANCELED   // subscription canceled (kept for grace/export window)
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  UNPAID
+}
+
+// A tenant workspace. One per cleaning business that signs up.
+model Organization {
+  id               String     @id @default(cuid())
+  name             String
+  slug             String     @unique          // workspace handle / future subdomain
+  status           OrgStatus  @default(TRIALING)
+  planKey          String     @default("starter") // see lib/saas/plans.ts
+  trialEndsAt      DateTime?                     // 30 days from signup while TRIALING
+  stripeCustomerId String?    @unique
+  // Owner of the workspace (the first ADMIN created at signup). Scalar+relation
+  // FK lives here; the back-reference on User is virtual (no extra User column).
+  ownerUserId      String?
+  owner            User?      @relation("OrgOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  subscription     Subscription?
+
+  @@index([status])
+  @@index([planKey])
+  @@index([trialEndsAt])
+}
+
+// Platform pricing catalog (what tenants pay US to use the product).
+// Distinct from SubscriptionPlan, which is a tenant's own service plan for
+// THEIR clients. Seeded from lib/saas/plans.ts.
+model Plan {
+  id            String   @id @default(cuid())
+  key           String   @unique          // "starter" | "pro" | "scale"
+  name          String
+  description    String?
+  priceCents    Int                       // monthly price in AUD cents
+  currency      String   @default("AUD")
+  interval      String   @default("month")
+  trialDays     Int      @default(30)
+  stripePriceId String?                    // set once wired to Stripe Billing
+  featureFlags  Json                       // entitlements map (see plans.ts)
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// A tenant's live subscription, mirrored from Stripe via the billing webhook.
+model Subscription {
+  id                   String             @id @default(cuid())
+  organizationId       String             @unique
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  planKey              String
+  status               SubscriptionStatus @default(TRIALING)
+  stripeSubscriptionId String?            @unique
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([status])
 }
