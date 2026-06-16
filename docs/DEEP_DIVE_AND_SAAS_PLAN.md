@@ -157,8 +157,22 @@ All work is on a **local branch `saas-phase-1`**, committed but **NOT pushed**. 
 - `lib/saas/seed-plans.ts`: idempotent Plan-table sync.
 - `prisma/migrations/20260617000000_saas_org_plan_subscription/migration.sql`: BOM-free, new-tables-only. **Apply with `prisma migrate deploy` after you review** — I did not run it against your DB.
 
-### ⏸ Phase 1b — org-scoping retrofit (GATED, needs you)
-Add `organizationId` to every tenant-owned model, backfill your business as **Org #1**, add a fail-closed Prisma AsyncLocalStorage auto-scoping extension, carry org on the session, and rework workers/webhooks. **This is the data-leak-critical part.** Acceptance gate = a **2-tenant leak audit**. I deliberately did not run this unsupervised. Recommend: do it on this branch against a **clone of your DB backup**, with the leak audit as the merge gate.
+### 🟡 Phase 1b — tenant-isolation ENGINE built (inert); column rollout + audit still gated
+The **isolation engine is now built and committed** (all behind flags, INERT — not wired into `lib/db.ts`, so the app still runs exactly as single-tenant):
+- `lib/saas/config.ts` — feature flags, all default OFF (`SNEEK_MULTITENANCY`, `SNEEK_SIGNUP`, `SNEEK_BILLING`).
+- `lib/saas/tenant-context.ts` — `AsyncLocalStorage` org context: `runWithTenant()`, `runAsPlatformAdmin()` (bypass), `getCurrentOrganizationId()`.
+- `lib/saas/tenant-models.ts` — **the registry**: all 108 models classified GLOBAL vs TENANT_OWNED. `tests/saas/tenant-models.test.ts` (passing) compares against Prisma's DMMF, so **adding a model without classifying it fails CI** — a forgotten model can't silently leak.
+- `lib/saas/tenant-prisma.ts` — `registerTenantScoping()`: a Prisma `$use` middleware that forces `organizationId` on reads, stamps it on creates, and scopes update/delete/upsert. **Fail-closed** (`TENANT_STRICT`): a tenant-model query with no org context throws. Known gaps documented in-file (nested writes, raw SQL) — these are the leak-audit checklist.
+- `lib/saas/workspace-guard.ts` — 402 workspace-lock guard + trial-expiry/`resolveEffectiveStatus`/`trialDaysRemaining`.
+- `lib/saas/org.ts` — `provisionOrganization()` (creates org in 30-day trial + TRIALING subscription), slug generation.
+
+**Still gated (needs you + a DB clone):** the `organizationId`-COLUMN rollout on all tenant models + backfilling your business as **Org #1**, wiring the middleware into `lib/db.ts` behind the flag, carrying org on the session, reworking workers/webhooks for explicit per-org iteration, then the **2-tenant leak audit** (the acceptance gate). Recommend doing it on this branch against a **clone of your DB backup**.
+
+**Switch-on procedure (when we do 1b live together):**
+1. Migration: add `organizationId` (nullable) to every model in `TENANT_OWNED_MODELS`; backfill all existing rows to Org #1; then set `NOT NULL` + FK + index.
+2. Resolve org from session at the request edge → `runWithTenant(orgId, handler)`; workers wrap each org in `runWithTenant`; migrations/super-admin use `runAsPlatformAdmin`.
+3. Call `registerTenantScoping(prisma)` in `lib/db.ts` and set `SNEEK_MULTITENANCY=1` in a **staging** env with 2 seeded orgs.
+4. Run the leak audit (every list endpoint as tenant A must never return tenant B's rows; nested writes + raw SQL reviewed). Only then enable in prod + add the Postgres RLS backstop (Phase 2).
 
 ### ⏸ Phase 1c — Stripe Billing + public signup (depends on 1b)
 Stripe SDK + Checkout (`mode: subscription`) + Customer Portal + a separate billing webhook; `trialEndsAt` logic; workspace-lock guard (402 on mutations when `LOCKED`); SaaS `/pricing` + `/signup` provisioning (org + owner ADMIN + seeded defaults). **Needs your Stripe keys/price IDs.**
