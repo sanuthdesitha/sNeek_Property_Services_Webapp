@@ -173,6 +173,7 @@ export default function PricingPage() {
                     <NumField label="Base" value={s.rate.base} onChange={(n) => patchRate(s.jobType, { base: n })} />
                     <NumField label="Per bedroom" value={s.rate.perBedroom} onChange={(n) => patchRate(s.jobType, { perBedroom: n })} />
                     <NumField label="Per bathroom" value={s.rate.perBathroom} onChange={(n) => patchRate(s.jobType, { perBathroom: n })} />
+                    <NumField label="Per sqm" value={s.rate.perSqm} onChange={(n) => patchRate(s.jobType, { perSqm: n })} />
                   </>
                 ) : null}
                 {s.model === "AREA" ? (

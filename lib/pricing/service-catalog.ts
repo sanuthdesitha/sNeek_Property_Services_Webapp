@@ -46,15 +46,15 @@ export interface ServiceConfig {
 export const SERVICE_CATALOG: ServiceConfig[] = [
   // ---- Room-based (bedrooms + bathrooms) ----
   { jobType: JobType.AIRBNB_TURNOVER, label: "Airbnb turnover", model: "ROOMS", autoPriceable: true,
-    rate: { base: 60, perBedroom: 18, perBathroom: 25, minCharge: 110 } },
+    rate: { base: 60, perBedroom: 18, perBathroom: 25, perSqm: 0.2, minCharge: 110 } },
   { jobType: JobType.GENERAL_CLEAN, label: "Regular / general clean", model: "ROOMS", autoPriceable: true,
-    rate: { base: 70, perBedroom: 20, perBathroom: 28, minCharge: 120 } },
+    rate: { base: 70, perBedroom: 20, perBathroom: 28, perSqm: 0.3, minCharge: 120 } },
   { jobType: JobType.SPRING_CLEANING, label: "Spring clean", model: "ROOMS", autoPriceable: true,
-    rate: { base: 110, perBedroom: 35, perBathroom: 45, minCharge: 220 } },
+    rate: { base: 110, perBedroom: 35, perBathroom: 45, perSqm: 0.4, minCharge: 220 } },
   { jobType: JobType.DEEP_CLEAN, label: "Deep clean", model: "ROOMS", autoPriceable: true,
-    rate: { base: 140, perBedroom: 40, perBathroom: 55, minCharge: 245 } },
+    rate: { base: 140, perBedroom: 40, perBathroom: 55, perSqm: 0.5, minCharge: 245 } },
   { jobType: JobType.END_OF_LEASE, label: "End of lease / bond", model: "ROOMS", autoPriceable: true,
-    rate: { base: 200, perBedroom: 50, perBathroom: 80, minCharge: 320 } },
+    rate: { base: 200, perBedroom: 50, perBathroom: 80, perSqm: 0.6, minCharge: 320 } },
 
   // ---- Area-based (sqm) ----
   { jobType: JobType.PRESSURE_WASH, label: "Pressure washing", model: "AREA", unitLabel: "sqm", autoPriceable: true,
@@ -154,8 +154,11 @@ export function priceService(
     if (rate.base) pushLine(`${config.label} base`, rate.base, 1);
     const beds = Math.max(0, inputs.bedrooms ?? 0);
     const baths = Math.max(0, inputs.bathrooms ?? 0);
+    const sqm = Math.max(0, inputs.sqm ?? 0);
     if (beds > 0 && rate.perBedroom) pushLine(`Bedrooms (${beds})`, rate.perBedroom, beds);
     if (baths > 0 && rate.perBathroom) pushLine(`Bathrooms (${baths})`, rate.perBathroom, baths);
+    // Floor area adds to the base so larger homes price higher.
+    if (sqm > 0 && rate.perSqm) pushLine(`Floor area (${sqm} sqm)`, rate.perSqm, sqm);
   } else if (config.model === "AREA") {
     if (rate.base) pushLine(`${config.label} base`, rate.base, 1);
     const sqm = Math.max(0, inputs.sqm ?? 0);

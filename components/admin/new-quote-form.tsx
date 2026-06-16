@@ -92,7 +92,7 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
       serviceType,
       bedrooms: model === "ROOMS" ? Number(bedrooms) || 0 : undefined,
       bathrooms: model === "ROOMS" ? Number(bathrooms) || 0 : undefined,
-      sqm: model === "AREA" ? Number(sqm) || 0 : undefined,
+      sqm: model === "AREA" || model === "ROOMS" ? Number(sqm) || 0 : undefined,
       windows: model === "WINDOWS" ? Number(windows) || 0 : undefined,
       items: model === "ITEMS" ? Number(items) || 0 : undefined,
       hours: model === "HOURLY" ? Number(hours) || 0 : undefined,
@@ -151,6 +151,7 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
     if (m === "ROOMS") {
       base.bedrooms = Number(bedrooms) || 0;
       base.bathrooms = Number(bathrooms) || 0;
+      if (Number(sqm) > 0) base.sqm = Number(sqm) || 0;
     } else if (m === "AREA") {
       base.sqm = Number(sqm) || 0;
     }
@@ -279,6 +280,7 @@ export function NewQuoteForm({ leads, clients, services, gstEnabled }: NewQuoteF
               <>
                 <div className="space-y-1.5"><Label>Bedrooms</Label><Input type="number" min="0" value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Bathrooms</Label><Input type="number" min="0" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Floor area (sqm)</Label><Input type="number" min="0" value={sqm} onChange={(e) => setSqm(e.target.value)} /></div>
               </>
             ) : null}
             {service?.model === "AREA" ? (
