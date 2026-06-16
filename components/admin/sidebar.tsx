@@ -16,6 +16,7 @@ import {
   Boxes,
   Shirt,
   DollarSign,
+  Tags,
   HandCoins,
   FileBarChart,
   Bell,
@@ -80,6 +81,7 @@ export const ADMIN_NAV_GROUPS = [
     label: "Commercial",
     items: [
       { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
+      { label: "Pricing", href: "/admin/pricing", icon: Tags },
       { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
       { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
       { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },

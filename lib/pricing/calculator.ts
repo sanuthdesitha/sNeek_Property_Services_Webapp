@@ -71,6 +71,8 @@ interface QuoteResult {
   gst: number;
   total: number;
   discountTotal?: number;
+  /** True when a discount was capped to keep the configured margin floor. */
+  discountClamped?: boolean;
   appliedCampaign?: {
     code: string;
     title: string;
@@ -191,9 +193,28 @@ function finalizeQuote({
         discountType: campaignValidation.campaign.discountType,
         discountValue: campaignValidation.campaign.discountValue,
       };
-      if (discountTotal > 0) {
-        lineItems.push({ label: `Campaign: ${campaignValidation.campaign.code}`, unitPrice: -discountTotal, qty: 1, total: -discountTotal });
-      }
+    }
+
+    // Margin-floor guard: a quote must keep the configured minimum margin even
+    // after a promo. Floor price = cost / (1 - marginFloor); cost is derived from
+    // the uniform rack margin (cleanerHourlyCost / rackHourlyRate share of price).
+    const pricing = (await getAppSettings()).pricing;
+    let discountClamped = false;
+    const costShare =
+      pricing.rackHourlyRate > 0 ? Math.min(0.95, pricing.cleanerHourlyCost / pricing.rackHourlyRate) : 0;
+    const floorDivisor = Math.max(0.05, 1 - (pricing.marginFloorPercent ?? 40) / 100);
+    const floorPrice = costShare > 0 ? Number(((subtotalBeforeDiscount * costShare) / floorDivisor).toFixed(2)) : 0;
+    if (discountTotal > 0 && floorPrice > 0 && subtotalBeforeDiscount - discountTotal < floorPrice) {
+      discountTotal = Number(Math.max(0, subtotalBeforeDiscount - floorPrice).toFixed(2));
+      discountClamped = true;
+    }
+    if (appliedCampaign && discountTotal > 0) {
+      lineItems.push({
+        label: `Campaign: ${appliedCampaign.code}${discountClamped ? " (capped to margin floor)" : ""}`,
+        unitPrice: -discountTotal,
+        qty: 1,
+        total: -discountTotal,
+      });
     }
 
     const { subtotal, gstAmount: gst, totalAmount: total } = calculateGstBreakdown(
@@ -209,6 +230,7 @@ function finalizeQuote({
       gst,
       total,
       discountTotal,
+      discountClamped,
       appliedCampaign,
       lineItems,
       isEstimate: true,

@@ -204,6 +204,13 @@ export interface QaAutomationSettings {
 
 export interface PricingSettings {
   gstEnabled: boolean;
+  /** What a cleaner is paid per hour — the cost base for the margin floor. */
+  cleanerHourlyCost: number;
+  /** Standard customer-facing effective rate per hour the rate card is built on. */
+  rackHourlyRate: number;
+  /** Minimum gross margin (%) any quote must keep after discounts. Discounts are
+   *  auto-clamped so the price never drops below this. */
+  marginFloorPercent: number;
 }
 
 export type StampDateFormat = "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD" | "DD MMM YYYY";
@@ -497,6 +504,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   pricing: {
     gstEnabled: true,
+    cleanerHourlyCost: 32,
+    rackHourlyRate: 58,
+    marginFloorPercent: 40,
   },
   evidenceStamp: {
     dateFormat: "DD/MM/YYYY",
@@ -914,8 +924,13 @@ function sanitizeQaAutomationSettings(
 function sanitizePricingSettings(input: unknown, fallback: PricingSettings): PricingSettings {
   if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
   const row = input as Record<string, unknown>;
+  const num = (value: unknown, fb: number, min: number, max: number) =>
+    typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fb;
   return {
     gstEnabled: typeof row.gstEnabled === "boolean" ? row.gstEnabled : fallback.gstEnabled,
+    cleanerHourlyCost: num(row.cleanerHourlyCost, fallback.cleanerHourlyCost, 0, 500),
+    rackHourlyRate: num(row.rackHourlyRate, fallback.rackHourlyRate, 1, 1000),
+    marginFloorPercent: num(row.marginFloorPercent, fallback.marginFloorPercent, 0, 95),
   };
 }
 
@@ -1207,7 +1222,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
-    pricing: input.pricing ?? current.pricing,
+    pricing: { ...current.pricing, ...(input.pricing ?? {}) },
     evidenceStamp: input.evidenceStamp ?? current.evidenceStamp,
     websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,

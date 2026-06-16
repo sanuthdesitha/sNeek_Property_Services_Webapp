@@ -150,6 +150,9 @@ const qaAutomationSchema = z.object({
 
 const pricingSchema = z.object({
   gstEnabled: z.boolean().optional(),
+  cleanerHourlyCost: z.number().min(0).max(500).optional(),
+  rackHourlyRate: z.number().min(1).max(1000).optional(),
+  marginFloorPercent: z.number().min(0).max(95).optional(),
 });
 
 const updateSchema = z.object({
