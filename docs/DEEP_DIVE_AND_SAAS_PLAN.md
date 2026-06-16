@@ -166,7 +166,16 @@ The **isolation engine is now built and committed** (all behind flags, INERT —
 - `lib/saas/workspace-guard.ts` — 402 workspace-lock guard + trial-expiry/`resolveEffectiveStatus`/`trialDaysRemaining`.
 - `lib/saas/org.ts` — `provisionOrganization()` (creates org in 30-day trial + TRIALING subscription), slug generation.
 
-**Still gated (needs you + a DB clone):** the `organizationId`-COLUMN rollout on all tenant models + backfilling your business as **Org #1**, wiring the middleware into `lib/db.ts` behind the flag, carrying org on the session, reworking workers/webhooks for explicit per-org iteration, then the **2-tenant leak audit** (the acceptance gate). Recommend doing it on this branch against a **clone of your DB backup**.
+**Now also done (committed):**
+- ✅ **`organizationId` column rolled out to all 103 tenant models** (nullable/additive) via `scripts/saas/add-org-columns.mjs` → migration `20260617020000_…`. A new consistency test asserts **every scoped model actually has the column** (no registry↔schema drift → no surprise fail-closed errors).
+- ✅ **Backfill script** `scripts/saas/backfill-org-one.mjs` — creates Organization #1 from your company name and assigns every existing row + user to it (idempotent, transactional).
+- ✅ Session carries org; `withRequestTenant` helper ready (see Phase 1c).
+
+**Still gated (needs you + a DB clone) — the genuinely unsafe-to-automate part:**
+1. **Wire `withRequestTenant` into route handlers / workers** so each request runs inside its org context (the bulk; mistakes here = leaks, which is why it pairs with the audit).
+2. **Call `registerTenantScoping(prisma)` in `lib/db.ts`** + set `SNEEK_MULTITENANCY=1` in **staging**.
+3. **Run the 2-tenant leak audit** (every list endpoint as tenant A must never see tenant B; review nested writes + raw SQL per `tenant-prisma.ts`).
+4. Backfill → set `organizationId NOT NULL` (follow-up migration) → enable in prod → add Postgres RLS backstop (Phase 2).
 
 **Switch-on procedure (when we do 1b live together):**
 1. Migration: add `organizationId` (nullable) to every model in `TENANT_OWNED_MODELS`; backfill all existing rows to Org #1; then set `NOT NULL` + FK + index.
