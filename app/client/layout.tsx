@@ -47,7 +47,8 @@ export default async function ClientLayout({ children }: { children: React.React
         { href: "/client/referrals", label: "Rewards" },
         ...(visibility.showReports ? [{ href: "/client/reports", label: "Reports" }] : []),
         { href: "/client/maintenance", label: "Maintenance" },
-        ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Quotes" }] : []),
+        { href: "/client/quotes", label: "My quotes" },
+        ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Request a quote" }] : []),
         ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),
         ...(visibility.showCases ? [{ href: "/client/cases", label: "Cases" }] : []),
       ]}

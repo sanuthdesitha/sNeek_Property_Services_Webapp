@@ -158,7 +158,9 @@ export default function QuotesPage() {
     status: "DRAFT",
     validUntil: "",
     notes: "",
+    clientId: "",
   });
+  const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string | null }>>([]);
   const selectedLead = useMemo(
     () => leads.find((lead) => lead.id === selectedLeadId) ?? null,
     [leads, selectedLeadId]
@@ -174,6 +176,10 @@ export default function QuotesPage() {
     fetch("/api/admin/quotes")
       .then((r) => r.json())
       .then((data) => setQuotes(Array.isArray(data) ? data : []));
+
+    fetch("/api/admin/clients")
+      .then((r) => r.json())
+      .then((data) => setClients(Array.isArray(data) ? data : []));
   }
 
   useEffect(() => {
@@ -194,6 +200,7 @@ export default function QuotesPage() {
       status: editQuote.status ?? "DRAFT",
       validUntil: editQuote.validUntil ? new Date(editQuote.validUntil).toISOString().slice(0, 10) : "",
       notes: editQuote.notes ?? "",
+      clientId: editQuote.clientId ?? "",
     });
   }, [editQuote]);
 
@@ -348,6 +355,7 @@ export default function QuotesPage() {
       status: editForm.status,
       notes: editForm.notes || null,
       validUntil: editForm.validUntil ? new Date(`${editForm.validUntil}T00:00:00`).toISOString() : null,
+      clientId: editForm.clientId || null,
     };
     const res = await fetch(`/api/admin/quotes/${editQuote.id}`, {
       method: "PATCH",
@@ -845,6 +853,25 @@ export default function QuotesPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assign to client</Label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={editForm.clientId}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, clientId: e.target.value }))}
+              >
+                <option value="">Unassigned{editQuote?.lead?.name ? ` (lead: ${editQuote.lead.name})` : ""}</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.email ? ` — ${c.email}` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Addresses the quote to the client — they can view and accept it from their portal, and you can email it to them.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Valid until</Label>

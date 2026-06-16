@@ -8,6 +8,8 @@ const updateQuoteSchema = z.object({
   status: z.nativeEnum(QuoteStatus).optional(),
   notes: z.string().trim().optional().nullable(),
   validUntil: z.string().datetime().optional().nullable(),
+  // Assign/reassign the quote to a client (null to unassign).
+  clientId: z.string().trim().min(1).optional().nullable(),
 });
 
 export async function GET(
@@ -58,6 +60,17 @@ export async function PATCH(
     }
     if (body.notes !== undefined) data.notes = body.notes || null;
     if (body.validUntil !== undefined) data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
+    if (body.clientId !== undefined) {
+      if (body.clientId) {
+        const client = await db.client.findUnique({ where: { id: body.clientId }, select: { id: true, isActive: true } });
+        if (!client || !client.isActive) {
+          return NextResponse.json({ error: "Selected client does not exist or is inactive." }, { status: 400 });
+        }
+        data.clientId = client.id;
+      } else {
+        data.clientId = null;
+      }
+    }
 
     const quote = await db.quote.update({
       where: { id: params.id },
