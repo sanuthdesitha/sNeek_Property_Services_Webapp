@@ -21,6 +21,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname),
+      // server-only throws if imported outside a Server Component bundle; make it
+      // a no-op in tests so server modules (e.g. the tenant-isolation engine) load.
+      "server-only": path.resolve(__dirname, "tests/__stubs__/server-only.ts"),
     },
   },
 });

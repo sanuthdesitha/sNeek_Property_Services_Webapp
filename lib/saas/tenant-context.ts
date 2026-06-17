@@ -20,7 +20,16 @@ export interface TenantContext {
 
 const storage = new AsyncLocalStorage<TenantContext>();
 
-/** Run `fn` with the given org as the active tenant for all DB access inside it. */
+/**
+ * Run `fn` with the given org as the active tenant for all DB access inside it.
+ *
+ * IMPORTANT: `fn` must AWAIT its async work internally. Prisma queries execute
+ * lazily on await, so `runWithTenant(org, () => prisma.x.findMany())` and then
+ * awaiting the returned promise OUTSIDE will execute the query after this async
+ * context has exited (the scoping middleware would see no org → fail-closed).
+ * Route handlers wrapped as `withRequestTenant(() => handler(req))` are fine
+ * because the handler awaits its own queries inside.
+ */
 export function runWithTenant<T>(organizationId: string, fn: () => T): T {
   return storage.run({ organizationId }, fn);
 }
