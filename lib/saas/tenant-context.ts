@@ -43,6 +43,20 @@ export function runAsPlatformAdmin<T>(fn: () => T): T {
   return storage.run({ organizationId: "__platform__", bypass: true }, fn);
 }
 
+/**
+ * Establish the active tenant for the remainder of the current request without
+ * a wrapping callback. Used by the session gate (lib/auth/session.ts) so every
+ * authenticated route/page is scoped centrally — no per-handler wrapping.
+ *
+ * Uses AsyncLocalStorage.enterWith: verified to propagate from the awaited gate
+ * back to the handler's continuation. Each HTTP request runs in its own async
+ * context root, so this is request-scoped and does not bleed across requests.
+ * (For background workers — which have no request root — use runWithTenant.)
+ */
+export function enterTenantContext(organizationId: string): void {
+  storage.enterWith({ organizationId });
+}
+
 /** The active tenant context, or undefined if none is set. */
 export function getTenantContext(): TenantContext | undefined {
   return storage.getStore();

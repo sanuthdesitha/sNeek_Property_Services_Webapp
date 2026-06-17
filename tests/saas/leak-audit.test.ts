@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { registerTenantScoping } from "@/lib/saas/tenant-prisma";
-import { runWithTenant, runAsPlatformAdmin } from "@/lib/saas/tenant-context";
+import { runWithTenant, runAsPlatformAdmin, enterTenantContext } from "@/lib/saas/tenant-context";
 import { MULTITENANCY_ENABLED } from "@/lib/saas/config";
 
 /**
@@ -101,5 +101,16 @@ d("tenant isolation (2-tenant leak audit)", () => {
     await runWithTenant(orgB, async () => prisma.client.deleteMany({ where: { name: "___nonexistent___" } }));
     const aCountAfter = await runAsPlatformAdmin(async () => prisma.client.count({ where: { organizationId: orgA } }));
     expect(aCountAfter).toBe(aCountBefore);
+  });
+
+  // MUST be the last test: enterTenantContext (enterWith) has no scoped exit, so
+  // it persists for the remainder of this async context. This is exactly the
+  // production request path — getSession() calls enterTenantContext, then the
+  // handler's queries run scoped WITHOUT any run() wrapper.
+  it("central enterWith wiring scopes queries with no run() wrapper (production request path)", async () => {
+    enterTenantContext(orgB);
+    const clients = await prisma.client.findMany({ select: { organizationId: true } });
+    expect(clients.length).toBeGreaterThan(0);
+    expect(clients.every((c: any) => c.organizationId === orgB), "enterWith path leaked a non-B row").toBe(true);
   });
 });

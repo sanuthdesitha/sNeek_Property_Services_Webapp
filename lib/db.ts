@@ -2,12 +2,14 @@ import "server-only";
 import type { PrismaClient as PrismaClientType } from "@prisma/client";
 import { dispatchMobilePushForNotifications } from "@/lib/notifications/mobile-push";
 import { canUseNodePrisma, getDatabaseUrl, isEdgeLikeRuntime } from "@/lib/database-runtime";
+import { registerTenantScoping } from "@/lib/saas/tenant-prisma";
 
 const { PrismaClient } = require("@prisma/client") as typeof import("@prisma/client");
 
 type PrismaGlobal = {
   prisma?: PrismaClientType;
   prismaHasNotificationMiddleware?: boolean;
+  prismaHasTenantScoping?: boolean;
   prismaInitWarned?: boolean;
 };
 
@@ -113,6 +115,13 @@ function resolveDbClient() {
   }
 
   const prisma = registerNotificationMiddleware(globalForPrisma.prisma ?? createPrismaClient());
+
+  // Tenant row-level isolation. Self-guards on MULTITENANCY_ENABLED (no-op when
+  // off) and is registered once per client (dedup guard for dev hot-reload).
+  if (!globalForPrisma.prismaHasTenantScoping) {
+    registerTenantScoping(prisma);
+    globalForPrisma.prismaHasTenantScoping = true;
+  }
 
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = prisma;

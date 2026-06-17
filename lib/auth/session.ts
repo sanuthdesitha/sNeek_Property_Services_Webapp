@@ -2,9 +2,18 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "./auth-options";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { MULTITENANCY_ENABLED } from "@/lib/saas/config";
+import { enterTenantContext } from "@/lib/saas/tenant-context";
 
 export async function getSession() {
-  return getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
+  // Central tenant wiring: establish the request's org for the auto-scoping
+  // middleware. Covers every authenticated route/page that reads the session —
+  // no per-handler wrapping. No-op unless multitenancy is enabled.
+  if (MULTITENANCY_ENABLED && session?.user?.organizationId) {
+    enterTenantContext(session.user.organizationId);
+  }
+  return session;
 }
 
 export async function requireSession() {
@@ -15,13 +24,18 @@ export async function requireSession() {
 
   const user = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, isActive: true, role: true },
+    select: { id: true, isActive: true, role: true, organizationId: true },
   });
   if (!user?.isActive) {
     throw new Error("UNAUTHORIZED");
   }
 
   session.user.role = user.role;
+  session.user.organizationId = user.organizationId ?? null;
+  // Re-assert from the authoritative DB value (the JWT org could be stale).
+  if (MULTITENANCY_ENABLED && user.organizationId) {
+    enterTenantContext(user.organizationId);
+  }
   return session;
 }
 
