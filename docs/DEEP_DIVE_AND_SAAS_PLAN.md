@@ -215,3 +215,20 @@ A PG18 clone of production (`localhost:5433/spsmain_clone`, dumped **read-only**
 **This is the acceptance gate passing at the engine level.** What remains for go-live: (a) wire `withRequestTenant` into route handlers/workers + `registerTenantScoping` in `lib/db.ts` so real HTTP requests carry org context (then a per-endpoint pass), (b) `organizationId NOT NULL` follow-up migration, (c) Stripe keys/price IDs + enable billing/signup + admin trial banner, (d) apply to prod + Postgres RLS backstop.
 
 _Clone teardown when finished: `E:\sps-clone\pgsql\bin\pg_ctl.exe -D E:\sps-clone\data stop`, then delete `E:\sps-clone` (it contains a copy of prod data + the prod dump). **Rotate the prod DB password** — it was shared in chat._
+
+---
+
+## 10. Route-wiring pass (DONE — central, proven)
+
+The authenticated surface is wired **centrally**, with zero per-route churn:
+- `lib/auth/session.ts` — `getSession()` and `requireSession()` now call `enterTenantContext(org)` (AsyncLocalStorage `enterWith`) so every authenticated route handler **and** server-component page that reads the session is scoped automatically. No-op while the flag is off.
+- `lib/db.ts` — registers `registerTenantScoping(prisma)` (dedup-guarded; self-no-ops when the flag is off).
+- Verified: `enterWith` propagates from the awaited gate to the handler's continuation (empirically + a new leak-audit case **"central enterWith wiring scopes queries with no run() wrapper"** — the exact production path — passing on the clone). 7/7 leak-audit tests green; tsc + prod build green; flag-off app shows no regression (all routes 200).
+
+**Why central (not 388 wrappers):** `enterWith` in the session gate covers the whole authenticated app in one place, and the **fail-closed** middleware means any path that somehow misses context *throws* (caught in the audit) rather than leaking — so partial coverage is safe, never silent.
+
+### ⚠️ Finding surfaced by the pass — public/unauth reads (the real next batch)
+`AppSetting` is tenant-owned but `getAppSettings()` is read in **unauthenticated** contexts (root layout, the public marketing site, `/login`). With multitenancy ON and no session, those reads fail-closed → public pages 500. This is correct (no org context = no tenant data), but it means flag-ON is not yet a clean switch. **Remaining before enabling in prod:**
+1. **Public org-resolution** — resolve the org for unauthenticated requests (subdomain/custom-domain → org), then `enterTenantContext` for public routes too. Depends on the domain-model decision (§8).
+2. **Background workers / cron / webhooks** — run outside a request; wrap each org's work in `runWithTenant` (engine ready; just needs applying in the worker loops).
+3. **Per-endpoint sweep** with the flag on in staging (the audit), then `organizationId NOT NULL`, then prod enable + Postgres RLS.
