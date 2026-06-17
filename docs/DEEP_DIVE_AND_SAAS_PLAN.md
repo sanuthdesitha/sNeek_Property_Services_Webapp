@@ -196,4 +196,22 @@ Everything is built, committed and verified — gated OFF so it can't run premat
 ### ⚠️ Remaining (the data-leak-critical core — needs you + a DB clone)
 The only thing between this and a sellable product is **Phase 1b going live**: the `organizationId`-column rollout across the ~95 tenant models, backfilling your business as Org #1, wiring `withRequestTenant` into handlers + workers, calling `registerTenantScoping` in `lib/db.ts`, then the **2-tenant leak audit**. The engine, registry (with its fail-closed CI test), billing and signup are all ready and waiting on that switch.
 
-> ⚠️ **Branch note:** `saas-phase-1` now expects its two migrations applied (`prisma migrate deploy`) before the app runs, because `User` now selects `organizationId`. `main` is untouched and unaffected.
+> ⚠️ **Branch note:** `saas-phase-1` now expects its migrations applied (`prisma migrate deploy`) before the app runs, because `User` now selects `organizationId`. `main` is untouched and unaffected.
+
+---
+
+## 9. ✅ VALIDATED ON A PRODUCTION CLONE
+
+A PG18 clone of production (`localhost:5433/spsmain_clone`, dumped **read-only** — prod never modified) was used to validate the whole migration path end-to-end:
+
+1. **3 SaaS migrations applied cleanly** — Prisma reported only the 3 new ones pending (49 total), confirming the branch's migration history matches prod exactly.
+2. **Backfill ran**: `scripts/saas/backfill-org-one.mjs` assigned **31,399 rows across 103 tables + all 16 users** to Organization #1 ("sNeek Property Services", owner `admin@sneekproservices.com.au`, plan `scale`, ACTIVE subscription). **Zero NULL `organizationId`** left in any key table.
+3. **2-tenant leak audit PASSED** (`tests/saas/leak-audit.test.ts`, run with `SNEEK_MULTITENANCY=1` against the clone) — the real auto-scoping middleware, with two orgs in one DB:
+   - creates auto-stamp the active org; `findUnique`-by-id is rewritten + scoped (cross-tenant read → null);
+   - Org A never sees Org B's rows and vice-versa across job/property/client/report/quote;
+   - `deleteMany` in one tenant cannot touch another's rows.
+   - The fail-closed guard correctly threw when a query ran with no tenant context (surfaced the await-inside-context usage rule, now documented in `tenant-context.ts`).
+
+**This is the acceptance gate passing at the engine level.** What remains for go-live: (a) wire `withRequestTenant` into route handlers/workers + `registerTenantScoping` in `lib/db.ts` so real HTTP requests carry org context (then a per-endpoint pass), (b) `organizationId NOT NULL` follow-up migration, (c) Stripe keys/price IDs + enable billing/signup + admin trial banner, (d) apply to prod + Postgres RLS backstop.
+
+_Clone teardown when finished: `E:\sps-clone\pgsql\bin\pg_ctl.exe -D E:\sps-clone\data stop`, then delete `E:\sps-clone` (it contains a copy of prod data + the prod dump). **Rotate the prod DB password** — it was shared in chat._
