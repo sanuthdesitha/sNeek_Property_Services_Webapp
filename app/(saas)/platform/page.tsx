@@ -2,7 +2,7 @@ import Link from "next/link";
 import { listPlans, formatPlanPrice, TRIAL_DAYS } from "@/lib/saas/plans";
 
 export const metadata = {
-  title: "sNeek for business — the operating system for cleaning companies",
+  title: { absolute: "sNeekly — the operating system for cleaning businesses" },
   description:
     "Jobs, scheduling, proof-of-clean, quoting, payroll and client portals in one platform. Start a 30-day free trial — no card required.",
 };
@@ -35,7 +35,7 @@ export default function PlatformPricingPage() {
           </span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-400">
-          sNeek is the all-in-one platform for cleaning companies — jobs, proof-of-clean, quoting,
+          sNeekly is the all-in-one platform for cleaning companies — jobs, proof-of-clean, quoting,
           payroll, client portals and marketing. Replace five tools with one.
         </p>
         <div className="mt-9 flex items-center justify-center gap-4">

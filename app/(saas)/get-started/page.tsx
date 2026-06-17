@@ -3,7 +3,7 @@ import { SignupForm } from "@/components/saas/signup-form";
 import { TRIAL_DAYS } from "@/lib/saas/plans";
 
 export const metadata = {
-  title: "Start your free trial — sNeek for business",
+  title: { absolute: "Start your free trial — sNeekly" },
   description: `Create your cleaning-business workspace and start a ${TRIAL_DAYS}-day free trial. No card required.`,
 };
 

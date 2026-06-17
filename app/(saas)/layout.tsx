@@ -15,8 +15,7 @@ export default function SaasLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/platform" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_12px] shadow-amber-400/60" />
-            sNeek
-            <span className="text-slate-400 font-normal">for business</span>
+            sNeekly
           </Link>
           <nav className="flex items-center gap-6 text-sm">
             <Link href="/platform" className="text-slate-300 hover:text-white transition-colors">
@@ -37,7 +36,7 @@ export default function SaasLayout({ children }: { children: ReactNode }) {
       <main>{children}</main>
       <footer className="border-t border-white/5 mt-24">
         <div className="mx-auto max-w-6xl px-6 py-10 text-sm text-slate-500 flex flex-col sm:flex-row justify-between gap-4">
-          <p>© sNeek — the operating system for cleaning businesses.</p>
+          <p>© sNeekly — the operating system for cleaning businesses.</p>
           <div className="flex gap-6">
             <Link href="/platform" className="hover:text-slate-300">Pricing</Link>
             <Link href="/get-started" className="hover:text-slate-300">Start free trial</Link>
