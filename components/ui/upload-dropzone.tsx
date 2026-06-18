@@ -94,16 +94,21 @@ export function UploadDropzone({
   const [files, setFiles] = React.useState<FileState[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const cameraInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Offer an in-app camera capture only for evidence (stamped) image contexts.
+  const allowCamera = Boolean(stamp) && (!accept || /image/i.test(accept));
 
   const processFile = React.useCallback(
-    async (idx: number, file: File) => {
+    async (idx: number, file: File, shouldStamp: boolean) => {
       setFiles((prev) => prev.map((f, i) => (i === idx ? { ...f, status: "compressing" } : f)));
 
       let blob: Blob = file;
       let uploadName = file.name;
       let uploadType = file.type;
-      if (stamp) {
-        // Evidence context: stamp (when image) then compress, in one helper.
+      if (shouldStamp && stamp) {
+        // Camera capture in an evidence context: burn the timestamp/evidence
+        // stamp (then compress), in one helper.
         try {
           const prepared = await prepareUploadFile(file, stamp);
           blob = prepared;
@@ -113,6 +118,9 @@ export function UploadDropzone({
           // prepare failed; upload original
         }
       } else {
+        // Gallery upload / drag-drop (or non-evidence): NEVER stamp — an uploaded
+        // photo already carries its own timestamp, so a second one would conflict.
+        // Just compress.
         try {
           const cr = await compressImage(file);
           blob = cr.blob;
@@ -166,14 +174,16 @@ export function UploadDropzone({
     [onUploaded, onFailure, jobId, stamp]
   );
 
-  const handleFiles = (incoming: File[]) => {
+  const handleFiles = (incoming: File[], source: "camera" | "gallery") => {
     const accepted = incoming.slice(0, maxFiles);
     const start = files.length;
+    // Only stamp genuine in-app camera captures; uploads keep their own timestamp.
+    const shouldStamp = Boolean(stamp) && source === "camera";
     setFiles((prev) => [
       ...prev,
       ...accepted.map<FileState>((file) => ({ file, status: "queued", progress: 0, attempt: 0 })),
     ]);
-    accepted.forEach((file, i) => processFile(start + i, file));
+    accepted.forEach((file, i) => processFile(start + i, file, shouldStamp));
   };
 
   return (
@@ -200,20 +210,42 @@ export function UploadDropzone({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          handleFiles(Array.from(e.dataTransfer.files));
+          handleFiles(Array.from(e.dataTransfer.files), "gallery");
         }}
       >
         <Upload className="size-5 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">Drag files here, or click to choose.</p>
+        {allowCamera && (
+          <p className="text-xs text-muted-foreground/80">Uploaded photos keep their own timestamp.</p>
+        )}
       </div>
+      {allowCamera && (
+        <button
+          type="button"
+          onClick={() => cameraInputRef.current?.click()}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary-soft/60 px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary-soft"
+        >
+          📷 Take photo (adds evidence timestamp)
+        </button>
+      )}
       <input
         ref={inputRef}
         type="file"
         multiple
         accept={accept}
         className="sr-only"
-        onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))}
+        onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files), "gallery")}
       />
+      {allowCamera && (
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="sr-only"
+          onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files), "camera")}
+        />
+      )}
       {files.length > 0 && (
         <ul className="space-y-1">
           {files.map((f, i) => (

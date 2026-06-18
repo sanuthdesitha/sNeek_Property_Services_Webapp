@@ -27,6 +27,20 @@ export const DEFAULT_INVENTORY_ITEMS: DefaultInventoryItem[] = [
   { sku: "DEF-SPRAYWIPE", name: "Spray n Wipe", category: "Cleaning", location: "CLEANERS_CUPBOARD", unit: "bottle", supplier: "Bunnings", defaultParLevel: 4, defaultThreshold: 1 },
   { sku: "DEF-GLASSSPRAY", name: "Glass Spray", category: "Cleaning", location: "CLEANERS_CUPBOARD", unit: "bottle", supplier: "Bunnings", defaultParLevel: 4, defaultThreshold: 1 },
   { sku: "DEF-MOLDSPRAY", name: "Mold Spray", category: "Cleaning", location: "CLEANERS_CUPBOARD", unit: "bottle", supplier: "Bunnings", defaultParLevel: 3, defaultThreshold: 1 },
+  // Kitchen consumables
+  { sku: "DEF-SALTPEPPER", name: "Salt & Pepper Set", category: "Kitchen", location: "KITCHEN", unit: "set", supplier: "Woolworths", defaultParLevel: 6, defaultThreshold: 2 },
+  { sku: "DEF-FOIL", name: "Aluminium Foil", category: "Kitchen", location: "KITCHEN", unit: "roll", supplier: "Woolworths", defaultParLevel: 6, defaultThreshold: 2 },
+  { sku: "DEF-CLINGWRAP", name: "Cling Wrap", category: "Kitchen", location: "KITCHEN", unit: "roll", supplier: "Woolworths", defaultParLevel: 6, defaultThreshold: 2 },
+  { sku: "DEF-DISHLIQUID", name: "Dishwashing Liquid", category: "Kitchen", location: "KITCHEN", unit: "bottle", supplier: "Woolworths", defaultParLevel: 4, defaultThreshold: 1 },
+  { sku: "DEF-COFFEEBEANS", name: "Coffee Beans", category: "Kitchen", location: "KITCHEN", unit: "bag", supplier: "Woolworths", defaultParLevel: 8, defaultThreshold: 3 },
+  { sku: "DEF-WATERFILTER", name: "Water Filter Cartridge", category: "Kitchen", location: "KITCHEN", unit: "cartridge", supplier: "Woolworths", defaultParLevel: 4, defaultThreshold: 1 },
+  // Laundry
+  { sku: "DEF-LAUNDRYPOWDER", name: "Laundry Detergent (Powder)", category: "Laundry", location: "CLEANERS_CUPBOARD", unit: "box", supplier: "Woolworths", defaultParLevel: 4, defaultThreshold: 1 },
+  { sku: "DEF-LAUNDRYLIQUID", name: "Laundry Liquid", category: "Laundry", location: "CLEANERS_CUPBOARD", unit: "bottle", supplier: "Woolworths", defaultParLevel: 4, defaultThreshold: 1 },
+  // Cleaning / amenities / general
+  { sku: "DEF-BINBAG-M", name: "Bin Bags (Medium)", category: "Cleaning", location: "CLEANERS_CUPBOARD", unit: "bag", supplier: "Bunnings", defaultParLevel: 30, defaultThreshold: 10 },
+  { sku: "DEF-FRAGRANCESPRAY", name: "Fragrance Spray", category: "Amenities", location: "CLEANERS_CUPBOARD", unit: "bottle", supplier: "Woolworths", defaultParLevel: 4, defaultThreshold: 1 },
+  { sku: "DEF-BATTERIES-AA", name: "Batteries (AA)", category: "General", location: "CLEANERS_CUPBOARD", unit: "pack", supplier: "Woolworths", defaultParLevel: 6, defaultThreshold: 2 },
 ];
 
 export async function ensureDefaultInventoryItems() {
