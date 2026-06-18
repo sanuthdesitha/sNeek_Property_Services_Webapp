@@ -13,6 +13,7 @@
   "dependencies": {
     "expo": "~54.0.0",
     "expo-constants": "~18.0.13",
+    "expo-local-authentication": "~17.0.8",
     "expo-notifications": "~0.32.12",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",

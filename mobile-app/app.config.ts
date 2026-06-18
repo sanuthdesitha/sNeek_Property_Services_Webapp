@@ -57,6 +57,12 @@ const config: ExpoConfig = {
         color: "#0f5a44",
         defaultChannel: "default"
       }
+    ],
+    [
+      "expo-local-authentication",
+      {
+        faceIDPermission: "sNeek uses Face ID to unlock the app."
+      }
     ]
   ],
   extra: {
