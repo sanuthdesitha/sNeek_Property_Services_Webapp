@@ -29,6 +29,7 @@ import {
 } from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { stampImage, isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
+import { prepareUploadFile } from "@/lib/uploads/compress";
 import { FieldRenderer } from "@/components/forms/field-renderer";
 import { FieldReferences } from "@/components/forms/field-references";
 import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
@@ -915,16 +916,26 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   /**
-   * Evidence-prepare a single captured image: stamp (camera + gallery both get
-   * stamped — every job photo is evidence), then the stamp itself produces a
-   * sized JPEG. Never throws; falls back to the raw file when canvas is absent.
+   * Evidence-prepare a single image.
+   *  - CAMERA captures (live camera / capture="environment" / guided capture) are
+   *    fresh photos with no embedded timestamp, so we burn the evidence stamp
+   *    (time/date/address) into them.
+   *  - GALLERY uploads are existing files that already carry their own
+   *    timestamp/EXIF, so stamping would add a SECOND, different time. We only
+   *    compress those (no stamp).
+   * Never throws; falls back to the raw file on failure.
    */
   async function prepareEvidenceImage(
     file: File,
     gps: { lat: number; lng: number; accuracy: number | null } | null,
-    fieldId?: string
+    fieldId: string | undefined,
+    shouldStamp: boolean
   ): Promise<File> {
     if (!isStampableImage(file)) return file;
+    if (!shouldStamp) {
+      // Uploaded image — don't double-stamp; just size it for upload.
+      return prepareUploadFile(file, null);
+    }
     return stampImage(file, buildStampOptions(gps, fieldId));
   }
 
@@ -933,9 +944,13 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     source: UploadSource,
     fieldId?: string
   ): Promise<File[]> {
+    // Only in-app camera captures get the evidence timestamp stamp. Gallery
+    // uploads already have their own timestamp, so a second stamp would show two
+    // conflicting times — those are compressed only.
+    const shouldStamp = source === "camera";
     const hasImage = files.some((file) => isImageFile(file) && !isVideoFile(file));
-    // Fetch the session GPS once if any image needs stamping (reused for all).
-    const gps = hasImage ? await resolveStampGps() : null;
+    // GPS is only needed for the stamp, so only resolve it for camera captures.
+    const gps = shouldStamp && hasImage ? await resolveStampGps() : null;
 
     const processed: File[] = [];
     let imagePrepFailures = 0;
@@ -945,13 +960,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         continue;
       }
       try {
-        processed.push(await prepareEvidenceImage(file, gps, fieldId));
+        processed.push(await prepareEvidenceImage(file, gps, fieldId, shouldStamp));
       } catch {
         imagePrepFailures += 1;
         processed.push(file);
       }
     }
-    if (imagePrepFailures > 0) {
+    // Only warn about a missing stamp when we actually intended to stamp (camera).
+    if (imagePrepFailures > 0 && shouldStamp) {
       toast({
         title: "Some images were not stamped",
         description: `${imagePrepFailures} photo(s) were uploaded without the evidence stamp.`,
