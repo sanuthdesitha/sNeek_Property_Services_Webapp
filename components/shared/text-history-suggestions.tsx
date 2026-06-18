@@ -183,9 +183,18 @@ export function TextHistorySuggestions() {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     }
     field.dispatchEvent(new Event("change", { bubbles: true }));
-    if (typeof field.setSelectionRange === "function") {
-      const caret = value.length;
-      field.setSelectionRange(caret, caret);
+    // setSelectionRange only works on text/search/url/tel/password inputs; calling
+    // it on email/number/etc. throws InvalidStateError. Guard by supported type
+    // and swallow any remaining edge cases — caret position is cosmetic.
+    const SELECTABLE = new Set(["text", "search", "url", "tel", "password", "textarea"]);
+    const fieldType = (field.getAttribute("type") || (field.tagName === "TEXTAREA" ? "textarea" : "text")).toLowerCase();
+    if (typeof field.setSelectionRange === "function" && SELECTABLE.has(fieldType)) {
+      try {
+        const caret = value.length;
+        field.setSelectionRange(caret, caret);
+      } catch {
+        /* unsupported input type — caret positioning is non-essential */
+      }
     }
     saveFieldValue(field);
     setVisible(false);
