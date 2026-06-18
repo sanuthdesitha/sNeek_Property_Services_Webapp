@@ -11,10 +11,10 @@
     "doctor": "npx expo-doctor"
   },
   "dependencies": {
-    "expo": "~54.0.0",
+    "expo": "~54.0.35",
     "expo-constants": "~18.0.13",
     "expo-local-authentication": "~17.0.8",
-    "expo-notifications": "~0.32.12",
+    "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
