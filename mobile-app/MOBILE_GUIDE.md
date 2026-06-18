@@ -73,6 +73,61 @@ cd mobile-app
 npx expo start                 # open in Expo Go or a dev build
 ```
 
+## 📦 Build the APK + publish to Google Play (step by step)
+
+Run these from `mobile-app/`. Build readiness is already verified
+(`expo-doctor` 18/18, `tsc` clean, config resolves).
+
+### A. One-time setup
+1. Create a free **Expo account** at expo.dev, and a **Google Play Developer**
+   account ($25 one-time) at play.google.com/console.
+2. ```bash
+   cd mobile-app
+   npm install
+   npm i -g eas-cli
+   eas login            # your Expo account
+   eas init             # links the project, sets the EAS projectId
+   ```
+   `eas init` prints a projectId — set it so the app picks it up:
+   add `EXPO_PUBLIC_EAS_PROJECT_ID=<that id>` to `mobile-app/.env` (and
+   `EXPO_PUBLIC_WEBAPP_URL=https://www.sneekholdings.com`).
+
+### B. Build a test APK first (sideload to verify everything)
+```bash
+eas build -p android --profile preview
+```
+- EAS auto-generates + stores the signing keystore (nothing manual).
+- When it finishes (~10–20 min), it prints a download URL → download the **.apk**.
+- On the Android phone: enable "Install unknown apps" for your browser/Files,
+  then open the .apk to install.
+- **Verify on-device:** logo open animation plays → fingerprint/Face ID lock →
+  app loads the live site → camera (guided capture), GPS stamp, and photo
+  uploads all prompt + work.
+
+### C. Build the Play Store bundle (AAB)
+Google Play requires an **.aab** (not .apk) for new apps:
+```bash
+eas build -p android --profile production
+```
+
+### D. Publish to Google Play
+1. In Play Console → **Create app** (name "sNeek", category, etc.).
+2. Fill the required listing: short/full description, screenshots (take from the
+   running app), app icon, **privacy policy URL** (use your web `/privacy`),
+   Data safety form, content rating questionnaire, target audience.
+3. Upload the `.aab`:
+   - Easiest: `eas submit -p android` (uploads to Play for you — first time it
+     asks for a Google service-account key; the CLI links you to the setup), **or**
+   - Manually: Play Console → Testing → **Internal testing** → Create release →
+     upload the `.aab` → add testers → roll out. Promote to **Production** once happy.
+4. Google reviews it (hours–days), then it goes live.
+
+### iOS (App Store) — same flow, cloud-built
+```bash
+eas build -p ios --profile production   # built on Expo's cloud Mac
+eas submit -p ios                        # needs your Apple Developer account
+```
+
 ## When a native rebuild IS needed
 
 Only for: app icon/splash, permission text, Expo SDK upgrade, new native module,
