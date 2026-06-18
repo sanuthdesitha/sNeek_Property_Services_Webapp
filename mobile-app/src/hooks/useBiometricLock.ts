@@ -1,25 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
+import { getFlag, STORAGE_KEYS } from "@/lib/storage";
 
 export type BiometricLock = {
-  /** Biometric (or device passcode) is available + enrolled on this device. */
+  /** Biometric lock is opted-in AND the device has enrolled biometrics/passcode. */
   available: boolean;
   /** True while we still need a successful unlock before showing the app. */
   locked: boolean;
-  /** Still resolving whether biometrics are available. */
+  /** Still resolving capability + the opt-in preference. */
   checking: boolean;
   /** Trigger the OS biometric / passcode prompt. */
   authenticate: () => Promise<void>;
 };
 
 /**
- * Fingerprint / Face ID lock for the app.
- *  - On launch, if the device has enrolled biometrics (or a passcode), the app
- *    starts locked and prompts to unlock.
- *  - Re-locks whenever the app returns to the foreground from the background, so
- *    a backgrounded session can't be resumed without authenticating.
- *  - Devices with NO biometrics/passcode are never locked out (available=false).
+ * Fingerprint / Face ID lock for the app — OPT-IN.
+ *  - The lock only engages when the user turned it on (onboarding "Enable Face
+ *    ID" step persists `biometricEnabled`) AND the device has enrolled
+ *    biometrics or a passcode.
+ *  - When enabled, the app starts locked and prompts to unlock, and re-locks
+ *    whenever it returns to the foreground from the background.
+ *  - If the preference is off (or the device has no biometrics), the app is
+ *    never locked out (available=false).
  */
 export function useBiometricLock(): BiometricLock {
   const [available, setAvailable] = useState(false);
@@ -46,16 +49,17 @@ export function useBiometricLock(): BiometricLock {
     }
   }, []);
 
-  // Resolve capability once, then auto-prompt if we should lock.
+  // Resolve opt-in + capability once, then auto-prompt if we should lock.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [hasHardware, enrolled] = await Promise.all([
+        const [enabled, hasHardware, enrolled] = await Promise.all([
+          getFlag(STORAGE_KEYS.biometricEnabled),
           LocalAuthentication.hasHardwareAsync(),
           LocalAuthentication.isEnrolledAsync(),
         ]);
-        const can = hasHardware && enrolled;
+        const can = enabled && hasHardware && enrolled;
         if (cancelled) return;
         setAvailable(can);
         setLocked(can);

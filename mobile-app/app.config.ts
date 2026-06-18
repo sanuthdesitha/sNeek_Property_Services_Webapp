@@ -16,9 +16,16 @@ const config: ExpoConfig = {
   orientation: "portrait",
   scheme,
   userInterfaceStyle: "light",
+  icon: "./assets/icon.png",
+  splash: {
+    image: "./assets/splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#0f5a44"
+  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: iosBundleIdentifier,
+    icon: "./assets/icon.png",
     associatedDomains: [],
     infoPlist: {
       // Permission prompts so the web app's guided capture, evidence GPS stamps,
@@ -39,6 +46,10 @@ const config: ExpoConfig = {
   android: {
     package: androidPackage,
     edgeToEdgeEnabled: true,
+    adaptiveIcon: {
+      foregroundImage: "./assets/adaptive-icon.png",
+      backgroundColor: "#0f5a44"
+    },
     permissions: [
       "CAMERA",
       "RECORD_AUDIO",
@@ -54,6 +65,7 @@ const config: ExpoConfig = {
     [
       "expo-notifications",
       {
+        icon: "./assets/notification-icon.png",
         color: "#0f5a44",
         defaultChannel: "default"
       }
@@ -62,6 +74,23 @@ const config: ExpoConfig = {
       "expo-local-authentication",
       {
         faceIDPermission: "sNeek uses Face ID to unlock the app."
+      }
+    ],
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "sNeek uses your location to verify on-site check-ins and stamp evidence photos."
+      }
+    ],
+    [
+      "expo-media-library",
+      {
+        photosPermission:
+          "sNeek needs photo access so you can attach photos to jobs and reports.",
+        savePhotosPermission:
+          "sNeek saves captured evidence photos to your library when you choose to.",
+        isAccessMediaLocationEnabled: true
       }
     ]
   ],
