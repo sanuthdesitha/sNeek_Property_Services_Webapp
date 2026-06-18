@@ -10,7 +10,7 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { WebView, type WebViewMessageEvent, type ShouldStartLoadRequest } from "react-native-webview";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { buildWebUrl, isInternalWebUrl, MOBILE_CONFIG } from "@/config";
 import type { PushState } from "@/hooks/usePushNotifications";
 
@@ -122,7 +122,7 @@ export function WebAppShell({ notifications }: Props) {
     }
   }
 
-  function handleShouldStartLoad(request: ShouldStartLoadRequest) {
+  function handleShouldStartLoad(request: { url: string; navigationType: string }) {
     if (request.navigationType === "click" && !isInternalWebUrl(request.url)) {
       void openExternalUrl(request.url);
       return false;
@@ -133,16 +133,6 @@ export function WebAppShell({ notifications }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>sNeek Mobile</Text>
-            <Text style={styles.subtitle}>Live web app shell for Android and iOS</Text>
-          </View>
-          <Pressable style={styles.headerButton} onPress={() => webViewRef.current?.reload()}>
-            <Text style={styles.headerButtonText}>Reload</Text>
-          </Pressable>
-        </View>
-
         {pageError ? (
           <View style={styles.errorWrap}>
             <Text style={styles.errorTitle}>The app could not load the hosted site.</Text>
@@ -174,6 +164,16 @@ export function WebAppShell({ notifications }: Props) {
               pullToRefreshEnabled
               setSupportMultipleWindows={false}
               allowsBackForwardNavigationGestures
+              // Native device features so the web app's guided capture, GPS
+              // evidence stamps, and photo/video uploads work inside the shell.
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              mediaCapturePermissionGrantType="grant"
+              geolocationEnabled
+              allowFileAccess
+              allowFileAccessFromFileURLs
+              allowsFullscreenVideo
+              androidLayerType="hardware"
               userAgent={`sNeekMobile/${MOBILE_CONFIG.appVersion}`}
               injectedJavaScriptBeforeContentLoaded={injectedContext}
               onLoadStart={() => {
@@ -195,22 +195,11 @@ export function WebAppShell({ notifications }: Props) {
             {loading ? (
               <View style={styles.loadingOverlay}>
                 <ActivityIndicator size="large" color="#0f5a44" />
-                <Text style={styles.loadingText}>Loading the live operations dashboard...</Text>
+                <Text style={styles.loadingText}>Loading sNeek…</Text>
               </View>
             ) : null}
           </View>
         )}
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Push:{" "}
-            {notifications.expoPushToken
-              ? "registered"
-              : notifications.notificationError
-                ? notifications.notificationError
-                : notifications.permissionStatus}
-          </Text>
-        </View>
       </View>
     </SafeAreaView>
   );

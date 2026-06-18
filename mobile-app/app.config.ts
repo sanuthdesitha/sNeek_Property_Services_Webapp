@@ -19,11 +19,36 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: iosBundleIdentifier,
-    associatedDomains: []
+    associatedDomains: [],
+    infoPlist: {
+      // Permission prompts so the web app's guided capture, evidence GPS stamps,
+      // and photo/video uploads work inside the WebView shell.
+      NSCameraUsageDescription:
+        "sNeek needs the camera to take job, QA and maintenance evidence photos.",
+      NSMicrophoneUsageDescription:
+        "sNeek needs the microphone when you record evidence videos.",
+      NSPhotoLibraryUsageDescription:
+        "sNeek needs photo access so you can attach photos to jobs and reports.",
+      NSPhotoLibraryAddUsageDescription:
+        "sNeek saves captured evidence photos to your library when you choose to.",
+      NSLocationWhenInUseUsageDescription:
+        "sNeek uses your location to stamp evidence photos and verify on-site check-ins.",
+      ITSAppUsesNonExemptEncryption: false
+    }
   },
   android: {
     package: androidPackage,
-    edgeToEdgeEnabled: true
+    edgeToEdgeEnabled: true,
+    permissions: [
+      "CAMERA",
+      "RECORD_AUDIO",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_COARSE_LOCATION",
+      "READ_MEDIA_IMAGES",
+      "READ_MEDIA_VIDEO",
+      "READ_EXTERNAL_STORAGE",
+      "WRITE_EXTERNAL_STORAGE"
+    ]
   },
   plugins: [
     [
