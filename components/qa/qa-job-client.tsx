@@ -17,6 +17,7 @@ import {
   Plus,
   Trash2,
   Play,
+  Pause,
   Square,
   ImagePlus,
   X,
@@ -47,7 +48,6 @@ import type { StampOptions } from "@/lib/uploads/stamp";
 import {
   emptyInspectionTools,
   emptyReworkProposal,
-  minutesBetween,
   type QaDamageEntry,
   type QaInspectionTools,
   type QaNextCleanRequest,
@@ -56,6 +56,16 @@ import {
 function uid() {
   if (typeof window !== "undefined" && window.crypto?.randomUUID) return window.crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/** Format milliseconds as H:MM:SS (or MM:SS under an hour). */
+function formatHMS(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
@@ -83,6 +93,19 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [sectionPhotoUrls, setSectionPhotoUrls] = useState<Record<string, string>>({});
   // Which section headers currently have their uploader open.
   const [openUploaders, setOpenUploaders] = useState<Record<string, boolean>>({});
+
+  // ── Time-on-site stopwatch (live, pausable) ──
+  // Accumulated paused time + the timestamp of the current running segment.
+  const [timer, setTimer] = useState<{ running: boolean; elapsedMs: number; runningSince: number | null }>(
+    { running: false, elapsedMs: 0, runningSince: null }
+  );
+  const [, setTick] = useState(0);
+  // Tick once a second while running so the live display updates.
+  useEffect(() => {
+    if (!timer.running) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [timer.running]);
 
   async function load() {
     setLoading(true);
@@ -208,24 +231,33 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     setData((prev) => ({ ...prev, [id]: value }));
   }
 
-  // ── Time on site ──────────────────────────────────────────────────────────
-  function startOnSite() {
+  // ── Time on site (live stopwatch with pause/resume) ───────────────────────
+  const liveMs = timer.elapsedMs + (timer.running && timer.runningSince != null ? Date.now() - timer.runningSince : 0);
+  const onSiteMinutes = Math.round(liveMs / 60000);
+  const timerEnded = Boolean(tools.onSite.endedAt);
+
+  function startOrResumeOnSite() {
+    setTimer((prev) => (prev.running ? prev : { ...prev, running: true, runningSince: Date.now() }));
     setTools((prev) => ({
       ...prev,
-      onSite: { startedAt: new Date().toISOString(), endedAt: null, minutes: null },
+      onSite: { startedAt: prev.onSite.startedAt ?? new Date().toISOString(), endedAt: null, minutes: null },
     }));
   }
-  function endOnSite() {
-    setTools((prev) => {
-      const endedAt = new Date().toISOString();
-      return {
-        ...prev,
-        onSite: { ...prev.onSite, endedAt, minutes: minutesBetween(prev.onSite.startedAt, endedAt) },
-      };
-    });
+  function pauseOnSite() {
+    setTimer((prev) =>
+      !prev.running || prev.runningSince == null
+        ? prev
+        : { running: false, elapsedMs: prev.elapsedMs + (Date.now() - prev.runningSince), runningSince: null }
+    );
   }
-  const onSiteMinutes =
-    tools.onSite.minutes ?? minutesBetween(tools.onSite.startedAt, tools.onSite.endedAt ?? new Date().toISOString());
+  function endOnSite() {
+    const finalMs = liveMs;
+    setTimer({ running: false, elapsedMs: finalMs, runningSince: null });
+    setTools((t) => ({
+      ...t,
+      onSite: { startedAt: t.onSite.startedAt, endedAt: new Date().toISOString(), minutes: Math.round(finalMs / 60000) },
+    }));
+  }
 
   // ── Damage ──────────────────────────────────────────────────────────────
   function addDamage() {
@@ -733,23 +765,28 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-raised p-3">
-                <span className="text-sm text-muted-foreground">On-site minutes</span>
-                <span className="text-2xl font-bold tabular-nums">{onSiteMinutes ?? "—"}</span>
+              <div className="flex flex-col items-center rounded-lg border border-border bg-surface-raised p-4">
+                <span className="font-mono text-4xl font-bold tabular-nums tracking-tight">{formatHMS(liveMs)}</span>
+                <span className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
+                  {timerEnded ? "Ended" : timer.running ? "Running" : liveMs > 0 ? "Paused" : "Not started"}
+                  {" · "}
+                  {onSiteMinutes} min
+                </span>
               </div>
               <div className="flex gap-2">
-                <Button
-                  className="h-11 flex-1"
-                  variant={tools.onSite.startedAt && !tools.onSite.endedAt ? "secondary" : "default"}
-                  disabled={Boolean(tools.onSite.startedAt) && !tools.onSite.endedAt}
-                  onClick={startOnSite}
-                >
-                  <Play className="mr-2 h-4 w-4" /> Start
-                </Button>
+                {timer.running ? (
+                  <Button className="h-11 flex-1" variant="secondary" onClick={pauseOnSite}>
+                    <Pause className="mr-2 h-4 w-4" /> Pause
+                  </Button>
+                ) : (
+                  <Button className="h-11 flex-1" variant="default" disabled={timerEnded} onClick={startOrResumeOnSite}>
+                    <Play className="mr-2 h-4 w-4" /> {liveMs > 0 ? "Resume" : "Start"}
+                  </Button>
+                )}
                 <Button
                   className="h-11 flex-1"
                   variant="outline"
-                  disabled={!tools.onSite.startedAt || Boolean(tools.onSite.endedAt)}
+                  disabled={liveMs === 0 || timerEnded}
                   onClick={endOnSite}
                 >
                   <Square className="mr-2 h-4 w-4" /> End
@@ -758,7 +795,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               {tools.onSite.startedAt ? (
                 <p className="text-xs text-muted-foreground tabular-nums">
                   Started {new Date(tools.onSite.startedAt).toLocaleTimeString()}
-                  {tools.onSite.endedAt ? ` · Ended ${new Date(tools.onSite.endedAt).toLocaleTimeString()}` : " · running"}
+                  {tools.onSite.endedAt ? ` · Ended ${new Date(tools.onSite.endedAt).toLocaleTimeString()}` : timer.running ? " · running" : " · paused"}
                 </p>
               ) : null}
             </CardContent>
