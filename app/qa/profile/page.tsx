@@ -10,6 +10,7 @@ import { AdminProfileForm } from "@/components/admin/admin-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
 import { BiometricDevicesSection } from "@/components/profile/biometric-section";
+import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,8 @@ export default async function QaProfilePage() {
       <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
 
       <BiometricDevicesSection />
+
+      <TwoFactorSettings />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}

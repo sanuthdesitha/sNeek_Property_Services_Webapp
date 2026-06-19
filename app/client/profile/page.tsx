@@ -8,6 +8,7 @@ import { ClientProfileForm } from "@/components/client/client-profile-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
+import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,8 @@ export default async function ClientProfilePage() {
         comms={comms}
         properties={properties}
       />
+
+      <TwoFactorSettings />
 
       <BillingPreferencesSection
         initialCadence={user.invoicingCadence ?? undefined}

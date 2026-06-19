@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AdminProfileForm } from "@/components/admin/admin-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
+import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export default async function LaundryProfilePage() {
       />
 
       <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
+
+      <TwoFactorSettings />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}

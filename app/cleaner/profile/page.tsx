@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { CleanerProfileForm } from "@/components/cleaner/cleaner-profile-form";
 import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
+import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -107,6 +108,8 @@ export default async function CleanerProfilePage() {
           notes: user.notes,
         }}
       />
+
+      <TwoFactorSettings />
 
       <BillingPreferencesSection
         initialCadence={user.invoicingCadence ?? undefined}
