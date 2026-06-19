@@ -579,7 +579,7 @@ export function AdminWorkforceHub({
       { value: "learning", label: "Learning" },
       { value: "documents", label: "Documents" },
       { value: "recognition", label: "Recognition" },
-      { value: "hiring", label: "Hiring" },
+      // Hiring moved to its own dedicated page at /admin/hiring (see sidebar).
     ],
     []
   );

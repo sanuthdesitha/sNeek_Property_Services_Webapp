@@ -25,6 +25,7 @@ import {
   parseScreeningSchema,
   scoreAssessment,
   type AssessmentResult,
+  type AssessmentQuestion,
 } from "@/lib/workforce/assessment";
 
 const STAFF_ROLES = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER, Role.LAUNDRY] as const;
@@ -2603,6 +2604,57 @@ export async function recordHiringReply(input: {
       },
     }),
   ]);
+}
+
+/** Replace a position's application form schema (steps/fields), preserving hero. */
+export async function updatePositionApplicationSchema(positionId: string, schema: unknown) {
+  const obj =
+    schema && typeof schema === "object" && !Array.isArray(schema) ? (schema as Record<string, unknown>) : null;
+  if (!obj || !Array.isArray(obj.steps)) {
+    throw new Error("Invalid application form (expected steps).");
+  }
+  const current = await db.hiringPosition.findUnique({
+    where: { id: positionId },
+    select: { applicationSchema: true },
+  });
+  const existing =
+    current?.applicationSchema && typeof current.applicationSchema === "object" && !Array.isArray(current.applicationSchema)
+      ? (current.applicationSchema as Record<string, unknown>)
+      : {};
+  const next = {
+    version: typeof obj.version === "number" ? obj.version : 3,
+    steps: obj.steps,
+    heroImageUrl: (existing as Record<string, unknown>).heroImageUrl ?? null,
+  };
+  return db.hiringPosition.update({
+    where: { id: positionId },
+    data: { applicationSchema: next as Prisma.InputJsonValue },
+  });
+}
+
+/** Replace a position's knowledge-test (screening) schema. */
+export async function updatePositionScreeningSchema(
+  positionId: string,
+  input: {
+    requireKnowledgeTest?: boolean;
+    passThreshold?: number | null;
+    questions?: AssessmentQuestion[] | null;
+    title?: string | null;
+    intro?: string | null;
+  },
+) {
+  const stored = buildScreeningSchemaForStorage(input);
+  return db.hiringPosition.update({
+    where: { id: positionId },
+    data: { screeningSchema: stored as Prisma.InputJsonValue },
+  });
+}
+
+/** Position with its parsed screening schema for the editor. */
+export async function getHiringPositionForEdit(positionId: string) {
+  const position = await db.hiringPosition.findUnique({ where: { id: positionId } });
+  if (!position) return null;
+  return { ...position, screening: parseScreeningSchema(position.screeningSchema) };
 }
 
 /** Full application with position, reviewer, hired user, and the event timeline. */

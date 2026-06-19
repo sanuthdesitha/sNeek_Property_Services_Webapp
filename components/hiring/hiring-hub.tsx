@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  Users, Briefcase, UserCheck, Gauge, Search, Mail, Reply, ExternalLink, Copy, Star,
+  Users, Briefcase, UserCheck, Gauge, Search, Mail, Reply, ExternalLink, Copy, Star, Plus, Pencil,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +32,30 @@ function scoreTone(score: number | null | undefined) {
 }
 
 export function HiringHub({ positions, applications }: { positions: any[]; applications: any[] }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [positionId, setPositionId] = useState<string>("all");
   const [showClosed, setShowClosed] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  async function createRole() {
+    setCreating(true);
+    try {
+      const res = await fetch("/api/admin/workforce/hiring/positions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New role", isPublished: false }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.id) {
+        toast({ title: "Could not create role", description: body.error, variant: "destructive" });
+        return;
+      }
+      router.push(`/admin/hiring/positions/${body.id}`);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,6 +106,11 @@ export function HiringHub({ positions, applications }: { positions: any[]; appli
         icon={<Briefcase />}
         title="Hiring"
         description="Track candidates through the pipeline, assess them, and keep in touch."
+        actions={
+          <Button onClick={createRole} disabled={creating}>
+            <Plus className="mr-1 h-4 w-4" /> New role
+          </Button>
+        }
       />
 
       {/* Summary */}
@@ -157,6 +184,11 @@ export function HiringHub({ positions, applications }: { positions: any[]; appli
                 </p>
                 <p className="text-xs text-muted-foreground">{p._count?.applications ?? 0} applications · /apply/{p.slug}</p>
               </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/admin/hiring/positions/${p.id}`}>
+                  <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                </Link>
+              </Button>
               <Button variant="outline" size="sm" onClick={() => copyLink(p.slug)}>
                 <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
               </Button>
