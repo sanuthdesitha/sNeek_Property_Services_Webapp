@@ -47,20 +47,25 @@ async function uploadSinglePut(
   filename: string,
   contentType: string
 ): Promise<{ url: string; key: string }> {
-  const presignRes = await fetch("/api/uploads/presign", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ filename, contentType }),
-  });
-  if (!presignRes.ok) throw new Error(`presign failed: ${presignRes.status}`);
-  const { uploadUrl, key } = await presignRes.json();
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    body: blob,
-    headers: { "content-type": contentType },
-  });
-  if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`);
-  return { url: key, key };
+  // Upload through our own server (/api/uploads/direct) rather than presigning a
+  // URL and PUTting straight to the bucket. The direct-to-bucket PUT requires a
+  // bucket CORS policy allowing browser uploads; without it the browser throws
+  // "Failed to fetch". Routing through the same-origin API avoids CORS entirely.
+  const form = new FormData();
+  form.append("file", new File([blob], filename, { type: contentType || "application/octet-stream" }));
+  const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+  if (!res.ok) {
+    let message = `upload failed: ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* keep status message */
+    }
+    throw new Error(message);
+  }
+  const data = (await res.json()) as { key: string; url?: string };
+  return { url: data.url ?? data.key, key: data.key };
 }
 
 async function recordFailure(
