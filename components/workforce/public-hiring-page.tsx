@@ -52,7 +52,7 @@ type PublicPosition = {
   department: string | null;
   location: string | null;
   employmentType: string | null;
-  applicationSchema?: { steps?: ApplicationStep[] } | null;
+  applicationSchema?: { steps?: ApplicationStep[]; heroImageUrl?: string | null } | null;
   assessment?: PublicAssessment | null;
 };
 
@@ -70,6 +70,7 @@ async function uploadPublicFile(file: File) {
 export function PublicHiringPage({ position }: { position: PublicPosition }) {
   const steps = useMemo<ApplicationStep[]>(() => position.applicationSchema?.steps ?? [], [position]);
   const assessment = position.assessment ?? null;
+  const heroImage = position.applicationSchema?.heroImageUrl?.trim() || null;
 
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [fullName, setFullName] = useState("");
@@ -184,20 +185,55 @@ export function PublicHiringPage({ position }: { position: PublicPosition }) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+      {/* Hero banner — the flyer image if set, otherwise a branded gradient. */}
+      <div className="overflow-hidden rounded-3xl border shadow-sm">
+        {heroImage ? (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={heroImage} alt={`${position.title} — hiring`} className="max-h-[440px] w-full object-cover" />
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute right-3 top-3 rounded-full"
+              onClick={() => void sharePosition()}
+            >
+              <Share2 className="mr-2 h-4 w-4" />Share
+            </Button>
+          </div>
+        ) : (
+          <div className="relative bg-gradient-to-br from-primary to-[#0f5a44] px-6 py-12 text-white">
+            <div className="pointer-events-none absolute inset-0 opacity-20 [background:radial-gradient(circle_at_18%_20%,white,transparent_40%),radial-gradient(circle_at_85%_12%,white,transparent_35%)]" />
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute right-4 top-4 rounded-full"
+              onClick={() => void sharePosition()}
+            >
+              <Share2 className="mr-2 h-4 w-4" />Share
+            </Button>
+            <div className="relative">
+              <Badge variant="secondary" className="mb-3">We&apos;re hiring</Badge>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{position.title}</h1>
+              <p className="mt-2 max-w-xl text-white/85">
+                {position.location || "Greater Sydney"} · flexible days · paid training
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Badge variant="outline">Hiring</Badge>
-          <Button variant="outline" size="sm" className="rounded-full" onClick={() => void sharePosition()}>
-            <Share2 className="mr-2 h-4 w-4" />Share this role
-          </Button>
+        {heroImage ? <h1 className="text-3xl font-bold tracking-tight">{position.title}</h1> : null}
+        <div className="flex flex-wrap gap-2">
+          {position.location ? <Badge variant="outline">📍 {position.location}</Badge> : null}
+          {position.employmentType ? <Badge variant="outline">🗓 {position.employmentType}</Badge> : null}
+          {position.department ? <Badge variant="outline">{position.department}</Badge> : null}
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">{position.title}</h1>
-        <p className="text-muted-foreground">
-          {position.location || "Location flexible"}
-          {position.department ? ` · ${position.department}` : ""}
-          {position.employmentType ? ` · ${position.employmentType}` : ""}
-        </p>
-        {position.description ? <p className="whitespace-pre-line text-sm leading-7 text-muted-foreground">{position.description}</p> : null}
+        {position.description ? (
+          <div className="rounded-2xl border bg-white/90 p-5 text-sm leading-7 text-muted-foreground dark:bg-white/5">
+            <p className="whitespace-pre-line">{position.description}</p>
+          </div>
+        ) : null}
       </div>
 
       <Card className="rounded-2xl">

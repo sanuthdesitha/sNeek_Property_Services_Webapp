@@ -2386,6 +2386,7 @@ export async function createHiringPosition(input: {
   isPublished?: boolean;
   requireKnowledgeTest?: boolean;
   passThreshold?: number | null;
+  heroImageUrl?: string | null;
   createdById: string;
 }) {
   const slug = await ensureUniqueHiringSlug(input.slug?.trim() || input.title);
@@ -2397,7 +2398,7 @@ export async function createHiringPosition(input: {
       department: input.department?.trim() || null,
       location: input.location?.trim() || null,
       employmentType: input.employmentType?.trim() || null,
-      applicationSchema: buildStructuredApplicationSchema() as Prisma.InputJsonValue,
+      applicationSchema: buildStructuredApplicationSchema(input.heroImageUrl) as Prisma.InputJsonValue,
       screeningSchema: buildScreeningSchemaForStorage({
         requireKnowledgeTest: input.requireKnowledgeTest !== false,
         passThreshold: input.passThreshold ?? null,
@@ -2419,12 +2420,28 @@ export async function updateHiringPosition(input: {
   isPublished?: boolean;
   requireKnowledgeTest?: boolean;
   passThreshold?: number | null;
+  heroImageUrl?: string | null;
 }) {
   const slug = await ensureUniqueHiringSlug(input.slug?.trim() || input.title, input.positionId);
-  const current = await db.hiringPosition.findUnique({ where: { id: input.positionId }, select: { screeningSchema: true } });
+  const current = await db.hiringPosition.findUnique({
+    where: { id: input.positionId },
+    select: { screeningSchema: true, applicationSchema: true },
+  });
   const existingThreshold = current?.screeningSchema && typeof current.screeningSchema === "object" && !Array.isArray(current.screeningSchema)
     ? Number((current.screeningSchema as Record<string, unknown>).passThreshold)
     : NaN;
+
+  // Only touch the application schema when a hero image is supplied — merge it in
+  // so the existing steps/fields are preserved.
+  let applicationSchemaUpdate: Prisma.InputJsonValue | undefined;
+  if (input.heroImageUrl !== undefined) {
+    const existingSchema =
+      current?.applicationSchema && typeof current.applicationSchema === "object" && !Array.isArray(current.applicationSchema)
+        ? (current.applicationSchema as Record<string, unknown>)
+        : {};
+    applicationSchemaUpdate = { ...existingSchema, heroImageUrl: input.heroImageUrl?.trim() || null } as Prisma.InputJsonValue;
+  }
+
   return db.hiringPosition.update({
     where: { id: input.positionId },
     data: {
@@ -2438,6 +2455,7 @@ export async function updateHiringPosition(input: {
         requireKnowledgeTest: input.requireKnowledgeTest !== false,
         passThreshold: input.passThreshold ?? (Number.isFinite(existingThreshold) ? existingThreshold : null),
       }) as Prisma.InputJsonValue,
+      ...(applicationSchemaUpdate !== undefined ? { applicationSchema: applicationSchemaUpdate } : {}),
       isPublished: input.isPublished !== false,
     },
   });

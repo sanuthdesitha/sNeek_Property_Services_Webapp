@@ -123,6 +123,7 @@ const DEFAULT_POSITION_FORM = {
   isPublished: true,
   requireKnowledgeTest: true,
   passThreshold: 65,
+  heroImageUrl: "",
 };
 
 function scoreBadgeVariant(score: number, threshold = 65): "success" | "warning" | "destructive" {
@@ -369,6 +370,7 @@ export function AdminWorkforceHub({
       isPublished: position.isPublished !== false,
       requireKnowledgeTest: positionRequiresTest(position),
       passThreshold: positionThreshold(position),
+      heroImageUrl: position.applicationSchema?.heroImageUrl ?? "",
     });
   }
 
@@ -1507,6 +1509,7 @@ export function AdminWorkforceHub({
               <div className="space-y-2"><Label>Title</Label><Input value={positionForm.title} onChange={(event) => setPositionForm((current) => ({ ...current, title: event.target.value }))} /></div>
               <div className="space-y-2"><Label>Public slug</Label><Input value={positionForm.slug} onChange={(event) => setPositionForm((current) => ({ ...current, slug: event.target.value }))} placeholder="cleaner-application" /></div>
               <div className="space-y-2"><Label>Description</Label><Textarea value={positionForm.description} onChange={(event) => setPositionForm((current) => ({ ...current, description: event.target.value }))} placeholder="If blank, the default cleaner application description is used." /></div>
+              <div className="space-y-2"><Label>Hero image URL (flyer banner — optional)</Label><Input value={positionForm.heroImageUrl} onChange={(event) => setPositionForm((current) => ({ ...current, heroImageUrl: event.target.value }))} placeholder="https://… paste your flyer/banner image link" /></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label>Department</Label><Input value={positionForm.department} onChange={(event) => setPositionForm((current) => ({ ...current, department: event.target.value }))} /></div>
                 <div className="space-y-2"><Label>Location</Label><Input value={positionForm.location} onChange={(event) => setPositionForm((current) => ({ ...current, location: event.target.value }))} /></div>

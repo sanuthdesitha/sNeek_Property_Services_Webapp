@@ -773,104 +773,89 @@ export type ApplicationStep = {
 export type ApplicationSchema = {
   version: number;
   steps: ApplicationStep[];
+  /** Optional large banner image (e.g. the hiring flyer) shown atop the form. */
+  heroImageUrl?: string | null;
 };
 
 /**
- * Strengthened default applicationSchema: structured, validated fields covering
- * the reliable data we want from every applicant. Custom positions can still
- * override this; the public form renders whatever steps/fields are present.
+ * Lean default applicationSchema — quick to fill (mostly taps), but still
+ * captures the operational basics we need to shortlist an Airbnb cleaner:
+ * who/where, work rights, transport, availability, and experience. Heavier
+ * detail (ABN, licence, references, equipment) is collected at onboarding AFTER
+ * a hire, not up front, so we don't lose good applicants to a long form.
+ * Custom positions can still override this; the public form renders whatever
+ * steps/fields are present.
  */
-export function buildStructuredApplicationSchema(): ApplicationSchema {
+export function buildStructuredApplicationSchema(heroImageUrl?: string | null): ApplicationSchema {
   return {
-    version: 2,
+    version: 3,
+    heroImageUrl: heroImageUrl?.trim() || null,
     steps: [
       {
         id: "contact",
-        title: "Your details",
-        description: "How we reach you and where you are based.",
+        title: "About you",
+        description: "Just the basics so we can reach you.",
         fields: [
           { id: "fullName", label: "Full name", type: "text", required: true },
-          { id: "email", label: "Email", type: "email", required: true },
           { id: "phone", label: "Mobile number", type: "phone", required: true, placeholder: "04xx xxx xxx" },
-          { id: "suburb", label: "Suburb you are based in", type: "text", required: true },
+          { id: "email", label: "Email", type: "email", required: true },
+          { id: "suburb", label: "Suburb you live in", type: "text", required: true, placeholder: "Helps us match nearby jobs" },
         ],
       },
       {
-        id: "eligibility",
-        title: "Right to work & equipment",
-        description: "We need to confirm a few practical basics.",
+        id: "fit",
+        title: "Can you do the role?",
+        description: "A few quick taps — no typing.",
         fields: [
           {
             id: "rightToWork",
-            label: "Do you have legal work rights in Australia?",
+            label: "Do you have the right to work in Australia?",
             type: "single",
             required: true,
-            options: ["Yes - citizen / PR", "Yes - valid work visa", "Yes - student visa (with work rights)", "No / not sure"],
+            options: ["Yes — citizen / PR", "Yes — work or student visa", "No / not sure"],
           },
-          { id: "visaDetails", label: "Visa type / details (if on a visa)", type: "text", placeholder: "e.g. Student 500, 40 hrs/fortnight" },
-          { id: "hasAbn", label: "Do you have an ABN?", type: "single", required: true, options: ["Yes", "No", "Willing to get one"] },
-          { id: "abnNumber", label: "ABN (if you have one)", type: "text", placeholder: "11 digit ABN" },
           {
             id: "hasCar",
-            label: "Do you have your own car?",
+            label: "Do you have your own transport to get to jobs?",
             type: "single",
             required: true,
-            options: ["Yes", "No", "Sometimes / shared"],
+            options: ["Yes — own car", "Public transport / shared", "No"],
           },
-          {
-            id: "licence",
-            label: "Driver licence status",
-            type: "single",
-            required: true,
-            options: ["Full licence", "Provisional licence", "Learner", "No licence"],
-          },
-          {
-            id: "ownEquipment",
-            label: "Do you have your own cleaning equipment / supplies?",
-            type: "single",
-            required: true,
-            options: ["Yes - full kit", "Some basics", "No"],
-          },
-        ],
-      },
-      {
-        id: "availability",
-        title: "Availability & experience",
-        fields: [
           {
             id: "availabilityDays",
-            label: "Which days can you usually work?",
+            label: "Which days can you usually work? (2–3+ needed)",
             type: "multi",
             required: true,
-            options: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+            options: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+          },
+          {
+            id: "middayHours",
+            label: "Most cleans run ~10am–3pm. Does that suit you?",
+            type: "single",
+            required: true,
+            options: ["Yes, most days", "Some days", "Not usually"],
           },
           {
             id: "yearsExperience",
-            label: "Years of cleaning experience",
+            label: "Cleaning experience",
             type: "single",
             required: true,
-            options: ["No formal experience", "Less than 1 year", "1-3 years", "3+ years"],
+            options: ["New to it (keen to learn)", "Under 1 year", "1–3 years", "3+ years"],
           },
+        ],
+      },
+      {
+        id: "extras",
+        title: "Anything else? (optional)",
+        fields: [
           {
             id: "experienceTypes",
-            label: "Which work have you done before?",
+            label: "Done any of these before?",
             type: "multi",
-            options: ["Airbnb / short-stay", "Residential", "Commercial", "End of lease", "Deep cleans", "Laundry / linen"],
+            options: ["Airbnb / short-stay", "Residential", "End of lease", "Deep cleans", "Laundry / linen"],
           },
+          { id: "resumeUrl", label: "Resume / CV — optional", type: "file" },
         ],
-      },
-      {
-        id: "about",
-        title: "References & about you",
-        fields: [
-          { id: "references", label: "References (name, relationship, phone/email)", type: "longText", placeholder: "One per line." },
-          { id: "whyYou", label: "Why you? Tell us in a few sentences.", type: "longText", required: true, placeholder: "What makes you reliable and good at this work?" },
-        ],
-      },
-      {
-        id: "documents",
-        title: "Resume",
-        fields: [{ id: "resumeUrl", label: "Resume / CV (PDF or DOC)", type: "file", required: true }],
       },
     ],
   };

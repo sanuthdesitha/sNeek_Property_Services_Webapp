@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       isPublished: body.isPublished !== false,
       requireKnowledgeTest: body.requireKnowledgeTest !== false,
       passThreshold: Number.isFinite(Number(body.passThreshold)) ? Number(body.passThreshold) : null,
+      heroImageUrl: typeof body.heroImageUrl === "string" ? body.heroImageUrl : null,
       createdById: session.user.id,
     });
     return NextResponse.json(position, { status: 201 });

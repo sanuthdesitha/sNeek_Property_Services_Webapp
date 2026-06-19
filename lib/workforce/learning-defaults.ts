@@ -570,9 +570,13 @@ export function buildDefaultHiringSchema() {
 
 export function buildDefaultCleanerHiringDescription() {
   return [
-    "We are hiring detail-focused cleaners who can work independently, communicate clearly, and prepare guest-ready properties to a high standard.",
-    "The work includes short-stay turnovers, scheduled cleans, stock awareness, photo evidence, and app-based reporting.",
-    "Strong judgement, reliability, and calm problem-solving matter more than saying the right thing in an interview.",
+    "Join our Airbnb cleaning team and turn properties guest-ready. Flexible, friendly, and built around a simple app that makes every job clear.",
+    "What we offer:",
+    "• Pay from $28/hr during paid training, rising to $30+/hr after training based on your performance",
+    "• Paid training — we teach you our standard, no experience needed",
+    "• Easy app access: your jobs, checklists, and photos all in one place",
+    "• Flexible days — work at least 2–3 days a week, typically 10am–3pm",
+    "What we look for: reliability, attention to detail, and a positive, can-do attitude. The application takes about 2 minutes.",
   ].join("\n\n");
 }
 

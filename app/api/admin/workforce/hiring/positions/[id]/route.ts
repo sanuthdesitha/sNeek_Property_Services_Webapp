@@ -18,6 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       isPublished: body.isPublished !== false,
       requireKnowledgeTest: body.requireKnowledgeTest !== false,
       passThreshold: Number.isFinite(Number(body.passThreshold)) ? Number(body.passThreshold) : null,
+      heroImageUrl: typeof body.heroImageUrl === "string" ? body.heroImageUrl : undefined,
     });
     return NextResponse.json(position);
   } catch (err: any) {
