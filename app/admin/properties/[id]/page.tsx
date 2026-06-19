@@ -104,6 +104,7 @@ export default function PropertyDetailPage() {
     suburb: "",
     state: "NSW",
     postcode: "",
+    imageUrl: "",
     notes: "",
     linenBufferSets: "0",
     defaultCleanDurationHours: "3",
@@ -170,6 +171,7 @@ export default function PropertyDetailPage() {
       suburb: data.suburb ?? "",
       state: data.state ?? "NSW",
       postcode: data.postcode ?? "",
+      imageUrl: data.imageUrl ?? "",
       notes: data.notes ?? "",
       linenBufferSets: String(data.linenBufferSets ?? 0),
       defaultCleanDurationHours:
@@ -366,6 +368,7 @@ export default function PropertyDetailPage() {
       suburb: form.suburb,
       state: form.state,
       postcode: form.postcode || undefined,
+      imageUrl: form.imageUrl.trim() || null,
       notes: form.notes || undefined,
       latitude: form.latitude ?? undefined,
       longitude: form.longitude ?? undefined,
@@ -1001,6 +1004,22 @@ export default function PropertyDetailPage() {
                     <p className="text-xs text-muted-foreground">Disable to exclude this property from laundry scheduling entirely</p>
                   </div>
                 </label>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cover photo URL</Label>
+                <Input
+                  value={form.imageUrl}
+                  onChange={(e) => setForm((prev) => ({ ...prev, imageUrl: e.target.value }))}
+                  placeholder="https://… image shown on the properties grid"
+                />
+                {form.imageUrl.trim() ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={form.imageUrl}
+                    alt="Cover preview"
+                    className="mt-2 h-32 w-full max-w-xs rounded-lg border object-cover"
+                  />
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label>Notes</Label>

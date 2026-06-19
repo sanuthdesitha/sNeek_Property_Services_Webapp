@@ -85,6 +85,7 @@ export const createPropertySchema = z.object({
   suburb: requiredSuburbSchema,
   state: requiredAustralianStateSchema.default("NSW"),
   postcode: optionalPostcodeSchema,
+  imageUrl: z.string().trim().max(2000).optional().nullable(),
   notes: optionalNoteSchema(4000),
   accessInfo: accessInfoSchema.optional(),
   linenBufferSets: z.number().int().min(0).default(0),

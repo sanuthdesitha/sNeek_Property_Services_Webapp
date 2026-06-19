@@ -72,53 +72,78 @@ export default async function PropertiesPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {properties.map((prop) => (
-                  <Link
-                    key={prop.id}
-                    href={`/admin/properties/${prop.id}`}
-                    className="flex items-center justify-between px-6 py-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Building2 className="h-5 w-5 text-primary" />
+          {properties.length === 0 ? (
+            <Card>
+              <CardContent>
+                <p className="p-10 text-center text-sm text-muted-foreground">
+                  No properties. Add your first property from a client page.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {properties.map((prop) => (
+                <Link
+                  key={prop.id}
+                  href={`/admin/properties/${prop.id}`}
+                  className="group flex flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                >
+                  {/* Cover photo (or branded fallback) */}
+                  <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
+                    {prop.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={prop.imageUrl}
+                        alt={prop.name}
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04]"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-primary/5">
+                        <Building2 className="h-10 w-10 text-primary/40" />
                       </div>
-                      <div>
-                        <p className="font-medium">{prop.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {prop.address}, {prop.suburb}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{prop.client.name}</p>
-                      </div>
+                    )}
+                    {prop.integration?.isEnabled && prop.integration.icalUrl ? (
+                      <Badge
+                        variant={syncStatusColor[prop.integration.syncStatus] as any}
+                        className="absolute left-2 top-2 gap-1 text-[10px] shadow-sm"
+                      >
+                        <RefreshCw className="h-2.5 w-2.5" />
+                        iCal
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-1 flex-col p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="truncate font-semibold text-foreground">{prop.name}</h3>
+                      <Badge variant="success" className="shrink-0 text-[11px]">Active</Badge>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span className="hidden md:flex items-center gap-1">
+                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                      {prop.suburb}
+                      <span className="mx-1.5 text-muted-foreground/50">·</span>
+                      <span className="inline-flex items-center gap-1">
                         <Bed className="h-3 w-3" /> {prop.bedrooms}
-                        <Bath className="h-3 w-3 ml-1" /> {prop.bathrooms}
                       </span>
-                      <span className="hidden sm:block">{prop._count.jobs} jobs</span>
-                      {!prop.laundryEnabled && (
-                        <Badge variant="secondary" className="text-xs">No laundry</Badge>
-                      )}
-                      {prop.integration?.isEnabled && prop.integration.icalUrl && (
-                        <Badge variant={syncStatusColor[prop.integration.syncStatus] as any} className="text-xs gap-1">
-                          <RefreshCw className="h-2.5 w-2.5" />
-                          iCal {prop.integration.syncStatus}
-                        </Badge>
-                      )}
+                      <span className="ml-2 inline-flex items-center gap-1">
+                        <Bath className="h-3 w-3" /> {prop.bathrooms}
+                      </span>
+                    </p>
+
+                    <div className="my-3 border-t" />
+
+                    <div className="mt-auto flex items-center justify-between gap-2 text-sm">
+                      <span className="truncate text-muted-foreground">
+                        Client <span className="font-medium text-foreground">{prop.client.name}</span>
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">
+                        Jobs <span className="font-semibold text-foreground">{prop._count.jobs}</span>
+                      </span>
                     </div>
-                  </Link>
-                ))}
-                {properties.length === 0 && (
-                  <p className="p-10 text-center text-sm text-muted-foreground">
-                    No properties. Add your first property from a client page.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="map" className="mt-4">

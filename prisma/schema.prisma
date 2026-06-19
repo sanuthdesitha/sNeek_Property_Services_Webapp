@@ -737,6 +737,7 @@ model Property {
   suburb                 String
   state                  String   @default("NSW")
   postcode               String?
+  imageUrl               String?  // optional cover photo shown on the properties grid
   notes                  String?  @db.Text
   accessInfo             Json? // { lockbox, codes, parking, other }
   linenBufferSets        Int      @default(0)
