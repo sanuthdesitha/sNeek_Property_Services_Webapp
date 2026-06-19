@@ -7,11 +7,14 @@ const iosBundleIdentifier =
 const androidPackage =
   process.env.EXPO_PUBLIC_ANDROID_PACKAGE || "com.sneek.mobile";
 const webAppUrl = process.env.EXPO_PUBLIC_WEBAPP_URL || "https://www.sneekholdings.com";
-const easProjectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || undefined;
+// EAS project created under the @sneek-holdings account (`eas init`).
+const easProjectId =
+  process.env.EXPO_PUBLIC_EAS_PROJECT_ID || "629007c8-f4e1-41f9-94cc-4d7a48649633";
 
 const config: ExpoConfig = {
   name: appName,
   slug: "sneek-mobile-shell",
+  owner: "sneek-holdings",
   version: "1.0.0",
   orientation: "portrait",
   scheme,
@@ -20,7 +23,7 @@ const config: ExpoConfig = {
   splash: {
     image: "./assets/splash.png",
     resizeMode: "contain",
-    backgroundColor: "#0f5a44"
+    backgroundColor: "#ffffff"
   },
   ios: {
     supportsTablet: true,
@@ -48,7 +51,7 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#0f5a44"
+      backgroundColor: "#ffffff"
     },
     permissions: [
       "CAMERA",

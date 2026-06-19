@@ -25,6 +25,9 @@ const extra = (Constants.expoConfig?.extra ?? {}) as ExtraConfig;
 export const MOBILE_CONFIG = {
   webAppUrl: normalizeWebAppUrl(extra.webAppUrl || process.env.EXPO_PUBLIC_WEBAPP_URL || "https://www.sneekholdings.com"),
   appVersion: Constants.expoConfig?.version || "1.0.0",
+  // The app always opens at the login route (not the public marketing site).
+  // If a valid session cookie exists, the web app redirects on to the portal.
+  startPath: process.env.EXPO_PUBLIC_START_PATH || "/login",
   projectId:
     extra.eas?.projectId ||
     Constants.easConfig?.projectId ||
@@ -39,6 +42,11 @@ export function buildWebUrl(pathOrUrl?: string | null) {
   } catch {
     return MOBILE_CONFIG.webAppUrl;
   }
+}
+
+/** The URL the app launches on — the login page. */
+export function buildStartUrl() {
+  return buildWebUrl(MOBILE_CONFIG.startPath);
 }
 
 export function isInternalWebUrl(url: string) {

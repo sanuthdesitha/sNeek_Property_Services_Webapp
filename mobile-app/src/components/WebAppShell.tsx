@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { buildWebUrl, isInternalWebUrl, MOBILE_CONFIG } from "@/config";
+import { buildStartUrl, buildWebUrl, isInternalWebUrl, MOBILE_CONFIG } from "@/config";
 import type { PushState } from "@/hooks/usePushNotifications";
 
 type Props = {
@@ -58,10 +58,20 @@ function buildContextInjection(payload: ReturnType<typeof buildContextPayload>) 
 
 export function WebAppShell({ notifications }: Props) {
   const webViewRef = useRef<WebView>(null);
-  const [currentUrl, setCurrentUrl] = useState(buildWebUrl());
+  const [currentUrl, setCurrentUrl] = useState(buildStartUrl());
   const [canGoBack, setCanGoBack] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
+
+  // Watchdog: the WebView's onLoadEnd is not always emitted for client-side
+  // (SPA) navigations, which used to leave the "Loading sNeek…" overlay stuck
+  // forever after a few in-app clicks. Force the overlay to clear if a load
+  // hasn't reported completion within a few seconds.
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => setLoading(false), 6000);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   const nativeContext = useMemo(() => buildContextPayload(notifications), [notifications]);
   const injectedContext = useMemo(
@@ -114,7 +124,7 @@ export function WebAppShell({ notifications }: Props) {
       } else if (data.type === "REQUEST_PUSH_CONTEXT") {
         webViewRef.current?.injectJavaScript(injectedContext);
       } else if (data.type === "RELOAD_APP") {
-        setCurrentUrl(buildWebUrl());
+        setCurrentUrl(buildStartUrl());
         setPageError(null);
       }
     } catch {
@@ -141,7 +151,7 @@ export function WebAppShell({ notifications }: Props) {
               <Pressable style={styles.primaryButton} onPress={() => {
                 setPageError(null);
                 setLoading(true);
-                setCurrentUrl(buildWebUrl());
+                setCurrentUrl(buildStartUrl());
               }}>
                 <Text style={styles.primaryButtonText}>Retry</Text>
               </Pressable>
@@ -179,6 +189,11 @@ export function WebAppShell({ notifications }: Props) {
               onLoadStart={() => {
                 setLoading(true);
                 setPageError(null);
+              }}
+              onLoadProgress={({ nativeEvent }) => {
+                // Clear the overlay as soon as the page is essentially loaded —
+                // onLoadEnd can be missed on SPA navigations.
+                if (nativeEvent.progress >= 0.7) setLoading(false);
               }}
               onLoadEnd={() => setLoading(false)}
               onNavigationStateChange={(state) => {
