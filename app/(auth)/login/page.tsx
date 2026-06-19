@@ -59,6 +59,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [branding, setBranding] = useState({ companyName: "sNeek Property Services", logoUrl: "" });
   const [siteStatus, setSiteStatus] = useState({ maintenanceEnabled: false, allowLogin: true, message: "", supportMessage: "" });
+  // Inside the native mobile shell we hide the "Back to home" link — the app
+  // has no public marketing site to go back to.
+  const [isNativeApp, setIsNativeApp] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
   const adminRecoveryMode = searchParams.get("admin") === "1";
   const maintenanceLoginLocked = siteStatus.maintenanceEnabled && !siteStatus.allowLogin;
@@ -69,6 +72,14 @@ export default function LoginPage() {
     if (params.get("error")) {
       setError("Invalid credentials. Please try again.");
     }
+    // Detect the native mobile shell: it injects a native context object and
+    // uses a "sNeekMobile" user agent.
+    const w = window as typeof window & { __SNEEK_NATIVE_CONTEXT__?: unknown };
+    const nativeContext =
+      !!w.__SNEEK_NATIVE_CONTEXT__ ||
+      (typeof window.localStorage !== "undefined" && !!window.localStorage.getItem("sneek-native-context"));
+    const nativeUa = /sNeekMobile/i.test(navigator.userAgent || "");
+    if (nativeContext || nativeUa) setIsNativeApp(true);
     fetch("/api/public/branding")
       .then((r) => r.json())
       .then((data) => {
@@ -163,9 +174,11 @@ export default function LoginPage() {
     <div className="relative flex min-h-screen items-center justify-center p-4">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(255,178,98,0.2),transparent_35%),radial-gradient(circle_at_86%_10%,rgba(38,157,169,0.2),transparent_31%)]" />
       <div className="w-full max-w-sm space-y-4 page-fade">
-        <div className="flex items-center rounded-full border border-white/70 bg-white/80 px-4 py-2 text-sm shadow-sm">
-          <Link href="/" className="font-medium text-primary hover:underline">Back to home</Link>
-        </div>
+        {!isNativeApp ? (
+          <div className="flex items-center rounded-full border border-white/70 bg-white/80 px-4 py-2 text-sm shadow-sm">
+            <Link href="/" className="font-medium text-primary hover:underline">Back to home</Link>
+          </div>
+        ) : null}
       <Card className="w-full max-w-sm shadow-xl">
         <CardHeader className="text-center">
           {branding.logoUrl ? (
