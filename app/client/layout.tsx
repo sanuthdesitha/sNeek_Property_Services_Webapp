@@ -32,25 +32,27 @@ export default async function ClientLayout({ children }: { children: React.React
       portalTheme={settings.portalTheme}
       navItems={[
         { href: "/client", label: "Dashboard", exact: true },
-        ...(visibility.showProperties ? [{ href: "/client/properties", label: "Properties" }] : []),
+        // Ordered by client priority: day-to-day service items first, then
+        // account/property, then optional inventory/laundry/rewards.
         ...(visibility.showJobs ? [{ href: "/client/jobs", label: "Jobs" }] : []),
-        ...(visibility.showBooking ? [{ href: "/client/booking", label: "Booking" }] : []),
         ...(visibility.showCalendar ? [{ href: "/client/calendar", label: "Calendar" }] : []),
+        ...(visibility.showBooking ? [{ href: "/client/booking", label: "Booking" }] : []),
+        ...(visibility.showReports ? [{ href: "/client/reports", label: "Reports" }] : []),
+        ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),
+        { href: "/client/messages", label: "Messages" },
+        ...(visibility.showProperties ? [{ href: "/client/properties", label: "Properties" }] : []),
+        ...(visibility.showFinanceDetails ? [{ href: "/client/finance", label: "Finance" }] : []),
+        { href: "/client/quotes", label: "My quotes" },
+        ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Request a quote" }] : []),
+        { href: "/client/maintenance", label: "Maintenance" },
+        ...(visibility.showCases ? [{ href: "/client/cases", label: "Cases" }] : []),
         ...(visibility.showLaundryUpdates ? [{ href: "/client/laundry", label: "Laundry" }] : []),
         ...(visibility.showInventory ? [{ href: "/client/inventory", label: "Inventory" }] : []),
         ...(visibility.showInventory && visibility.showShopping ? [{ href: "/client/shopping", label: "Shopping" }] : []),
         ...(visibility.showInventory && visibility.showStockRuns && visibility.allowStockRuns
           ? [{ href: "/client/stock-runs", label: "Stock Counts" }]
           : []),
-        ...(visibility.showFinanceDetails ? [{ href: "/client/finance", label: "Finance" }] : []),
-        { href: "/client/messages", label: "Messages" },
         { href: "/client/referrals", label: "Rewards" },
-        ...(visibility.showReports ? [{ href: "/client/reports", label: "Reports" }] : []),
-        { href: "/client/maintenance", label: "Maintenance" },
-        { href: "/client/quotes", label: "My quotes" },
-        ...(visibility.showQuoteRequests ? [{ href: "/client/quote", label: "Request a quote" }] : []),
-        ...(visibility.showApprovals ? [{ href: "/client/approvals", label: "Approvals" }] : []),
-        ...(visibility.showCases ? [{ href: "/client/cases", label: "Cases" }] : []),
       ]}
         >
           {children}

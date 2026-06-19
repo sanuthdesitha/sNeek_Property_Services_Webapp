@@ -16,13 +16,17 @@ RUN npm ci --no-audit --no-fund \
   || (echo "npm ci failed, retrying (1/2)..." && sleep 3 && npm ci --no-audit --no-fund) \
   || (echo "npm ci failed, retrying (2/2)..." && sleep 5 && npm ci --no-audit --no-fund)
 
+# Chromium for server-side PDF rendering (lib/reports/pdf.ts uses Playwright).
+# Done BEFORE copying source so this slow step (browser download + ~80 apt deps)
+# is cached and only re-runs when dependencies change — not on every code edit.
+RUN npx playwright install --with-deps chromium
+
 COPY . .
 
 ENV NODE_ENV=production
 ENV NEXT_DIST_DIR=.next-prod
 
 RUN npx prisma generate
-RUN npx playwright install --with-deps chromium
 RUN node ./scripts/run-next.cjs build
 
 EXPOSE 3000
