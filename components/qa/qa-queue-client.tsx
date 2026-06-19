@@ -206,6 +206,24 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
                   <p className="text-sm text-muted-foreground">
                     {row.job?.property?.address}, {row.job?.property?.suburb}
                   </p>
+                  {row.job?.scheduledDate || row.job?.completedAt ? (
+                    <p className="text-xs font-medium text-foreground">
+                      {row.job?.scheduledDate
+                        ? new Date(row.job.scheduledDate).toLocaleDateString(undefined, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : null}
+                      {row.job?.completedAt
+                        ? ` · Completed ${new Date(row.job.completedAt).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                          })}`
+                        : ""}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
                     Cleaner: {row.job?.assignments?.map((a: any) => a.user?.name || a.user?.email).join(", ") || "N/A"}
                     {row.assignment?.assignedTo ? ` · Assigned to ${row.assignment.assignedTo.name || row.assignment.assignedTo.email}` : ""}
