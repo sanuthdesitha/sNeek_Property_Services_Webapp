@@ -103,11 +103,43 @@ const nextBin = path.resolve(process.cwd(), "node_modules", "next", "dist", "bin
 const patch = path.resolve(process.cwd(), "scripts", "fs-readlink-patch.cjs");
 const args = ["-r", patch, nextBin, mode, ...forwardedArgs];
 
-const result = spawnSync(process.execPath, ["--max-old-space-size=4096", ...args], {
+// Heap ceiling (override with NEXT_BUILD_MEMORY_MB on small hosts to avoid the
+// build swapping itself into a crawl/hang).
+const memMb = Number(process.env.NEXT_BUILD_MEMORY_MB) || 4096;
+// Hard timeout for builds so a hang (e.g. a page blocking on DB/network during
+// static generation, or RAM exhaustion) FAILS with a clear message instead of
+// running forever and tying up the deploy. Override with NEXT_BUILD_TIMEOUT_MS.
+const buildTimeoutMs =
+  mode === "build" ? Number(process.env.NEXT_BUILD_TIMEOUT_MS) || 20 * 60 * 1000 : undefined;
+const startedAt = Date.now();
+if (mode === "build") {
+  console.log(
+    `[run-next] Starting next build — heap ${memMb}MB, timeout ${Math.round(buildTimeoutMs / 60000)} min.`
+  );
+}
+
+const result = spawnSync(process.execPath, [`--max-old-space-size=${memMb}`, ...args], {
   stdio: "inherit",
   shell: false,
   env,
+  ...(buildTimeoutMs ? { timeout: buildTimeoutMs, killSignal: "SIGKILL" } : {}),
 });
+
+if (mode === "build") {
+  const secs = Math.round((Date.now() - startedAt) / 1000);
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    console.error(
+      `[run-next] Build exceeded ${Math.round(buildTimeoutMs / 60000)} min and was killed.\n` +
+        "  Most likely either:\n" +
+        "   • a page is blocking on DB/network during 'Collecting page data' (e.g. DATABASE_URL\n" +
+        "     unreachable from the build container) — make that page dynamic or guard build-time data; or\n" +
+        "   • the host ran out of RAM while compiling — raise the instance, or lower NEXT_BUILD_MEMORY_MB.\n" +
+        "  Raise the limit with NEXT_BUILD_TIMEOUT_MS if the build is just genuinely long."
+    );
+    process.exit(1);
+  }
+  console.log(`[run-next] next build finished in ${secs}s (exit ${result.status ?? "n/a"}).`);
+}
 
 if (tsconfigSnapshot !== null) {
   const currentTsconfig = fs.existsSync(tsconfigPath) ? fs.readFileSync(tsconfigPath, "utf8") : null;
