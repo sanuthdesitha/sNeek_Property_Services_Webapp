@@ -1,6 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
-const appName = process.env.EXPO_PUBLIC_APP_NAME || "sNeek";
+const appName = process.env.EXPO_PUBLIC_APP_NAME || "sNeek Ops";
 const scheme = process.env.EXPO_PUBLIC_APP_SCHEME || "sneekmobile";
 const iosBundleIdentifier =
   process.env.EXPO_PUBLIC_IOS_BUNDLE_IDENTIFIER || "com.sneek.mobile";
