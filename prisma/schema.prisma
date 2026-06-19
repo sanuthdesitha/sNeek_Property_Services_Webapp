@@ -367,6 +367,31 @@ model WebAuthnCredential {
   @@index([userId])
 }
 
+/// How a user receives their second-factor code.
+enum TwoFactorMethod {
+  TOTP  // authenticator app (Google Authenticator / Authy)
+  EMAIL // one-time code emailed at sign-in
+}
+
+/// A device the user chose to "remember", so 2FA isn't prompted again on it for
+/// the cookie's lifetime. We store only a SHA-256 hash of the random token; the
+/// raw token lives in an httpOnly cookie on the device.
+model TrustedDevice {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  label      String?
+  userAgent  String?
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 /// A browser/PWA Web Push subscription (VAPID). Lets us deliver real push
 /// notifications (WhatsApp-style) to a user's device for the "web" channel,
 /// not just email. endpoint is the unique push service URL; p256dh/auth are
@@ -517,6 +542,13 @@ model User {
   phone         String?
   hourlyRate    Float?
   isActive      Boolean   @default(true)
+
+  // Optional two-factor authentication (per-user opt-in).
+  twoFactorEnabled     Boolean          @default(false)
+  twoFactorMethod      TwoFactorMethod?
+  totpSecret           String?          // base32 secret (TOTP method only)
+  twoFactorBackupCodes String?          // JSON array of sha256-hashed one-time codes
+
   profileEditingEnabled Boolean @default(true)
   bankBsb           String?
   bankAccountNumber   String?
@@ -539,6 +571,7 @@ model User {
   qaReworkAsCleaner            QaReworkTransfer[]          @relation("QaReworkCleaner")
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
   webauthnCredentials          WebAuthnCredential[]
+  trustedDevices               TrustedDevice[]
   pushSubscriptions            PushSubscription[]
   maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")
   maintenanceResolved          PropertyMaintenanceItem[]   @relation("MaintenanceResolvedBy")

@@ -13,6 +13,13 @@ import {
   parseCookieHeader,
   verifyAssertionAndGetUser,
 } from "@/lib/auth/webauthn";
+import {
+  TRUSTED_DEVICE_COOKIE,
+  TWO_FA_OK_COOKIE,
+  isTrustedDevice,
+  readCookieFromHeader,
+  verifyTwoFaOk,
+} from "@/lib/auth/twofactor";
 
 function getConfiguredAuthBaseUrl() {
   const raw =
@@ -120,7 +127,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
           email: { label: "Email", type: "email" },
           password: { label: "Password", type: "password" },
         },
-        async authorize(credentials) {
+        async authorize(credentials, req) {
           if (!credentials?.email || !credentials?.password) return null;
           const email = credentials.email.toLowerCase();
           const bootstrapAdmin = getBootstrapAdminConfig();
@@ -163,6 +170,24 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
 
           const valid = await bcrypt.compare(credentials.password, user.passwordHash);
           if (!valid) return null;
+
+          // Optional 2FA gate. The login UI runs the second-factor check first
+          // (via /api/auth/2fa/*) and sets a short-lived proof cookie, or the
+          // device carries a long-lived "remembered" token. If 2FA is on and
+          // neither is valid, deny — the UI is responsible for completing 2FA
+          // before calling signIn.
+          if (user.twoFactorEnabled) {
+            const cookieHeader = (req?.headers?.cookie as string | undefined) ?? undefined;
+            const trusted = await isTrustedDevice(
+              user.id,
+              readCookieFromHeader(cookieHeader, TRUSTED_DEVICE_COOKIE),
+            );
+            const passed = verifyTwoFaOk(
+              readCookieFromHeader(cookieHeader, TWO_FA_OK_COOKIE),
+              user.email,
+            );
+            if (!trusted && !passed) return null;
+          }
 
           const settings = await getAppSettings();
           const maintenanceMode = settings.websiteContent.maintenanceMode;

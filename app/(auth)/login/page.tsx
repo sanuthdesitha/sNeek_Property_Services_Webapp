@@ -63,6 +63,11 @@ export default function LoginPage() {
   // has no public marketing site to go back to.
   const [isNativeApp, setIsNativeApp] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
+  // Two-step verification: when the password is right but 2FA is on, we switch
+  // to a code-entry step before completing sign-in.
+  const [twoFa, setTwoFa] = useState<{ method: "TOTP" | "EMAIL" } | null>(null);
+  const [code, setCode] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(false);
   const adminRecoveryMode = searchParams.get("admin") === "1";
   const maintenanceLoginLocked = siteStatus.maintenanceEnabled && !siteStatus.allowLogin;
   const signInBlocked = maintenanceLoginLocked && !adminRecoveryMode;
@@ -110,6 +115,57 @@ export default function LoginPage() {
     }
     setLoading(true);
     setError(null);
+    try {
+      // Step 1: check the password and whether a second factor is required.
+      const begin = await fetch("/api/auth/2fa/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email, password: form.password }),
+      })
+        .then((r) => r.json())
+        .catch(() => null);
+
+      if (begin?.required) {
+        setTwoFa({ method: begin.method === "EMAIL" ? "EMAIL" : "TOTP" });
+        setLoading(false);
+        return;
+      }
+      await doSignIn();
+    } catch {
+      setError("Sign in failed. Please try again.");
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/2fa/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          code,
+          remember: rememberDevice,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error || "Invalid or expired code.");
+        setLoading(false);
+        return;
+      }
+      await doSignIn();
+    } catch {
+      setError("Verification failed. Please try again.");
+      setLoading(false);
+    }
+  }
+
+  async function doSignIn() {
     try {
       const callbackUrl = adminRecoveryMode ? `${window.location.origin}/admin` : `${window.location.origin}/`;
       const res = await signInWithCredentials({
@@ -224,44 +280,91 @@ export default function LoginPage() {
             </Alert>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading || signInBlocked}>
-              {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
-            </Button>
-          </form>
+          {twoFa ? (
+            <form onSubmit={handleVerify} className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="twofa-code">
+                  {twoFa.method === "EMAIL" ? "Email code" : "Authenticator code"}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {twoFa.method === "EMAIL"
+                    ? `We sent a 6-digit code to ${form.email}.`
+                    : "Enter the 6-digit code from your authenticator app."}{" "}
+                  You can also use a backup code.
+                </p>
+                <Input
+                  id="twofa-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  placeholder="123456"
+                  required
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                />
+                Trust this device for 30 days
+              </label>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Verifying..." : "Verify & sign in"}
+              </Button>
+              <button
+                type="button"
+                className="w-full text-center text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => { setTwoFa(null); setCode(""); setError(null); }}
+              >
+                Back
+              </button>
+            </form>
+          ) : (
+            <>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading || signInBlocked}>
+                  {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
+                </Button>
+              </form>
 
-          {!signInBlocked ? (
-            <div className="mt-4">
-              <BiometricSignInButton
-                email={form.email}
-                callbackUrl={adminRecoveryMode ? `${typeof window !== "undefined" ? window.location.origin : ""}/admin` : "/"}
-                disabled={loading}
-                onError={(message) => setError(message || null)}
-              />
-            </div>
-          ) : null}
+              {!signInBlocked ? (
+                <div className="mt-4">
+                  <BiometricSignInButton
+                    email={form.email}
+                    callbackUrl={adminRecoveryMode ? `${typeof window !== "undefined" ? window.location.origin : ""}/admin` : "/"}
+                    disabled={loading}
+                    onError={(message) => setError(message || null)}
+                  />
+                </div>
+              ) : null}
+            </>
+          )}
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Need an account?{" "}
