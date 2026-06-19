@@ -165,7 +165,6 @@ export default function JobDetailPage() {
   const [updatingReportVisibility, setUpdatingReportVisibility] = useState(false);
   const [savingJob, setSavingJob] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const [autoAssigning, setAutoAssigning] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingJob, setDeletingJob] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -428,48 +427,6 @@ export default function JobDetailPage() {
     toast({ title: selectedCleaners.length > 0 ? "Assignees updated" : "All assignees removed" });
     setAssignOpen(false);
     load();
-  }
-
-  async function autoAssignTop(limit = 2) {
-    setAutoAssigning(true);
-    try {
-      const suggestRes = await fetch(`/api/admin/dispatch/auto-assign/${params.id}/suggest`);
-      const suggestBody = await suggestRes.json().catch(() => ({}));
-      if (!suggestRes.ok) {
-        throw new Error(suggestBody.error ?? "Could not generate cleaner suggestions.");
-      }
-      const suggestions = Array.isArray(suggestBody?.suggestions) ? suggestBody.suggestions : [];
-      const cleanerIds = suggestions
-        .slice(0, limit)
-        .map((row: any) => row?.cleanerId)
-        .filter((id: unknown): id is string => typeof id === "string" && id.length > 0);
-      if (cleanerIds.length === 0) {
-        throw new Error("No eligible cleaner suggestions found.");
-      }
-
-      const applyRes = await fetch(`/api/admin/dispatch/auto-assign/${params.id}/apply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cleanerIds }),
-      });
-      const applyBody = await applyRes.json().catch(() => ({}));
-      if (!applyRes.ok) {
-        throw new Error(applyBody.error ?? "Could not apply auto assignment.");
-      }
-
-      setSelectedCleaners(cleanerIds);
-      toast({ title: "Auto-assignment applied", description: `Assigned top ${cleanerIds.length} cleaner(s).` });
-      setAssignOpen(false);
-      load();
-    } catch (err: any) {
-      toast({
-        title: "Auto-assign failed",
-        description: err?.message ?? "Could not auto-assign cleaners.",
-        variant: "destructive",
-      });
-    } finally {
-      setAutoAssigning(false);
-    }
   }
 
   async function submitQa() {
@@ -2900,14 +2857,6 @@ export default function JobDetailPage() {
               placeholder="Select cleaners"
               emptyText="No cleaners found."
             />
-            <Button
-              className="w-full"
-              variant="outline"
-              onClick={() => autoAssignTop(2)}
-              disabled={autoAssigning}
-            >
-              {autoAssigning ? "Auto-assigning..." : "Auto Assign Top 2"}
-            </Button>
             <Button className="w-full" onClick={assign}>
               Save Assignees
             </Button>

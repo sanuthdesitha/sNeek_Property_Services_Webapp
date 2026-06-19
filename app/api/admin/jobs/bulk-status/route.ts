@@ -29,6 +29,14 @@ export async function POST(req: NextRequest) {
           where: { id: job.id },
           data: { status: body.status },
         });
+        // Moving a job back to Unassigned removes its cleaner(s) — mirrors the
+        // single-job update route so the cleaner is dropped, not left attached.
+        if (body.status === JobStatus.UNASSIGNED) {
+          await tx.jobAssignment.updateMany({
+            where: { jobId: job.id, removedAt: null },
+            data: { removedAt: new Date(), isPrimary: false },
+          });
+        }
         await tx.auditLog.create({
           data: {
             userId: session.user.id,
