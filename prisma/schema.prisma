@@ -2465,7 +2465,8 @@ model HiringApplication {
   position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
   reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
   hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
-  events     HiringApplicationEvent[]
+  events          HiringApplicationEvent[]
+  quizAssignments QuizAssignment[]
 }
 
 /// Activity timeline for an application: status changes, emails sent, replies
@@ -2493,6 +2494,47 @@ model HiringApplicationEvent {
   actor       User?             @relation("HiringEventActor", fields: [actorId], references: [id])
 
   @@index([applicationId, createdAt])
+}
+
+/// A reusable named knowledge test (question bank) that can be assigned to any
+/// candidate after they apply.
+model QuizTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  schema      Json     // { title, intro, passThreshold, questions: AssessmentQuestion[] }
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments QuizAssignment[]
+}
+
+enum QuizAssignmentStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+/// A specific quiz assigned to a candidate, completed via an emailed link.
+model QuizAssignment {
+  id             String               @id @default(cuid())
+  applicationId  String
+  quizTemplateId String
+  token          String               @unique
+  status         QuizAssignmentStatus @default(PENDING)
+  score          Float?
+  result         Json?
+  answers        Json?
+  sentAt         DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime             @default(now())
+
+  application  HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  quizTemplate QuizTemplate      @relation(fields: [quizTemplateId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([token])
 }
 
 model AppSetting {

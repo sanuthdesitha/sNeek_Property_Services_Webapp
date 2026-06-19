@@ -2669,6 +2669,10 @@ export async function getHiringApplicationDetail(applicationId: string) {
         orderBy: { createdAt: "desc" },
         include: { actor: { select: { id: true, name: true } } },
       },
+      quizAssignments: {
+        orderBy: { createdAt: "desc" },
+        include: { quizTemplate: { select: { id: true, name: true } } },
+      },
     },
   });
 }

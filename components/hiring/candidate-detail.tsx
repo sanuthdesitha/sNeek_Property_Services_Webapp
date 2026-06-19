@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Mail, MailOpen, FileText, StickyNote, UserPlus,
-  ClipboardCheck, Reply, Loader2, Save, Send, ExternalLink, Phone, MapPin,
+  ClipboardCheck, Reply, Loader2, Save, Send, ExternalLink, Phone, MapPin, Copy, ClipboardList,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,41 @@ export function CandidateDetail({ application }: { application: any }) {
   const [emailOpen, setEmailOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [loggingReply, setLoggingReply] = useState(false);
+  const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [selectedQuiz, setSelectedQuiz] = useState<string>("");
+  const [assigningQuiz, setAssigningQuiz] = useState(false);
+  const quizAssignments: any[] = application.quizAssignments ?? [];
+
+  useEffect(() => {
+    fetch("/api/admin/workforce/hiring/quizzes")
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setQuizzes(data))
+      .catch(() => {});
+  }, []);
+
+  async function assignQuiz() {
+    if (!selectedQuiz) return;
+    setAssigningQuiz(true);
+    try {
+      const res = await fetch(`/api/admin/workforce/hiring/applications/${application.id}/assign-quiz`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quizTemplateId: selectedQuiz }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ title: "Could not assign quiz", description: body.error, variant: "destructive" }); return; }
+      toast({ title: "Quiz assigned & emailed" });
+      setSelectedQuiz("");
+      router.refresh();
+    } finally {
+      setAssigningQuiz(false);
+    }
+  }
+
+  function copyQuizLink(token: string) {
+    const url = `${window.location.origin}/quiz/${token}`;
+    navigator.clipboard.writeText(url).then(() => toast({ title: "Quiz link copied", description: url }), () => toast({ title: url }));
+  }
 
   async function save() {
     setSaving(true);
@@ -272,6 +307,44 @@ export function CandidateDetail({ application }: { application: any }) {
               <Button size="sm" variant="outline" onClick={logReply} disabled={loggingReply || !replyText.trim()}>
                 <Reply className="mr-1 h-4 w-4" /> Log reply
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Knowledge tests</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Select value={selectedQuiz} onValueChange={setSelectedQuiz}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Choose a quiz…" /></SelectTrigger>
+                  <SelectContent>
+                    {quizzes.map((q) => <SelectItem key={q.id} value={q.id}>{q.name} ({q.questionCount})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" onClick={assignQuiz} disabled={assigningQuiz || !selectedQuiz}>
+                  {assigningQuiz ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />} Assign & email
+                </Button>
+              </div>
+              {quizAssignments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No quizzes assigned yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {quizAssignments.map((qa) => (
+                    <div key={qa.id} className="flex items-center justify-between gap-2 rounded-lg border p-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{qa.quizTemplate?.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {qa.status === "COMPLETED" ? `Completed · ${Math.round(qa.score ?? 0)}%` : "Sent · awaiting completion"}
+                        </p>
+                      </div>
+                      {qa.status === "COMPLETED" ? (
+                        <Badge variant={(qa.score ?? 0) >= 70 ? "success" : "secondary"} className="shrink-0 tabular-nums">{Math.round(qa.score ?? 0)}%</Badge>
+                      ) : (
+                        <Button variant="ghost" size="icon" onClick={() => copyQuizLink(qa.token)} title="Copy quiz link"><Copy className="h-4 w-4" /></Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
