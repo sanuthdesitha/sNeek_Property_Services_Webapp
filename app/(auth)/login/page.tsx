@@ -68,6 +68,7 @@ export default function LoginPage() {
   const [twoFa, setTwoFa] = useState<{ method: "TOTP" | "EMAIL" } | null>(null);
   const [code, setCode] = useState("");
   const [rememberDevice, setRememberDevice] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
   const adminRecoveryMode = searchParams.get("admin") === "1";
   const maintenanceLoginLocked = siteStatus.maintenanceEnabled && !siteStatus.allowLogin;
   const signInBlocked = maintenanceLoginLocked && !adminRecoveryMode;
@@ -163,6 +164,19 @@ export default function LoginPage() {
       setError("Verification failed. Please try again.");
       setLoading(false);
     }
+  }
+
+  async function requestTwoFaRecovery() {
+    try {
+      await fetch("/api/auth/2fa/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email }),
+      });
+    } catch {
+      /* always show the same confirmation */
+    }
+    setRecoverySent(true);
   }
 
   async function doSignIn() {
@@ -322,6 +336,21 @@ export default function LoginPage() {
               >
                 Back
               </button>
+              <div className="border-t pt-3 text-center">
+                {recoverySent ? (
+                  <p className="text-xs text-muted-foreground">
+                    If two-step verification is on for {form.email}, we&apos;ve emailed a recovery link to turn it off.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={requestTwoFaRecovery}
+                  >
+                    Lost your authenticator and backup codes? Recover via email
+                  </button>
+                )}
+              </div>
             </form>
           ) : (
             <>
@@ -338,7 +367,12 @@ export default function LoginPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="password">Password</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    <Link href="/forgot-password" className="text-xs text-primary hover:underline">
+                      Forgot password?
+                    </Link>
+                  </div>
                   <Input
                     id="password"
                     type="password"

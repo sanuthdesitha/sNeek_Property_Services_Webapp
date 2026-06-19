@@ -89,6 +89,9 @@ export default withAuth(
         if (
           pathname === "/login" ||
           pathname === "/register" ||
+          pathname === "/forgot-password" ||
+          pathname === "/reset-password" ||
+          pathname === "/recover-2fa" ||
           pathname === "/unauthorized" ||
           pathname === "/" ||
           pathname.startsWith("/rate/") ||
