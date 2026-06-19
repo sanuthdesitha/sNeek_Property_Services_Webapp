@@ -44,6 +44,7 @@ import {
   Activity,
   History,
   Wrench,
+  LayoutTemplate,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -67,6 +68,7 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Inventory", href: "/admin/inventory", icon: Package },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Forms", href: "/admin/forms", icon: FileText },
+      { label: "Templates", href: "/admin/templates", icon: LayoutTemplate },
     ],
   },
   {
