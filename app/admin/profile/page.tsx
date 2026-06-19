@@ -47,7 +47,7 @@ export default async function AdminProfilePage() {
     (user as any).role === Role.ADMIN ? true : (user as any).profileEditingEnabled !== false;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <header>
         <h1 className="text-2xl font-semibold text-foreground">Your Profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">Your contact info and preferences.</p>

@@ -37,7 +37,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           />
           <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden">
             <AdminHeader companyName={settings.companyName} logoUrl={settings.logoUrl} />
-            <main className="page-fade flex-1 overflow-y-auto px-3 py-4 sm:px-4 md:px-6 md:py-6">{children}</main>
+            <main className="page-fade flex-1 overflow-y-auto px-3 py-4 sm:px-4 md:px-6 md:py-6">
+              {/* Single shared content column so every admin page lines up at the
+                  same left/right edges and stays centered + capped on wide
+                  screens — fixes content shifting between pages. */}
+              <div className="mx-auto w-full max-w-screen-2xl">{children}</div>
+            </main>
           </div>
         </div>
         <CommandPalette />
