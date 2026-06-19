@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 export const STORAGE_KEYS = {
   onboardingComplete: "sneek.onboarding.complete.v1",
   biometricEnabled: "sneek.security.biometric.enabled.v1",
+  lockDelay: "sneek.security.lock.delay.v1",
 } as const;
 
 export async function getFlag(key: string): Promise<boolean> {
