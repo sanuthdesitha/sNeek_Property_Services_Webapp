@@ -15,6 +15,9 @@ import {
   CreditCard,
   MapPin,
   Users,
+  Bell,
+  Lock,
+  ShieldCheck,
   ExternalLink,
   CheckCircle2,
   AlertCircle,
@@ -22,6 +25,23 @@ import {
 
 type Creds = Record<string, string | boolean>;
 type Masked = Record<string, string | boolean>;
+type Locked = { databaseUrl?: boolean; nextAuthSecret?: boolean };
+
+/** Secret fields that require the admin's password to change (mirrors server). */
+const SENSITIVE_KEYS = new Set([
+  "resendApiKey",
+  "twilioAuthToken",
+  "cellcastAppKey",
+  "awsSecretAccessKey",
+  "stripeSecretKey",
+  "stripeWebhookSecret",
+  "squareAccessToken",
+  "paypalClientSecret",
+  "xeroClientSecret",
+  "googleMapsApiKey",
+  "bootstrapAdminPassword",
+  "vapidPrivateKey",
+]);
 
 const SECTIONS = [
   {
@@ -129,6 +149,18 @@ const SECTIONS = [
     ],
   },
   {
+    id: "webpush",
+    title: "Web Push (VAPID)",
+    description: "Browser / PWA push notifications. Generate keys with: npx web-push generate-vapid-keys",
+    icon: Bell,
+    link: null,
+    fields: [
+      { key: "vapidPublicKey", label: "Public Key", type: "text" as const, placeholder: "B…" },
+      { key: "vapidPrivateKey", label: "Private Key", type: "password" as const, placeholder: "••••" },
+      { key: "vapidSubject", label: "Contact (email or URL)", type: "text" as const, placeholder: "mailto:admin@yourdomain.com" },
+    ],
+  },
+  {
     id: "bootstrap",
     title: "Bootstrap Admin",
     description: "Initial admin account credentials (used for first-time setup).",
@@ -145,10 +177,15 @@ const SECTIONS = [
 export function IntegrationsSettings() {
   const [credentials, setCredentials] = useState<Creds>({});
   const [masked, setMasked] = useState<Masked>({});
+  const [locked, setLocked] = useState<Locked>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [adminPassword, setAdminPassword] = useState("");
   useEffect(() => { loadCredentials(); }, []);
+
+  // Whether the pending changes touch any secret → an admin password is needed.
+  const sensitiveDirty = Array.from(dirty).some((k) => SENSITIVE_KEYS.has(k));
 
   async function loadCredentials() {
     setLoading(true);
@@ -161,6 +198,7 @@ export function IntegrationsSettings() {
       // preserved server-side via bullet-detection.
       setCredentials(data.masked || {});
       setMasked(data.masked || {});
+      setLocked(data.locked || {});
       setDirty(new Set());
     } catch { /* ignore */ }
     finally { setLoading(false); }
@@ -172,22 +210,28 @@ export function IntegrationsSettings() {
   }
 
   async function handleSave() {
+    if (sensitiveDirty && !adminPassword) {
+      alert("Enter your account password to change sensitive credentials.");
+      return;
+    }
     setSaving(true);
     try {
       const payload: Record<string, string | boolean> = {};
       dirty.forEach((key) => {
         payload[key] = credentials[key] ?? "";
       });
+      if (sensitiveDirty) payload._password = adminPassword;
       const res = await fetch("/api/admin/integrations/credentials", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const e = await res.json();
+        const e = await res.json().catch(() => ({}));
         alert(e.error || "Failed to save credentials");
         return;
       }
+      setAdminPassword("");
       setDirty(new Set());
       await loadCredentials();
     } catch {
@@ -224,7 +268,7 @@ export function IntegrationsSettings() {
           </p>
         </div>
         {dirty.size > 0 && (
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || (sensitiveDirty && !adminPassword)}>
             {saving ? "Saving..." : `Save ${dirty.size} change${dirty.size > 1 ? "s" : ""}`}
           </Button>
         )}
@@ -315,14 +359,69 @@ export function IntegrationsSettings() {
         );
       })}
 
+      {/* System secrets — read-only, managed in the environment, never editable
+          or deletable from the web app. */}
+      <Card className="border-amber-200/60 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4 text-amber-600" />
+            <CardTitle className="text-base">System secrets (locked)</CardTitle>
+          </div>
+          <CardDescription>
+            These are read from the deployment environment and cannot be changed or
+            deleted here — by design. To rotate them, update the environment and redeploy.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              { label: "Database URL", set: !!locked.databaseUrl },
+              { label: "Auth session secret", set: !!locked.nextAuthSecret },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center justify-between rounded-lg border bg-background px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm font-medium">{row.label}</span>
+                </div>
+                <Badge variant={row.set ? "success" : "secondary"} className="text-xs">
+                  {row.set ? (
+                    <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> Configured</span>
+                  ) : (
+                    "Not set"
+                  )}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Save bar at bottom */}
       {dirty.size > 0 && (
-        <div className="sticky bottom-4 rounded-xl border bg-background/95 p-4 shadow-lg backdrop-blur-sm">
+        <div className="sticky bottom-4 space-y-3 rounded-xl border bg-background/95 p-4 shadow-lg backdrop-blur-sm">
+          {sensitiveDirty && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <Label className="flex items-center gap-1.5 text-sm">
+                <Lock className="h-3.5 w-3.5" /> Confirm your account password
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                You&apos;re changing a sensitive credential, so re-enter your password to confirm.
+              </p>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Your account password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
               {dirty.size} unsaved change{dirty.size > 1 ? "s" : ""}
             </p>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving || (sensitiveDirty && !adminPassword)}>
               {saving ? "Saving..." : "Save All Changes"}
             </Button>
           </div>

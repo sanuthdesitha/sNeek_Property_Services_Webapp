@@ -15,7 +15,7 @@ export async function POST() {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    if (!isWebPushConfigured()) {
+    if (!(await isWebPushConfigured())) {
       return NextResponse.json(
         { ok: false, error: "Web Push is not configured (VAPID keys missing)." },
         { status: 503 }

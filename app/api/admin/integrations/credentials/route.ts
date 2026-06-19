@@ -1,9 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
 const CREDENTIAL_KEY = "integrationCredentials";
+
+/**
+ * Credentials that are secrets. Changing (or clearing) any of these requires the
+ * admin to re-enter their account password, and they are redacted from audit
+ * logs. The truly system-critical values (DATABASE_URL, auth secret) are NOT
+ * editable here at all — they live in the environment and are shown read-only.
+ */
+const SENSITIVE_KEYS = new Set([
+  "resendApiKey",
+  "twilioAuthToken",
+  "cellcastAppKey",
+  "awsSecretAccessKey",
+  "stripeSecretKey",
+  "stripeWebhookSecret",
+  "squareAccessToken",
+  "paypalClientSecret",
+  "xeroClientSecret",
+  "googleMapsApiKey",
+  "bootstrapAdminPassword",
+  "vapidPrivateKey",
+]);
+
+function redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = SENSITIVE_KEYS.has(k) ? (v ? "•••set•••" : "") : v;
+  }
+  return out;
+}
 
 const DEFAULTS = {
   // Email
@@ -47,6 +77,11 @@ const DEFAULTS = {
   // Maps
   googleMapsApiKey: "",
 
+  // Web Push (VAPID)
+  vapidPublicKey: "",
+  vapidPrivateKey: "",
+  vapidSubject: "",
+
   // Bootstrap admin
   bootstrapAdminEmail: "",
   bootstrapAdminPassword: "",
@@ -76,7 +111,16 @@ export async function GET() {
     // SECURITY: never return unmasked secrets to the browser. The PATCH handler
     // treats masked (bullet-containing) values as "unchanged", so the editor can
     // round-trip on masked values without ever seeing the real keys.
-    return NextResponse.json({ masked });
+    //
+    // `locked` reports presence (only) of the system-critical secrets that live
+    // in the environment and are never editable from the UI.
+    return NextResponse.json({
+      masked,
+      locked: {
+        databaseUrl: !!process.env.DATABASE_URL,
+        nextAuthSecret: !!(process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET),
+      },
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -111,6 +155,34 @@ export async function PATCH(req: NextRequest) {
 
     const merged = { ...current, ...updates };
 
+    // Password gate: any actual change to a sensitive credential (including
+    // clearing/deleting one) requires the admin to re-enter their account
+    // password. This is what stops someone walking up to an unlocked session and
+    // wiping the Stripe key, Xero secret, etc.
+    const sensitiveChanged = Object.keys(updates).some(
+      (k) => SENSITIVE_KEYS.has(k) && updates[k] !== current[k as keyof IntegrationCredentials],
+    );
+    if (sensitiveChanged) {
+      const password = typeof body._password === "string" ? body._password : "";
+      const user = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: { passwordHash: true },
+      });
+      if (!user?.passwordHash) {
+        return NextResponse.json(
+          { error: "Set an account password before editing sensitive credentials.", needsPassword: true },
+          { status: 403 },
+        );
+      }
+      const ok = !!password && (await bcrypt.compare(password, user.passwordHash));
+      if (!ok) {
+        return NextResponse.json(
+          { error: "Incorrect password — sensitive credentials were not changed.", needsPassword: true },
+          { status: 403 },
+        );
+      }
+    }
+
     await db.appSetting.upsert({
       where: { key: CREDENTIAL_KEY },
       create: { key: CREDENTIAL_KEY, value: merged as any },
@@ -123,8 +195,8 @@ export async function PATCH(req: NextRequest) {
         action: "INTEGRATION_CREDENTIALS_UPDATE",
         entity: "AppSetting",
         entityId: CREDENTIAL_KEY,
-        before: current as any,
-        after: merged as any,
+        before: redactSensitive(current) as any,
+        after: redactSensitive(merged) as any,
         ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null,
       },
     });

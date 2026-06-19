@@ -32,12 +32,25 @@ export type StoredPushSubscription = {
 let configured: boolean | null = null;
 let missingKeysWarned = false;
 
-function configureWebPush(): boolean {
+async function configureWebPush(): Promise<boolean> {
   if (configured !== null) return configured;
 
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
-  const subjectRaw = process.env.VAPID_SUBJECT?.trim();
+  // Settings-first: prefer VAPID keys saved in the integrations settings, fall
+  // back to environment variables only when the setting is empty.
+  let publicKey = "";
+  let privateKey = "";
+  let subjectRaw = "";
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: "integrationCredentials" } });
+    const creds = (row?.value as Record<string, string> | null) ?? {};
+    publicKey = (creds.vapidPublicKey || process.env.VAPID_PUBLIC_KEY || "").trim();
+    privateKey = (creds.vapidPrivateKey || process.env.VAPID_PRIVATE_KEY || "").trim();
+    subjectRaw = (creds.vapidSubject || process.env.VAPID_SUBJECT || "").trim();
+  } catch {
+    publicKey = process.env.VAPID_PUBLIC_KEY?.trim() || "";
+    privateKey = process.env.VAPID_PRIVATE_KEY?.trim() || "";
+    subjectRaw = process.env.VAPID_SUBJECT?.trim() || "";
+  }
 
   if (!publicKey || !privateKey) {
     configured = false;
@@ -70,7 +83,7 @@ function configureWebPush(): boolean {
 }
 
 /** True when VAPID keys are present and web-push is configured. */
-export function isWebPushConfigured(): boolean {
+export async function isWebPushConfigured(): Promise<boolean> {
   return configureWebPush();
 }
 
@@ -97,7 +110,7 @@ export async function sendWebPush(
   subscription: StoredPushSubscription,
   payload: WebPushPayload
 ): Promise<SendResult> {
-  if (!configureWebPush()) return { ok: false, gone: false };
+  if (!(await configureWebPush())) return { ok: false, gone: false };
 
   const target: WebPushSubscription = {
     endpoint: subscription.endpoint,
@@ -135,7 +148,7 @@ export async function sendWebPush(
  */
 export async function sendWebPushToUser(userId: string, payload: WebPushPayload): Promise<void> {
   if (!userId || typeof userId !== "string") return;
-  if (!configureWebPush()) return;
+  if (!(await configureWebPush())) return;
 
   let subscriptions: Array<StoredPushSubscription & { id: string }>;
   try {
