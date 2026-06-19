@@ -9,6 +9,7 @@ export type ConfirmationActionKey =
   | "deactivateClient"
   | "deactivateProperty"
   | "resetUserPassword"
+  | "resetUser2fa"
   | "discardStockRun"
   | "clearNotificationLog"
   | "deleteLaundryTask"
@@ -37,6 +38,7 @@ const CONFIRMATION_POLICIES: Record<ConfirmationActionKey, ConfirmationPolicy> =
   deactivateClient: { tier: "routine" },
   deactivateProperty: { tier: "routine" },
   resetUserPassword: { tier: "routine" },
+  resetUser2fa: { tier: "routine" },
   discardStockRun: { tier: "routine" },
   clearNotificationLog: { tier: "routine" },
   deleteLaundryTask: { tier: "routine" },

@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
         phone: true,
         isActive: true,
         emailVerified: true,
+        twoFactorEnabled: true,
         clientId: true,
         profileEditingEnabled: true,
         notificationPreference: {

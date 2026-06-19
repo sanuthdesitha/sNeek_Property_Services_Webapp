@@ -36,6 +36,7 @@ interface UserItem {
   isActive: boolean;
   profileEditingEnabled?: boolean;
   emailVerified?: string | null;
+  twoFactorEnabled?: boolean;
   clientId?: string | null;
   client?: { id: string; name: string } | null;
   profileEditOverride?: {
@@ -111,6 +112,8 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
   const [deleting, setDeleting] = useState(false);
   const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [reset2faTarget, setReset2faTarget] = useState<UserItem | null>(null);
+  const [resetting2fa, setResetting2fa] = useState(false);
 
   const [createMode, setCreateMode] = useState<"invite" | "password">("invite");
   const [createdInvitation, setCreatedInvitation] = useState<{
@@ -461,6 +464,27 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
     }
   }
 
+  async function reset2fa(credentials?: { pin?: string; password?: string }) {
+    if (!reset2faTarget) return;
+    setResetting2fa(true);
+    try {
+      const res = await fetch(`/api/admin/users/${reset2faTarget.id}/disable-2fa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not reset 2FA.");
+      toast({ title: "Two-step verification reset", description: "They can sign in with their password and set it up again." });
+      setReset2faTarget(null);
+      void loadUsers();
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err.message ?? "Could not reset 2FA.", variant: "destructive" });
+    } finally {
+      setResetting2fa(false);
+    }
+  }
+
   async function deleteUser(credentials?: { pin?: string; password?: string }) {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -613,6 +637,12 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
                               <KeyRound className="mr-2 h-4 w-4" />
                               Reset Password
                             </Button>
+                            {user.twoFactorEnabled ? (
+                              <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => setReset2faTarget(user)}>
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                                Reset 2FA
+                              </Button>
+                            ) : null}
                             <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => toggleActive(user)}>
                               {user.isActive ? <UserX className="mr-2 h-4 w-4" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                               {user.isActive ? "Disable" : "Activate"}
@@ -1176,6 +1206,24 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
         requireSecurityVerification
         loading={resettingPassword}
         onConfirm={resetPassword}
+      />
+
+      <TwoStepConfirmDialog
+        open={!!reset2faTarget}
+        onOpenChange={(open) => {
+          if (!open) setReset2faTarget(null);
+        }}
+        title="Reset two-step verification"
+        description={
+          reset2faTarget
+            ? `This turns off 2FA for ${reset2faTarget.name ?? reset2faTarget.email} and forgets their trusted devices. They can sign in with their password and re-enable it from their profile.`
+            : "This resets the account's two-step verification."
+        }
+        actionKey="resetUser2fa"
+        confirmLabel="Reset 2FA"
+        requireSecurityVerification
+        loading={resetting2fa}
+        onConfirm={reset2fa}
       />
 
       <TwoStepConfirmDialog
