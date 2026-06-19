@@ -1,0 +1,32 @@
+# Files EAS should NOT upload. When this file exists, EAS uses it instead of
+# .gitignore for the build archive. The cloud build reinstalls dependencies and
+# regenerates native projects, so none of the below need to be uploaded.
+
+# Dependencies — reinstalled on the EAS builder from package-lock.json
+node_modules/
+
+# Expo / Metro / build caches + outputs
+.expo/
+.expo-shared/
+dist/
+web-build/
+.metro-health-check*
+*.tsbuildinfo
+
+# Generated native projects (managed workflow regenerates these via prebuild)
+android/
+ios/
+
+# VCS + editor + OS cruft
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs & scratch
+*.log
+npm-debug.*
+yarn-error.*
+.commitmsg.tmp
