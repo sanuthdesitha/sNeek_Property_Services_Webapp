@@ -14,6 +14,22 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
 
+  // Xero redirects back here with ?error=... when it rejects the request
+  // (e.g. invalid_scope when the app's scopes aren't enabled, or access_denied).
+  // Surface the real reason instead of reporting a misleading "missing_code".
+  const oauthError = searchParams.get("error");
+  if (oauthError) {
+    const desc = searchParams.get("error_description") || "";
+    const response = NextResponse.redirect(
+      new URL(
+        `/admin/integrations/xero?error=${encodeURIComponent(oauthError)}${desc ? `&error_description=${encodeURIComponent(desc)}` : ""}`,
+        req.url,
+      ),
+    );
+    response.cookies.delete("xero_oauth_state");
+    return response;
+  }
+
   if (!code) {
     return NextResponse.redirect(new URL("/admin/integrations/xero?error=missing_code", req.url));
   }

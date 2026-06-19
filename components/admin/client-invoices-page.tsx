@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { format, addDays } from "date-fns";
 import {
+  Building2,
   Check,
   ChevronRight,
   Download,
@@ -55,6 +56,8 @@ type Invoice = {
   sentAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  xeroInvoiceId?: string | null;
+  xeroExportedAt?: string | null;
   metadata: Record<string, unknown> | null;
   client: { id: string; name: string; email: string };
   lines: InvoiceLine[];
@@ -252,6 +255,21 @@ export function ClientInvoicesPage() {
     await loadInvoice(selected.id);
   }
 
+  async function pushToXero() {
+    if (!selected) return;
+    setBusy("xero");
+    const res = await fetch(`/api/admin/invoices/${selected.id}/xero-push`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) {
+      toast({ title: "Xero export failed", description: body.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Sent to Xero", description: "Created a draft invoice in Xero with all line items." });
+    await load();
+    await loadInvoice(selected.id);
+  }
+
   async function deleteInvoice(id: string) {
     setBusy(`delete-${id}`);
     const res = await fetch(`/api/admin/invoices/${id}`, { method: "DELETE" });
@@ -436,6 +454,18 @@ export function ClientInvoicesPage() {
                     <Button size="sm" variant="outline" onClick={() => downloadFromApi(`/api/admin/invoices/${selected.id}/pdf`, `${selected.invoiceNumber.toLowerCase()}.pdf`)}>
                       <Download className="mr-1 h-3.5 w-3.5" /> PDF
                     </Button>
+                    {selected.status !== "VOID" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={pushToXero}
+                        disabled={busy === "xero"}
+                        title="Create this invoice as a draft in Xero with all line items and descriptions"
+                      >
+                        <Building2 className="mr-1 h-3.5 w-3.5" />
+                        {busy === "xero" ? "Sending…" : selected.xeroExportedAt ? "Update in Xero" : "Send to Xero"}
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive"
                       onClick={async () => {
                         const approved = await confirm({

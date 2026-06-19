@@ -5,6 +5,33 @@ const XERO_AUTH_BASE = "https://login.xero.com";
 
 const CREDENTIAL_KEY = "integrationCredentials";
 
+/**
+ * OAuth scopes we request. These MUST also be enabled on the Xero app at
+ * https://developer.xero.com/app/manage (OAuth 2.0 scopes), otherwise Xero
+ * returns "invalid_scope" on the authorize step. Kept as one source of truth so
+ * the authorize URL and the stored scopes never drift apart.
+ */
+const XERO_SCOPES = "offline_access accounting.transactions accounting.contacts";
+
+/** Pull a human-readable message out of Xero's various error response shapes. */
+function extractXeroError(raw: string): string {
+  if (!raw) return "no response body";
+  try {
+    const j = JSON.parse(raw) as Record<string, any>;
+    const validation = j?.Elements?.[0]?.ValidationErrors?.map((e: any) => e.Message).filter(Boolean).join("; ");
+    return (
+      j.Detail ||
+      j.Message ||
+      validation ||
+      j.error_description ||
+      j.error ||
+      raw
+    );
+  } catch {
+    return raw;
+  }
+}
+
 async function getXeroCredentials(): Promise<{ clientId: string; clientSecret: string }> {
   const row = await db.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
   const creds = (row?.value as Record<string, string> | null) ?? {};
@@ -121,8 +148,8 @@ async function xeroRequest<T>(method: string, path: string, tenantId: string, bo
   });
 
   if (!res.ok) {
-    const errorText = await res.text().catch(() => "");
-    throw new Error(`Xero API error (${res.status}): ${errorText}`);
+    const raw = await res.text().catch(() => "");
+    throw new Error(`Xero API error (${res.status}): ${extractXeroError(raw)}`);
   }
 
   return res.json() as Promise<T>;
@@ -139,7 +166,7 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: "offline_access accounting.transactions accounting.contacts",
+    scope: XERO_SCOPES,
     state,
   });
 
@@ -215,7 +242,7 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         expiresAt,
-        scopes: ["offline_access", "accounting.transactions", "accounting.contacts"],
+        scopes: XERO_SCOPES.split(" "),
         isActive: true,
       },
       update: {
@@ -328,9 +355,11 @@ export async function pushClientInvoiceToXero(input: {
   clientEmail: string;
   clientXeroContactId?: string;
   lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string }>;
+  date?: string;
   dueDate?: string;
+  reference?: string;
   gstEnabled?: boolean;
-}): Promise<{ xeroInvoiceId: string }> {
+}): Promise<{ xeroInvoiceId: string; contactId: string }> {
   const tokenData = await getXeroToken();
   if (!tokenData) throw new Error("No active Xero connection");
 
@@ -345,12 +374,17 @@ export async function pushClientInvoiceToXero(input: {
     contactId = result.xeroContactId;
   }
 
-  const defaultTaxType = input.gstEnabled !== false ? "OUTPUT" : "NONE";
+  const gstOn = input.gstEnabled !== false;
+  const defaultTaxType = gstOn ? "OUTPUT" : "NONE";
+  // Our line prices are GST-EXCLUSIVE (invoice stores subtotal + gstAmount
+  // separately), so let Xero add GST on top when enabled.
+  const lineAmountTypes = gstOn ? "Exclusive" : "NoTax";
 
   const invoice = {
     Type: "ACCREC", // Accounts Receivable (client invoice)
     Contact: { ContactID: contactId },
     InvoiceNumber: input.invoiceNumber,
+    LineAmountTypes: lineAmountTypes,
     LineItems: input.lineItems.map((line) => ({
       Description: line.description,
       Quantity: line.quantity,
@@ -359,7 +393,9 @@ export async function pushClientInvoiceToXero(input: {
       TaxType: line.taxType ?? defaultTaxType,
     })),
     Status: "DRAFT",
+    ...(input.date ? { Date: input.date } : {}),
     ...(input.dueDate ? { DueDate: input.dueDate } : {}),
+    ...(input.reference ? { Reference: input.reference } : {}),
   };
 
   const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [invoice] });
@@ -367,7 +403,7 @@ export async function pushClientInvoiceToXero(input: {
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero invoice");
 
-  return { xeroInvoiceId: invoices[0].InvoiceID };
+  return { xeroInvoiceId: invoices[0].InvoiceID, contactId: contactId! };
 }
 
 /**

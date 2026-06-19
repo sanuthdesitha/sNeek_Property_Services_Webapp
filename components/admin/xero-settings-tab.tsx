@@ -15,6 +15,19 @@ export function XeroSettingsTab() {
   const connectedParam = searchParams.get("connected");
   const tenantParam = searchParams.get("tenant");
   const errorParam = searchParams.get("error");
+  const errorDescParam = searchParams.get("error_description");
+
+  // Friendly, actionable explanations for the common OAuth failures.
+  const errorHelp: Record<string, string> = {
+    invalid_scope:
+      "Your Xero app doesn't have the required scopes enabled. In the Xero developer portal (developer.xero.com/app/manage) open this app → add the OAuth 2.0 scopes: accounting.transactions and accounting.contacts (offline_access is included automatically), then reconnect.",
+    access_denied: "Authorisation was cancelled or declined in Xero. Try connecting again and click Allow.",
+    invalid_state: "The connection link expired or was opened in a different browser. Click Connect again and complete it in one go.",
+    exchange_failed:
+      "Xero accepted the login but the token exchange failed — usually a wrong Client ID/Secret or a redirect URI that doesn't exactly match the one set on the Xero app. Check Settings → Integrations and the Xero app's redirect URI.",
+    missing_code: "Xero didn't return an authorisation code. Try connecting again.",
+    unauthorized: "You need to be signed in as an admin to connect Xero.",
+  };
 
   useEffect(() => { loadStatus(); }, []);
 
@@ -65,7 +78,10 @@ export function XeroSettingsTab() {
       )}
       {errorParam && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Xero connection failed: {errorParam}
+          <p className="font-semibold">Xero connection failed: {errorParam.replace(/_/g, " ")}</p>
+          {(errorHelp[errorParam] || errorDescParam) && (
+            <p className="mt-1 text-red-600">{errorHelp[errorParam] || errorDescParam}</p>
+          )}
         </div>
       )}
 

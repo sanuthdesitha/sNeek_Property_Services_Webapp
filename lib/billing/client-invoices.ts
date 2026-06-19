@@ -7,6 +7,26 @@ import { getAppSettings } from "@/lib/settings";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { computeClientCharge } from "@/lib/finance/job-money";
 
+/**
+ * Jobs eligible to be billed on a client invoice: any job that has actually
+ * started or finished. We deliberately exclude not-yet-started jobs
+ * (UNASSIGNED/OFFERED) — there's nothing to bill yet — and skipped cleans are
+ * filtered separately via cleanSkipStatus. (There is no CANCELLED status in the
+ * Job model.) This lets admins bill unfinished/in-progress work, not just
+ * COMPLETED/INVOICED jobs.
+ */
+export const BILLABLE_JOB_STATUSES: JobStatus[] = [
+  JobStatus.ASSIGNED,
+  JobStatus.EN_ROUTE,
+  JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
+  JobStatus.SUBMITTED,
+  JobStatus.QA_REVIEW,
+  JobStatus.COMPLETED,
+  JobStatus.INVOICED,
+];
+
 function money(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -139,7 +159,7 @@ export async function generateClientInvoice(input: {
         clientId: input.clientId,
         ...(input.propertyId ? { id: input.propertyId } : {}),
       },
-      status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+      status: { in: BILLABLE_JOB_STATUSES },
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
       ...(input.periodStart || input.periodEnd
