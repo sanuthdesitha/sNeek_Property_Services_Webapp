@@ -421,23 +421,29 @@ export function QaJobClient({ jobId }: { jobId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/qa"><ArrowLeft className="h-5 w-5" /></Link>
-        </Button>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">QA inspection</p>
-          <h1 className="truncate text-2xl font-bold tracking-tight">{job.property?.name}</h1>
-          <p className="text-sm text-muted-foreground">{job.property?.address}, {job.property?.suburb}</p>
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" asChild className="shrink-0">
+            <Link href="/qa"><ArrowLeft className="h-5 w-5" /></Link>
+          </Button>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">QA inspection</p>
+            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">{job.property?.name}</h1>
+            <p className="truncate text-sm text-muted-foreground">{job.property?.address}, {job.property?.suburb}</p>
+          </div>
+          <Badge variant={job.status === "COMPLETED" ? "success" : "warning"} className="shrink-0">
+            {String(job.status).replace(/_/g, " ")}
+          </Badge>
         </div>
         {job.jobType === "AIRBNB_TURNOVER" && job.propertyId ? (
-          <ReportMaintenanceSheet
-            propertyId={job.propertyId}
-            jobId={jobId}
-            triggerLabel="Flag for maintenance"
-          />
+          <div className="pl-12">
+            <ReportMaintenanceSheet
+              propertyId={job.propertyId}
+              jobId={jobId}
+              triggerLabel="Flag for maintenance"
+            />
+          </div>
         ) : null}
-        <Badge variant={job.status === "COMPLETED" ? "success" : "warning"}>{String(job.status).replace(/_/g, " ")}</Badge>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
@@ -676,7 +682,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                     <span className="text-right">Restock qty</span>
                     <span className="text-right">Count</span>
                   </div>
-                  <div className="max-h-80 space-y-1.5 overflow-auto">
+                  <div className="space-y-1.5">
                     {propertyStock.map((stock) => (
                       <div key={stock.id} className="grid grid-cols-[1fr_90px_110px] items-center gap-2 rounded-lg border border-border bg-surface p-2">
                         <div className="min-w-0">
