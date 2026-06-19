@@ -9,7 +9,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+# Retry npm ci: esbuild's post-install can hit a transient ETXTBSY ("text file
+# busy") in Docker when it execs its just-written binary under load. Each npm ci
+# reinstalls node_modules from scratch, so retrying is safe and idempotent.
+RUN npm ci --no-audit --no-fund \
+  || (echo "npm ci failed, retrying (1/2)..." && sleep 3 && npm ci --no-audit --no-fund) \
+  || (echo "npm ci failed, retrying (2/2)..." && sleep 5 && npm ci --no-audit --no-fund)
 
 COPY . .
 
