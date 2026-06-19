@@ -2491,6 +2491,19 @@ export async function updateHiringApplication(input: {
     },
   });
 
+  // Timeline: record a status change so the candidate detail page shows history.
+  if (current.status !== nextStatus) {
+    await db.hiringApplicationEvent.create({
+      data: {
+        applicationId: input.applicationId,
+        type: "STATUS_CHANGE",
+        actorId: input.reviewedById,
+        summary: `Status: ${current.status} → ${nextStatus}`,
+        data: { from: current.status, to: nextStatus },
+      },
+    });
+  }
+
   if (nextStatus === "HIRED") {
     await createOrUpdateHiredStaffAccount({
       applicationId: updated.id,
@@ -2509,6 +2522,101 @@ export async function updateHiringApplication(input: {
       position: { select: { id: true, title: true, slug: true } },
       reviewedBy: { select: { id: true, name: true } },
       hiredUser: { select: { id: true, name: true, email: true, role: true } },
+    },
+  });
+}
+
+/** Append an arbitrary event to an application's timeline. */
+export async function logHiringEvent(input: {
+  applicationId: string;
+  type: "CREATED" | "STATUS_CHANGE" | "EMAIL_SENT" | "EMAIL_REPLY" | "NOTE" | "ASSESSMENT";
+  summary: string;
+  actorId?: string | null;
+  data?: Record<string, unknown> | null;
+}) {
+  return db.hiringApplicationEvent.create({
+    data: {
+      applicationId: input.applicationId,
+      type: input.type as Prisma.HiringApplicationEventCreateInput["type"],
+      summary: input.summary,
+      actorId: input.actorId ?? null,
+      data: (input.data ?? undefined) as Prisma.InputJsonValue | undefined,
+    },
+  });
+}
+
+/** Record that an email was sent to the applicant (counter + timeline). */
+export async function recordHiringEmailSent(input: {
+  applicationId: string;
+  actorId?: string | null;
+  subject: string;
+  to: string;
+  template?: string | null;
+  body?: string | null;
+}) {
+  const now = new Date();
+  await db.$transaction([
+    db.hiringApplication.update({
+      where: { id: input.applicationId },
+      data: { emailsSent: { increment: 1 }, lastEmailedAt: now },
+    }),
+    db.hiringApplicationEvent.create({
+      data: {
+        applicationId: input.applicationId,
+        type: "EMAIL_SENT",
+        actorId: input.actorId ?? null,
+        summary: `Email sent: ${input.subject}`,
+        data: {
+          subject: input.subject,
+          to: input.to,
+          template: input.template ?? null,
+          body: input.body ? input.body.slice(0, 8000) : null,
+        },
+      },
+    }),
+  ]);
+}
+
+/** Record a reply received from the applicant (manual log or inbound webhook). */
+export async function recordHiringReply(input: {
+  applicationId: string;
+  from: string;
+  body: string;
+  receivedAt?: Date;
+  actorId?: string | null;
+  source?: "inbound" | "manual";
+}) {
+  const now = input.receivedAt ?? new Date();
+  await db.$transaction([
+    db.hiringApplication.update({
+      where: { id: input.applicationId },
+      data: { repliesReceived: { increment: 1 }, lastReplyAt: now },
+    }),
+    db.hiringApplicationEvent.create({
+      data: {
+        applicationId: input.applicationId,
+        type: "EMAIL_REPLY",
+        actorId: input.actorId ?? null,
+        summary: `Reply from ${input.from}`,
+        data: { from: input.from, body: input.body.slice(0, 8000), source: input.source ?? "manual" },
+        createdAt: now,
+      },
+    }),
+  ]);
+}
+
+/** Full application with position, reviewer, hired user, and the event timeline. */
+export async function getHiringApplicationDetail(applicationId: string) {
+  return db.hiringApplication.findUnique({
+    where: { id: applicationId },
+    include: {
+      position: true,
+      reviewedBy: { select: { id: true, name: true, email: true } },
+      hiredUser: { select: { id: true, name: true, email: true, role: true } },
+      events: {
+        orderBy: { createdAt: "desc" },
+        include: { actor: { select: { id: true, name: true } } },
+      },
     },
   });
 }
@@ -2620,6 +2728,16 @@ export async function submitHiringApplication(input: {
       resumeKey: input.resumeKey?.trim() || null,
       coverLetter: input.coverLetter?.trim() || null,
       status: "NEW",
+    },
+  });
+
+  // Seed the timeline with the application + its auto-score.
+  await db.hiringApplicationEvent.create({
+    data: {
+      applicationId: application.id,
+      type: "CREATED",
+      summary: `Applied for ${position.title}`,
+      data: typeof screeningScore === "number" ? { screeningScore } : undefined,
     },
   });
 

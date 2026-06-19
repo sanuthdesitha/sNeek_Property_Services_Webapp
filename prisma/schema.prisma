@@ -620,6 +620,7 @@ model User {
   createdHiringPositions       HiringPosition[]            @relation("HiringPositionCreatedBy")
   reviewedHiringApplications   HiringApplication[]         @relation("HiringApplicationReviewedBy")
   hiredFromApplications        HiringApplication[]         @relation("HiringApplicationHiredUser")
+  hiringEventsActed            HiringApplicationEvent[]    @relation("HiringEventActor")
   requestedJobTasks            JobTask[]                   @relation("JobTaskRequestedBy")
   approvedJobTasks             JobTask[]                   @relation("JobTaskApprovedBy")
   uploadedJobTaskAttachments   JobTaskAttachment[]         @relation("JobTaskAttachmentUploadedBy")
@@ -2453,12 +2454,45 @@ model HiringApplication {
   rejectionReason String?   @db.Text
   reviewedById    String?
   hiredUserId     String?
+  // Denormalised activity counters for quick visuals on the pipeline/cards.
+  emailsSent      Int       @default(0)
+  repliesReceived Int       @default(0)
+  lastEmailedAt   DateTime?
+  lastReplyAt     DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
   reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
   hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
+  events     HiringApplicationEvent[]
+}
+
+/// Activity timeline for an application: status changes, emails sent, replies
+/// received, notes. Powers the candidate detail timeline and the "last emailed
+/// / replied" visuals.
+enum HiringEventType {
+  CREATED
+  STATUS_CHANGE
+  EMAIL_SENT
+  EMAIL_REPLY
+  NOTE
+  ASSESSMENT
+}
+
+model HiringApplicationEvent {
+  id            String          @id @default(cuid())
+  applicationId String
+  type          HiringEventType
+  summary       String          @db.Text
+  data          Json?
+  actorId       String?
+  createdAt     DateTime        @default(now())
+
+  application HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  actor       User?             @relation("HiringEventActor", fields: [actorId], references: [id])
+
+  @@index([applicationId, createdAt])
 }
 
 model AppSetting {
