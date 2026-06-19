@@ -360,6 +360,10 @@ export default async function AdminDashboard() {
     : [];
   const continuationJobById = new Map(continuationJobs.map((j) => [j.id, j]));
 
+  const newApplicationsCount = await db.hiringApplication
+    .count({ where: { status: "NEW" } })
+    .catch(() => 0);
+
   const attentionTotal =
     openCasesOver24h + qaPendingOver12h + unassignedSoon + metrics.lowStockCount;
 
@@ -437,6 +441,24 @@ export default async function AdminDashboard() {
           </div>
           <span className="text-xs font-semibold text-destructive underline-offset-2 hover:underline">
             Review all →
+          </span>
+        </Link>
+      )}
+
+      {/* New job applications — red, links to the hiring page */}
+      {newApplicationsCount > 0 && (
+        <Link
+          href="/admin/hiring"
+          className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 transition hover:bg-destructive/15"
+        >
+          <div className="flex items-center gap-2.5">
+            <UserPlus className="h-4 w-4 shrink-0 text-destructive" />
+            <span className="text-sm font-medium text-destructive">
+              {newApplicationsCount} new job application{newApplicationsCount !== 1 ? "s" : ""} to review
+            </span>
+          </div>
+          <span className="flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-destructive px-2 text-xs font-bold text-white">
+            {newApplicationsCount}
           </span>
         </Link>
       )}
