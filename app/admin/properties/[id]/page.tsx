@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import { Textarea } from "@/components/ui/textarea";
 import {
   PropertyAccessFields,
@@ -1006,20 +1007,32 @@ export default function PropertyDetailPage() {
                 </label>
               </div>
               <div className="space-y-1.5">
-                <Label>Cover photo URL</Label>
-                <Input
-                  value={form.imageUrl}
-                  onChange={(e) => setForm((prev) => ({ ...prev, imageUrl: e.target.value }))}
-                  placeholder="https://… image shown on the properties grid"
-                />
+                <Label>Cover photo</Label>
                 {form.imageUrl.trim() ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={form.imageUrl}
-                    alt="Cover preview"
-                    className="mt-2 h-32 w-full max-w-xs rounded-lg border object-cover"
+                  <div className="space-y-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={form.imageUrl}
+                      alt="Cover preview"
+                      className="h-40 w-full max-w-sm rounded-lg border object-cover"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setForm((prev) => ({ ...prev, imageUrl: "" }))}
+                    >
+                      Remove photo
+                    </Button>
+                  </div>
+                ) : (
+                  <UploadDropzone
+                    accept="image/*"
+                    maxFiles={1}
+                    onUploaded={(r) => setForm((prev) => ({ ...prev, imageUrl: r.url }))}
                   />
-                ) : null}
+                )}
+                <p className="text-xs text-muted-foreground">Shown on the Properties grid. Save to apply.</p>
               </div>
               <div className="space-y-1.5">
                 <Label>Notes</Label>
