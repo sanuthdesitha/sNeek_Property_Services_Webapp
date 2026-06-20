@@ -20,6 +20,7 @@ import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
+import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
 import {
   JobStatus,
   MediaType,
@@ -223,9 +224,16 @@ export async function POST(
       where: { id: body.templateId },
       select: { id: true, schema: true, isActive: true },
     });
-    if (!template || !template.isActive) {
+    // Rework jobs use a hidden (isActive=false) template row; the real checklist
+    // is generated per-job from the QA-flagged areas, so accept it here.
+    if (!template || (!template.isActive && !job.isRework)) {
       return NextResponse.json({ error: "Selected form template is not available." }, { status: 400 });
     }
+    const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
+    const effectiveSchema =
+      job.isRework && reworkAreas.length > 0
+        ? (buildReworkFormSchema(reworkAreas) as any)
+        : template.schema;
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
     const jobMeta = parseJobInternalNotes(job.internalNotes);
@@ -256,7 +264,7 @@ export async function POST(
       };
     });
     const missingRequiredUploads = collectRequiredUploadFields(
-      template.schema,
+      effectiveSchema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
       legacyReady
@@ -280,7 +288,7 @@ export async function POST(
       );
     }
     const missingRequiredSignatures = collectRequiredAnswerFields(
-      template.schema,
+      effectiveSchema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
       {
@@ -394,7 +402,7 @@ export async function POST(
         submittedById: session.user.id,
         data: {
           ...(body.data as Record<string, unknown>),
-          __templateSchema: template.schema,
+          __templateSchema: effectiveSchema,
           __templateVersion: template.id,
           __adminRequestedTasks: adminRequestedTasks,
           __jobTasks: unifiedTaskSnapshot,

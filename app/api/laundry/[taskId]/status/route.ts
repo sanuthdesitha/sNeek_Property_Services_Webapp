@@ -121,14 +121,14 @@ export async function POST(
     const existing = await db.laundryTask.findUnique({
       where: { id: params.taskId },
       include: {
-        property: { select: { name: true, suburb: true, accessInfo: true } },
+        property: { select: { name: true, suburb: true, accessInfo: true, laundryEnabled: true } },
         job: { select: { id: true, scheduledDate: true } },
       },
     });
     if (!existing) {
       return NextResponse.json({ error: "Laundry task not found" }, { status: 404 });
     }
-    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(existing.property?.accessInfo, session.user.id)) {
+    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(existing.property, session.user.id)) {
       return NextResponse.json({ error: "You cannot access this property's laundry schedule." }, { status: 403 });
     }
 

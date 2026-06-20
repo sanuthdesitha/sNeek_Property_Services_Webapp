@@ -22,6 +22,7 @@ const patchSchema = z.object({
   shopping: channelSchema.optional(),
   billing: channelSchema.optional(),
   approvals: channelSchema.optional(),
+  ical: channelSchema.optional(),
 });
 
 function toRecord(

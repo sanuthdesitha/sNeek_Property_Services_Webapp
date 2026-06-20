@@ -8,8 +8,20 @@ export function extractLaundryTeamUserIds(accessInfo: unknown): string[] {
   return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 }
 
-export function propertyIsVisibleToLaundry(accessInfo: unknown, userId: string) {
-  const ids = extractLaundryTeamUserIds(accessInfo);
+/**
+ * Whether a laundry user may see a property's laundry. Two gates:
+ *   1. The property must have laundry service ON (`laundryEnabled !== false`).
+ *      A property created without laundry service is never shown to laundry.
+ *   2. If a laundry team is assigned, the user must be on it; if none is
+ *      assigned, all active laundry users can see it.
+ */
+export function propertyIsVisibleToLaundry(
+  property: { accessInfo?: unknown; laundryEnabled?: boolean | null } | null | undefined,
+  userId: string
+) {
+  if (!property) return false;
+  if (property.laundryEnabled === false) return false;
+  const ids = extractLaundryTeamUserIds(property.accessInfo);
   return ids.length === 0 || ids.includes(userId);
 }
 

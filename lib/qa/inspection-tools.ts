@@ -48,15 +48,34 @@ export interface QaInventoryCountLine {
   note?: string | null;
 }
 
-/** The cleaner↔QA rework transfer proposal captured on submit. */
+/** A single QA-flagged area for a rework job: what to fix + the photo QA took. */
+export interface QaFlaggedArea {
+  id: string;
+  label: string;
+  note?: string;
+  /** S3 keys of the photos QA captured of the problem. */
+  photoKeys: string[];
+}
+
+/** The rework proposal captured on a failed QA inspection. */
 export interface QaReworkProposal {
-  /** Whether the inspector wants to file a transfer at all. */
+  /** Whether the inspector wants to send this clean back for rework at all. */
   enabled: boolean;
+  /** The original cleaner (whose work failed) — used for stats + deduction. */
   cleanerUserId: string | null;
   severity: QaReworkSeverity;
   reason: string;
-  /** Areas/items the cleaner missed and the QA redid. */
+  /** Legacy flat labels (kept for stats/compat). */
   areas: string[];
+  /** Structured flagged areas (each with QA photos) → the rework checklist. */
+  flaggedAreas: QaFlaggedArea[];
+  /** Who redoes it: the SAME cleaner (no pay) or a DIFFERENT cleaner (paid). */
+  assignee: "SAME" | "OTHER";
+  /** When assignee = OTHER: the cleaner who will be paid for the rework. */
+  payeeCleanerId: string | null;
+  /** When assignee = OTHER: amount paid to them and deducted from the original. */
+  payAmount: number;
+  // ── Legacy cleaner→QA transfer fields (still supported for pay-to-QA) ──
   minutesFromCleaner: number;
   amountFromCleaner: number;
   affectsCleanerStats: boolean;
@@ -92,6 +111,10 @@ export function emptyReworkProposal(): QaReworkProposal {
     severity: "MINOR",
     reason: "",
     areas: [],
+    flaggedAreas: [],
+    assignee: "SAME",
+    payeeCleanerId: null,
+    payAmount: 0,
     minutesFromCleaner: 0,
     amountFromCleaner: 0,
     affectsCleanerStats: true,

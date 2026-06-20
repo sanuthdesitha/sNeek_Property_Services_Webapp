@@ -26,7 +26,8 @@ type NotificationCategory =
   | "quotes"
   | "shopping"
   | "billing"
-  | "approvals";
+  | "approvals"
+  | "ical";
 
 type NotificationChannelPreference = {
   web: boolean;
@@ -61,7 +62,21 @@ const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "shopping",
   "billing",
   "approvals",
+  "ical",
 ];
+
+const CATEGORY_META: Record<NotificationCategory, { label: string; description: string }> = {
+  account: { label: "Account & access", description: "New profiles, invitations, password/2FA and login changes." },
+  jobs: { label: "Jobs & scheduling", description: "Job offers, assignments, reminders, reschedules and completions." },
+  laundry: { label: "Laundry", description: "Laundry ready for pickup, skips and status updates." },
+  cases: { label: "Cases & issues", description: "Damage reports, complaints and case updates." },
+  reports: { label: "Reports", description: "Job reports generated and shared." },
+  quotes: { label: "Quotes & leads", description: "New quotes, lead activity and quote responses." },
+  shopping: { label: "Inventory & shopping", description: "Stock alerts, shopping runs and restock approvals." },
+  billing: { label: "Billing & payroll", description: "Invoices, payouts and pay adjustments." },
+  approvals: { label: "Approvals", description: "Items waiting on approval (tasks, pay, time, rework)." },
+  ical: { label: "iCal / calendar sync", description: "Automatic iCal sync alerts when bookings create or change jobs." },
+};
 
 type StaffUser = {
   id: string;
@@ -111,10 +126,6 @@ function emptyUserPrefs() {
   return Object.fromEntries(
     NOTIFICATION_CATEGORIES.map((category) => [category, { web: false, email: false, sms: false }])
   ) as Record<NotificationCategory, NotificationChannelPreference>;
-}
-
-function categoryLabel(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function updateMatrix<T extends Record<string, NotificationChannelPreference>>(
@@ -382,7 +393,7 @@ export default function NotificationsPage() {
                   <div className="grid gap-3">
                     {NOTIFICATION_CATEGORIES.map((category) => (
                       <div key={category} className="grid items-center gap-3 rounded-lg border p-3 md:grid-cols-[180px_repeat(3,minmax(0,1fr))]">
-                        <div><p className="text-sm font-medium">{categoryLabel(category)}</p><p className="text-xs text-muted-foreground">Default channels</p></div>
+                        <div><p className="text-sm font-medium">{CATEGORY_META[category].label}</p><p className="text-xs text-muted-foreground">{CATEGORY_META[category].description}</p></div>
                         {(["web", "email", "sms"] as const).map((channel) => (
                           <div key={`${category}-${channel}`} className="flex items-center justify-between rounded border p-2">
                             <Label className="text-xs uppercase">{channel}</Label>
@@ -497,7 +508,7 @@ export default function NotificationsPage() {
                 <div className="space-y-3">
                   {NOTIFICATION_CATEGORIES.map((category) => (
                     <div key={category} className="grid items-center gap-3 rounded-lg border p-3 md:grid-cols-[180px_repeat(3,minmax(0,1fr))]">
-                      <div><p className="text-sm font-medium">{categoryLabel(category)}</p><p className="text-xs text-muted-foreground">Per-profile override</p></div>
+                      <div><p className="text-sm font-medium">{CATEGORY_META[category].label}</p><p className="text-xs text-muted-foreground">{CATEGORY_META[category].description}</p></div>
                       {(["web", "email", "sms"] as const).map((channel) => (
                         <div key={`${category}-${channel}`} className="flex items-center justify-between rounded border p-2">
                           <Label className="text-xs uppercase">{channel}</Label>

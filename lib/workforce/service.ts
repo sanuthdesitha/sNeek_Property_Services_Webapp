@@ -2671,7 +2671,9 @@ export async function getHiringApplicationDetail(applicationId: string) {
       },
       quizAssignments: {
         orderBy: { createdAt: "desc" },
-        include: { quizTemplate: { select: { id: true, name: true } } },
+        // schema is needed so the admin can review each submitted answer against
+        // the correct one (answers/result/score are scalar fields, already returned).
+        include: { quizTemplate: { select: { id: true, name: true, schema: true } } },
       },
     },
   });

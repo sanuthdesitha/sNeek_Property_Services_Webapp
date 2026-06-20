@@ -66,6 +66,8 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
     attachments: [],
   });
 
+  const [laundryUsers, setLaundryUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
+
   const [form, setForm] = useState({
     clientId: initialClientId ?? "",
     name: "",
@@ -92,6 +94,22 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
   useEffect(() => {
     async function loadInitialData() {
       try {
+        fetch("/api/admin/users?role=LAUNDRY")
+          .then((r) => (r.ok ? r.json() : []))
+          .then((rows) =>
+            setLaundryUsers(
+              Array.isArray(rows)
+                ? rows
+                    .filter((row: any) => row?.id)
+                    .map((row: any) => ({
+                      id: String(row.id),
+                      name: String(row.name ?? row.email ?? row.id),
+                      email: String(row.email ?? ""),
+                    }))
+                : []
+            )
+          )
+          .catch(() => setLaundryUsers([]));
         const requests: Promise<any>[] = [
           fetch("/api/admin/clients").then((r) => r.json()),
           fetch("/api/admin/inventory/defaults").then((r) => r.json()),
@@ -201,6 +219,21 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
       return;
     }
 
+    // Laundry on → a team must be assigned (so the property surfaces to the right
+    // laundry crew). Laundry off → never carry a team and never show to laundry.
+    const laundryTeamUserIds = form.laundryEnabled
+      ? (accessInfo.laundryTeamUserIds ?? []).filter(Boolean)
+      : [];
+    if (form.laundryEnabled && laundryTeamUserIds.length === 0) {
+      toast({
+        title: "Assign a laundry team",
+        description:
+          "Laundry service is on — choose at least one laundry team member, or turn Laundry Service off.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const normalizedAttachments = (accessInfo.attachments ?? []).filter((item) => item.url);
     const accessPayload =
       (Number(form.defaultCleanDurationHours) > 0) ||
@@ -210,7 +243,8 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
       accessInfo.parking ||
       accessInfo.other ||
       accessInfo.instructions ||
-      normalizedAttachments.length > 0
+      normalizedAttachments.length > 0 ||
+      laundryTeamUserIds.length > 0
         ? {
             ...(Number(form.defaultCleanDurationHours) > 0
               ? { defaultCleanDurationHours: Number(form.defaultCleanDurationHours) }
@@ -223,6 +257,7 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
             parking: accessInfo.parking || undefined,
             other: accessInfo.other || undefined,
             instructions: accessInfo.instructions || undefined,
+            laundryTeamUserIds: laundryTeamUserIds.length > 0 ? laundryTeamUserIds : undefined,
             attachments: normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
           }
         : undefined;
@@ -677,6 +712,11 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
           <PropertyAccessFields
             value={accessInfo}
             onChange={setAccessInfo}
+            laundryTeamOptions={
+              form.laundryEnabled
+                ? laundryUsers.map((user) => ({ id: user.id, label: user.name, hint: user.email }))
+                : []
+            }
             addressParts={{
               address: form.address,
               suburb: form.suburb,

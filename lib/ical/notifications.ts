@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
+import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { resolveAppUrl } from "@/lib/app-url";
 import type { IcalSyncSnapshot, IcalSyncSummary } from "@/lib/ical/sync";
 
@@ -175,20 +176,35 @@ export async function notifyAutoSyncChanges(input: {
   let sentEmails = 0;
   let sentSms = 0;
   for (const admin of admins) {
-    await db.notification.create({
-      data: {
+    // Respect each admin's notification preferences for the "ical" category.
+    const [allowWeb, allowEmail, allowSms] = await Promise.all([
+      canDeliverNotification({ userId: admin.id, category: "ical", channel: "WEB", role: "ADMIN" }),
+      canDeliverNotification({ userId: admin.id, category: "ical", channel: NotificationChannel.EMAIL, role: "ADMIN" }),
+      canDeliverNotification({
         userId: admin.id,
-        channel: NotificationChannel.PUSH,
-        subject,
-        body: urgent
-          ? `${urgentChanges.length} near-term job change(s) detected for ${propertyLabel}.`
-          : `${changeCount} iCal sync change(s) detected for ${propertyLabel}.`,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
-      },
-    });
+        category: "ical",
+        channel: NotificationChannel.SMS,
+        role: "ADMIN",
+        hasPhone: Boolean(admin.phone),
+      }),
+    ]);
 
-    if (admin.email) {
+    if (allowWeb) {
+      await db.notification.create({
+        data: {
+          userId: admin.id,
+          channel: NotificationChannel.PUSH,
+          subject,
+          body: urgent
+            ? `${urgentChanges.length} near-term job change(s) detected for ${propertyLabel}.`
+            : `${changeCount} iCal sync change(s) detected for ${propertyLabel}.`,
+          status: NotificationStatus.SENT,
+          sentAt: new Date(),
+        },
+      });
+    }
+
+    if (allowEmail && admin.email) {
       const result = await sendEmailDetailed({
         to: admin.email,
         subject,
@@ -208,7 +224,7 @@ export async function notifyAutoSyncChanges(input: {
       if (result.ok) sentEmails += 1;
     }
 
-    if (smsText && admin.phone) {
+    if (allowSms && smsText && admin.phone) {
       const result = await sendSmsDetailed(admin.phone, smsText);
       if (result.status === "sent" || result.status === "failed") {
         await db.notification.create({

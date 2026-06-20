@@ -68,6 +68,7 @@ async function getNextTurnoverCleanDate(job: PlannerJob) {
     where: {
       propertyId: job.propertyId,
       jobType: "AIRBNB_TURNOVER",
+      isRework: false,
       id: { not: job.id },
       scheduledDate: { gt: normalizeDate(job.scheduledDate) },
       status: { not: "INVOICED" },
@@ -174,6 +175,7 @@ async function computeDraftItem(
 async function getPlannerJobs(weekStart?: Date) {
   const where: Prisma.JobWhereInput = {
     jobType: "AIRBNB_TURNOVER",
+    isRework: false, // rework/reclean jobs never generate laundry pickups
     laundryTask: null,
     status: { not: "INVOICED" },
     property: { laundryEnabled: true },
@@ -199,6 +201,7 @@ async function getSyncPlannerJobs(options: { propertyId: string; fromDate: Date 
     where: {
       propertyId: options.propertyId,
       jobType: "AIRBNB_TURNOVER",
+      isRework: false,
       scheduledDate: { gte: normalizeDate(options.fromDate) },
       status: { not: "INVOICED" },
       property: { laundryEnabled: true },
@@ -386,6 +389,10 @@ export async function ensureLaundryTaskForJob(jobId: string) {
 
   if (!job) return null;
   if (job.jobType !== "AIRBNB_TURNOVER") return null;
+  // Rework/reclean jobs reuse the original property's linen — never schedule a
+  // separate laundry pickup for them, and never if the property has laundry off.
+  if (job.isRework) return null;
+  if (!job.property.laundryEnabled) return null;
 
   const settings = await getAppSettings();
   const draftItem = await computeDraftItem(job, settings.laundryOperations);

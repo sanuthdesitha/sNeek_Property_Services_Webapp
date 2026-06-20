@@ -13,6 +13,11 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
+import {
+  buildReworkFormSchema,
+  ensureReworkFormTemplate,
+  normalizeReworkAreas,
+} from "@/lib/qa/rework-jobs";
 
 export async function GET(
   _req: NextRequest,
@@ -227,6 +232,17 @@ export async function GET(
       expectedStartDate = format(toZonedTime(job.scheduledDate, "Australia/Sydney"), "yyyy-MM-dd");
     }
     const continuationProgressSnapshot = await getApprovedContinuationProgressSnapshot(job.id);
+
+    // Rework job → replace the normal checklist with a dynamic one built from the
+    // QA-flagged areas: one section per area showing QA's photo + note and a
+    // required "after" photo upload. Reuses a hidden per-job-type template row so
+    // the resulting FormSubmission still satisfies its template FK.
+    const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
+    if (job.isRework && reworkAreas.length > 0) {
+      const reworkTemplate = await ensureReworkFormTemplate(job.jobType);
+      template = { ...reworkTemplate, schema: buildReworkFormSchema(reworkAreas) as any } as typeof template;
+    }
+
     const resolvedTemplate = await resolveTemplateReferenceUrls(template);
 
     // Inject quote extras as an "Additionals" section so the cleaner sees the

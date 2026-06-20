@@ -892,6 +892,22 @@ model Job {
   // Set when this job's cleaner pay has been included in a payroll run. Prevents
   // the same job being paid again in a later/overlapping run (payroll idempotency).
   payrollRunId          String?
+  // ── Rework / reclean ──────────────────────────────────────────────────────
+  // A rework job is a distinct Job created when QA fails a clean. It carries the
+  // QA-flagged areas (+ the photos QA captured) so the cleaner sees exactly what
+  // to fix and uploads "after" photos per area. Rework jobs never create laundry
+  // pickups. Pay rule: when the SAME cleaner redoes it → no pay (reworkPayAmount
+  // null/0); when a DIFFERENT cleaner redoes it → that cleaner is paid
+  // reworkPayAmount and the same amount is deducted from the original cleaner.
+  isRework                  Boolean   @default(false)
+  reworkOfJobId             String?
+  reworkReason              String?   @db.Text
+  reworkAreas               Json? // [{ id, label, note, photoKeys: string[] }]
+  reworkPayAmount           Float? // amount paid to the rework cleaner (and deducted from the original)
+  reworkPayeeCleanerId      String? // cleaner who will be paid for the rework
+  reworkDeductFromCleanerId String? // original cleaner the amount is deducted from (null = same cleaner)
+  reworkDeductionApplied    Boolean   @default(false)
+  reworkSourceReviewId      String? // the failing QAReview that triggered this rework
   priorityBucket        Int       @default(4)
   priorityReason        String?
   sameDayCheckin        Boolean   @default(false)
@@ -937,6 +953,8 @@ model Job {
 
   property               Property                   @relation(fields: [propertyId], references: [id])
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
+  reworkOfJob            Job?                       @relation("JobRework", fields: [reworkOfJobId], references: [id], onDelete: SetNull)
+  reworkChildren         Job[]                      @relation("JobRework")
   assignments            JobAssignment[]
   timeLogs               TimeLog[]
   formSubmissions        FormSubmission[]
@@ -967,6 +985,8 @@ model Job {
   @@index([completedAt])
   @@index([status, completedAt])
   @@index([payrollRunId])
+  @@index([isRework, status])
+  @@index([reworkOfJobId])
 }
 
 model CleanerPayAdjustment {
@@ -1142,13 +1162,23 @@ model QAReview {
   passed       Boolean
   notes        String?  @db.Text
   flags        Json? // array of field ids that failed
+  // Authority of this review. "QA" = a real on-site QA inspection (highest
+  // authority — overrides any earlier admin/auto score for the job). "ADMIN" =
+  // an admin/ops quick score. "AUTO" = system-generated. The authoritative
+  // outcome for a job is the latest QA review if one exists, else the latest of
+  // any kind (see lib/qa/authority.ts).
+  kind         String   @default("QA") // QA | ADMIN | AUTO
+  editedById   String? // admin who last edited this score
+  editedAt     DateTime?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   job        Job   @relation(fields: [jobId], references: [id])
   reviewedBy User? @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
   qaFormSubmissions QaFormSubmission[]
 
   @@index([jobId])
+  @@index([jobId, kind, createdAt])
   @@index([createdAt])
 }
 

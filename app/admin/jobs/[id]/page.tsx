@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AdminQaReviews } from "@/components/qa/admin-qa-reviews";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -2170,6 +2171,7 @@ export default function JobDetailPage() {
               ) : (
                 <p className="text-sm text-muted-foreground">No QA review yet.</p>
               )}
+              <AdminQaReviews jobId={String(params.id)} />
             </CardContent>
           </Card>
         </TabsContent>

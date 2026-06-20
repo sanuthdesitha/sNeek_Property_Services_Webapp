@@ -198,6 +198,257 @@ export const DEFAULT_QUIZ_TEMPLATES: Array<{ name: string; description: string; 
       }),
     ]),
   },
+  {
+    name: "Eye for Detail Challenge",
+    description: "Tricky spot-the-miss scenarios — the small things guests notice and reviews punish.",
+    schema: schema(
+      "Eye for Detail Challenge",
+      "These are deliberately tricky. Read each scenario carefully before answering.",
+      80,
+      [
+        q({
+          id: "ed_finalsweep", category: "detail", weight: 2, type: "multi",
+          prompt:
+            "The room looks spotless at a glance. On a proper final sweep, which of these are you actually checking? (select ALL that truly matter)",
+          options: [
+            { id: "hair", label: "A single hair on the bathroom floor / in the shower" },
+            { id: "underbed", label: "Under the bed and behind the bedside tables" },
+            { id: "fingerprints", label: "Fingerprints/smudges on mirrors, glass and stainless steel" },
+            { id: "remote", label: "TV remote present and working, set to the home screen" },
+            { id: "repaint", label: "Repainting any scuffed walls yourself" },
+            { id: "smell", label: "First impression smell when you open the door" },
+          ],
+          correct: ["hair", "underbed", "fingerprints", "remote", "smell"],
+          explanation: "Repainting isn't a cleaner's job — flag it. Everything else is a guest-visible detail.",
+        }),
+        q({
+          id: "ed_trap", category: "detail", weight: 2, type: "single",
+          prompt:
+            "You've finished and the kitchen sparkles. The previous guest ran the dishwasher but didn't empty it. The cycle is clean. Best move?",
+          options: [
+            { id: "a", label: "Leave it — the dishes are clean, not your job." },
+            { id: "b", label: "Empty it, put everything away, and wipe the inside seal — the next guest must open it to an empty, ready kitchen." },
+            { id: "c", label: "Run it again to be safe, then leave it full." },
+          ],
+          correct: "b",
+          explanation: "A 'clean but full' dishwasher reads as 'not cleaned' to the next guest.",
+        }),
+        q({
+          id: "ed_linen", category: "detail", type: "single",
+          prompt: "Which is the giveaway that a bed was made in a hurry rather than to standard?",
+          options: [
+            { id: "a", label: "Pillowcase openings face the wall and corners are tucked tight" },
+            { id: "b", label: "A faint crease down the duvet and the top sheet untucked on one side" },
+            { id: "c", label: "Decorative cushions arranged symmetrically" },
+          ],
+          correct: "b",
+        }),
+        q({
+          id: "ed_photo", category: "detail", type: "short",
+          prompt:
+            "You photograph the lounge as 'done'. Name TWO things you'd zoom in on in your own photos to prove the detail is there.",
+          placeholder: "e.g. ...",
+        }),
+      ]
+    ),
+  },
+  {
+    name: "Snap Decisions Under Pressure",
+    description: "Instantaneous decision-making with a ticking clock and no one to ask.",
+    schema: schema(
+      "Snap Decisions Under Pressure",
+      "There's no perfect answer to some of these — we're looking at how you decide when seconds count.",
+      75,
+      [
+        q({
+          id: "sd_late", category: "decisioning", weight: 2, type: "single",
+          prompt:
+            "It's 2:30pm, check-in is 3:00pm, and you're only halfway done because the place was trashed. You can't reach the office. What do you do FIRST?",
+          options: [
+            { id: "a", label: "Keep cleaning top-to-bottom and hope you finish." },
+            { id: "b", label: "Triage: make the guest-critical areas (bed, bathroom, kitchen, smell) perfect first, then message the office the moment you can with an ETA." },
+            { id: "c", label: "Leave and come back after the guest checks in." },
+          ],
+          correct: "b",
+          explanation: "Protect the guest's first impression, then communicate — don't go silent.",
+        }),
+        q({
+          id: "sd_locked", category: "adaptability", weight: 2, type: "single",
+          prompt: "The lockbox code doesn't work and the office isn't answering. Best immediate move?",
+          options: [
+            { id: "a", label: "Force a window or try the back door." },
+            { id: "b", label: "Try the code twice more carefully, photograph the lockbox, log the issue, and escalate through every approved channel — never improvise entry." },
+            { id: "c", label: "Wait in the car indefinitely without telling anyone." },
+          ],
+          correct: "b",
+        }),
+        q({
+          id: "sd_choose", category: "decisioning", type: "multi",
+          prompt:
+            "You have 15 minutes left and three things undone: (1) mop floors, (2) restock toilet paper & towels, (3) re-stage the decorative cushions. Which do you prioritise? (select the TWO that matter most)",
+          options: [
+            { id: "floors", label: "Mop the floors" },
+            { id: "restock", label: "Restock toilet paper & towels" },
+            { id: "cushions", label: "Re-stage the decorative cushions" },
+          ],
+          correct: ["floors", "restock"],
+          explanation: "Function over styling under time pressure — a guest can forgive un-fluffed cushions, not missing toilet paper.",
+        }),
+        q({
+          id: "sd_judgement", category: "decisioning", type: "short",
+          prompt:
+            "Describe a time you had to make a fast call with incomplete information. What did you decide and why? (2–3 sentences)",
+          placeholder: "Your answer",
+        }),
+      ]
+    ),
+  },
+  {
+    name: "The Unexpected Situation",
+    description: "How a candidate handles surprises — the guest still there, the flood, the thing that isn't in the checklist.",
+    schema: schema(
+      "The Unexpected Situation",
+      "Real turnovers throw curveballs. Show us how you'd handle them.",
+      75,
+      [
+        q({
+          id: "us_guest", category: "scenario", weight: 2, type: "single",
+          prompt: "You let yourself in to clean and a guest is still there, asleep. What do you do?",
+          options: [
+            { id: "a", label: "Start cleaning quietly around them." },
+            { id: "b", label: "Step out immediately, don't disturb them, and contact the office to confirm the booking/checkout before re-entering." },
+            { id: "c", label: "Wake them and tell them to leave." },
+          ],
+          correct: "b",
+          explanation: "Wrong-booking or late-checkout — never confront; verify through the office.",
+        }),
+        q({
+          id: "us_leak", category: "scenario", weight: 2, type: "single",
+          prompt: "You find water pooling under the sink and the cabinet is soaked. Next guest arrives in 2 hours.",
+          options: [
+            { id: "a", label: "Mop it up and say nothing — it might dry out." },
+            { id: "b", label: "Stop the source if it's safe (turn off the tap/valve), photograph it, report it urgently with the photos, and keep working the rest." },
+            { id: "c", label: "Cancel the clean and go home." },
+          ],
+          correct: "b",
+        }),
+        q({
+          id: "us_extra", category: "scenario", type: "single",
+          prompt:
+            "The property is FAR dirtier than a normal turnover (party aftermath). It'll take double the time. What's correct?",
+          options: [
+            { id: "a", label: "Rush it in the normal time and accept a lower standard." },
+            { id: "b", label: "Photograph the condition BEFORE you start, submit an extra-pay request with the photos, and clean to standard." },
+            { id: "c", label: "Refuse and leave without telling anyone." },
+          ],
+          correct: "b",
+        }),
+        q({
+          id: "us_open", category: "adaptability", type: "short",
+          prompt:
+            "Tell us about the most unexpected thing you've faced on a job (any job) and exactly how you handled it.",
+          placeholder: "Your answer",
+        }),
+      ]
+    ),
+  },
+  {
+    name: "Guest Experience & Hosting Sense",
+    description: "Does the candidate think like a host? Reading the guest, the touches, the boundaries.",
+    schema: schema(
+      "Guest Experience & Hosting Sense",
+      "Cleaning is half the job — the other half is hosting sense. There are some judgement calls here.",
+      75,
+      [
+        q({
+          id: "gx_contact", category: "guest", weight: 2, type: "single",
+          prompt: "A guest messages YOU directly asking for an early check-in. What do you do?",
+          options: [
+            { id: "a", label: "Tell them yes to be helpful." },
+            { id: "b", label: "Don't commit — politely say you'll pass it to the office, then relay it through the approved channel and keep working." },
+            { id: "c", label: "Ignore the message completely." },
+          ],
+          correct: "b",
+          explanation: "Never make booking promises to guests directly, but never go cold either.",
+        }),
+        q({
+          id: "gx_touches", category: "guest", weight: 2, type: "multi",
+          prompt:
+            "Which small, low-cost touches genuinely lift a guest's first impression? (select all that are appropriate)",
+          options: [
+            { id: "smell", label: "A clean, neutral smell (not overpowering air freshener)" },
+            { id: "fold", label: "Towels folded neatly / a tidy 'reset' presentation" },
+            { id: "essentials", label: "Toilet paper, soap and basics clearly stocked and visible" },
+            { id: "gift", label: "Buying the guest an expensive gift out of your own pocket" },
+            { id: "lights", label: "Curtains opened and lights/heating left sensible for arrival (per host instructions)" },
+          ],
+          correct: ["smell", "fold", "essentials", "lights"],
+          explanation: "Thoughtful resets — yes. Spending your own money on gifts — no.",
+        }),
+        q({
+          id: "gx_complaint", category: "guest", type: "single",
+          prompt: "A guest is in the driveway, visibly annoyed, saying the last stay was dirty. You're just there to clean. Best response?",
+          options: [
+            { id: "a", label: "Argue that it wasn't your fault." },
+            { id: "b", label: "Stay calm and polite, don't take blame or make promises, assure them it's being cleaned to standard now, and report the interaction to the office." },
+            { id: "c", label: "Offer them a refund on the spot." },
+          ],
+          correct: "b",
+        }),
+        q({
+          id: "gx_creative", category: "creativity", type: "short",
+          prompt:
+            "Without spending money, what's ONE creative touch you'd add to a finished property to make a guest smile? Explain why it works.",
+          placeholder: "Your answer",
+        }),
+      ]
+    ),
+  },
+  {
+    name: "Creative Problem-Solving",
+    description: "Resourcefulness and creativity — making it work with what's on hand, and improving the system.",
+    schema: schema(
+      "Creative Problem-Solving",
+      "Mostly open questions — we want to see how you think, not just what you know.",
+      65,
+      [
+        q({
+          id: "cp_nosupply", category: "creativity", weight: 2, type: "single",
+          prompt:
+            "You've run out of the proper glass cleaner and there's a smeary mirror. The supply cupboard only has dish soap, vinegar and microfibre cloths. Best approach?",
+          options: [
+            { id: "a", label: "Leave the mirror smeared — no proper product." },
+            { id: "b", label: "Improvise safely with a little diluted vinegar + water on a microfibre, buff dry, then flag that stock needs reordering." },
+            { id: "c", label: "Use a paper towel and the dish soap straight, leaving streaks." },
+          ],
+          correct: "b",
+          explanation: "Resourceful AND reports the stock gap — both matter.",
+        }),
+        q({
+          id: "cp_improve", category: "creativity", type: "short",
+          prompt:
+            "If you could change ONE thing about how a typical turnover is done to make it faster OR better, what would it be?",
+          placeholder: "Your answer",
+        }),
+        q({
+          id: "cp_layout", category: "creativity", type: "short",
+          prompt:
+            "A studio apartment always feels cramped to guests in photos. With no budget, how would you stage it to feel bigger and more inviting?",
+          placeholder: "Your answer",
+        }),
+        q({
+          id: "cp_eye", category: "detail", type: "single",
+          prompt: "Creativity without standards is a problem. When does 'creative staging' cross a line?",
+          options: [
+            { id: "a", label: "When it changes the host's required layout/items or hides a real issue instead of reporting it." },
+            { id: "b", label: "Whenever you move a single cushion." },
+            { id: "c", label: "It never crosses a line — do whatever looks good." },
+          ],
+          correct: "a",
+        }),
+      ]
+    ),
+  },
 ];
 
 /** Upsert the default quiz templates (by name) — never overwrites edits. */

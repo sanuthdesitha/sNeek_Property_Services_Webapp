@@ -193,6 +193,11 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   if (!job) {
     throw new Error("Job not found");
   }
+  // Rework/reclean jobs (and laundry-disabled properties) never create or touch a
+  // laundry pickup — they reuse the original clean's linen.
+  if (job.isRework || job.property.laundryEnabled === false) {
+    return { ok: true, duplicated: true, laundryTask: job.laundryTask ?? null };
+  }
 
   let laundryTask = job.laundryTask;
   if (!laundryTask) {

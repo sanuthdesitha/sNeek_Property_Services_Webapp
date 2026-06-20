@@ -24,6 +24,7 @@ export async function GET() {
             suburb: true,
             linenBufferSets: true,
             accessInfo: true,
+            laundryEnabled: true,
           },
         },
         supplier: {
@@ -42,7 +43,7 @@ export async function GET() {
     });
     const visibleTasks =
       session.user.role === Role.LAUNDRY
-        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property?.accessInfo, session.user.id))
+        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property, session.user.id))
         : tasks;
     return NextResponse.json(visibleTasks);
   } catch (err: any) {

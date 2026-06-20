@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { EmailPreviewDialog } from "@/components/hiring/email-preview-dialog";
+import { QuizAnswerReview } from "@/components/hiring/quiz-answer-review";
 
 const STATUSES = ["NEW", "SCREENING", "INTERVIEW", "OFFER", "HIRED", "REJECTED", "WITHDRAWN"] as const;
 
@@ -329,18 +330,21 @@ export function CandidateDetail({ application }: { application: any }) {
               ) : (
                 <div className="space-y-2">
                   {quizAssignments.map((qa) => (
-                    <div key={qa.id} className="flex items-center justify-between gap-2 rounded-lg border p-2.5">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{qa.quizTemplate?.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {qa.status === "COMPLETED" ? `Completed · ${Math.round(qa.score ?? 0)}%` : "Sent · awaiting completion"}
-                        </p>
+                    <div key={qa.id} className="rounded-lg border p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{qa.quizTemplate?.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {qa.status === "COMPLETED" ? `Completed · ${Math.round(qa.score ?? 0)}%` : "Sent · awaiting completion"}
+                          </p>
+                        </div>
+                        {qa.status === "COMPLETED" ? (
+                          <Badge variant={(qa.score ?? 0) >= 70 ? "success" : "secondary"} className="shrink-0 tabular-nums">{Math.round(qa.score ?? 0)}%</Badge>
+                        ) : (
+                          <Button variant="ghost" size="icon" onClick={() => copyQuizLink(qa.token)} title="Copy quiz link"><Copy className="h-4 w-4" /></Button>
+                        )}
                       </div>
-                      {qa.status === "COMPLETED" ? (
-                        <Badge variant={(qa.score ?? 0) >= 70 ? "success" : "secondary"} className="shrink-0 tabular-nums">{Math.round(qa.score ?? 0)}%</Badge>
-                      ) : (
-                        <Button variant="ghost" size="icon" onClick={() => copyQuizLink(qa.token)} title="Copy quiz link"><Copy className="h-4 w-4" /></Button>
-                      )}
+                      <QuizAnswerReview assignment={qa} />
                     </div>
                   ))}
                 </div>

@@ -7,6 +7,7 @@ import { buildDefaultQaTemplateSchema, scoreQaSubmission } from "@/lib/qa/templa
 import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
+import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { QA_TOOLS_DATA_KEY, minutesBetween } from "@/lib/qa/inspection-tools";
 import { publicUrl, getPresignedDownloadUrl } from "@/lib/s3";
@@ -41,12 +42,26 @@ const inventoryCountLineSchema = z.object({
   note: z.string().trim().max(500).nullable().optional(),
 });
 
+const flaggedAreaSchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  label: z.string().trim().min(1).max(160),
+  note: z.string().trim().max(2000).optional(),
+  photoKeys: z.array(z.string().trim().min(1)).max(24).default([]),
+});
+
 const reworkSchema = z.object({
   enabled: z.boolean().default(false),
   cleanerUserId: z.string().min(1).nullable().optional(),
   severity: z.enum(["MINOR", "MODERATE", "MAJOR"]).default("MINOR"),
   reason: z.string().trim().max(4000).default(""),
   areas: z.array(z.string().trim().min(1)).default([]),
+  // Structured flagged areas (each with QA photos) → the rework checklist.
+  flaggedAreas: z.array(flaggedAreaSchema).max(40).default([]),
+  // Who redoes it + the pay decision.
+  assignee: z.enum(["SAME", "OTHER"]).default("SAME"),
+  payeeCleanerId: z.string().min(1).nullable().optional(),
+  payAmount: z.number().min(0).max(1000000).default(0),
+  // Legacy cleaner→QA transfer (pay-to-QA) fields, still accepted.
   minutesFromCleaner: z.number().min(0).max(100000).default(0),
   amountFromCleaner: z.number().min(0).max(1000000).default(0),
   affectsCleanerStats: z.boolean().default(true),
@@ -194,6 +209,30 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    // Presign the cleaner's submitted photos/videos so they actually render in
+    // the QA review (the stored `url` is a private S3 URL that 403s otherwise).
+    const latestSubmission = job.formSubmissions?.[0];
+    if (latestSubmission?.media?.length) {
+      await Promise.all(
+        latestSubmission.media.map(async (m: any) => {
+          if (m.s3Key) {
+            try {
+              m.url = await getPresignedDownloadUrl(m.s3Key, 3600);
+            } catch {
+              m.url = publicUrl(m.s3Key);
+            }
+          }
+          if (m.annotatedS3Key) {
+            try {
+              m.annotatedUrl = await getPresignedDownloadUrl(m.annotatedS3Key, 3600);
+            } catch {
+              m.annotatedUrl = publicUrl(m.annotatedS3Key);
+            }
+          }
+        })
+      );
+    }
+
     return NextResponse.json({
       job,
       template,
@@ -245,6 +284,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           reviewedById: session.user.id,
           score: result.score,
           passed: result.passed,
+          // A real on-site QA inspection — the authoritative score for the job
+          // (overrides any earlier admin/auto quick score). See lib/qa/authority.
+          kind: "QA",
           notes: body.notes || null,
           flags: { categoryScores: result.categoryScores, data: dataWithTools } as any,
         },
@@ -458,25 +500,64 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // REDO TRACKING + CLEANER↔QA TRANSFER → file a PENDING QaReworkTransfer.
+    // REWORK → on a failed clean, spin up a distinct rework JOB carrying the
+    // flagged areas + QA photos (the cleaner gets a dynamic fix-checklist), and
+    // wire the pay decision (same cleaner = no pay; different cleaner = paid +
+    // deducted from the original). A legacy cleaner→QA pay/time transfer is still
+    // recorded when the inspector explicitly moved minutes/$ to themselves.
     let reworkTransferId: string | null = null;
-    if (tools?.rework?.enabled && tools.rework.cleanerUserId && tools.rework.reason.trim()) {
-      try {
-        const transfer = await createQaReworkTransfer({
-          jobId: params.id,
-          assignmentId: body.assignmentId ?? null,
-          qaUserId: session.user.id,
-          cleanerUserId: tools.rework.cleanerUserId,
-          severity: tools.rework.severity as QaReworkSeverity,
-          reason: tools.rework.reason,
-          areas: tools.rework.areas,
-          minutesFromCleaner: tools.rework.minutesFromCleaner,
-          amountFromCleaner: tools.rework.amountFromCleaner,
-          affectsCleanerStats: tools.rework.affectsCleanerStats,
-        });
-        reworkTransferId = transfer.id;
-      } catch (err) {
-        console.error("[qa-submit] rework transfer create failed", err);
+    let reworkJobId: string | null = null;
+    const rk = tools?.rework;
+    if (!result.passed && rk?.enabled) {
+      const flagged =
+        (rk.flaggedAreas ?? []).length > 0
+          ? rk.flaggedAreas.map((a, i) => ({
+              id: a.id || `area-${i + 1}`,
+              label: a.label,
+              note: a.note,
+              photoKeys: a.photoKeys ?? [],
+            }))
+          : (rk.areas ?? []).map((label, i) => ({
+              id: `area-${i + 1}`,
+              label,
+              note: undefined,
+              photoKeys: [] as string[],
+            }));
+      if (flagged.length > 0) {
+        try {
+          reworkJobId = await createReworkJobFromFailure({
+            originalJobId: params.id,
+            qaUserId: session.user.id,
+            reason: rk.reason || "QA flagged rework.",
+            areas: flagged,
+            sourceReviewId: created.review.id,
+            assignToCleanerId: rk.assignee === "OTHER" ? rk.payeeCleanerId ?? null : null,
+            payAmount: rk.assignee === "OTHER" ? rk.payAmount : 0,
+          });
+        } catch (err) {
+          console.error("[qa-submit] rework job create failed", err);
+        }
+      }
+
+      // Legacy: the inspector redid the work themselves and moved minutes/$.
+      if (rk.cleanerUserId && (rk.minutesFromCleaner > 0 || rk.amountFromCleaner > 0)) {
+        try {
+          const transfer = await createQaReworkTransfer({
+            jobId: params.id,
+            assignmentId: body.assignmentId ?? null,
+            qaUserId: session.user.id,
+            cleanerUserId: rk.cleanerUserId,
+            severity: rk.severity as QaReworkSeverity,
+            reason: rk.reason,
+            areas: rk.areas,
+            minutesFromCleaner: rk.minutesFromCleaner,
+            amountFromCleaner: rk.amountFromCleaner,
+            affectsCleanerStats: rk.affectsCleanerStats,
+          });
+          reworkTransferId = transfer.id;
+        } catch (err) {
+          console.error("[qa-submit] rework transfer create failed", err);
+        }
       }
     }
 
@@ -488,6 +569,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       restockRunId,
       countRunId,
       reworkTransferId,
+      reworkJobId,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

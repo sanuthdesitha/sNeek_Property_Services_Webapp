@@ -88,7 +88,8 @@ export type NotificationCategory =
   | "quotes"
   | "shopping"
   | "billing"
-  | "approvals";
+  | "approvals"
+  | "ical";
 
 export interface NotificationChannelPreference {
   web: boolean;
@@ -330,6 +331,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "shopping",
   "billing",
   "approvals",
+  "ical",
 ];
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferenceMap = {
@@ -342,6 +344,27 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferenceMap = {
   shopping: { web: true, email: true, sms: false },
   billing: { web: true, email: true, sms: false },
   approvals: { web: true, email: true, sms: false },
+  ical: { web: true, email: true, sms: false },
+};
+
+/**
+ * Human-friendly label + description for every notification category, used to
+ * render the notification controls in an organised, self-explanatory way.
+ */
+export const NOTIFICATION_CATEGORY_META: Record<
+  NotificationCategory,
+  { label: string; description: string }
+> = {
+  account: { label: "Account & access", description: "New profiles, invitations, password/2FA and login changes." },
+  jobs: { label: "Jobs & scheduling", description: "Job offers, assignments, reminders, reschedules and completions." },
+  laundry: { label: "Laundry", description: "Laundry ready for pickup, skips and status updates." },
+  cases: { label: "Cases & issues", description: "Damage reports, complaints and case updates." },
+  reports: { label: "Reports", description: "Job reports generated and shared." },
+  quotes: { label: "Quotes & leads", description: "New quotes, lead activity and quote responses." },
+  shopping: { label: "Inventory & shopping", description: "Stock alerts, shopping runs and restock approvals." },
+  billing: { label: "Billing & payroll", description: "Invoices, payouts and pay adjustments." },
+  approvals: { label: "Approvals", description: "Items waiting on your approval (tasks, pay, time, rework)." },
+  ical: { label: "iCal / calendar sync", description: "Automatic iCal sync alerts when bookings create or change jobs." },
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {

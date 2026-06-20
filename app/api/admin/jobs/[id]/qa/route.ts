@@ -15,6 +15,7 @@ import {
   findOpenAutoCase,
   meetsAutoOpenThreshold,
 } from "@/lib/cases/auto-case";
+import { recomputeJobQaOutcome } from "@/lib/qa/authority";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -59,6 +60,9 @@ export async function POST(
           reviewedById: session.user.id,
           score: body.score,
           passed,
+          // Admin/ops quick score — a real on-site QA inspection (kind "QA")
+          // outranks this (see lib/qa/authority.ts).
+          kind: "ADMIN",
           notes: body.notes,
           flags: body.flags ?? [],
         },
@@ -90,6 +94,11 @@ export async function POST(
 
       return createdReview;
     });
+
+    // Respect QA authority: if a real on-site QA inspection already exists for
+    // this job, it remains the authoritative score — this admin quick-score does
+    // not override it. (No-op when this is the only/highest review.)
+    await recomputeJobQaOutcome(params.id).catch(() => null);
 
     // BEST-EFFORT AUTOMATION: an issue-ticket or rework-job failure must never
     // roll back the QA review itself, so these run outside the core transaction

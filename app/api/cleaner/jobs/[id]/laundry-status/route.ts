@@ -118,8 +118,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       ok: true,
       duplicated: result.duplicated,
-      status: result.laundryTask.status,
-      updatedAt: result.laundryTask.updatedAt,
+      status: result.laundryTask?.status ?? null,
+      updatedAt: result.laundryTask?.updatedAt ?? null,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

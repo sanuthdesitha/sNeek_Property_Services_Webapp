@@ -236,12 +236,38 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const onSiteMinutes = Math.round(liveMs / 60000);
   const timerEnded = Boolean(tools.onSite.endedAt);
 
+  // Persist start/pause to the QaAssignment so the timer survives tab switches,
+  // navigation, and refresh (the in-page clock alone pauses when backgrounded).
+  function persistTimer(action: "start" | "pause") {
+    fetch(`/api/qa/jobs/${jobId}/timer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).catch(() => {});
+  }
+
+  // Seed the live timer from the server-persisted assignment when a payload
+  // arrives (so reopening the job resumes the running clock instead of resetting).
+  useEffect(() => {
+    const a = payload?.assignment;
+    if (!a || tools.onSite.endedAt) return;
+    const accMs = Math.max(0, Number(a.onSiteMinutes ?? 0)) * 60000;
+    if (a.onSiteStartedAt && !a.onSiteEndedAt) {
+      setTimer({ running: true, elapsedMs: accMs, runningSince: new Date(a.onSiteStartedAt).getTime() });
+      setTools((prev) => ({ ...prev, onSite: { startedAt: a.onSiteStartedAt, endedAt: null, minutes: null } }));
+    } else if (accMs > 0) {
+      setTimer({ running: false, elapsedMs: accMs, runningSince: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload?.assignment?.id]);
+
   function startOrResumeOnSite() {
     setTimer((prev) => (prev.running ? prev : { ...prev, running: true, runningSince: Date.now() }));
     setTools((prev) => ({
       ...prev,
       onSite: { startedAt: prev.onSite.startedAt ?? new Date().toISOString(), endedAt: null, minutes: null },
     }));
+    persistTimer("start");
   }
   function pauseOnSite() {
     setTimer((prev) =>
@@ -249,6 +275,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         ? prev
         : { running: false, elapsedMs: prev.elapsedMs + (Date.now() - prev.runningSince), runningSince: null }
     );
+    persistTimer("pause");
   }
   function endOnSite() {
     const finalMs = liveMs;
@@ -257,6 +284,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
       ...t,
       onSite: { startedAt: t.onSite.startedAt, endedAt: new Date().toISOString(), minutes: Math.round(finalMs / 60000) },
     }));
+    persistTimer("pause");
   }
 
   // ── Damage ──────────────────────────────────────────────────────────────
@@ -358,24 +386,65 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   function setRework(patch: Partial<typeof rework>) {
     setTools((prev) => ({ ...prev, rework: { ...(prev.rework ?? emptyReworkProposal()), ...patch } }));
   }
-  function addReworkArea() {
+  // ── Rework flagged areas (each carries QA photos → the cleaner's fix list) ──
+  function addFlaggedArea() {
     const value = reworkAreaDraft.trim();
-    if (!value) return;
-    setRework({ areas: [...rework.areas, value] });
+    setRework({
+      flaggedAreas: [...rework.flaggedAreas, { id: uid(), label: value || "Flagged area", note: "", photoKeys: [] }],
+    });
     setReworkAreaDraft("");
+  }
+  function updateFlaggedArea(id: string, patch: Partial<(typeof rework.flaggedAreas)[number]>) {
+    setRework({ flaggedAreas: rework.flaggedAreas.map((a) => (a.id === id ? { ...a, ...patch } : a)) });
+  }
+  function removeFlaggedArea(id: string) {
+    setRework({ flaggedAreas: rework.flaggedAreas.filter((a) => a.id !== id) });
+  }
+  function addFlaggedAreaPhoto(areaId: string, key: string) {
+    setRework({
+      flaggedAreas: rework.flaggedAreas.map((a) =>
+        a.id === areaId && !a.photoKeys.includes(key) ? { ...a, photoKeys: [...a.photoKeys, key] } : a
+      ),
+    });
+    void (async () => {
+      try {
+        const res = await fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`);
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.url) setSectionPhotoUrls((prev) => ({ ...prev, [key]: body.url }));
+      } catch {
+        /* thumbnail best-effort */
+      }
+    })();
+  }
+  function removeFlaggedAreaPhoto(areaId: string, key: string) {
+    setRework({
+      flaggedAreas: rework.flaggedAreas.map((a) =>
+        a.id === areaId ? { ...a, photoKeys: a.photoKeys.filter((k) => k !== key) } : a
+      ),
+    });
   }
 
   async function submit() {
     if (!template?.id) return;
     // Validate rework when enabled.
     if (rework.enabled) {
-      if (!rework.cleanerUserId) {
-        toast({ title: "Select the cleaner for the rework transfer.", variant: "destructive" });
+      if (!rework.reason.trim()) {
+        toast({ title: "Add a reason for the rework.", variant: "destructive" });
         return;
       }
-      if (!rework.reason.trim()) {
-        toast({ title: "Add a reason for the rework transfer.", variant: "destructive" });
+      if (rework.flaggedAreas.filter((a) => a.label.trim()).length === 0) {
+        toast({ title: "Flag at least one area for the cleaner to fix.", variant: "destructive" });
         return;
+      }
+      if (rework.assignee === "OTHER") {
+        if (!rework.payeeCleanerId) {
+          toast({ title: "Choose the cleaner who will redo this clean.", variant: "destructive" });
+          return;
+        }
+        if (!(rework.payAmount > 0)) {
+          toast({ title: "Enter the pay amount for the new cleaner.", variant: "destructive" });
+          return;
+        }
       }
     }
     setSaving(true);
@@ -408,6 +477,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     if (body.createdCaseIds?.length) extras.push(`${body.createdCaseIds.length} case(s)`);
     if (body.restockRunId) extras.push("restock run");
     if (body.countRunId) extras.push("inventory count");
+    if (body.reworkJobId) extras.push("rework job created");
     if (body.reworkTransferId) extras.push("rework transfer pending approval");
     toast({
       title: "QA submitted",
@@ -801,11 +871,11 @@ export function QaJobClient({ jobId }: { jobId: string }) {
             </CardContent>
           </Card>
 
-          {/* ── Rework transfer ── */}
+          {/* ── Send back for rework ── */}
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <RotateCcw className="h-4 w-4 text-warning" /> Rework / cleaner transfer
+                <RotateCcw className="h-4 w-4 text-warning" /> Send back for rework
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -814,21 +884,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                   checked={rework.enabled}
                   onCheckedChange={(v) => setRework({ enabled: v === true })}
                 />
-                Flag work the cleaner missed (admin approval moves time/pay to QA)
+                Create a rework job — flag the areas to fix (each with your photo)
               </label>
               {rework.enabled ? (
                 <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Cleaner</Label>
-                    <Select value={rework.cleanerUserId ?? ""} onValueChange={(v) => setRework({ cleanerUserId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select cleaner" /></SelectTrigger>
-                      <SelectContent>
-                        {cleanerCandidates.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Severity</Label>
                     <Select value={rework.severity} onValueChange={(v) => setRework({ severity: v as any })}>
@@ -841,77 +900,140 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Reason / what was redone</Label>
+                    <Label className="text-xs">Summary / reason</Label>
                     <Textarea
                       value={rework.reason}
                       onChange={(e) => setRework({ reason: e.target.value })}
-                      placeholder="e.g. Bathroom not sanitized — QA re-cleaned shower + toilet"
+                      placeholder="e.g. Bathroom not sanitized and floors not mopped — see flagged areas."
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Areas redone</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={reworkAreaDraft}
-                        onChange={(e) => setReworkAreaDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            addReworkArea();
-                          }
-                        }}
-                        placeholder="Add an area"
-                      />
-                      <Button variant="outline" size="sm" onClick={addReworkArea}>Add</Button>
-                    </div>
-                    {rework.areas.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {rework.areas.map((a, i) => (
-                          <Badge
-                            key={`${a}-${i}`}
-                            variant="secondary"
-                            className="cursor-pointer"
-                            onClick={() => setRework({ areas: rework.areas.filter((_, idx) => idx !== i) })}
+
+                  {/* Flagged areas — each becomes a section in the cleaner's fix checklist */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Flagged areas (the cleaner re-cleans each and uploads an after photo)</Label>
+                    {rework.flaggedAreas.map((area) => {
+                      const openKey = `rework:${area.id}`;
+                      const open = openUploaders[openKey] === true;
+                      return (
+                        <div key={area.id} className="space-y-2 rounded-lg border border-border p-3">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={area.label}
+                              onChange={(e) => updateFlaggedArea(area.id, { label: e.target.value })}
+                              placeholder="Area (e.g. Main bathroom)"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Remove area"
+                              onClick={() => removeFlaggedArea(area.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={area.note ?? ""}
+                            onChange={(e) => updateFlaggedArea(area.id, { note: e.target.value })}
+                            placeholder="What's wrong / what to fix"
+                            className="min-h-[60px]"
+                          />
+                          {area.photoKeys.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {area.photoKeys.map((key) => (
+                                <div key={key} className="group relative">
+                                  {sectionPhotoUrls[key] ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={sectionPhotoUrls[key]}
+                                      alt="QA flagged photo"
+                                      className="h-16 w-16 rounded-lg border border-border object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                                      <Camera className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <button
+                                    type="button"
+                                    aria-label="Remove photo"
+                                    className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
+                                    onClick={() => removeFlaggedAreaPhoto(area.id, key)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-10"
+                            onClick={() => toggleUploader(openKey)}
                           >
-                            {a} ✕
-                          </Badge>
-                        ))}
+                            <ImagePlus className="mr-2 h-4 w-4" />
+                            {open ? "Done" : "Add photo of the problem"}
+                          </Button>
+                          {open ? (
+                            <UploadDropzone
+                              jobId={jobId}
+                              accept="image/*"
+                              maxFiles={6}
+                              stamp={{ ...evidenceStamp, tag: "damage", contextLabel: area.label || "Flagged area" }}
+                              onUploaded={(r) => addFlaggedAreaPhoto(area.id, r.key)}
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    <Button type="button" variant="outline" size="sm" onClick={addFlaggedArea}>
+                      <Plus className="mr-2 h-4 w-4" /> Add flagged area
+                    </Button>
+                  </div>
+
+                  {/* Who redoes it + pay */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Who redoes it?</Label>
+                    <Select value={rework.assignee} onValueChange={(v) => setRework({ assignee: v as "SAME" | "OTHER" })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SAME">Same cleaner — no extra pay</SelectItem>
+                        <SelectItem value="OTHER">Different cleaner — paid (deducted from original)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {rework.assignee === "OTHER" ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">New cleaner</Label>
+                        <Select value={rework.payeeCleanerId ?? ""} onValueChange={(v) => setRework({ payeeCleanerId: v })}>
+                          <SelectTrigger><SelectValue placeholder="Select cleaner" /></SelectTrigger>
+                          <SelectContent>
+                            {cleanerCandidates.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : null}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Minutes from cleaner</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        className="tabular-nums"
-                        value={rework.minutesFromCleaner || ""}
-                        onChange={(e) => setRework({ minutesFromCleaner: Number(e.target.value || 0) })}
-                      />
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Pay amount ($)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="tabular-nums"
+                          value={rework.payAmount || ""}
+                          onChange={(e) => setRework({ payAmount: Number(e.target.value || 0) })}
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Amount ($)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="tabular-nums"
-                        value={rework.amountFromCleaner || ""}
-                        onChange={(e) => setRework({ amountFromCleaner: Number(e.target.value || 0) })}
-                      />
-                    </div>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={rework.affectsCleanerStats}
-                      onCheckedChange={(v) => setRework({ affectsCleanerStats: v === true })}
-                    />
-                    Reflect in the cleaner&apos;s quality stats
-                  </label>
+                  ) : null}
                   <p className="rounded-lg bg-warning/10 p-2 text-xs text-muted-foreground">
-                    On admin approval, {rework.minutesFromCleaner || 0} min and ${Number(rework.amountFromCleaner || 0).toFixed(2)}{" "}
-                    move from the cleaner to you, and the cleaner is notified.
+                    {rework.assignee === "OTHER"
+                      ? `A rework job is created for the new cleaner. ${rework.payAmount > 0 ? `$${Number(rework.payAmount).toFixed(2)}` : "The amount"} is paid to them and deducted from the original cleaner.`
+                      : "A rework job is created for the same cleaner to fix the flagged areas — no extra pay for the redo."}
                   </p>
                 </div>
               ) : null}

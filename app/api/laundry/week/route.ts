@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
             longitude: true,
             linenBufferSets: true,
             accessInfo: true,
+            laundryEnabled: true,
             client: {
               select: {
                 id: true,
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
 
     const visibleTasks =
       session.user.role === Role.LAUNDRY
-        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property?.accessInfo, session.user.id))
+        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property, session.user.id))
         : tasks;
 
     return NextResponse.json(visibleTasks);
