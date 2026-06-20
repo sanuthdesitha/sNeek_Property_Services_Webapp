@@ -17,7 +17,10 @@ export default async function HiringPage() {
     db.hiringApplication.findMany({
       orderBy: { createdAt: "desc" },
       take: 300,
-      include: { position: { select: { id: true, title: true, slug: true } } },
+      include: {
+        position: { select: { id: true, title: true, slug: true } },
+        quizAssignments: { select: { id: true, status: true, score: true } },
+      },
     }),
   ]);
 

@@ -33,6 +33,7 @@ import { prepareUploadFile } from "@/lib/uploads/compress";
 import { FieldRenderer } from "@/components/forms/field-renderer";
 import { FieldReferences } from "@/components/forms/field-references";
 import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
+import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
 import { VideoRecorder } from "@/components/forms/video-recorder";
 import {
   INVENTORY_LOCATIONS,
@@ -2464,6 +2465,28 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     showPopupNotification("Timer stopped", "You can now start another assigned job.");
   }
 
+  const [clockingOutEarly, setClockingOutEarly] = useState(false);
+  async function handleClockOutEarly() {
+    if (clockingOutEarly) return;
+    if (typeof window !== "undefined" && !window.confirm(
+      "Clock out and finish the form later?\n\nThe clock will stop, but this job stays open and is NOT counted as completed until you come back and submit the form."
+    )) return;
+    setClockingOutEarly(true);
+    try {
+      const res = await fetch(`/api/cleaner/jobs/${params.id}/clock-out-early`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showPopupNotification("Clock-out failed", body.error ?? "Could not clock out.", "destructive");
+        return;
+      }
+      await load();
+      void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
+      showPopupNotification("Clocked out", "Come back any time to finish the form. This job isn't complete until the form is submitted.");
+    } finally {
+      setClockingOutEarly(false);
+    }
+  }
+
   async function handleSafetyCheckin() {
     setSendingSafetyCheckin(true);
     try {
@@ -4485,6 +4508,79 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           </div>
         </CardContent>
       </Card>
+
+      {payload?.canClockOutWithoutForm && hasStartedJob && !finished ? (
+        <Card className="border-amber-300/60">
+          <CardContent className="space-y-2 p-4">
+            <p className="text-sm font-medium">Clock out &amp; finish the form later</p>
+            <p className="text-xs text-muted-foreground">
+              Stops your clock now. This job stays open and is <strong>not counted as completed</strong> until you come back and submit the form.
+            </p>
+            <Button variant="outline" className="h-11 w-full" onClick={handleClockOutEarly} disabled={clockingOutEarly}>
+              <Square className="mr-2 h-4 w-4" />
+              {clockingOutEarly ? "Clocking out…" : "Clock out (finish form later)"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {job?.formPendingAfterClockOut ? (
+        <Card className="border-amber-400 bg-amber-50/60 dark:bg-amber-950/10">
+          <CardContent className="p-4 text-sm">
+            <p className="font-medium text-amber-700 dark:text-amber-400">Form still pending</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              You clocked out earlier. Finish and submit the form below to complete this job.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {payload?.laundryGuidance?.hasDrop ? (
+        <Card className={payload.laundryGuidance.linenSittingOutside ? "border-emerald-300/60" : "border-amber-300/60"}>
+          <CardContent className="p-4 text-sm">
+            {payload.laundryGuidance.linenSittingOutside ? (
+              <>
+                <p className="font-medium text-emerald-700 dark:text-emerald-400">Fresh linen is on site</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Clean linen from the last laundry drop is still at the property (no clean since) — use it for this turnover.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-amber-700 dark:text-amber-400">Use the property buffer sets</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The last laundry drop was already used by a later clean, so no fresh linen is sitting out. Use the property&apos;s
+                  {" "}{payload.laundryGuidance.bufferSets > 0 ? `${payload.laundryGuidance.bufferSets} buffer set(s)` : "buffer linen"}.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {(job?.gpsCheckInLat != null && job?.gpsCheckInLng != null) || (job?.gpsCheckOutLat != null && job?.gpsCheckOutLng != null) ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Your clock-in / clock-out location</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ClockLocationsMap
+              property={{ lat: job?.property?.latitude, lng: job?.property?.longitude, name: job?.property?.name }}
+              checkIn={
+                job?.gpsCheckInLat != null && job?.gpsCheckInLng != null
+                  ? { lat: job.gpsCheckInLat, lng: job.gpsCheckInLng, at: job.gpsCheckInAt }
+                  : null
+              }
+              checkOut={
+                job?.gpsCheckOutLat != null && job?.gpsCheckOutLng != null
+                  ? { lat: job.gpsCheckOutLat, lng: job.gpsCheckOutLng, at: job.gpsCheckOutAt }
+                  : null
+              }
+              distanceMeters={job?.gpsDistanceMeters}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {!finished && hasStartedJob ? (
         <Card>

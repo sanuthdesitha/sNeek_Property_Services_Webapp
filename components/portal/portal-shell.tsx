@@ -228,13 +228,16 @@ export function PortalShell({
 
           {!compact ? (
             <div className="flex items-center gap-2.5 rounded-xl px-2.5 py-2">
-              {currentUserImage ? (
-                <img src={currentUserImage} alt={currentUserName ?? ""} className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-border" />
-              ) : (
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">
-                  {userInitials}
-                </div>
-              )}
+              <div className="relative shrink-0">
+                {currentUserImage ? (
+                  <img src={currentUserImage} alt={currentUserName ?? ""} className="h-8 w-8 rounded-full object-cover ring-2 ring-primary/25" />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-[11px] font-bold text-primary-foreground ring-2 ring-primary/20">
+                    {userInitials}
+                  </div>
+                )}
+                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" aria-hidden />
+              </div>
               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">{currentUserName ?? "You"}</span>
               <button onClick={handleSignOut} title="Sign out" className="rounded-lg p-1 text-muted-foreground transition-opacity hover:opacity-70">
                 <LogOut className="h-3.5 w-3.5" />
@@ -312,13 +315,25 @@ export function PortalShell({
             <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-opacity hover:opacity-70" title="Notifications">
               <Bell className="h-4 w-4" />
             </button>
-            <div className="flex items-center gap-2">
-              {currentUserImage ? (
-                <img src={currentUserImage} alt={currentUserName ?? ""} className="h-8 w-8 rounded-full object-cover" />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">{userInitials}</div>
-              )}
-              <span className="hidden max-w-[120px] truncate text-sm font-medium sm:block">{currentUserName ?? "You"}</span>
+            <div className="flex items-center gap-2.5">
+              <div className="relative">
+                {currentUserImage ? (
+                  <img
+                    src={currentUserImage}
+                    alt={currentUserName ?? ""}
+                    className="h-9 w-9 rounded-full object-cover ring-2 ring-primary/25"
+                  />
+                ) : (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-xs font-bold text-primary-foreground ring-2 ring-primary/20 shadow-sm">
+                    {userInitials}
+                  </div>
+                )}
+                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" aria-hidden />
+              </div>
+              <div className="hidden min-w-0 leading-tight sm:block">
+                <p className="max-w-[140px] truncate text-sm font-semibold">{currentUserName ?? "You"}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{portalLabel}</p>
+              </div>
             </div>
           </div>
         </header>

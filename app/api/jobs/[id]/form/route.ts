@@ -38,6 +38,9 @@ export async function GET(
             suburb: true,
             state: true,
             postcode: true,
+            latitude: true,
+            longitude: true,
+            linenBufferSets: true,
             accessInfo: true,
             hasBalcony: true,
             bedrooms: true,
@@ -101,6 +104,47 @@ export async function GET(
       startTime: job.startTime,
     });
     const jobTasks = await listCleanerJobTasks(job.id);
+
+    // Laundry guidance: is fresh linen actually sitting at the property from the
+    // last successful drop, or was it already used by a later clean (so the
+    // cleaner must use the property's buffer sets)? Only meaningful for turnovers.
+    let laundryGuidance:
+      | { hasDrop: boolean; lastDropAt: string | null; linenSittingOutside: boolean; useBufferSets: boolean; bufferSets: number }
+      | null = null;
+    if (job.jobType === "AIRBNB_TURNOVER" && !job.isRework) {
+      const lastDrop = await db.laundryTask.findFirst({
+        where: {
+          propertyId: job.propertyId,
+          jobId: { not: job.id },
+          OR: [{ droppedAt: { not: null } }, { status: "DROPPED" }],
+        },
+        orderBy: [{ droppedAt: "desc" }, { updatedAt: "desc" }],
+        select: { droppedAt: true },
+      });
+      const dropAt = lastDrop?.droppedAt ?? null;
+      let cleanAfterDrop = false;
+      if (dropAt) {
+        const cleansSince = await db.job.count({
+          where: {
+            propertyId: job.propertyId,
+            jobType: "AIRBNB_TURNOVER",
+            isRework: false,
+            id: { not: job.id },
+            status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
+            OR: [{ completedAt: { gt: dropAt } }, { scheduledDate: { gt: dropAt } }],
+          },
+        });
+        cleanAfterDrop = cleansSince > 0;
+      }
+      const linenSittingOutside = Boolean(dropAt) && !cleanAfterDrop;
+      laundryGuidance = {
+        hasDrop: Boolean(dropAt),
+        lastDropAt: dropAt ? dropAt.toISOString() : null,
+        linenSittingOutside,
+        useBufferSets: !linenSittingOutside,
+        bufferSets: Number(job.property?.linenBufferSets ?? 0),
+      };
+    }
 
     const configuredPropertyTemplateId =
       settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
@@ -325,6 +369,9 @@ export async function GET(
       canUseSelectAll:
         session.user.role === Role.CLEANER &&
         settings.selectAllAllowedCleanerIds.includes(session.user.id),
+      canClockOutWithoutForm:
+        session.user.role === Role.CLEANER &&
+        settings.clockOutWithoutFormAllowedCleanerIds.includes(session.user.id),
       startVerification: {
         timezone: settings.timezone,
         requireDateMatch: settings.cleanerStartRequireDateMatch,
@@ -376,6 +423,7 @@ export async function GET(
           }
         : null,
       laundryBagLocationOptions: settings.laundryBagLocationOptions,
+      laundryGuidance,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });

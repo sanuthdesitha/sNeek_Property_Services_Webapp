@@ -11,6 +11,7 @@ export async function GET() {
       companyName: settings.companyName,
       logoUrl: settings.logoUrl,
       evidenceStamp: settings.evidenceStamp,
+      inputHistorySuggestionsEnabled: settings.inputHistorySuggestionsEnabled,
     });
   } catch (err: any) {
     return NextResponse.json(

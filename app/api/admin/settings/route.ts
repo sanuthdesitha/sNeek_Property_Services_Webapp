@@ -174,6 +174,8 @@ const updateSchema = z.object({
   laundryBagLocationOptions: z.array(z.string().trim().min(1)).min(1).optional(),
   laundryDropoffLocationOptions: z.array(z.string().trim().min(1)).min(1).optional(),
   selectAllAllowedCleanerIds: z.array(z.string().trim().min(1)).optional(),
+  clockOutWithoutFormAllowedCleanerIds: z.array(z.string().trim().min(1)).optional(),
+  inputHistorySuggestionsEnabled: z.boolean().optional(),
   cleanerJobHourlyRates: z.record(z.record(z.number().min(0).max(1000))).optional(),
   profileEditPolicy: z
     .object({

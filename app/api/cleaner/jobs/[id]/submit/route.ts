@@ -580,7 +580,8 @@ export async function POST(
 
     await db.job.update({
       where: { id: params.id },
-      data: { status: JobStatus.SUBMITTED },
+      // Clear the "form pending after early clock-out" park flag now the form is in.
+      data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
     });
 
     // QA: as soon as the cleaner submits, open a QA assignment so an

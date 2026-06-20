@@ -96,13 +96,43 @@ const PUBLIC_PATH_PREFIXES = [
   "/why-us",
 ];
 
+// Auth pages must never show the "recently typed" dropdown — it's noise on
+// login/signup and can leak previously-typed emails on a shared device.
+const AUTH_PATH_PREFIXES = [
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/recover-2fa",
+  "/force-password-reset",
+  "/accept-invite",
+  "/onboarding",
+];
+
 export function TextHistorySuggestions() {
   const pathname = usePathname() ?? "";
   const { data: session } = useSession();
 
-  const isPublicPath = PUBLIC_PATH_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p + "/")
-  );
+  const isPublicPath =
+    PUBLIC_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+    AUTH_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+
+  // Admin global on/off. Defaults to enabled until the flag is fetched.
+  const [featureEnabled, setFeatureEnabled] = useState(true);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/public/branding")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (active && b && typeof b.inputHistorySuggestionsEnabled === "boolean") {
+          setFeatureEnabled(b.inputHistorySuggestionsEnabled);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const activeFieldRef = useRef<EligibleField | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -264,7 +294,7 @@ export function TextHistorySuggestions() {
     };
   }, [pathname, storageKey, visible]);
 
-  if (isPublicPath || !visible || suggestions.length === 0) return null;
+  if (!featureEnabled || isPublicPath || !visible || suggestions.length === 0) return null;
 
   return (
     <div

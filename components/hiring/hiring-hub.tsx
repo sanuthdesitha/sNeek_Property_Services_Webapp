@@ -207,6 +207,13 @@ export function HiringHub({ positions, applications }: { positions: any[]; appli
 }
 
 function CandidateCard({ a, muted }: { a: any; muted?: boolean }) {
+  // Quiz status caption: how many assigned quizzes are completed + best score.
+  const quizzes: any[] = Array.isArray(a.quizAssignments) ? a.quizAssignments : [];
+  const completed = quizzes.filter((q) => q.status === "COMPLETED");
+  const bestScore = completed.reduce<number | null>(
+    (best, q) => (typeof q.score === "number" ? Math.max(best ?? 0, q.score) : best),
+    null
+  );
   return (
     <Link
       href={`/admin/hiring/applications/${a.id}`}
@@ -221,6 +228,21 @@ function CandidateCard({ a, muted }: { a: any; muted?: boolean }) {
         ) : null}
       </div>
       <p className="mt-0.5 truncate text-xs text-muted-foreground">{a.position?.title}</p>
+      {quizzes.length > 0 ? (
+        <div className="mt-1.5">
+          {completed.length === quizzes.length ? (
+            <Badge variant="success" className="text-[10px]">
+              Quiz done{bestScore != null ? ` · ${Math.round(bestScore)}%` : ""}
+            </Badge>
+          ) : completed.length > 0 ? (
+            <Badge variant="warning" className="text-[10px]">
+              Quiz {completed.length}/{quizzes.length} done{bestScore != null ? ` · ${Math.round(bestScore)}%` : ""}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px]">Quiz sent · awaiting</Badge>
+          )}
+        </div>
+      ) : null}
       <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {a.emailsSent ?? 0}</span>
         <span className="inline-flex items-center gap-1"><Reply className="h-3 w-3" /> {a.repliesReceived ?? 0}</span>

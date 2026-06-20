@@ -253,6 +253,11 @@ export interface AppSettings {
   laundryBagLocationOptions: string[];
   laundryDropoffLocationOptions: string[];
   selectAllAllowedCleanerIds: string[];
+  // Cleaners allowed to clock out before completing the job form (finish later).
+  clockOutWithoutFormAllowedCleanerIds: string[];
+  // When false, the app's "recently typed" history dropdown on text inputs is
+  // disabled everywhere (it's always off on login/signup regardless).
+  inputHistorySuggestionsEnabled: boolean;
   cleanerJobHourlyRates: Record<string, Partial<Record<JobType, number>>>;
   profileEditPolicy: Record<Role, ProfileEditPolicy>;
   profileEditOverrides: Record<string, ProfileEditPolicy>;
@@ -401,6 +406,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     "Garage storage",
   ],
   selectAllAllowedCleanerIds: [],
+  clockOutWithoutFormAllowedCleanerIds: [],
+  inputHistorySuggestionsEnabled: true,
   cleanerJobHourlyRates: {},
   profileEditPolicy: {
     [Role.ADMIN]: { canEditName: true, canEditPhone: true, canEditEmail: true },
@@ -1068,6 +1075,15 @@ function sanitizeSettings(input: unknown): AppSettings {
     selectAllAllowedCleanerIds = Array.from(new Set(cleaned));
   }
 
+  let clockOutWithoutFormAllowedCleanerIds = DEFAULT_SETTINGS.clockOutWithoutFormAllowedCleanerIds;
+  if (Array.isArray((parsed as any).clockOutWithoutFormAllowedCleanerIds)) {
+    const cleaned = (parsed as any).clockOutWithoutFormAllowedCleanerIds
+      .filter((v: unknown): v is string => typeof v === "string")
+      .map((v: string) => v.trim())
+      .filter((v: string) => v.length > 0);
+    clockOutWithoutFormAllowedCleanerIds = Array.from(new Set(cleaned));
+  }
+
   const cleanerJobHourlyRates = sanitizeHourlyRates(
     (parsed as any).cleanerJobHourlyRates,
     DEFAULT_SETTINGS.cleanerJobHourlyRates
@@ -1128,6 +1144,11 @@ function sanitizeSettings(input: unknown): AppSettings {
     laundryBagLocationOptions,
     laundryDropoffLocationOptions,
     selectAllAllowedCleanerIds,
+    clockOutWithoutFormAllowedCleanerIds,
+    inputHistorySuggestionsEnabled:
+      typeof (parsed as any).inputHistorySuggestionsEnabled === "boolean"
+        ? (parsed as any).inputHistorySuggestionsEnabled
+        : DEFAULT_SETTINGS.inputHistorySuggestionsEnabled,
     cleanerJobHourlyRates,
     profileEditPolicy: sanitizeRolePolicy(parsed.profileEditPolicy, DEFAULT_SETTINGS.profileEditPolicy),
     profileEditOverrides,

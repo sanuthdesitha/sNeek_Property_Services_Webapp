@@ -908,6 +908,11 @@ model Job {
   reworkDeductFromCleanerId String? // original cleaner the amount is deducted from (null = same cleaner)
   reworkDeductionApplied    Boolean   @default(false)
   reworkSourceReviewId      String? // the failing QAReview that triggered this rework
+  // Allowed cleaners can clock out before completing the form. The clock stops
+  // and the job is parked as "form pending" — it is NOT considered completed
+  // until the form is submitted (which then flows through SUBMITTED → QA).
+  formPendingAfterClockOut  Boolean   @default(false)
+  clockedOutEarlyAt         DateTime?
   priorityBucket        Int       @default(4)
   priorityReason        String?
   sameDayCheckin        Boolean   @default(false)
@@ -2683,7 +2688,13 @@ model JobFeedback {
   jobId          String    @unique
   clientId       String
   token          String    @unique @default(cuid()) // public URL token
-  rating         Int?      // 1–5, null until submitted
+  rating         Int?      // overall 1–5, null until submitted
+  // Client-perspective aspect ratings (1–5) — this is a satisfaction review, NOT
+  // a QA inspection score. Kept entirely separate from QAReview.
+  cleanlinessRating    Int?
+  communicationRating  Int?
+  valueRating          Int?
+  wouldRecommend       Boolean?
   comment        String?   @db.Text
   submittedAt    DateTime?
   tokenExpiresAt DateTime

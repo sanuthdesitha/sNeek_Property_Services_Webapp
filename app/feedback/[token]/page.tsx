@@ -13,6 +13,10 @@ export default async function PublicFeedbackPage({
     select: {
       token: true,
       rating: true,
+      cleanlinessRating: true,
+      communicationRating: true,
+      valueRating: true,
+      wouldRecommend: true,
       comment: true,
       tokenExpiresAt: true,
       job: {
@@ -39,6 +43,10 @@ export default async function PublicFeedbackPage({
       scheduledDateLabel={format(new Date(feedback.job.scheduledDate), "dd MMM yyyy")}
       initialRating={feedback.rating ?? null}
       initialComment={feedback.comment ?? ""}
+      initialCleanliness={feedback.cleanlinessRating ?? null}
+      initialCommunication={feedback.communicationRating ?? null}
+      initialValue={feedback.valueRating ?? null}
+      initialRecommend={feedback.wouldRecommend ?? null}
     />
   );
 }

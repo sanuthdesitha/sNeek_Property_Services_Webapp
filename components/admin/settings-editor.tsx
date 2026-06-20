@@ -919,6 +919,57 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
           </p>
         </div>
 
+        <div className="space-y-1.5">
+          <Label>Clock out without finishing the form</Label>
+          <p className="text-xs text-muted-foreground">
+            Selected cleaners can clock out before completing the form and finish it later. The job is parked as
+            “form pending” and is <strong>not counted as completed</strong> until the form is submitted.
+          </p>
+          <div className="space-y-2 rounded-xl border border-input/70 bg-card p-3">
+            {cleanerOptions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No cleaners available.</p>
+            ) : (
+              cleanerOptions.map((cleaner) => {
+                const checked = settings.clockOutWithoutFormAllowedCleanerIds.includes(cleaner.id);
+                return (
+                  <div key={cleaner.id} className="flex items-center justify-between rounded-lg border border-border/70 bg-card px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium">{cleaner.name ?? cleaner.email}</p>
+                      <p className="text-xs text-muted-foreground">{cleaner.email}</p>
+                    </div>
+                    <Switch
+                      checked={checked}
+                      disabled={readOnly}
+                      onCheckedChange={(v) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          clockOutWithoutFormAllowedCleanerIds: v === true
+                            ? Array.from(new Set([...prev.clockOutWithoutFormAllowedCleanerIds, cleaner.id]))
+                            : prev.clockOutWithoutFormAllowedCleanerIds.filter((id) => id !== cleaner.id),
+                        }))
+                      }
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-xl border border-input/70 bg-card p-3">
+          <div className="pr-3">
+            <Label>Recent-text suggestions</Label>
+            <p className="text-xs text-muted-foreground">
+              The “recently typed” dropdown on text fields (same-session history). Always off on login/sign-up pages.
+            </p>
+          </div>
+          <Switch
+            checked={settings.inputHistorySuggestionsEnabled}
+            disabled={readOnly}
+            onCheckedChange={(v) => setSettings((prev) => ({ ...prev, inputHistorySuggestionsEnabled: v === true }))}
+          />
+        </div>
+
         <div className="space-y-2">
           <p className="text-sm font-medium">Cleaner hourly rates by job category</p>
           {cleanerOptions.length === 0 ? (

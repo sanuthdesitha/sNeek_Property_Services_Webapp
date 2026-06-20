@@ -5,6 +5,12 @@ import { db } from "@/lib/db";
 const schema = z.object({
   token: z.string().cuid(),
   rating: z.number().int().min(1).max(5),
+  // Client-perspective aspect ratings (optional) — a satisfaction review, NOT a
+  // QA inspection. These never touch QAReview.
+  cleanlinessRating: z.number().int().min(1).max(5).nullable().optional(),
+  communicationRating: z.number().int().min(1).max(5).nullable().optional(),
+  valueRating: z.number().int().min(1).max(5).nullable().optional(),
+  wouldRecommend: z.boolean().nullable().optional(),
   comment: z.string().trim().max(4000).optional().default(""),
 });
 
@@ -31,6 +37,10 @@ export async function POST(req: NextRequest) {
       where: { token: body.token },
       data: {
         rating: body.rating,
+        cleanlinessRating: body.cleanlinessRating ?? null,
+        communicationRating: body.communicationRating ?? null,
+        valueRating: body.valueRating ?? null,
+        wouldRecommend: body.wouldRecommend ?? null,
         comment: body.comment || null,
         submittedAt: new Date(),
       },

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminQaReviews } from "@/components/qa/admin-qa-reviews";
+import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -2112,6 +2113,28 @@ export default function JobDetailPage() {
               ) : (
                 <p className="p-4 text-sm text-muted-foreground">No time logs recorded.</p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Clock-in / Clock-out location</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ClockLocationsMap
+                property={{ lat: job.property?.latitude, lng: job.property?.longitude, name: job.property?.name }}
+                checkIn={
+                  job.gpsCheckInLat != null && job.gpsCheckInLng != null
+                    ? { lat: job.gpsCheckInLat, lng: job.gpsCheckInLng, at: job.gpsCheckInAt, accuracy: job.gpsCheckInAccuracyM }
+                    : null
+                }
+                checkOut={
+                  job.gpsCheckOutLat != null && job.gpsCheckOutLng != null
+                    ? { lat: job.gpsCheckOutLat, lng: job.gpsCheckOutLng, at: job.gpsCheckOutAt }
+                    : null
+                }
+                distanceMeters={job.gpsDistanceMeters}
+              />
             </CardContent>
           </Card>
         </TabsContent>
