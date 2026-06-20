@@ -45,6 +45,14 @@ export async function GET(req: NextRequest) {
           where: {
             id: { notIn: Array.from(assignedJobIds) },
             status: { in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW] },
+            // Only surface jobs that still NEED a QA review. Once a job has been
+            // inspected (a completed QA assignment or a real QA-inspection review)
+            // it must drop out of the queue — even on a fail, where the job stays
+            // in QA_REVIEW and the fix is handled by a separate rework job.
+            AND: [
+              { qaAssignments: { none: { status: QaAssignmentStatus.COMPLETED } } },
+              { qaReviews: { none: { kind: "QA" } } },
+            ],
           },
           include: {
             property: { select: { name: true, address: true, suburb: true } },

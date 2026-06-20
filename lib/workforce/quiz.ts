@@ -3,7 +3,12 @@ import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
 import { appBaseUrl } from "@/lib/auth/recovery";
 import { logHiringEvent } from "@/lib/workforce/service";
-import { scoreAssessment, type AssessmentQuestion, type AssessmentSchema } from "@/lib/workforce/assessment";
+import {
+  buildScreeningSchemaForStorage,
+  scoreAssessment,
+  type AssessmentQuestion,
+  type AssessmentSchema,
+} from "@/lib/workforce/assessment";
 
 // ── Default short Airbnb-cleaner quizzes (seeded into QuizTemplate) ───────────
 
@@ -466,44 +471,167 @@ export async function listQuizTemplates() {
   return db.quizTemplate.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
 }
 
-/** Assign a quiz to a candidate, email them the take-it link, log the timeline. */
-export async function assignQuizToApplication(input: { applicationId: string; quizTemplateId: string; actorId: string }) {
-  const [application, template] = await Promise.all([
-    db.hiringApplication.findUnique({ where: { id: input.applicationId }, include: { position: { select: { title: true } } } }),
-    db.quizTemplate.findUnique({ where: { id: input.quizTemplateId } }),
-  ]);
+/**
+ * Merge several quiz templates into ONE combined AssessmentSchema. Question ids
+ * are namespaced per part (`p{n}__{id}`) so they never collide; option ids stay
+ * local to each question. The combined pass mark is the rounded average of the
+ * parts. The intro lists every topic so the candidate knows what's covered.
+ */
+function mergeQuizSchemas(parts: Array<{ name: string; schema: AssessmentSchema }>): AssessmentSchema {
+  const questions: AssessmentQuestion[] = [];
+  parts.forEach((part, index) => {
+    const prefix = `p${index + 1}__`;
+    for (const question of part.schema.questions ?? []) {
+      questions.push({
+        ...question,
+        id: `${prefix}${question.id}`,
+        // Group the question under its source quiz so the review reads cleanly.
+        category: question.category,
+        categoryLabel: question.categoryLabel ?? part.name,
+      });
+    }
+  });
+  const thresholds = parts
+    .map((p) => Number(p.schema.passThreshold))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const passThreshold = thresholds.length
+    ? Math.round(thresholds.reduce((a, b) => a + b, 0) / thresholds.length)
+    : 70;
+  const topics = parts.map((p) => p.name).join(", ");
+  return {
+    version: 1,
+    model: "airbnb-cleaner-quiz-combined-v1",
+    title: parts.length === 1 ? parts[0].schema.title : "Combined assessment",
+    intro: `This assessment covers: ${topics}. Answer every section as best you can.`,
+    passThreshold,
+    questions,
+  };
+}
+
+/** Build the assignment email — names the topic(s) so the candidate knows what it is. */
+function buildQuizEmail(input: { fullName: string | null; positionTitle: string | null; topics: string[]; link: string }) {
+  const topicLine =
+    input.topics.length === 1
+      ? input.topics[0]
+      : `${input.topics.length} short parts: ${input.topics.join(", ")}`;
+  const subject =
+    input.topics.length === 1
+      ? `Knowledge check: ${input.topics[0]} — ${input.positionTitle || "your application"}`
+      : `Knowledge check (${input.topics.length} parts) — ${input.positionTitle || "your application"}`;
+  const html = `<p>Hi ${input.fullName || "there"},</p>
+<p>Thanks for applying! As the next step, please complete this short knowledge check.</p>
+<p><strong>Topic${input.topics.length === 1 ? "" : "s"}:</strong> ${topicLine}</p>
+<p>It only takes a few minutes and is completed in one sitting.</p>
+<p><a href="${input.link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Start the assessment</a></p>
+<p>Or paste this link into your browser: ${input.link}</p>`;
+  return { subject, html };
+}
+
+/**
+ * Assign one or several quizzes to a candidate as a SINGLE combined assessment,
+ * email them the link (naming the topics), and log the timeline. Passing one id
+ * behaves exactly like a single-quiz send.
+ */
+export async function assignQuizzesToApplication(input: {
+  applicationId: string;
+  quizTemplateIds: string[];
+  actorId: string;
+}) {
+  const ids = Array.from(new Set(input.quizTemplateIds.filter((id) => typeof id === "string" && id.trim())));
+  if (ids.length === 0) throw new Error("Pick at least one quiz to assign.");
+
+  const application = await db.hiringApplication.findUnique({
+    where: { id: input.applicationId },
+    include: { position: { select: { title: true } } },
+  });
   if (!application) throw new Error("Application not found.");
-  if (!template) throw new Error("Quiz not found.");
+
+  const found = await db.quizTemplate.findMany({ where: { id: { in: ids } } });
+  // Preserve the order the admin picked them in.
+  const templates = ids.map((id) => found.find((t) => t.id === id)).filter(Boolean) as typeof found;
+  if (templates.length === 0) throw new Error("Quiz not found.");
+
+  const combined = templates.length > 1;
+  const parts = templates.map((t) => ({ name: t.name, schema: t.schema as unknown as AssessmentSchema }));
+  const mergedSchema = combined ? mergeQuizSchemas(parts) : null;
+  const topics = templates.map((t) => t.name);
 
   const token = randomBytes(20).toString("hex");
   const assignment = await db.quizAssignment.create({
-    data: { applicationId: application.id, quizTemplateId: template.id, token, status: "PENDING", sentAt: new Date() },
+    data: {
+      applicationId: application.id,
+      quizTemplateId: templates[0].id,
+      token,
+      status: "PENDING",
+      sentAt: new Date(),
+      ...(mergedSchema ? { schema: mergedSchema as any, title: mergedSchema.title } : {}),
+    },
   });
 
   const link = `${appBaseUrl()}/quiz/${token}`;
-  await sendEmail({
-    to: application.email,
-    subject: `Quick knowledge check — ${application.position?.title || "your application"}`,
-    html: `<p>Hi ${application.fullName || "there"},</p><p>Thanks for applying! As the next step, please complete this short knowledge check — it takes just a few minutes.</p><p><a href="${link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Start the quiz</a></p><p>Or paste this link into your browser: ${link}</p>`,
-    transactional: true,
+  const email = buildQuizEmail({
+    fullName: application.fullName,
+    positionTitle: application.position?.title ?? null,
+    topics,
+    link,
   });
+  await sendEmail({ to: application.email, subject: email.subject, html: email.html, transactional: true });
 
   await logHiringEvent({
     applicationId: application.id,
     type: "ASSESSMENT",
     actorId: input.actorId,
-    summary: `Quiz assigned & emailed: ${template.name}`,
-    data: { quizTemplateId: template.id, assignmentId: assignment.id },
+    summary: combined
+      ? `Combined quiz assigned & emailed (${templates.length} parts): ${topics.join(", ")}`
+      : `Quiz assigned & emailed: ${topics[0]}`,
+    data: { quizTemplateIds: ids, assignmentId: assignment.id, combined },
   });
 
   return assignment;
+}
+
+/** Back-compat single-quiz assign — delegates to the combined assigner. */
+export async function assignQuizToApplication(input: { applicationId: string; quizTemplateId: string; actorId: string }) {
+  return assignQuizzesToApplication({
+    applicationId: input.applicationId,
+    quizTemplateIds: [input.quizTemplateId],
+    actorId: input.actorId,
+  });
+}
+
+/** Create a reusable, emailable quiz template from a knowledge-test (screening) schema. */
+export async function createQuizTemplateFromScreening(input: {
+  name: string;
+  description?: string | null;
+  requireKnowledgeTest?: boolean;
+  passThreshold?: number | null;
+  questions?: AssessmentQuestion[] | null;
+  title?: string | null;
+  intro?: string | null;
+}) {
+  const builtSchema = buildScreeningSchemaForStorage({
+    requireKnowledgeTest: input.requireKnowledgeTest !== false,
+    passThreshold: input.passThreshold ?? null,
+    questions: input.questions ?? null,
+    title: input.title ?? null,
+    intro: input.intro ?? null,
+  });
+  const name = input.name.trim() || (typeof builtSchema.title === "string" ? builtSchema.title : "Knowledge test");
+  return db.quizTemplate.create({
+    data: {
+      name,
+      description: input.description?.trim() || "Saved from a position knowledge test.",
+      schema: builtSchema as any,
+      isActive: true,
+    },
+  });
 }
 
 /** Public: load an assignment by token with the quiz questions (answers stripped). */
 export async function getQuizForToken(token: string) {
   const assignment = await db.quizAssignment.findUnique({ where: { token }, include: { quizTemplate: true } });
   if (!assignment) return null;
-  const schemaObj = assignment.quizTemplate.schema as unknown as AssessmentSchema;
+  const schemaObj = (assignment.schema as unknown as AssessmentSchema | null) ?? (assignment.quizTemplate.schema as unknown as AssessmentSchema);
   const publicQuestions = (schemaObj.questions ?? []).map((qq) => ({
     id: qq.id,
     prompt: qq.prompt,
@@ -527,7 +655,7 @@ export async function submitQuizForToken(token: string, answers: Record<string, 
   if (!assignment) throw new Error("Quiz not found.");
   if (assignment.status === "COMPLETED") return { alreadyDone: true };
 
-  const schemaObj = assignment.quizTemplate.schema as unknown as AssessmentSchema;
+  const schemaObj = (assignment.schema as unknown as AssessmentSchema | null) ?? (assignment.quizTemplate.schema as unknown as AssessmentSchema);
   const result = scoreAssessment(schemaObj, answers);
 
   await db.quizAssignment.update({
@@ -535,10 +663,11 @@ export async function submitQuizForToken(token: string, answers: Record<string, 
     data: { status: "COMPLETED", score: result.score, result: result as any, answers: answers as any, completedAt: new Date() },
   });
 
+  const quizLabel = assignment.title || assignment.quizTemplate.name;
   await logHiringEvent({
     applicationId: assignment.applicationId,
     type: "ASSESSMENT",
-    summary: `Quiz completed: ${assignment.quizTemplate.name} — ${Math.round(result.score)}%${result.passed ? " (passed)" : ""}`,
+    summary: `Quiz completed: ${quizLabel} — ${Math.round(result.score)}%${result.passed ? " (passed)" : ""}`,
     data: { quizTemplateId: assignment.quizTemplateId, score: result.score, passed: result.passed },
   });
 

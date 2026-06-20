@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { EmailPreviewDialog } from "@/components/hiring/email-preview-dialog";
 import { QuizAnswerReview } from "@/components/hiring/quiz-answer-review";
@@ -73,7 +74,7 @@ export function CandidateDetail({ application }: { application: any }) {
   const [replyText, setReplyText] = useState("");
   const [loggingReply, setLoggingReply] = useState(false);
   const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [selectedQuiz, setSelectedQuiz] = useState<string>("");
+  const [selectedQuizzes, setSelectedQuizzes] = useState<string[]>([]);
   const [assigningQuiz, setAssigningQuiz] = useState(false);
   const quizAssignments: any[] = application.quizAssignments ?? [];
 
@@ -84,19 +85,25 @@ export function CandidateDetail({ application }: { application: any }) {
       .catch(() => {});
   }, []);
 
+  function toggleQuiz(id: string) {
+    setSelectedQuizzes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
   async function assignQuiz() {
-    if (!selectedQuiz) return;
+    if (selectedQuizzes.length === 0) return;
     setAssigningQuiz(true);
     try {
       const res = await fetch(`/api/admin/workforce/hiring/applications/${application.id}/assign-quiz`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quizTemplateId: selectedQuiz }),
+        body: JSON.stringify({ quizTemplateIds: selectedQuizzes }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { toast({ title: "Could not assign quiz", description: body.error, variant: "destructive" }); return; }
-      toast({ title: "Quiz assigned & emailed" });
-      setSelectedQuiz("");
+      toast({
+        title: selectedQuizzes.length > 1 ? `${selectedQuizzes.length} quizzes sent as one assessment` : "Quiz assigned & emailed",
+      });
+      setSelectedQuizzes([]);
       router.refresh();
     } finally {
       setAssigningQuiz(false);
@@ -314,15 +321,32 @@ export function CandidateDetail({ application }: { application: any }) {
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Knowledge tests</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex gap-2">
-                <Select value={selectedQuiz} onValueChange={setSelectedQuiz}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Choose a quiz…" /></SelectTrigger>
-                  <SelectContent>
-                    {quizzes.map((q) => <SelectItem key={q.id} value={q.id}>{q.name} ({q.questionCount})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button size="sm" onClick={assignQuiz} disabled={assigningQuiz || !selectedQuiz}>
-                  {assigningQuiz ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />} Assign & email
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Tick one or more quizzes — selecting several sends them as a single combined assessment (one link).
+                </p>
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border p-1">
+                  {quizzes.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No quizzes in the library yet.</p>
+                  ) : (
+                    quizzes.map((q) => {
+                      const checked = selectedQuizzes.includes(q.id);
+                      return (
+                        <label
+                          key={q.id}
+                          className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 ${checked ? "bg-primary/5" : ""}`}
+                        >
+                          <Checkbox checked={checked} onCheckedChange={() => toggleQuiz(q.id)} />
+                          <span className="flex-1 truncate">{q.name}</span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{q.questionCount} Q</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+                <Button size="sm" className="w-full" onClick={assignQuiz} disabled={assigningQuiz || selectedQuizzes.length === 0}>
+                  {assigningQuiz ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                  {selectedQuizzes.length > 1 ? `Assign & email ${selectedQuizzes.length} combined` : "Assign & email"}
                 </Button>
               </div>
               {quizAssignments.length === 0 ? (

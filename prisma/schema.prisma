@@ -2556,6 +2556,11 @@ model QuizAssignment {
   score          Float?
   result         Json?
   answers        Json?
+  // When several quizzes are sent COMBINED, the merged AssessmentSchema is
+  // snapshotted here (and a display title in `title`). When null, the linked
+  // quizTemplate's schema is used. quizTemplateId still points at the first part.
+  schema         Json?
+  title          String?
   sentAt         DateTime?
   completedAt    DateTime?
   createdAt      DateTime             @default(now())

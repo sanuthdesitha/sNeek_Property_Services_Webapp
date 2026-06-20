@@ -24,6 +24,9 @@ type Assignment = {
   completedAt: string | null;
   answers: Record<string, unknown> | null;
   result: any;
+  // For combined sends, the merged schema is snapshotted on the assignment.
+  schema?: any;
+  title?: string | null;
   quizTemplate?: { name?: string; schema?: any } | null;
 };
 
@@ -41,10 +44,10 @@ function asArray(value: unknown): string[] {
  */
 export function QuizAnswerReview({ assignment }: { assignment: Assignment }) {
   const [open, setOpen] = useState(false);
-  const questions: Question[] = useMemo(
-    () => (Array.isArray(assignment.quizTemplate?.schema?.questions) ? assignment.quizTemplate!.schema.questions : []),
-    [assignment]
-  );
+  const questions: Question[] = useMemo(() => {
+    const schema = assignment.schema ?? assignment.quizTemplate?.schema;
+    return Array.isArray(schema?.questions) ? schema.questions : [];
+  }, [assignment]);
   const answers = (assignment.answers ?? {}) as Record<string, unknown>;
   const band: string | undefined = assignment.result?.band;
 

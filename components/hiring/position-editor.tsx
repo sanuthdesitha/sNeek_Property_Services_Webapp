@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowDown, ArrowUp, Plus, Trash2, Save, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowDown, ArrowUp, Plus, Trash2, Save, Loader2, ExternalLink, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -247,6 +247,7 @@ function QuizDesigner({ position, onSaved }: { position: any; onSaved: () => voi
   const [title, setTitle] = useState<string>(screening?.title ?? "");
   const [intro, setIntro] = useState<string>(screening?.intro ?? "");
   const [saving, setSaving] = useState(false);
+  const [savingAsQuiz, setSavingAsQuiz] = useState(false);
 
   const setQ = (i: number, patch: any) => setQuestions((qs) => qs.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
   const addQ = () => setQuestions((qs) => [...qs, { id: uid("q"), prompt: "New question", type: "single", category: "judgement", weight: 1, options: [{ id: uid("o"), label: "Option 1" }], correct: "" }]);
@@ -283,6 +284,23 @@ function QuizDesigner({ position, onSaved }: { position: any; onSaved: () => voi
     } finally { setSaving(false); }
   }
 
+  async function saveAsReusableQuiz() {
+    const defaultName = (title?.trim() || `${position.title} — Knowledge test`).slice(0, 120);
+    const name = typeof window !== "undefined" ? window.prompt("Save this knowledge test to the quiz library as:", defaultName) : defaultName;
+    if (name === null) return; // cancelled
+    setSavingAsQuiz(true);
+    try {
+      const res = await fetch(`/api/admin/workforce/hiring/positions/${position.id}/save-as-quiz`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() || defaultName, passThreshold, title, intro, questions }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ title: "Could not save as quiz", description: body.error, variant: "destructive" }); return; }
+      toast({ title: "Saved to quiz library", description: `"${body.name}" can now be assigned & emailed to any candidate.` });
+    } finally { setSavingAsQuiz(false); }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -290,6 +308,9 @@ function QuizDesigner({ position, onSaved }: { position: any; onSaved: () => voi
         <div className="flex items-center gap-2">
           <Label className="text-sm">Pass %</Label>
           <Input type="number" min={0} max={100} className="w-20" value={passThreshold} onChange={(e) => setPassThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
+          <Button variant="outline" onClick={saveAsReusableQuiz} disabled={savingAsQuiz || questions.length === 0} title="Save this knowledge test to the quiz library so it can be assigned & emailed to other applications">
+            {savingAsQuiz ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Copy className="mr-1 h-4 w-4" />} Save as reusable quiz
+          </Button>
           <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} Save test</Button>
         </div>
       </div>

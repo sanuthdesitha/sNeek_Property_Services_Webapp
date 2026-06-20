@@ -2158,16 +2158,37 @@ export default function JobDetailPage() {
             </CardHeader>
             <CardContent>
               {job.qaReviews.length > 0 ? (
-                <div>
-                  <p className="text-2xl font-bold">{job.qaReviews[0].score.toFixed(0)}%</p>
-                  <Badge variant={job.qaReviews[0].passed ? "success" : "destructive"}>
-                    {job.qaReviews[0].passed ? "Passed" : "Failed"}
-                  </Badge>
-                  {job.qaReviews[0].notes && <p className="mt-2 text-xs text-muted-foreground">{job.qaReviews[0].notes}</p>}
-                  <Button size="sm" variant="outline" className="mt-3 h-11 w-full" onClick={downloadQaReport}>
-                    <FileText className="mr-2 h-4 w-4" /> Download QA report
-                  </Button>
-                </div>
+                (() => {
+                  // The authoritative score is the latest real QA inspection if one
+                  // exists, else the latest review. When it came from a QA
+                  // inspection the number is shown greyed (QA-controlled) — an admin
+                  // overrides it by editing the score under "All QA scores" below.
+                  const authoritative =
+                    job.qaReviews.find((r: any) => r.kind === "QA") ?? job.qaReviews[0];
+                  const fromInspection = authoritative?.kind === "QA";
+                  return (
+                    <div>
+                      <p
+                        className={`text-2xl font-bold ${fromInspection ? "text-muted-foreground/60" : ""}`}
+                        title={fromInspection ? "Set by QA inspection" : undefined}
+                      >
+                        {authoritative.score.toFixed(0)}%
+                      </p>
+                      <Badge variant={authoritative.passed ? "success" : "destructive"}>
+                        {authoritative.passed ? "Passed" : "Failed"}
+                      </Badge>
+                      {fromInspection ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Set by QA inspection · override it under “All QA scores” below.
+                        </p>
+                      ) : null}
+                      {authoritative.notes && <p className="mt-2 text-xs text-muted-foreground">{authoritative.notes}</p>}
+                      <Button size="sm" variant="outline" className="mt-3 h-11 w-full" onClick={downloadQaReport}>
+                        <FileText className="mr-2 h-4 w-4" /> Download QA report
+                      </Button>
+                    </div>
+                  );
+                })()
               ) : (
                 <p className="text-sm text-muted-foreground">No QA review yet.</p>
               )}
