@@ -4540,29 +4540,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         </Card>
       ) : null}
 
-      {payload?.laundryGuidance?.hasDrop ? (
-        <Card className={payload.laundryGuidance.linenSittingOutside ? "border-emerald-300/60" : "border-amber-300/60"}>
-          <CardContent className="p-4 text-sm">
-            {payload.laundryGuidance.linenSittingOutside ? (
-              <>
-                <p className="font-medium text-emerald-700 dark:text-emerald-400">Fresh linen is on site</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Clean linen from the last laundry drop is still at the property (no clean since) — use it for this turnover.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="font-medium text-amber-700 dark:text-amber-400">Use the property buffer sets</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  The last laundry drop was already used by a later clean, so no fresh linen is sitting out. Use the property&apos;s
-                  {" "}{payload.laundryGuidance.bufferSets > 0 ? `${payload.laundryGuidance.bufferSets} buffer set(s)` : "buffer linen"}.
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
       {(job?.gpsCheckInLat != null && job?.gpsCheckInLng != null) || (job?.gpsCheckOutLat != null && job?.gpsCheckOutLng != null) ? (
         <Card>
           <CardHeader className="pb-2">
@@ -4919,21 +4896,43 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                     </div>
                   </div>
                 ) : null}
-                {briefing?.laundryInstructions ? (
+                {briefing?.laundryInstructions || payload?.laundryGuidance?.hasDrop ? (
                   <div>
-                    <p className="text-xs text-muted-foreground">Laundry schedule</p>
-                    <p className="text-sm">
-                      {briefing.laundryInstructions.status.replace(/_/g, " ")}
-                      {briefing.laundryInstructions.pickupDate
-                        ? ` · Pickup ${format(new Date(briefing.laundryInstructions.pickupDate), "dd MMM")}`
-                        : ""}
-                      {briefing.laundryInstructions.dropoffDate
-                        ? ` · Drop-off ${format(new Date(briefing.laundryInstructions.dropoffDate), "dd MMM")}`
-                        : ""}
-                    </p>
+                    <p className="text-xs text-muted-foreground">Laundry</p>
+                    {briefing?.laundryInstructions ? (
+                      <p className="text-sm">
+                        {briefing.laundryInstructions.status.replace(/_/g, " ")}
+                        {briefing.laundryInstructions.pickupDate
+                          ? ` · Pickup ${format(new Date(briefing.laundryInstructions.pickupDate), "dd MMM")}`
+                          : ""}
+                        {briefing.laundryInstructions.dropoffDate
+                          ? ` · Drop-off ${format(new Date(briefing.laundryInstructions.dropoffDate), "dd MMM")}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {payload?.laundryGuidance?.hasDrop ? (
+                      <p
+                        className={`mt-1 text-sm ${
+                          payload.laundryGuidance.linenSittingOutside
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400"
+                        }`}
+                      >
+                        {payload.laundryGuidance.linenSittingOutside
+                          ? "Fresh linen from the last drop is on site — use it for this turnover."
+                          : `No fresh linen is sitting out (the last drop was already used by a later clean). Use the property's ${
+                              payload.laundryGuidance.bufferSets > 0
+                                ? `${payload.laundryGuidance.bufferSets} buffer set(s)`
+                                : "buffer linen"
+                            }.`}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
-                {!briefing?.jobNotes && (!Array.isArray(briefing?.previousFlags) || briefing.previousFlags.length === 0) && !briefing?.laundryInstructions ? (
+                {!briefing?.jobNotes &&
+                (!Array.isArray(briefing?.previousFlags) || briefing.previousFlags.length === 0) &&
+                !briefing?.laundryInstructions &&
+                !payload?.laundryGuidance?.hasDrop ? (
                   <p className="text-xs text-muted-foreground">No extra briefing notes for this job.</p>
                 ) : null}
               </div>
