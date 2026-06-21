@@ -121,7 +121,7 @@ export function WorkerJobsList({ scope = "active" }: { scope?: "active" | "histo
   const isHistory = scope === "history";
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-3xl space-y-5">
       <PageHeader
         title={isHistory ? "History" : "My Jobs"}
         description={isHistory ? "Repairs you've completed." : "Your assigned repair jobs."}

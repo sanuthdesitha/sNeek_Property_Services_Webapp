@@ -114,6 +114,29 @@ function prettyEnum(v: string | null): string {
     .join(" ");
 }
 
+/** Strip any HTML tags + decode common entities so stored rich-text access
+ *  details render as plain, readable text (not raw markup). */
+function cleanText(v: unknown): string {
+  if (v == null) return "";
+  let s = typeof v === "string" ? v : String(v);
+  s = s.replace(/<[^>]*>/g, " ");
+  s = s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+  return s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** "wifiPassword" / "lock_box" → "Wifi password" / "Lock box". */
+function prettyKey(k: string): string {
+  const spaced = k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase() : k;
+}
+
 function priorityVariant(p: string | null): "default" | "secondary" | "destructive" | "warning" | "success" | "outline" {
   switch (p) {
     case "URGENT":
@@ -259,9 +282,9 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "Could not update the visit.");
       }
-      const data: { ok: boolean; item: VisitItem } = await res.json();
-      if (data.item) setItem(data.item);
-      else await load();
+      // The visit endpoint returns a bare item (no photos/property/contact
+      // relations) — always refetch the full record so the view stays complete.
+      await load();
       return true;
     } catch (err) {
       toast({
@@ -348,7 +371,7 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
     Boolean(prop?.accessCode || prop?.alarmCode || prop?.keyLocation || prop?.accessNotes || prop?.accessInfo);
 
   return (
-    <div className="space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="mx-auto w-full max-w-3xl space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <BackLink />
 
       <PageHeader
@@ -399,18 +422,17 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
         <CardContent>
           {accessShared ? (
             <dl className="space-y-2 text-sm">
-              {prop?.accessCode ? <AccessRow label="Access code" value={prop.accessCode} /> : null}
-              {prop?.alarmCode ? <AccessRow label="Alarm code" value={prop.alarmCode} /> : null}
-              {prop?.keyLocation ? <AccessRow label="Key location" value={prop.keyLocation} /> : null}
-              {prop?.accessNotes ? <AccessRow label="Access notes" value={prop.accessNotes} /> : null}
-              {prop?.accessInfo && typeof prop.accessInfo === "object" ? (
-                <div className="rounded-md border bg-muted/30 p-2">
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">More access info</p>
-                  <pre className="whitespace-pre-wrap break-words text-xs text-foreground">
-                    {JSON.stringify(prop.accessInfo, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
+              {cleanText(prop?.accessCode) ? <AccessRow label="Access code" value={cleanText(prop?.accessCode)} /> : null}
+              {cleanText(prop?.alarmCode) ? <AccessRow label="Alarm code" value={cleanText(prop?.alarmCode)} /> : null}
+              {cleanText(prop?.keyLocation) ? <AccessRow label="Key location" value={cleanText(prop?.keyLocation)} /> : null}
+              {cleanText(prop?.accessNotes) ? <AccessRow label="Access notes" value={cleanText(prop?.accessNotes)} /> : null}
+              {prop?.accessInfo && typeof prop.accessInfo === "object" && !Array.isArray(prop.accessInfo)
+                ? Object.entries(prop.accessInfo as Record<string, unknown>)
+                    .filter(([, val]) => cleanText(val) !== "")
+                    .map(([k, val]) => <AccessRow key={k} label={prettyKey(k)} value={cleanText(val)} />)
+                : cleanText(prop?.accessInfo) && typeof prop?.accessInfo === "string"
+                  ? <AccessRow label="More access info" value={cleanText(prop?.accessInfo)} />
+                  : null}
             </dl>
           ) : (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -498,33 +520,37 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Step 1 — Start driving */}
+            <p className="text-xs text-muted-foreground">
+              Do these in any order — &ldquo;Start driving&rdquo; and &ldquo;Arrived&rdquo; are optional. You can clock in or complete the job straight away.
+            </p>
+
+            {/* Step 1 — Start driving (optional) */}
             <LifecycleStep
               done={Boolean(item.enRouteAt)}
               timestamp={item.enRouteAt}
-              title="On the way"
+              title="On the way (optional)"
             >
               {!item.enRouteAt ? (
-                <Button className="h-14 w-full text-base" disabled={busy != null} onClick={handleStartDriving}>
+                <Button variant="outline" className="h-14 w-full text-base" disabled={busy != null} onClick={handleStartDriving}>
                   {busy === "EN_ROUTE" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Car className="mr-2 h-5 w-5" />}
                   Start driving
                 </Button>
               ) : null}
             </LifecycleStep>
 
-            {/* Step 2 — Arrived */}
-            <LifecycleStep done={Boolean(item.arrivedAt)} timestamp={item.arrivedAt} title="Arrived">
-              {item.enRouteAt && !item.arrivedAt ? (
-                <Button className="h-14 w-full text-base" disabled={busy != null} onClick={handleArrived}>
+            {/* Step 2 — Arrived (optional) */}
+            <LifecycleStep done={Boolean(item.arrivedAt)} timestamp={item.arrivedAt} title="Arrived (optional)">
+              {!item.arrivedAt ? (
+                <Button variant="outline" className="h-14 w-full text-base" disabled={busy != null} onClick={handleArrived}>
                   {busy === "ARRIVED" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Flag className="mr-2 h-5 w-5" />}
                   I&apos;ve arrived
                 </Button>
               ) : null}
             </LifecycleStep>
 
-            {/* Step 3 — Clock in */}
+            {/* Step 3 — Clock in / start work */}
             <LifecycleStep done={Boolean(item.clockInAt)} timestamp={item.clockInAt} title="On site">
-              {item.arrivedAt && !item.clockInAt ? (
+              {!item.clockInAt ? (
                 <Button className="h-14 w-full text-base" disabled={busy != null} onClick={handleClockIn}>
                   {busy === "CLOCK_IN" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Clock className="mr-2 h-5 w-5" />}
                   Clock in / Start work
@@ -532,9 +558,9 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
               ) : null}
             </LifecycleStep>
 
-            {/* Step 4 — Finish photos + Complete */}
+            {/* Step 4 — Finish photos + Complete (always available) */}
             <LifecycleStep done={false} timestamp={null} title="Finish & complete" hideConnector>
-              {item.clockInAt ? (
+              {true ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5 text-sm">
