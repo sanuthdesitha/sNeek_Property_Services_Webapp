@@ -100,8 +100,11 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [sectionPhotoUrls, setSectionPhotoUrls] = useState<Record<string, string>>({});
   // Which section headers currently have their uploader open.
   const [openUploaders, setOpenUploaders] = useState<Record<string, boolean>>({});
-  // Photo currently being marked up (draw/pin/comment).
-  const [annotateTarget, setAnnotateTarget] = useState<{ sectionId: string; key: string; url: string } | null>(null);
+  // Photo currently being marked up (draw/pin/comment). scope = which collection
+  // the photo belongs to (a QA section, or a rework flagged area).
+  const [annotateTarget, setAnnotateTarget] = useState<
+    { scope: "section" | "flagged"; sectionId?: string; areaId?: string; key: string; url: string } | null
+  >(null);
   const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   // ── Instant autosave + offline draft ──
@@ -467,10 +470,20 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         return;
       }
       const key = annotateTarget.key;
-      setTools((prev) => ({
-        ...prev,
-        mediaAnnotations: { ...prev.mediaAnnotations, [key]: { overlayKey: body.key, comment: comment || undefined } },
-      }));
+      const markup = { overlayKey: body.key as string, comment: comment || undefined };
+      if (annotateTarget.scope === "flagged" && annotateTarget.areaId) {
+        const areaId = annotateTarget.areaId;
+        setRework({
+          flaggedAreas: rework.flaggedAreas.map((a) =>
+            a.id === areaId ? { ...a, annotations: { ...(a.annotations ?? {}), [key]: markup } } : a
+          ),
+        });
+      } else {
+        setTools((prev) => ({
+          ...prev,
+          mediaAnnotations: { ...prev.mediaAnnotations, [key]: markup },
+        }));
+      }
       if (body.url) setSectionPhotoUrls((prev) => ({ ...prev, [body.key]: body.url }));
       toast({ title: "Markup saved" });
       setAnnotateTarget(null);
@@ -1047,30 +1060,55 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                           />
                           {area.photoKeys.length > 0 ? (
                             <div className="flex flex-wrap gap-2">
-                              {area.photoKeys.map((key) => (
-                                <div key={key} className="group relative">
-                                  {sectionPhotoUrls[key] ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={sectionPhotoUrls[key]}
-                                      alt="QA flagged photo"
-                                      className="h-16 w-16 rounded-lg border border-border object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
-                                      <Camera className="h-4 w-4 text-muted-foreground" />
-                                    </div>
-                                  )}
-                                  <button
-                                    type="button"
-                                    aria-label="Remove photo"
-                                    className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
-                                    onClick={() => removeFlaggedAreaPhoto(area.id, key)}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              ))}
+                              {area.photoKeys.map((key) => {
+                                const fa = area.annotations?.[key];
+                                const faOverlayUrl = fa?.overlayKey ? sectionPhotoUrls[fa.overlayKey] : undefined;
+                                const faUrl = sectionPhotoUrls[key];
+                                return (
+                                  <div key={key} className="group relative">
+                                    {faUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={faUrl}
+                                        alt="QA flagged photo"
+                                        className="h-16 w-16 rounded-lg border border-border object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                                        <Camera className="h-4 w-4 text-muted-foreground" />
+                                      </div>
+                                    )}
+                                    {faOverlayUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={faOverlayUrl} alt="" className="pointer-events-none absolute inset-0 h-16 w-16 rounded-lg object-cover" />
+                                    ) : null}
+                                    {faUrl ? (
+                                      <button
+                                        type="button"
+                                        aria-label="Mark up photo"
+                                        title={fa?.comment || "Draw, pin and comment for the cleaner"}
+                                        className="absolute -left-1.5 -bottom-1.5 rounded-full bg-primary p-1 text-primary-foreground shadow"
+                                        onClick={() => setAnnotateTarget({ scope: "flagged", areaId: area.id, key, url: faUrl })}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
+                                    ) : null}
+                                    {fa ? (
+                                      <span className="absolute left-0 top-0 rounded-br-lg rounded-tl-lg bg-primary px-1 py-0.5 text-[8px] font-bold text-primary-foreground">
+                                        ✎
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      aria-label="Remove photo"
+                                      className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
+                                      onClick={() => removeFlaggedAreaPhoto(area.id, key)}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : null}
                           <Button
@@ -1249,7 +1287,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                                   aria-label="Mark up photo"
                                   title={annotation?.comment || "Draw, pin and comment on this photo"}
                                   className="absolute -left-1.5 -bottom-1.5 rounded-full bg-primary p-1 text-primary-foreground shadow"
-                                  onClick={() => setAnnotateTarget({ sectionId: section.id, key, url })}
+                                  onClick={() => setAnnotateTarget({ scope: "section", sectionId: section.id, key, url })}
                                 >
                                   <Pencil className="h-3 w-3" />
                                 </button>

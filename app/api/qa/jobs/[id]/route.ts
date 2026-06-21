@@ -47,6 +47,9 @@ const flaggedAreaSchema = z.object({
   label: z.string().trim().min(1).max(160),
   note: z.string().trim().max(2000).optional(),
   photoKeys: z.array(z.string().trim().min(1)).max(24).default([]),
+  annotations: z
+    .record(z.object({ overlayKey: z.string().trim().min(1).optional(), comment: z.string().trim().max(2000).optional() }))
+    .optional(),
 });
 
 const reworkSchema = z.object({
@@ -525,6 +528,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               label: a.label,
               note: a.note,
               photoKeys: a.photoKeys ?? [],
+              annotations: a.annotations,
             }))
           : (rk.areas ?? []).map((label, i) => ({
               id: `area-${i + 1}`,

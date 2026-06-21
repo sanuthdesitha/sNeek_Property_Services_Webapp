@@ -55,6 +55,8 @@ export interface QaFlaggedArea {
   note?: string;
   /** S3 keys of the photos QA captured of the problem. */
   photoKeys: string[];
+  /** Per-photo markup (overlay PNG + comment) keyed by the photo's S3 key. */
+  annotations?: Record<string, { overlayKey?: string; comment?: string }>;
 }
 
 /** The rework proposal captured on a failed QA inspection. */
