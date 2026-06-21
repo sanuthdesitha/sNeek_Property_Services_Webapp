@@ -20,6 +20,7 @@ import {
   Pause,
   Square,
   ImagePlus,
+  Video,
   X,
   Download,
 } from "lucide-react";
@@ -66,6 +67,10 @@ function formatHMS(ms: number): string {
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+function isVideoKey(key: string): boolean {
+  return /\.(mp4|mov|webm|m4v|avi|3gp|mkv)$/i.test(key || "");
 }
 
 const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
@@ -1119,71 +1124,112 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               {(template?.schema?.sections ?? []).map((section: any) => {
                 const sectionPhotoKeys = tools.sectionPhotos[section.id] ?? [];
                 const uploaderOpen = openUploaders[section.id] === true;
+                const photoCount = sectionPhotoKeys.filter((k) => !isVideoKey(k)).length;
+                const videoCount = sectionPhotoKeys.filter((k) => isVideoKey(k)).length;
+                const roomLabel =
+                  (typeof section.label === "string" && section.label.trim()) ||
+                  (typeof section.title === "string" && section.title.trim()) ||
+                  "Area";
                 return (
-                  <div key={section.id} className="space-y-3">
+                  <div key={section.id} className="space-y-3 rounded-2xl border border-border bg-surface-raised/40 p-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">{section.label}</p>
+                      <p className="flex items-center gap-2 text-sm font-semibold">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary">
+                          {roomLabel.charAt(0).toUpperCase()}
+                        </span>
+                        {roomLabel}
+                      </p>
                       <div className="flex items-center gap-2">
-                        {sectionPhotoKeys.length > 0 ? (
+                        {photoCount > 0 ? (
                           <Badge variant="secondary" className="tabular-nums">
-                            {sectionPhotoKeys.length} photo{sectionPhotoKeys.length === 1 ? "" : "s"}
+                            {photoCount} photo{photoCount === 1 ? "" : "s"}
+                          </Badge>
+                        ) : null}
+                        {videoCount > 0 ? (
+                          <Badge variant="secondary" className="tabular-nums">
+                            {videoCount} video{videoCount === 1 ? "" : "s"}
                           </Badge>
                         ) : null}
                         <Button
                           type="button"
-                          variant="outline"
+                          variant={uploaderOpen ? "secondary" : "default"}
                           size="sm"
                           className="h-11"
                           onClick={() => toggleUploader(section.id)}
                         >
-                          <ImagePlus className="mr-2 h-4 w-4" />
-                          {uploaderOpen ? "Done" : "Add photos"}
+                          {uploaderOpen ? (
+                            <>Done</>
+                          ) : (
+                            <>
+                              <Camera className="mr-1.5 h-4 w-4" />
+                              <Video className="mr-2 h-4 w-4" />
+                              Capture
+                            </>
+                          )}
                         </Button>
                       </div>
                     </div>
                     {sectionPhotoKeys.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
-                        {sectionPhotoKeys.map((key) => (
-                          <div key={key} className="group relative">
-                            {sectionPhotoUrls[key] ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={sectionPhotoUrls[key]}
-                                alt="QA section photo"
-                                className="h-16 w-16 rounded-lg border border-border object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
-                                <Camera className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              aria-label="Remove photo"
-                              className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
-                              onClick={() => removeSectionPhoto(section.id, key)}
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ))}
+                        {sectionPhotoKeys.map((key) => {
+                          const url = sectionPhotoUrls[key];
+                          const video = isVideoKey(key);
+                          return (
+                            <div key={key} className="group relative">
+                              {url && video ? (
+                                <video
+                                  src={url}
+                                  muted
+                                  playsInline
+                                  className="h-16 w-16 rounded-lg border border-border object-cover"
+                                />
+                              ) : url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={url}
+                                  alt="QA section media"
+                                  className="h-16 w-16 rounded-lg border border-border object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                                  {video ? <Video className="h-4 w-4 text-muted-foreground" /> : <Camera className="h-4 w-4 text-muted-foreground" />}
+                                </div>
+                              )}
+                              {video ? (
+                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                  <span className="rounded-full bg-black/55 p-1 text-white">
+                                    <Play className="h-3.5 w-3.5" />
+                                  </span>
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                aria-label="Remove media"
+                                className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
+                                onClick={() => removeSectionPhoto(section.id, key)}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : null}
                     {uploaderOpen ? (
-                      <UploadDropzone
-                        jobId={jobId}
-                        accept="image/*"
-                        maxFiles={6}
-                        stamp={{
-                          ...evidenceStamp,
-                          tag: "after",
-                          contextLabel:
-                            (typeof section.label === "string" && section.label.trim()) ||
-                            (typeof section.title === "string" && section.title.trim()) ||
-                            undefined,
-                        }}
-                        onUploaded={(r) => addSectionPhoto(section.id, r.key)}
-                      />
+                      <div className="space-y-1.5">
+                        <UploadDropzone
+                          jobId={jobId}
+                          accept="image/*,video/*"
+                          maxFiles={8}
+                          stamp={{
+                            ...evidenceStamp,
+                            tag: "after",
+                            contextLabel: roomLabel,
+                          }}
+                          onUploaded={(r) => addSectionPhoto(section.id, r.key)}
+                        />
+                        <p className="text-[11px] text-muted-foreground">Take photos or record a video for this area.</p>
+                      </div>
                     ) : null}
                     {(section.fields ?? []).map((field: any) => (
                       <div key={field.id} className="space-y-1.5">
