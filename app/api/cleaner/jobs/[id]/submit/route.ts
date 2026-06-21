@@ -24,6 +24,8 @@ import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-job
 import {
   JobStatus,
   MediaType,
+  NotificationChannel,
+  NotificationStatus,
   Role,
 } from "@prisma/client";
 
@@ -588,6 +590,42 @@ export async function POST(
     // inspector / ops / admin can claim it from the queue. Idempotent +
     // best-effort (never block submission on QA scaffolding failures).
     await tryEnsureQaAssignmentForCompletedJob(params.id);
+
+    // Reclean summary: when a REWORK job is resubmitted, notify the QA who
+    // flagged it (+ admins/ops) so they can review before vs after. Best-effort.
+    if (job.isRework) {
+      try {
+        const afterAreas = Object.keys(uploads).filter((k) => k.startsWith("rework_area_")).length;
+        const recipients = new Set<string>();
+        if (job.reworkSourceReviewId) {
+          const review = await db.qAReview.findUnique({
+            where: { id: job.reworkSourceReviewId },
+            select: { reviewedById: true },
+          });
+          if (review?.reviewedById) recipients.add(review.reviewedById);
+        }
+        const reviewers = await db.user.findMany({
+          where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR] }, isActive: true },
+          select: { id: true },
+        });
+        reviewers.forEach((u) => recipients.add(u.id));
+        if (recipients.size > 0) {
+          await db.notification.createMany({
+            data: Array.from(recipients).map((userId) => ({
+              userId,
+              jobId: job.id,
+              channel: NotificationChannel.PUSH,
+              subject: "Reclean submitted — ready to review",
+              body: `${job.property.name}: the cleaner re-did ${afterAreas} flagged area(s) and uploaded after photos/videos. Review the before vs after.`,
+              status: NotificationStatus.SENT,
+              sentAt: new Date(),
+            })),
+          });
+        }
+      } catch (err) {
+        console.error("[reclean-summary] notify failed", err);
+      }
+    }
 
     if (openLog) {
       const settings = await getAppSettings();

@@ -95,11 +95,13 @@ export function buildReworkFormSchema(areas: ReworkArea[]): FormSchema {
       {
         id: `${REWORK_AREA_FIELD_PREFIX}${area.id}`,
         type: "photo" as const,
-        label: `After photo — ${area.label}`,
+        // Allow the cleaner to attach an after PHOTO or VIDEO for this area.
+        mediaMode: "both" as const,
+        label: `After photo / video — ${area.label}`,
         required: true,
         minPhotos: 1,
         stampTag: "after" as const,
-        instructions: "Upload a clear after photo showing this area now meets the standard.",
+        instructions: "Upload a clear after photo (or short video) showing this area now meets the standard.",
       },
     ],
   }));
