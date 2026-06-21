@@ -4,6 +4,7 @@ import {
   Boxes,
   ClipboardList,
   Package,
+  PackageCheck,
   SendToBack,
   ShoppingCart,
   Truck,
@@ -19,6 +20,7 @@ import {
   type InventoryTabKey,
 } from "@/components/inventory/inventory-tab-nav";
 import { InventoryItemsWorkspace } from "@/components/inventory/inventory-items-workspace";
+import { OnHandWorkspace } from "@/components/inventory/on-hand-workspace";
 import { ShoppingRunsWorkspace } from "@/components/inventory/shopping-runs-workspace";
 import { SuppliersWorkspace } from "@/components/inventory/suppliers-workspace";
 import { DeliveryProfilesWorkspace } from "@/components/inventory/delivery-profiles-workspace";
@@ -37,6 +39,7 @@ const PENDING_STOCK_RUN_STATUSES = ["DRAFT", "ACTIVE", "SUBMITTED"];
 const TAB_KEYS: InventoryTabKey[] = [
   "items",
   "properties",
+  "on-hand",
   "stock-counts",
   "shopping-runs",
   "delivery",
@@ -174,12 +177,18 @@ export default async function InventoryHubPage({
     activeStockCounts,
     suppliers,
     deliveryProfiles,
+    onHandAgg,
   ] = await Promise.all([
     db.inventoryItem.count({ where: { isActive: true } }),
     db.shoppingRun.count({ where: { status: { in: PENDING_SHOPPING_STATUSES as any } } }),
     db.stockRun.count({ where: { status: { in: PENDING_STOCK_RUN_STATUSES as any } } }),
     listSupplierCatalog(),
     listClientDeliveryProfiles(),
+    db.heldStock.aggregate({
+      where: { status: "HELD", quantity: { gt: 0 } },
+      _sum: { quantity: true },
+      _count: true,
+    }),
   ]);
 
   // Low-stock count: number of (property × item) lines below reorder threshold,
@@ -187,6 +196,36 @@ export default async function InventoryHubPage({
   const lowStockLines = propertyRows.reduce((sum, row) => sum + row.lowStockItems.length, 0);
   const suppliersCount = suppliers.length;
   const deliveryProfilesCount = deliveryProfiles.length;
+  const onHandUnits = Math.round((onHandAgg._sum.quantity ?? 0) * 100) / 100;
+  const onHandLines = onHandAgg._count;
+
+  // Catalogs for the on-hand workspace forms — only fetched when that tab is open.
+  const onHandCatalogs =
+    tab === "on-hand"
+      ? await (async () => {
+          const [items, holders, props] = await Promise.all([
+            db.inventoryItem.findMany({
+              where: { isActive: true },
+              select: { id: true, name: true, unit: true },
+              orderBy: { name: "asc" },
+            }),
+            db.user.findMany({
+              where: {
+                isActive: true,
+                role: { in: [Role.CLEANER, Role.QA_INSPECTOR, Role.CLIENT, Role.ADMIN, Role.OPS_MANAGER] },
+              },
+              select: { id: true, name: true, email: true, role: true },
+              orderBy: { name: "asc" },
+            }),
+            db.property.findMany({
+              where: { isActive: true },
+              select: { id: true, name: true, suburb: true },
+              orderBy: { name: "asc" },
+            }),
+          ]);
+          return { items, holders: holders.map((h) => ({ ...h, role: String(h.role) })), props };
+        })()
+      : null;
 
   return (
     <div className="space-y-6">
@@ -196,7 +235,7 @@ export default async function InventoryHubPage({
         description="Items, per-property stock, counts, shopping runs, delivery profiles, and suppliers — all in one place."
       />
 
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
         <KpiTile
           label="Active items"
           value={itemCount}
@@ -217,6 +256,13 @@ export default async function InventoryHubPage({
           icon={<ShoppingCart />}
           tone={openShoppingRuns > 0 ? "info" : "neutral"}
           href="/admin/inventory?tab=shopping-runs"
+        />
+        <KpiTile
+          label={onHandLines > 0 ? `On-hand units · ${onHandLines} holding(s)` : "On-hand units"}
+          value={onHandUnits}
+          icon={<PackageCheck />}
+          tone={onHandUnits > 0 ? "info" : "neutral"}
+          href="/admin/inventory?tab=on-hand"
         />
         <KpiTile
           label="Active stock counts"
@@ -247,6 +293,13 @@ export default async function InventoryHubPage({
         {tab === "items" ? <InventoryItemsWorkspace /> : null}
         {tab === "properties" ? (
           <PropertyInventoryOverview rows={propertyRows} totals={propertyTotals} filter={filter} />
+        ) : null}
+        {tab === "on-hand" && onHandCatalogs ? (
+          <OnHandWorkspace
+            items={onHandCatalogs.items}
+            holders={onHandCatalogs.holders}
+            properties={onHandCatalogs.props}
+          />
         ) : null}
         {tab === "stock-counts" ? (
           <StockRunWorkspace

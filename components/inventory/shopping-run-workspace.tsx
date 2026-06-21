@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Download,
+  PackageCheck,
   Play,
   Plus,
   Receipt,
@@ -176,6 +177,9 @@ export function ShoppingRunWorkspace({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [depositing, setDepositing] = useState(false);
+  // Only the admin/ops view drives the on-hand ledger (admin API base).
+  const isAdminView = apiBase.includes("/admin/");
   const [run, setRun] = useState<RunDetail | null>(null);
   const [customDraft, setCustomDraft] = useState<CustomDraft>({
     propertyId: "",
@@ -468,6 +472,25 @@ export function ShoppingRunWorkspace({
     }
   }
 
+  async function depositOnHand() {
+    if (!run) return;
+    setDepositing(true);
+    try {
+      const res = await fetch(`${apiBase}/${run.id}/deposit-on-hand`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not deposit", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Added to on-hand",
+        description: `${body.count} item(s) are now on-hand for ${run.ownerName}. Deliver them to units from Inventory → On-hand.`,
+      });
+    } finally {
+      setDepositing(false);
+    }
+  }
+
   if (loading) {
     return <div className="py-10 text-sm text-muted-foreground">Loading shopping run...</div>;
   }
@@ -491,6 +514,12 @@ export function ShoppingRunWorkspace({
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline"><Link href={backHref}><ArrowLeft className="mr-2 h-4 w-4" />{backLabel}</Link></Button>
           <Button variant="outline" onClick={() => void loadRun()}>Refresh</Button>
+          {isAdminView && run.status === "COMPLETED" ? (
+            <Button variant="outline" onClick={() => void depositOnHand()} disabled={depositing}>
+              <PackageCheck className="mr-2 h-4 w-4" />
+              {depositing ? "Adding..." : "Add purchases to on-hand"}
+            </Button>
+          ) : null}
         </div>
       </div>
 

@@ -215,6 +215,12 @@ enum ShoppingPaidByScope {
   OTHER
 }
 
+enum HeldStockStatus {
+  HELD // physically on hand with the holder, not yet delivered to a unit
+  DELIVERED // fully dropped at properties + counted into PropertyStock
+  WRITTEN_OFF
+}
+
 enum StockRunStatus {
   DRAFT
   ACTIVE
@@ -594,6 +600,8 @@ model User {
   payouts                      Payout[]                    @relation("CleanerPayouts")
   caseAttachments              CaseAttachment[]
   stockRuns                    StockRun[]                  @relation("StockRunRequestedBy")
+  heldStocks                   HeldStock[]                 @relation("HeldStockHolder")
+  heldStockDeliveries          HeldStockDelivery[]         @relation("HeldStockDeliveredBy")
   shoppingRuns                 ShoppingRun[]               @relation("ShoppingRunOwner")
   shoppingReceipts             ShoppingReceipt[]           @relation("ShoppingReceiptUploadedBy")
   shoppingSettlementsPaid      ShoppingSettlement[]        @relation("ShoppingSettlementPaidBy")
@@ -782,6 +790,7 @@ model Property {
   jobTasks         JobTask[]
   qaFormTemplates  QaFormTemplate[]
   maintenanceItems PropertyMaintenanceItem[]
+  heldStockDeliveries HeldStockDelivery[]
 
   @@index([placeId])
   @@index([suburb])
@@ -1468,6 +1477,7 @@ model InventoryItem {
 
   propertyStocks   PropertyStock[]
   shoppingRunLines ShoppingRunLine[]
+  heldStocks       HeldStock[]
 }
 
 model PropertyStock {
@@ -1499,6 +1509,51 @@ model StockTx {
 
   propertyStock PropertyStock   @relation(fields: [propertyStockId], references: [id])
   submission    FormSubmission? @relation(fields: [submissionId], references: [id])
+}
+
+/// On-hand stock ledger: stock that has been bought/shopped and is physically
+/// held by someone (a cleaner, client, or QA inspector) but NOT yet delivered to
+/// a unit. The holder can drop portions to one or more properties over time;
+/// each delivery decrements `quantity` and is recorded as a HeldStockDelivery
+/// (which also bumps the unit's PropertyStock.onHand).
+model HeldStock {
+  id           String          @id @default(cuid())
+  itemId       String
+  holderUserId String
+  quantity     Float           @default(0) // remaining quantity still on hand
+  originalQty  Float           @default(0) // quantity originally acquired
+  unitCostAud  Float?
+  status       HeldStockStatus @default(HELD)
+  shoppingRunId String? // optional link to the shopping run it came from
+  sourceNote   String?         @db.Text
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  item       InventoryItem       @relation(fields: [itemId], references: [id])
+  holder     User                @relation("HeldStockHolder", fields: [holderUserId], references: [id])
+  deliveries HeldStockDelivery[]
+
+  @@index([holderUserId, status])
+  @@index([itemId, status])
+}
+
+/// A drop of held stock to a specific unit. Decrements HeldStock.quantity and
+/// increments the property's PropertyStock.onHand (with a StockTx audit row).
+model HeldStockDelivery {
+  id            String   @id @default(cuid())
+  heldStockId   String
+  propertyId    String
+  quantity      Float
+  deliveredById String
+  note          String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  heldStock   HeldStock @relation(fields: [heldStockId], references: [id], onDelete: Cascade)
+  property    Property  @relation(fields: [propertyId], references: [id])
+  deliveredBy User      @relation("HeldStockDeliveredBy", fields: [deliveredById], references: [id])
+
+  @@index([propertyId, createdAt])
+  @@index([heldStockId])
 }
 
 // ─────────────────────────────────────────────

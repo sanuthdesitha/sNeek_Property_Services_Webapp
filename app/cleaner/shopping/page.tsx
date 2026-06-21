@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
+import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { ShoppingRunLauncher } from "@/components/inventory/shopping-run-launcher";
+import { CleanerOnHandView } from "@/components/inventory/cleaner-on-hand-view";
 
 export default async function CleanerShoppingPage({
   searchParams,
@@ -12,6 +14,12 @@ export default async function CleanerShoppingPage({
 }) {
   await ensureCleanerModuleAccess("shopping");
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
+
+  const properties = await db.property.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, suburb: true },
+    orderBy: { name: "asc" },
+  });
 
   return (
     <div className="space-y-4">
@@ -29,6 +37,16 @@ export default async function CleanerShoppingPage({
         title="Shopping"
         description="Choose what needs to be bought, start the run, then track receipts, payment method, and shopping time inside the run workspace."
       />
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Your on-hand stock</h2>
+          <p className="text-sm text-muted-foreground">
+            Stock you&apos;re holding that hasn&apos;t been dropped at a unit yet. Deliver it to update that unit&apos;s count.
+          </p>
+        </div>
+        <CleanerOnHandView properties={properties} />
+      </section>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   Building2,
   ClipboardList,
   Package,
+  PackageCheck,
   SendToBack,
   Truck,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 export type InventoryTabKey =
   | "items"
   | "properties"
+  | "on-hand"
   | "stock-counts"
   | "shopping-runs"
   | "delivery"
@@ -23,6 +25,7 @@ export type InventoryTabKey =
 const TABS: Array<{ key: InventoryTabKey; label: string; icon: React.ReactNode }> = [
   { key: "items", label: "Items", icon: <Package className="h-4 w-4" /> },
   { key: "properties", label: "By Property", icon: <Building2 className="h-4 w-4" /> },
+  { key: "on-hand", label: "On-hand", icon: <PackageCheck className="h-4 w-4" /> },
   { key: "stock-counts", label: "Stock Counts", icon: <ClipboardList className="h-4 w-4" /> },
   { key: "shopping-runs", label: "Shopping Runs", icon: <Boxes className="h-4 w-4" /> },
   { key: "delivery", label: "Delivery", icon: <SendToBack className="h-4 w-4" /> },

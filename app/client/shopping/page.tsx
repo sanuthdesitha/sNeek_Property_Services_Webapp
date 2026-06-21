@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { Button } from "@/components/ui/button";
 import { ShoppingRunLauncher } from "@/components/inventory/shopping-run-launcher";
+import { ClientPurchasesFeed } from "@/components/inventory/client-purchases-feed";
 
 export default async function ClientShoppingPage({
   searchParams,
@@ -29,6 +30,16 @@ export default async function ClientShoppingPage({
         title="Shopping"
         description="Choose what needs to be purchased, start the run, then track receipts and payment details inside the run workspace."
       />
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Purchases for your properties</h2>
+          <p className="text-sm text-muted-foreground">
+            Everything bought for your units — including by our team — with receipts and how each was paid.
+          </p>
+        </div>
+        <ClientPurchasesFeed />
+      </section>
     </div>
   );
 }
