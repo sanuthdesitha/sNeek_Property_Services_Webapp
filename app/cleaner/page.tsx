@@ -452,7 +452,7 @@ export default async function CleanerDashboard() {
       </Card>
 
       {/* ── STATS ROW ── */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <KpiTile
           label="Jobs today"
           value={todayJobs.length}
@@ -484,6 +484,7 @@ export default async function CleanerDashboard() {
           value={awaitingConfirmationJobs.length}
           icon={<AlertTriangle />}
           tone="warning"
+          className="col-span-2 lg:col-span-1"
         />
       </section>
 

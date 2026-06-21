@@ -56,8 +56,8 @@ export function KpiTile({
         ) : null}
       </div>
       <div className="mt-3 flex items-end justify-between gap-3">
-        <div>
-          <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
+        <div className="min-w-0">
+          <p className="truncate text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
           {delta != null ? (
             <span
               className={cn(
@@ -72,7 +72,7 @@ export function KpiTile({
           ) : null}
         </div>
         {spark && spark.length > 1 ? (
-          <div className="h-10 w-24 shrink-0">
+          <div className="hidden h-10 w-24 shrink-0 sm:block">
             <Sparkline data={spark} tone={sparkTone} height={40} />
           </div>
         ) : null}
@@ -84,7 +84,7 @@ export function KpiTile({
     // flex-col + h-full + justify-between => every tile fills its grid cell and
     // its value sits on the same baseline, so a row of tiles aligns cleanly even
     // when only some have a sparkline or a wrapped label.
-    "relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-sm transition",
+    "relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-sm transition sm:p-5",
     href && "hover:-translate-y-0.5 hover:shadow-md",
     className,
   );
