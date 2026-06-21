@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, Trash2, Upload, MapPin, Shirt } from "lucide-react";
+import { ArrowLeft, CalendarClock, RefreshCw, UserPlus, Star, FileText, Send, Pencil, X, Check, CheckCircle2, Trash2, Upload, MapPin, Shirt } from "lucide-react";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
@@ -2215,6 +2215,13 @@ export default function JobDetailPage() {
               ) : (
                 <p className="text-sm text-muted-foreground">No QA review yet.</p>
               )}
+              {job?.isRework ? (
+                <Button asChild variant="outline" className="mb-3 mt-1 h-11 w-full">
+                  <Link href={`/admin/jobs/${String(params.id)}/reclean-review`}>
+                    <CheckCircle2 className="mr-2 h-4 w-4" /> Before / after reclean review
+                  </Link>
+                </Button>
+              ) : null}
               <AdminQaReviews jobId={String(params.id)} />
             </CardContent>
           </Card>
