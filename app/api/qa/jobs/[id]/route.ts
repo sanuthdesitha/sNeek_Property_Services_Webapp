@@ -75,6 +75,15 @@ const toolsSchema = z
     inventoryCount: z.array(inventoryCountLineSchema).default([]),
     // Per-section QA photos: sectionId → S3 keys.
     sectionPhotos: z.record(z.array(z.string().trim().min(1)).max(24)).default({}),
+    // Per-photo markup keyed by original S3 key.
+    mediaAnnotations: z
+      .record(
+        z.object({
+          overlayKey: z.string().trim().min(1).optional(),
+          comment: z.string().trim().max(2000).optional(),
+        })
+      )
+      .default({}),
     onSite: z
       .object({
         startedAt: z.string().datetime().nullable().optional(),

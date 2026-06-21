@@ -21,6 +21,7 @@ import {
   Square,
   ImagePlus,
   Video,
+  Pencil,
   X,
   Download,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
+import { ImageAnnotator } from "@/components/shared/image-annotator";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import { toast } from "@/hooks/use-toast";
 import { isUploadFieldType } from "@/lib/forms/field-types";
@@ -98,6 +100,9 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [sectionPhotoUrls, setSectionPhotoUrls] = useState<Record<string, string>>({});
   // Which section headers currently have their uploader open.
   const [openUploaders, setOpenUploaders] = useState<Record<string, boolean>>({});
+  // Photo currently being marked up (draw/pin/comment).
+  const [annotateTarget, setAnnotateTarget] = useState<{ sectionId: string; key: string; url: string } | null>(null);
+  const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   // ── Instant autosave + offline draft ──
   // The in-progress inspection (answers, notes, tools) is saved to this device
@@ -445,6 +450,35 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     setOpenUploaders((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
   }
 
+  // Save photo markup: upload the transparent overlay PNG and store the markup
+  // (overlay + comment) against the original key, so it can be layered on the
+  // photo and carried into a reclean.
+  async function saveAnnotation(blob: Blob, comment: string) {
+    if (!annotateTarget) return;
+    setSavingAnnotation(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", new File([blob], `qa-markup-${Date.now()}.png`, { type: "image/png" }));
+      fd.append("folder", "qa-annotations");
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.key) {
+        toast({ title: "Could not save markup", description: body?.error ?? "Please retry.", variant: "destructive" });
+        return;
+      }
+      const key = annotateTarget.key;
+      setTools((prev) => ({
+        ...prev,
+        mediaAnnotations: { ...prev.mediaAnnotations, [key]: { overlayKey: body.key, comment: comment || undefined } },
+      }));
+      if (body.url) setSectionPhotoUrls((prev) => ({ ...prev, [body.key]: body.url }));
+      toast({ title: "Markup saved" });
+      setAnnotateTarget(null);
+    } finally {
+      setSavingAnnotation(false);
+    }
+  }
+
   // ── Rework transfer ───────────────────────────────────────────────────────
   const rework = tools.rework ?? emptyReworkProposal();
   function setRework(patch: Partial<typeof rework>) {
@@ -526,6 +560,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           restock: tools.restock,
           inventoryCount: tools.inventoryCount,
           sectionPhotos: tools.sectionPhotos,
+          mediaAnnotations: tools.mediaAnnotations,
           onSite: { ...tools.onSite, minutes: onSiteMinutes },
           rework: rework.enabled ? rework : null,
         },
@@ -1174,6 +1209,8 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         {sectionPhotoKeys.map((key) => {
                           const url = sectionPhotoUrls[key];
                           const video = isVideoKey(key);
+                          const annotation = tools.mediaAnnotations[key];
+                          const overlayUrl = annotation?.overlayKey ? sectionPhotoUrls[annotation.overlayKey] : undefined;
                           return (
                             <div key={key} className="group relative">
                               {url && video ? (
@@ -1195,11 +1232,31 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                                   {video ? <Video className="h-4 w-4 text-muted-foreground" /> : <Camera className="h-4 w-4 text-muted-foreground" />}
                                 </div>
                               )}
+                              {overlayUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={overlayUrl} alt="" className="pointer-events-none absolute inset-0 h-16 w-16 rounded-lg object-cover" />
+                              ) : null}
                               {video ? (
                                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                                   <span className="rounded-full bg-black/55 p-1 text-white">
                                     <Play className="h-3.5 w-3.5" />
                                   </span>
+                                </span>
+                              ) : null}
+                              {!video && url ? (
+                                <button
+                                  type="button"
+                                  aria-label="Mark up photo"
+                                  title={annotation?.comment || "Draw, pin and comment on this photo"}
+                                  className="absolute -left-1.5 -bottom-1.5 rounded-full bg-primary p-1 text-primary-foreground shadow"
+                                  onClick={() => setAnnotateTarget({ sectionId: section.id, key, url })}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              ) : null}
+                              {annotation ? (
+                                <span className="absolute left-0 top-0 rounded-br-lg rounded-tl-lg bg-primary px-1 py-0.5 text-[8px] font-bold text-primary-foreground">
+                                  ✎
                                 </span>
                               ) : null}
                               <button
@@ -1280,6 +1337,19 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           </Card>
         </div>
       </div>
+
+      {annotateTarget ? (
+        <ImageAnnotator
+          src={annotateTarget.url}
+          open={Boolean(annotateTarget)}
+          onOpenChange={(v) => {
+            if (!v) setAnnotateTarget(null);
+          }}
+          initialComment={tools.mediaAnnotations[annotateTarget.key]?.comment ?? ""}
+          saving={savingAnnotation}
+          onSave={({ blob, comment }) => saveAnnotation(blob, comment)}
+        />
+      ) : null}
     </div>
   );
 }

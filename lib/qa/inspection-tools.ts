@@ -94,6 +94,12 @@ export interface QaInspectionTools {
    * The value is a list of S3 keys (resolved to URLs for display/PDF).
    */
   sectionPhotos: Record<string, string[]>;
+  /**
+   * Per-photo markup, keyed by the original S3 key. `overlayKey` is a transparent
+   * PNG (draw strokes + numbered pins) layered over the original; `comment` is
+   * the QA note shown to the cleaner. These flow into the reclean form.
+   */
+  mediaAnnotations: Record<string, { overlayKey?: string; comment?: string }>;
   onSite: {
     startedAt: string | null;
     endedAt: string | null;
@@ -128,6 +134,7 @@ export function emptyInspectionTools(): QaInspectionTools {
     restock: [],
     inventoryCount: [],
     sectionPhotos: {},
+    mediaAnnotations: {},
     onSite: { startedAt: null, endedAt: null, minutes: null },
     rework: null,
   };
