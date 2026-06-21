@@ -722,6 +722,9 @@ export function NewPropertyForm({ initialClientId, copyFromPropertyId }: NewProp
               suburb: form.suburb,
               state: form.state,
               postcode: form.postcode,
+              latitude: form.latitude,
+              longitude: form.longitude,
+              placeId: form.placeId,
             }}
           />
 

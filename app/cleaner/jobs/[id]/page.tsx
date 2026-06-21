@@ -34,6 +34,7 @@ import { FieldRenderer } from "@/components/forms/field-renderer";
 import { FieldReferences } from "@/components/forms/field-references";
 import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
+import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { VideoRecorder } from "@/components/forms/video-recorder";
 import {
   INVENTORY_LOCATIONS,
@@ -41,7 +42,6 @@ import {
   normalizeInventoryLocation,
   type InventoryLocation,
 } from "@/lib/inventory/locations";
-import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
 import { formatDuration, elapsedSecondsSince, safeSeconds } from "@/lib/time/format-duration";
 import {
   getAccuratePosition,
@@ -4105,9 +4105,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const hasPendingContinuationRequest = rescheduleRequests.some((row) => row.status === "PENDING");
   const latestEarlyCheckoutRequest = earlyCheckoutRequests[0] ?? null;
   const pendingEarlyCheckoutRequest = earlyCheckoutRequests.find((row) => row.status === "PENDING") ?? null;
-  const mapsUrl = buildGoogleMapsDirectionsUrl({
+  const mapsUrl = googleMapsDirectionsUrl({
     address: job?.property?.address,
     suburb: job?.property?.suburb,
+    state: job?.property?.state,
+    postcode: job?.property?.postcode,
+    latitude: job?.property?.latitude,
+    longitude: job?.property?.longitude,
+    placeId: job?.property?.placeId,
     name: job?.property?.name,
   });
   const assignmentState = payload?.assignmentState ?? null;

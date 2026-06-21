@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { LiveTripMap } from "@/components/shared/live-trip-map";
+import { googleMapsSearchUrl } from "@/lib/maps/google-maps-url";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -497,7 +498,7 @@ export default function ClientJobDetailPage() {
                   {job.property.suburb} {job.property.state} {job.property.postcode}
                 </p>
                 <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${job.property.address}, ${job.property.suburb} ${job.property.state}`)}`}
+                  href={googleMapsSearchUrl(job.property)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"

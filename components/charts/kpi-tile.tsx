@@ -81,7 +81,10 @@ export function KpiTile({
   );
 
   const shell = cn(
-    "relative overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-sm transition",
+    // flex-col + h-full + justify-between => every tile fills its grid cell and
+    // its value sits on the same baseline, so a row of tiles aligns cleanly even
+    // when only some have a sparkline or a wrapped label.
+    "relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-sm transition",
     href && "hover:-translate-y-0.5 hover:shadow-md",
     className,
   );

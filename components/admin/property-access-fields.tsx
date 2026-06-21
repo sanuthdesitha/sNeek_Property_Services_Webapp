@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelectDropdown } from "@/components/shared/multi-select-dropdown";
+import { googleMapsSearchUrl } from "@/lib/maps/google-maps-url";
 import { toast } from "@/hooks/use-toast";
 
 export type PropertyAccessAttachment = {
@@ -35,6 +36,9 @@ type Props = {
     suburb?: string;
     state?: string;
     postcode?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    placeId?: string | null;
   };
 };
 
@@ -43,13 +47,14 @@ export function buildGoogleMapsUrl(input?: {
   suburb?: string;
   state?: string;
   postcode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  placeId?: string | null;
 }) {
-  const query = [input?.address, input?.suburb, input?.state, input?.postcode]
-    .map((part) => (part ?? "").trim())
-    .filter(Boolean)
-    .join(", ");
-  if (!query) return "";
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  // Prefer the exact picked place (placeId) / coordinates; fall back to the
+  // full state-qualified address so a suburb name never resolves to the wrong
+  // state. (See lib/maps/google-maps-url.ts.)
+  return googleMapsSearchUrl(input ?? {});
 }
 
 function normalizeAccessInfo(value?: PropertyAccessInfo): PropertyAccessInfo {

@@ -40,6 +40,7 @@ export async function GET(
             postcode: true,
             latitude: true,
             longitude: true,
+            placeId: true,
             linenBufferSets: true,
             accessInfo: true,
             hasBalcony: true,

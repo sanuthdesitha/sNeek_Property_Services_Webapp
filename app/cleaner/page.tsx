@@ -24,6 +24,7 @@ import {
   parseJobInternalNotes,
 } from "@/lib/jobs/meta";
 import { compareCleanerJobsBySchedule } from "@/lib/jobs/schedule-order";
+import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
@@ -111,7 +112,18 @@ export default async function CleanerDashboard() {
         select: { responseStatus: true },
         take: 1,
       },
-      property: { select: { name: true, address: true, suburb: true } },
+      property: {
+        select: {
+          name: true,
+          address: true,
+          suburb: true,
+          state: true,
+          postcode: true,
+          latitude: true,
+          longitude: true,
+          placeId: true,
+        },
+      },
     },
     orderBy: [
       { scheduledDate: "asc" },
@@ -420,7 +432,7 @@ export default async function CleanerDashboard() {
                     </Button>
                     <Button asChild size="sm" variant="outline" title="Navigate in Google Maps">
                       <a
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${nextJob.property.address}, ${nextJob.property.suburb}`)}`}
+                        href={googleMapsDirectionsUrl(nextJob.property)}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -440,7 +452,7 @@ export default async function CleanerDashboard() {
       </Card>
 
       {/* ── STATS ROW ── */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <KpiTile
           label="Jobs today"
           value={todayJobs.length}
