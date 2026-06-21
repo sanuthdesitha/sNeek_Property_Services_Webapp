@@ -104,6 +104,7 @@ const ROLE_SUMMARY: Record<Role, string> = {
   [Role.CLEANER]: "Assigned jobs, form submission, uploads, and time logs",
   [Role.CLIENT]: "Own properties and reports only",
   [Role.LAUNDRY]: "Laundry week schedule and ready queue",
+  [Role.MAINTENANCE]: "Assigned repair jobs, access details, and on-site visit tracking",
 };
 
 type SettingsWorkspaceProps = {

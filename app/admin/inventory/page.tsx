@@ -23,7 +23,6 @@ import { InventoryItemsWorkspace } from "@/components/inventory/inventory-items-
 import { OnHandWorkspace } from "@/components/inventory/on-hand-workspace";
 import { ShoppingRunsWorkspace } from "@/components/inventory/shopping-runs-workspace";
 import { SuppliersWorkspace } from "@/components/inventory/suppliers-workspace";
-import { DeliveryProfilesWorkspace } from "@/components/inventory/delivery-profiles-workspace";
 import { StockRunWorkspace } from "@/components/inventory/stock-run-workspace";
 import {
   PropertyInventoryOverview,
@@ -42,7 +41,6 @@ const TAB_KEYS: InventoryTabKey[] = [
   "on-hand",
   "stock-counts",
   "shopping-runs",
-  "delivery",
   "suppliers",
 ];
 
@@ -283,7 +281,7 @@ export default async function InventoryHubPage({
           value={deliveryProfilesCount}
           icon={<SendToBack />}
           tone="accent"
-          href="/admin/inventory?tab=delivery"
+          href="/admin/notifications?tab=delivery"
         />
       </section>
 
@@ -310,7 +308,6 @@ export default async function InventoryHubPage({
           />
         ) : null}
         {tab === "shopping-runs" ? <ShoppingRunsWorkspace /> : null}
-        {tab === "delivery" ? <DeliveryProfilesWorkspace /> : null}
         {tab === "suppliers" ? <SuppliersWorkspace /> : null}
       </div>
     </div>

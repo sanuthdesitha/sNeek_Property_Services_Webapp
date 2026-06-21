@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Bell, BellRing, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { DeliveryProfilesWorkspace } from "@/components/inventory/delivery-profiles-workspace";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -138,7 +140,11 @@ function updateMatrix<T extends Record<string, NotificationChannelPreference>>(
 }
 
 export default function NotificationsPage() {
-  const [tab, setTab] = useState("control");
+  const searchParams = useSearchParams();
+  const initialTab = ["control", "log", "delivery"].includes(searchParams?.get("tab") ?? "")
+    ? (searchParams!.get("tab") as string)
+    : "control";
+  const [tab, setTab] = useState(initialTab);
   const [loadingControl, setLoadingControl] = useState(true);
   const [savingControl, setSavingControl] = useState(false);
   const [scheduled, setScheduled] = useState<ScheduledNotificationSettings | null>(null);
@@ -348,9 +354,10 @@ export default function NotificationsPage() {
       />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-xl grid-cols-3">
           <TabsTrigger value="control">Control center</TabsTrigger>
           <TabsTrigger value="log">Delivery log</TabsTrigger>
+          <TabsTrigger value="delivery">Report &amp; invoice delivery</TabsTrigger>
         </TabsList>
 
         <TabsContent value="control" className="space-y-6">
@@ -496,6 +503,20 @@ export default function NotificationsPage() {
               <Button variant="outline" size="sm" disabled={!pagination.hasMore} onClick={() => setPage((current) => current + 1)}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button>
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="delivery" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Report &amp; invoice delivery</CardTitle>
+              <CardDescription>
+                Per-client recipients and auto-send rules for job reports and invoices. (Moved here from Inventory.)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DeliveryProfilesWorkspace />
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

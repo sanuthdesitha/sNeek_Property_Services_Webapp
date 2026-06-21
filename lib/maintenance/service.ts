@@ -45,6 +45,34 @@ const itemInclude = {
 
 const detailInclude = {
   ...itemInclude,
+  // Richer property select for the detail view (coords for maps + access fields
+  // that may be surfaced to an assigned maintenance worker).
+  property: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      suburb: true,
+      state: true,
+      postcode: true,
+      clientId: true,
+      latitude: true,
+      longitude: true,
+      placeId: true,
+      accessCode: true,
+      alarmCode: true,
+      keyLocation: true,
+      accessNotes: true,
+      accessInfo: true,
+      client: { select: { id: true, name: true, email: true, phone: true } },
+    },
+  },
+  assignedWorker: {
+    select: { id: true, name: true, phone: true, email: true, trade: true, company: true, isPermanent: true, userId: true },
+  },
+  assignedBy: { select: { id: true, name: true, email: true } },
+  contactPerson: { select: { id: true, name: true, email: true, phone: true } },
+  pings: { orderBy: { createdAt: "asc" }, take: 200 },
   events: {
     orderBy: { createdAt: "asc" },
     include: { user: { select: { id: true, name: true, email: true, role: true } } },

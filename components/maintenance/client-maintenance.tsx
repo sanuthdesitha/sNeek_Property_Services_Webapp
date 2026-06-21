@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Wrench, Image as ImageIcon } from "lucide-react";
+import { Wrench, Image as ImageIcon, Wrench as WrenchIcon } from "lucide-react";
 import {
   MaintenanceCategory,
   MaintenancePriority,
@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -16,7 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import {
   ACTION_LABELS,
@@ -26,6 +34,20 @@ import {
   priorityTone,
   statusTone,
 } from "@/lib/maintenance/labels";
+
+// Prettify an outcome enum value, e.g. NEEDS_PARTS → "Needs parts".
+function prettyOutcome(outcome: string): string {
+  const lower = outcome.replace(/_/g, " ").toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+interface MaintenanceItemDetail {
+  status: MaintenanceStatus;
+  outcome: string | null;
+  workerNote: string | null;
+  resolutionNote: string | null;
+  finishPhotos?: Array<{ key: string; url: string }>;
+}
 
 interface ClientProperty {
   id: string;
@@ -46,8 +68,84 @@ interface MaintenanceListItem {
   createdAt: string;
   resolvedAt: string | null;
   resolutionNote: string | null;
+  outcome?: string | null;
   property?: { name: string };
   photos?: Array<{ key: string; url: string }>;
+}
+
+// Opens on demand and fetches the single item so we have finishPhotos + notes
+// (the list endpoint doesn't include them). Client-safe: no worker contact
+// details or property access codes are rendered.
+function WorkDoneDialog({ item }: { item: MaintenanceListItem }) {
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [detail, setDetail] = React.useState<MaintenanceItemDetail | null>(null);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || loaded) return;
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/maintenance/${item.id}`, { cache: "no-store" })
+      .then((res) => res.json().catch(() => ({})))
+      .then((body) => {
+        if (cancelled) return;
+        setDetail(body?.item ?? null);
+        setLoaded(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, loaded, item.id]);
+
+  const finishPhotos = detail?.finishPhotos ?? [];
+  const note = detail?.workerNote ?? detail?.resolutionNote ?? null;
+  const outcome = detail?.outcome ?? item.outcome ?? null;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={() => setOpen(true)}
+      >
+        <WrenchIcon className="mr-1 h-3 w-3" /> View work done
+      </Button>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Work done — {item.title}</DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <div className="space-y-3">
+            {outcome ? (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Outcome:</span>
+                <Badge variant="success">{prettyOutcome(outcome)}</Badge>
+              </div>
+            ) : null}
+            {note ? (
+              <p className="rounded-lg bg-muted/40 px-3 py-2 text-sm text-foreground">{note}</p>
+            ) : null}
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Completed work</p>
+              <MediaGallery
+                items={finishPhotos.map((p) => ({ id: p.key, url: p.url }))}
+                title="Completed work"
+                emptyText="No completion photos"
+              />
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function ClientMaintenance({ properties }: { properties: ClientProperty[] }) {
@@ -121,7 +219,13 @@ export function ClientMaintenance({ properties }: { properties: ClientProperty[]
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Badge variant={priorityTone(item.priority)}>{PRIORITY_LABELS[item.priority]}</Badge>
-                    <Badge variant={statusTone(item.status)}>{STATUS_LABELS[item.status]}</Badge>
+                    {item.status === "IN_PROGRESS" ? (
+                      <Badge variant="default">Being handled</Badge>
+                    ) : item.status === "RESOLVED" ? (
+                      <Badge variant="success">Completed</Badge>
+                    ) : (
+                      <Badge variant={statusTone(item.status)}>{STATUS_LABELS[item.status]}</Badge>
+                    )}
                   </div>
                 </div>
                 {item.description ? (
@@ -149,10 +253,24 @@ export function ClientMaintenance({ properties }: { properties: ClientProperty[]
                     ))}
                   </div>
                 ) : null}
-                {item.status === "RESOLVED" && item.resolutionNote ? (
-                  <p className="rounded-lg bg-success/10 px-3 py-2 text-xs text-success">
-                    Resolved: {item.resolutionNote}
-                  </p>
+                {item.status === "IN_PROGRESS" ? (
+                  <p className="text-xs text-muted-foreground">Our maintenance team is handling this.</p>
+                ) : null}
+                {item.status === "RESOLVED" ? (
+                  <div className="space-y-2">
+                    {item.resolutionNote ? (
+                      <p className="rounded-lg bg-success/10 px-3 py-2 text-xs text-success">
+                        Completed{item.outcome ? ` · ${prettyOutcome(item.outcome)}` : ""}: {item.resolutionNote}
+                      </p>
+                    ) : item.outcome ? (
+                      <p className="rounded-lg bg-success/10 px-3 py-2 text-xs text-success">
+                        Completed · {prettyOutcome(item.outcome)}
+                      </p>
+                    ) : null}
+                    <div className="pt-0.5">
+                      <WorkDoneDialog item={item} />
+                    </div>
+                  </div>
                 ) : null}
               </CardContent>
             </Card>

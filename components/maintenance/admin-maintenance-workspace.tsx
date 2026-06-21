@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Wrench,
   AlertTriangle,
@@ -9,6 +10,8 @@ import {
   ListChecks,
   Image as ImageIcon,
   History,
+  ExternalLink,
+  HardHat,
 } from "lucide-react";
 import {
   MaintenanceCategory,
@@ -93,6 +96,7 @@ interface MaintenanceItem {
   job?: { jobNumber: string } | null;
   photos?: Array<{ key: string; url: string }>;
   events?: MaintenanceEvent[];
+  assignedWorker?: { id: string; name: string; trade?: string | null } | null;
 }
 
 interface Summary {
@@ -281,6 +285,14 @@ export function AdminMaintenanceWorkspace({ properties }: { properties: Property
                   aria-label={`Select ${item.title}`}
                   className="mt-1"
                 />
+                {item.photos && item.photos.length > 0 ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.photos[0].url}
+                    alt=""
+                    className="mt-0.5 h-10 w-10 shrink-0 rounded-md border border-border object-cover"
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="min-w-0 flex-1 text-left"
@@ -291,6 +303,13 @@ export function AdminMaintenanceWorkspace({ properties }: { properties: Property
                     <Badge variant={priorityTone(item.priority)}>{PRIORITY_LABELS[item.priority]}</Badge>
                     <Badge variant={statusTone(item.status)}>{STATUS_LABELS[item.status]}</Badge>
                     {!item.clientVisible ? <Badge variant="outline">Internal</Badge> : null}
+                    {item.assignedWorker ? (
+                      <Badge variant="secondary" className="inline-flex items-center gap-1">
+                        <HardHat className="h-3 w-3" />
+                        {item.assignedWorker.name}
+                        {item.assignedWorker.trade ? ` · ${item.assignedWorker.trade}` : ""}
+                      </Badge>
+                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {item.property?.name ?? ""}{item.area ? ` · ${item.area}` : ""} · {CATEGORY_LABELS[item.category]} · {ACTION_LABELS[item.recommendedAction]} · {SOURCE_LABELS[item.source]}
@@ -302,6 +321,11 @@ export function AdminMaintenanceWorkspace({ properties }: { properties: Property
                       <ImageIcon className="h-3 w-3" />{item.photos.length}
                     </span>
                   ) : null}
+                  <Button asChild size="sm" variant="outline" className="h-8">
+                    <Link href={`/admin/maintenance/${item.id}`}>
+                      Open <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
                   <Select value={item.status} onValueChange={(v) => changeStatus(item.id, v as MaintenanceStatus)}>
                     <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>

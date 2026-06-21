@@ -19,6 +19,7 @@ const adminCreateRoleSchema = z.enum([
   "CLEANER",
   "CLIENT",
   "LAUNDRY",
+  "MAINTENANCE",
 ]);
 const registerRoleSchema = z.enum(["CLEANER", "CLIENT"]);
 
@@ -91,7 +92,7 @@ export const updateUserByAdminSchema = z.object({
   name: requiredNameSchema.optional(),
   email: optionalEmailSchema,
   phone: optionalAustralianMobileSchema.nullable().optional(),
-  role: z.enum(["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "CLEANER", "CLIENT", "LAUNDRY"]).optional(),
+  role: z.enum(["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "CLEANER", "CLIENT", "LAUNDRY", "MAINTENANCE"]).optional(),
   isActive: z.boolean().optional(),
   profileEditingEnabled: z.boolean().optional(),
   clientId: z.string().trim().nullable().optional(),

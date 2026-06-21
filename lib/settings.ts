@@ -416,6 +416,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     [Role.CLEANER]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    [Role.MAINTENANCE]: { canEditName: true, canEditPhone: true, canEditEmail: true },
   },
   profileEditOverrides: {},
   clientPortalVisibility: {

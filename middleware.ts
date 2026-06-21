@@ -74,6 +74,16 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
+    // Maintenance routes — workers, plus admin/ops for oversight
+    if (
+      pathname.startsWith("/maintenance") &&
+      role !== Role.MAINTENANCE &&
+      role !== Role.ADMIN &&
+      role !== Role.OPS_MANAGER
+    ) {
+      return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+    }
+
     return applySecurityHeaders(NextResponse.next());
   },
   {
@@ -151,6 +161,8 @@ function portalHome(role: Role | undefined): string {
       return "/laundry";
     case Role.QA_INSPECTOR:
       return "/qa";
+    case Role.MAINTENANCE:
+      return "/maintenance";
     default:
       return "/login";
   }

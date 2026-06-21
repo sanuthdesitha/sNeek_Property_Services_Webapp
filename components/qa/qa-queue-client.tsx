@@ -6,6 +6,7 @@ import { ClipboardCheck, Inbox, Loader2, RefreshCw, UserCheck, UserPlus } from "
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
@@ -28,6 +29,14 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+
+  // Filters + sort, mirroring the admin Jobs page.
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [assignFilter, setAssignFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("finished-desc");
 
   async function load() {
     setLoading(true);
@@ -62,6 +71,81 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
     }));
     return [...assigned, ...unassigned];
   }, [data]);
+
+  // "Finished" = when the cleaner submitted the job (fallbacks keep older jobs sortable).
+  function finishedAt(row: any): number {
+    const v =
+      row.job?.formSubmissions?.[0]?.createdAt ??
+      row.job?.completedAt ??
+      row.job?.submittedAt ??
+      row.job?.scheduledDate;
+    const t = v ? new Date(v).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  const jobTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((row) => row.job?.jobType && set.add(String(row.job.jobType)));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((row) => row.job?.status && set.add(String(row.job.status)));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    let list = rows.filter((row) => {
+      const job = row.job ?? {};
+      if (statusFilter !== "all" && String(job.status) !== statusFilter) return false;
+      if (typeFilter !== "all" && String(job.jobType) !== typeFilter) return false;
+      if (assignFilter === "unassigned" && row.assigned) return false;
+      if (assignFilter === "assigned" && (!row.assigned || row.assignment?.pickedUpById)) return false;
+      if (assignFilter === "in-progress" && !(row.assignment?.pickedUpById || row.assignment?.status === "IN_PROGRESS")) return false;
+      if (dateFilter !== "all") {
+        const age = now - finishedAt(row);
+        if (dateFilter === "today" && age > dayMs) return false;
+        if (dateFilter === "week" && age > 7 * dayMs) return false;
+        if (dateFilter === "month" && age > 30 * dayMs) return false;
+      }
+      if (q) {
+        const hay = [
+          job.property?.name,
+          job.property?.address,
+          job.property?.suburb,
+          String(job.jobType ?? "").replace(/_/g, " "),
+          ...(job.assignments ?? []).map((a: any) => a.user?.name || a.user?.email),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    list = [...list].sort((a, b) => {
+      switch (sortBy) {
+        case "finished-asc":
+          return finishedAt(a) - finishedAt(b);
+        case "scheduled-desc":
+          return (
+            new Date(b.job?.scheduledDate ?? 0).getTime() - new Date(a.job?.scheduledDate ?? 0).getTime()
+          );
+        case "property-asc":
+          return String(a.job?.property?.name ?? "").localeCompare(String(b.job?.property?.name ?? ""));
+        case "finished-desc":
+        default:
+          return finishedAt(b) - finishedAt(a);
+      }
+    });
+    return list;
+  }, [rows, search, statusFilter, typeFilter, assignFilter, dateFilter, sortBy]);
 
   // Real queue counts derived from the loaded rows — no fabricated metrics.
   const stats = useMemo(() => {
@@ -171,6 +255,63 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
         </CardContent>
       </Card>
 
+      {/* Filters + sort (mirrors the admin Jobs page) */}
+      <Card>
+        <CardContent className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-6">
+          <Input
+            placeholder="Search property or cleaner…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="md:col-span-2 xl:col-span-2"
+          />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {statusOptions.map((s) => (
+                <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger><SelectValue placeholder="Job type" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {jobTypeOptions.map((t) => (
+                <SelectItem key={t} value={t}>{t.replace(/_/g, " ")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={assignFilter} onValueChange={setAssignFilter}>
+            <SelectTrigger><SelectValue placeholder="Assignment" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All assignments</SelectItem>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              <SelectItem value="assigned">Assigned</SelectItem>
+              <SelectItem value="in-progress">In progress</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={dateFilter} onValueChange={setDateFilter}>
+            <SelectTrigger><SelectValue placeholder="Finished" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any time</SelectItem>
+              <SelectItem value="today">Last 24h</SelectItem>
+              <SelectItem value="week">Last 7 days</SelectItem>
+              <SelectItem value="month">Last 30 days</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger><SelectValue placeholder="Sort" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="finished-desc">Finished — newest first</SelectItem>
+              <SelectItem value="finished-asc">Finished — oldest first</SelectItem>
+              <SelectItem value="scheduled-desc">Scheduled — newest first</SelectItem>
+              <SelectItem value="property-asc">Property A–Z</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-3">
         {loading ? (
           <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -180,8 +321,12 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
           <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             No submitted jobs are waiting for QA.
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No jobs match these filters.
+          </div>
         ) : (
-          rows.map((row) => (
+          filtered.map((row) => (
             <Card key={row.key} className="overflow-hidden">
               <CardContent className="grid gap-3 p-4 lg:grid-cols-[auto_1fr_auto] lg:items-center">
                 <input

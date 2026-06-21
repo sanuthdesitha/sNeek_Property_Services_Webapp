@@ -21,6 +21,24 @@ enum Role {
   CLEANER
   CLIENT
   LAUNDRY
+  MAINTENANCE
+}
+
+enum MaintenanceOutcome {
+  FIXED
+  REPLACED
+  NEEDS_PARTS
+  NEEDS_FOLLOWUP
+  NO_ACCESS
+  NO_ISSUE_FOUND
+  OTHER
+}
+
+enum MaintenancePingKind {
+  PING
+  ARRIVED
+  CLOCK_IN
+  CLOCK_OUT
 }
 
 enum JobType {
@@ -440,18 +458,84 @@ model PropertyMaintenanceItem {
   resolvedByUserId String?
   resolvedAt       DateTime?
   resolutionNote   String?                 @db.Text
+
+  // ── Assignment + worker visit lifecycle ──
+  assignedWorkerId    String?
+  assignedAt          DateTime?
+  assignedByUserId    String?
+  scheduledFor        DateTime?
+  shareAccess         Boolean             @default(false) // expose property access details to the worker
+  contactPersonUserId String? // person-in-charge the worker can call/email/sms
+  enRouteAt           DateTime?
+  arrivedAt           DateTime?
+  workStartedAt       DateTime?
+  clockInAt           DateTime?
+  clockOutAt          DateTime?
+  outcome             MaintenanceOutcome?
+  workerNote          String?             @db.Text
+  issuesNote          String?             @db.Text
+  finishPhotoKeys     Json?
+
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
-  property   Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  job        Job?                       @relation(fields: [jobId], references: [id], onDelete: SetNull)
-  reportedBy User                       @relation("MaintenanceReportedBy", fields: [reportedByUserId], references: [id])
-  resolvedBy User?                      @relation("MaintenanceResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
-  events     PropertyMaintenanceEvent[]
+  property       Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  job            Job?                       @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  reportedBy     User                       @relation("MaintenanceReportedBy", fields: [reportedByUserId], references: [id])
+  resolvedBy     User?                      @relation("MaintenanceResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  assignedWorker MaintenanceWorker?         @relation("MaintenanceAssignedWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  assignedBy     User?                      @relation("MaintenanceAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  contactPerson  User?                      @relation("MaintenanceContactPerson", fields: [contactPersonUserId], references: [id], onDelete: SetNull)
+  events         PropertyMaintenanceEvent[]
+  pings          MaintenanceLocationPing[]
 
   @@index([propertyId, status])
   @@index([status, priority])
   @@index([reportedByUserId])
+  @@index([assignedWorkerId, status])
+}
+
+/// A maintenance/repair person. May be ad-hoc (no portal login) or permanent
+/// (linked to a MAINTENANCE-role User the admin created with one click).
+model MaintenanceWorker {
+  id          String    @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  trade       String? // Plumber / Electrician / Handyman / etc.
+  company     String?
+  isPermanent Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  notes       String?   @db.Text
+  userId      String?   @unique // portal User (role MAINTENANCE) when permanent
+  createdById String?
+  onboardedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User?                     @relation("MaintenanceWorkerUser", fields: [userId], references: [id], onDelete: SetNull)
+  createdBy   User?                     @relation("MaintenanceWorkerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  assignments PropertyMaintenanceItem[] @relation("MaintenanceAssignedWorker")
+  pings       MaintenanceLocationPing[]
+
+  @@index([isActive, isPermanent])
+}
+
+/// GPS breadcrumb for a maintenance visit (en route → arrived → clock in/out).
+model MaintenanceLocationPing {
+  id        String              @id @default(cuid())
+  itemId    String
+  workerId  String?
+  lat       Float
+  lng       Float
+  accuracy  Float?
+  kind      MaintenancePingKind @default(PING)
+  createdAt DateTime            @default(now())
+
+  item   PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  worker MaintenanceWorker?      @relation(fields: [workerId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, createdAt])
 }
 
 /// Lifecycle/audit trail for a maintenance item (status changes, notes), so the
@@ -582,6 +666,10 @@ model User {
   maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")
   maintenanceResolved          PropertyMaintenanceItem[]   @relation("MaintenanceResolvedBy")
   maintenanceEvents            PropertyMaintenanceEvent[]  @relation("MaintenanceEventBy")
+  maintenanceAssigned          PropertyMaintenanceItem[]   @relation("MaintenanceAssignedBy")
+  maintenanceContactFor        PropertyMaintenanceItem[]   @relation("MaintenanceContactPerson")
+  maintenanceWorker            MaintenanceWorker?          @relation("MaintenanceWorkerUser")
+  maintenanceWorkersCreated    MaintenanceWorker[]         @relation("MaintenanceWorkerCreatedBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
   mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")

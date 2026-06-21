@@ -14,6 +14,7 @@ import {
   updateMaintenanceStatus,
 } from "@/lib/maintenance/service";
 import { resolvePropertyAccess, resolvePhotoUrls } from "@/lib/maintenance/access";
+import { userIsAssignedWorker } from "@/lib/maintenance/workers";
 
 function errStatus(message: string) {
   return message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
@@ -55,6 +56,31 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireSession();
     const role = session.user.role as Role;
+
+    // Maintenance workers see only the item assigned to them; property access
+    // details are exposed only when the admin ticked "share access".
+    if (role === Role.MAINTENANCE) {
+      const item = await getMaintenanceItem(params.id);
+      if (!item) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      if (!(await userIsAssignedWorker(session.user.id, params.id))) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      const photos = await resolvePhotoUrls(item.photoKeys);
+      const finishPhotos = await resolvePhotoUrls(item.finishPhotoKeys);
+      const safe: any = { ...item, photos, finishPhotos, canManage: false };
+      if (!item.shareAccess && safe.property) {
+        safe.property = {
+          ...safe.property,
+          accessCode: null,
+          alarmCode: null,
+          keyLocation: null,
+          accessNotes: null,
+          accessInfo: null,
+        };
+      }
+      return NextResponse.json({ item: safe });
+    }
+
     const { item, access } = await loadAndAuthorize(params.id, session.user.id, role);
     if (!item) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!access?.allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -63,8 +89,22 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    const canManage = role === Role.ADMIN || role === Role.OPS_MANAGER;
     const photos = await resolvePhotoUrls(item.photoKeys);
-    return NextResponse.json({ item: { ...item, photos } });
+    const finishPhotos = await resolvePhotoUrls(item.finishPhotoKeys);
+    const result: any = { ...item, photos, finishPhotos, canManage };
+    // Never leak raw access codes to clients.
+    if (access.clientVisibleOnly && result.property) {
+      result.property = {
+        ...result.property,
+        accessCode: null,
+        alarmCode: null,
+        keyLocation: null,
+        accessNotes: null,
+        accessInfo: null,
+      };
+    }
+    return NextResponse.json({ item: result });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not load item." }, { status: errStatus(err.message) });
   }
