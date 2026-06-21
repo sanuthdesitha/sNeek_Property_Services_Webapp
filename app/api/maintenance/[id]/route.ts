@@ -15,6 +15,19 @@ import {
 } from "@/lib/maintenance/service";
 import { resolvePropertyAccess, resolvePhotoUrls } from "@/lib/maintenance/access";
 import { userIsAssignedWorker } from "@/lib/maintenance/workers";
+import { decryptSecret } from "@/lib/security/encryption";
+
+/** Decrypt the stored access codes so on-site staff see the real values. */
+function decryptAccess<T extends { property?: any }>(item: T): T {
+  if (item.property) {
+    item.property = {
+      ...item.property,
+      accessCode: decryptSecret(item.property.accessCode) ?? item.property.accessCode ?? null,
+      alarmCode: decryptSecret(item.property.alarmCode) ?? item.property.alarmCode ?? null,
+    };
+  }
+  return item;
+}
 
 function errStatus(message: string) {
   return message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
@@ -67,7 +80,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       }
       const photos = await resolvePhotoUrls(item.photoKeys);
       const finishPhotos = await resolvePhotoUrls(item.finishPhotoKeys);
-      const safe: any = { ...item, photos, finishPhotos, canManage: false };
+      const safe: any = decryptAccess({ ...item, photos, finishPhotos, canManage: false });
       if (!item.shareAccess && safe.property) {
         safe.property = {
           ...safe.property,
@@ -92,7 +105,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const canManage = role === Role.ADMIN || role === Role.OPS_MANAGER;
     const photos = await resolvePhotoUrls(item.photoKeys);
     const finishPhotos = await resolvePhotoUrls(item.finishPhotoKeys);
-    const result: any = { ...item, photos, finishPhotos, canManage };
+    const result: any = canManage
+      ? decryptAccess({ ...item, photos, finishPhotos, canManage })
+      : { ...item, photos, finishPhotos, canManage };
     // Never leak raw access codes to clients.
     if (access.clientVisibleOnly && result.property) {
       result.property = {

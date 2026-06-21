@@ -35,6 +35,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { UploadDropzone, type UploadResult } from "@/components/ui/upload-dropzone";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
 import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { toast } from "@/hooks/use-toast";
 
@@ -421,19 +422,20 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
         </CardHeader>
         <CardContent>
           {accessShared ? (
-            <dl className="space-y-2 text-sm">
-              {cleanText(prop?.accessCode) ? <AccessRow label="Access code" value={cleanText(prop?.accessCode)} /> : null}
-              {cleanText(prop?.alarmCode) ? <AccessRow label="Alarm code" value={cleanText(prop?.alarmCode)} /> : null}
-              {cleanText(prop?.keyLocation) ? <AccessRow label="Key location" value={cleanText(prop?.keyLocation)} /> : null}
-              {cleanText(prop?.accessNotes) ? <AccessRow label="Access notes" value={cleanText(prop?.accessNotes)} /> : null}
-              {prop?.accessInfo && typeof prop.accessInfo === "object" && !Array.isArray(prop.accessInfo)
-                ? Object.entries(prop.accessInfo as Record<string, unknown>)
-                    .filter(([, val]) => cleanText(val) !== "")
-                    .map(([k, val]) => <AccessRow key={k} label={prettyKey(k)} value={cleanText(val)} />)
-                : cleanText(prop?.accessInfo) && typeof prop?.accessInfo === "string"
-                  ? <AccessRow label="More access info" value={cleanText(prop?.accessInfo)} />
-                  : null}
-            </dl>
+            <div className="space-y-3">
+              <dl className="space-y-2 text-sm">
+                {cleanText(prop?.accessCode) ? <AccessRow label="Access code" value={cleanText(prop?.accessCode)} /> : null}
+                {cleanText(prop?.alarmCode) ? <AccessRow label="Alarm code" value={cleanText(prop?.alarmCode)} /> : null}
+                {cleanText(prop?.keyLocation) ? <AccessRow label="Key location" value={cleanText(prop?.keyLocation)} /> : null}
+                {cleanText(prop?.accessNotes) ? <AccessRow label="Access notes" value={cleanText(prop?.accessNotes)} /> : null}
+              </dl>
+              {/* Full onboarding access instructions, including reference images/videos. */}
+              <AccessInstructionsPanel
+                accessInfo={prop?.accessInfo}
+                title="Property access instructions"
+                className="text-xs"
+              />
+            </div>
           ) : (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Lock className="mt-0.5 h-4 w-4 shrink-0" />
