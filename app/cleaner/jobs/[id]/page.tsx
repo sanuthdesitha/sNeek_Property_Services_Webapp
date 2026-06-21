@@ -479,6 +479,7 @@ export default function CleanerJobPage() {
   const [delayedReason, setDelayedReason] = useState("Traffic");
   const [delayedReasonOther, setDelayedReasonOther] = useState("");
   const [manualEta, setManualEta] = useState("");
+  const [driveFullScreen, setDriveFullScreen] = useState(true);
   const [trackingActive, setTrackingActive] = useState(false);
   const [trackingError, setTrackingError] = useState<string | null>(null);
   const [lastPingSentAt, setLastPingSentAt] = useState<number | null>(null);
@@ -4115,6 +4116,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     placeId: job?.property?.placeId,
     name: job?.property?.name,
   });
+  // Keyless Google Maps embed centred on the destination — renders inside the
+  // immersive driving view without needing an Embed API key.
+  const mapEmbedUrl = (() => {
+    const lat = job?.property?.latitude;
+    const lng = job?.property?.longitude;
+    if (typeof lat === "number" && typeof lng === "number") {
+      return `https://www.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
+    }
+    const text = [job?.property?.address, job?.property?.suburb, job?.property?.state, job?.property?.postcode]
+      .filter(Boolean)
+      .join(", ");
+    return text ? `https://www.google.com/maps?q=${encodeURIComponent(`${text}, Australia`)}&z=15&output=embed` : null;
+  })();
   const assignmentState = payload?.assignmentState ?? null;
   const assignmentResponseStatus = String(assignmentState?.responseStatus ?? "");
   const assignmentResponseLabel = assignmentResponseStatus
@@ -4265,6 +4279,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           onManualEtaChange={setManualEta}
           onSetManualEta={handleSetManualEta}
           navigateUrl={mapsUrl}
+          fullScreen={driveFullScreen && !job?.arrivedAt}
+          onEnterFullScreen={() => setDriveFullScreen(true)}
+          onMinimize={() => setDriveFullScreen(false)}
+          mapEmbedUrl={mapEmbedUrl}
+          propertyName={job?.property?.name ?? null}
+          propertyAddress={job?.property?.address ?? null}
           onPause={handlePauseDriving}
           onResume={handleResumeDriving}
           onArrived={handleArrivedDriving}
