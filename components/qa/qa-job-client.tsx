@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Camera,
@@ -94,6 +94,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   // Which section headers currently have their uploader open.
   const [openUploaders, setOpenUploaders] = useState<Record<string, boolean>>({});
 
+  // ── Instant autosave + offline draft ──
+  // The in-progress inspection (answers, notes, tools) is saved to this device
+  // continuously, so a refresh / navigation / going offline never loses work.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [online, setOnline] = useState(true);
+  const draftRestoredRef = useRef(false);
+  const draftKey = useMemo(() => {
+    const uid = (authSession?.user as { id?: string } | undefined)?.id || authSession?.user?.email || "anon";
+    return `qa-draft-v1:${jobId}:${uid}`;
+  }, [jobId, authSession?.user]);
+
   // ── Time-on-site stopwatch (live, pausable) ──
   // Accumulated paused time + the timestamp of the current running segment.
   const [timer, setTimer] = useState<{ running: boolean; elapsedMs: number; runningSince: number | null }>(
@@ -122,6 +133,54 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   useEffect(() => {
     void load();
   }, [jobId]);
+
+  // Track connectivity so the UI can reassure the inspector their work is safe
+  // offline (it's persisted locally and submitted when back online).
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
+  // Restore a saved draft once the job has loaded (one-time).
+  useEffect(() => {
+    if (draftRestoredRef.current || !payload) return;
+    draftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d && typeof d === "object") {
+        if (d.data && typeof d.data === "object") setData(d.data);
+        if (typeof d.notes === "string") setNotes(d.notes);
+        if (d.tools && typeof d.tools === "object") setTools((prev) => ({ ...prev, ...d.tools }));
+        if (typeof d.savedAt === "number") setDraftSavedAt(d.savedAt);
+      }
+    } catch {
+      /* ignore corrupt/unavailable storage */
+    }
+  }, [payload, draftKey]);
+
+  // Debounced autosave of the in-progress inspection to this device.
+  useEffect(() => {
+    if (!draftRestoredRef.current) return; // never overwrite before restoring
+    const id = setTimeout(() => {
+      try {
+        const savedAt = Date.now();
+        localStorage.setItem(draftKey, JSON.stringify({ data, notes, tools, savedAt }));
+        setDraftSavedAt(savedAt);
+      } catch {
+        /* storage full / unavailable — non-fatal */
+      }
+    }, 600);
+    return () => clearTimeout(id);
+  }, [data, notes, tools, draftKey]);
 
   // Resolve branding + a GPS fix once for the evidence stamp (best-effort).
   useEffect(() => {
@@ -484,6 +543,14 @@ export function QaJobClient({ jobId }: { jobId: string }) {
       description: `Score ${Math.round(body.review?.score ?? 0)}%.${extras.length ? ` Created: ${extras.join(", ")}.` : ""}`,
     });
     setTools(emptyInspectionTools());
+    setData({});
+    setNotes("");
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraftSavedAt(null);
     await load();
   }
 
@@ -1143,9 +1210,18 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                 <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Internal notes and follow-up instructions" />
               </div>
 
-              <Button className="h-11 w-full" onClick={() => void submit()} disabled={saving}>
+              <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+                {!online ? (
+                  <span className="text-amber-600">Offline — saved on this device, submit when you&apos;re back online.</span>
+                ) : draftSavedAt ? (
+                  <span>Draft saved {new Date(draftSavedAt).toLocaleTimeString()}</span>
+                ) : (
+                  <span>Changes save automatically as you go.</span>
+                )}
+              </p>
+              <Button className="h-11 w-full" onClick={() => void submit()} disabled={saving || !online}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                {saving ? "Submitting..." : "Submit QA review"}
+                {saving ? "Submitting..." : !online ? "Offline — can't submit yet" : "Submit QA review"}
               </Button>
               {hasQaSubmission ? (
                 <Button variant="outline" className="h-11 w-full" asChild>
