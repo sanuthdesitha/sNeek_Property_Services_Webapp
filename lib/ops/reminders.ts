@@ -186,7 +186,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             actionUrl: "/cleaner/jobs",
             actionLabel: "Open jobs",
           });
-          const ok = await sendEmail({
+          const ok = await sendEmail({ kind: "job_reminder",
             to: assignment.user.email,
             subject: emailTemplate.subject,
             html: emailTemplate.html,
@@ -386,7 +386,7 @@ export async function resendJobReminder(
         actionUrl: "/cleaner/jobs",
         actionLabel: "Open jobs",
       });
-      const res = await sendEmailDetailed({
+      const res = await sendEmailDetailed({ kind: "job_reminder",
         to: assignment.user.email,
         subject: emailTemplate.subject,
         html: emailTemplate.html,

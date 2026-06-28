@@ -202,7 +202,7 @@ async function dispatchRuleChannels(input: {
 
   if (input.rule.channel === "EMAIL" || input.rule.channel === "BOTH") {
     if (input.recipient.email) {
-      const result = await sendEmailDetailed({
+      const result = await sendEmailDetailed({ kind: "client_automation",
         to: input.recipient.email,
         subject: input.subject,
         html: `<p>${input.body.replaceAll("\n", "<br />")}</p>`,

@@ -12,6 +12,11 @@ import {
   type AppNotificationTemplates,
 } from "@/lib/notification-templates";
 import {
+  DEFAULT_EMAIL_AUTOMATION,
+  sanitizeEmailAutomation,
+  type EmailAutomationSettings,
+} from "@/lib/notifications/email-kinds";
+import {
   DEFAULT_WEBSITE_CONTENT,
   sanitizeWebsiteContent,
   type WebsiteContent,
@@ -266,6 +271,7 @@ export interface AppSettings {
   laundryPortalVisibility: LaundryPortalVisibility;
   notificationDefaults: NotificationDefaultsSettings;
   scheduledNotifications: ScheduledNotificationSettings;
+  emailAutomation: EmailAutomationSettings;
   autoClockOut: AutoClockOutSettings;
   laundryOperations: LaundryOperationsSettings;
   sla: SlaSettings;
@@ -467,6 +473,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationDefaults: {
     categories: DEFAULT_NOTIFICATION_PREFERENCES,
   },
+  emailAutomation: DEFAULT_EMAIL_AUTOMATION,
   scheduledNotifications: {
     reminder24hEnabled: true,
     reminder2hEnabled: true,
@@ -1173,6 +1180,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).scheduledNotifications,
       DEFAULT_SETTINGS.scheduledNotifications
     ),
+    emailAutomation: sanitizeEmailAutomation(
+      (parsed as any).emailAutomation,
+      DEFAULT_SETTINGS.emailAutomation
+    ),
     autoClockOut: sanitizeAutoClockOut(
       (parsed as any).autoClockOut,
       DEFAULT_SETTINGS.autoClockOut
@@ -1272,6 +1283,9 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     websiteContent: input.websiteContent ?? current.websiteContent,
     notificationDefaults: input.notificationDefaults ?? current.notificationDefaults,
     scheduledNotifications: input.scheduledNotifications ?? current.scheduledNotifications,
+    emailAutomation: input.emailAutomation
+      ? sanitizeEmailAutomation(input.emailAutomation, current.emailAutomation)
+      : current.emailAutomation,
     autoClockOut: input.autoClockOut ?? current.autoClockOut,
     propertyFormTemplateOverrides:
       input.propertyFormTemplateOverrides ?? current.propertyFormTemplateOverrides,

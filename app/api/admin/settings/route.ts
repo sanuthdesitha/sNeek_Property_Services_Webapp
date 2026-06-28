@@ -192,6 +192,12 @@ const updateSchema = z.object({
   laundryPortalVisibility: laundryPortalVisibilitySchema.optional(),
   notificationDefaults: notificationDefaultsSchema.optional(),
   scheduledNotifications: scheduledNotificationsSchema.optional(),
+  emailAutomation: z
+    .object({
+      masterEnabled: z.boolean(),
+      types: z.record(z.boolean()),
+    })
+    .optional(),
   autoClockOut: autoClockOutSchema.optional(),
   laundryOperations: laundryOperationsSchema.optional(),
   sla: slaSchema.optional(),

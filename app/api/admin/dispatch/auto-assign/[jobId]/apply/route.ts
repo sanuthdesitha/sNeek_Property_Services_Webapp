@@ -102,7 +102,7 @@ export async function POST(
               timingFlags: "Awaiting confirmation",
             }
           );
-          const emailResult = await sendEmailDetailed({
+          const emailResult = await sendEmailDetailed({ kind: "job_assignment",
             to: cleaner.email,
             subject: emailTemplate.subject,
             html: emailTemplate.html,

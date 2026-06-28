@@ -73,7 +73,7 @@ export async function sendDailyOpsBriefing(now = new Date()) {
   let sent = 0;
   for (const admin of admins) {
     if (!admin.email) continue;
-    const result = await sendEmailDetailed({
+    const result = await sendEmailDetailed({ kind: "daily_briefing",
       to: admin.email,
       subject: `sNeek ops briefing - ${format(now, "dd MMM yyyy")}`,
       html,

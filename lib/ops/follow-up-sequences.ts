@@ -159,7 +159,7 @@ export async function dispatchJobFollowUp(jobId: string, step: FollowUpStep) {
   if (!recipient) return { sent: false, reason: "missing_recipient" as const };
 
   const content = buildStepContent(step, job, recipient.name);
-  const result = await sendEmailDetailed({
+  const result = await sendEmailDetailed({ kind: "follow_up",
     to: recipient.email,
     subject: content.subject,
     html: content.html,

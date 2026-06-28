@@ -35,7 +35,7 @@ export async function sendWebsiteLeadNotification({
   const recipients = getWebsiteLeadRecipients(settings);
   if (recipients.length === 0) return false;
 
-  await sendEmailDetailed({
+  await sendEmailDetailed({ kind: "lead_alert",
     to: recipients,
     subject,
     html,

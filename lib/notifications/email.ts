@@ -4,6 +4,7 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { wrapEmailHtml } from "@/lib/email-templates";
 import { isSuppressed } from "@/lib/email/suppression";
+import { isAutoEmailAllowed, type EmailAutoKind } from "@/lib/notifications/email-kinds";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -50,6 +51,12 @@ export interface EmailPayload {
    * Defaults to false.
    */
   transactional?: boolean;
+  /**
+   * Marks this as an AUTOMATIC email of a given type. When set, the send is
+   * gated on the admin's email-automation settings (master switch + the
+   * per-type switch). Manual / admin-clicked sends omit this and always go.
+   */
+  kind?: EmailAutoKind;
   attachments?: Array<{
     filename: string;
     content: string | Buffer;
@@ -64,6 +71,19 @@ export async function sendEmailDetailed(
     if (!resend) {
       logger.warn({ to: payload.to, subject: payload.subject }, "Email skipped because RESEND_API_KEY is not configured");
       return { ok: false, error: "RESEND_API_KEY is not configured" };
+    }
+
+    // Automatic emails are gated on the admin's email-automation settings
+    // (master switch + per-type switch). Manual sends carry no `kind`.
+    if (payload.kind) {
+      const settings = await getAppSettings();
+      if (!isAutoEmailAllowed(settings.emailAutomation, payload.kind)) {
+        logger.info(
+          { to: payload.to, subject: payload.subject, kind: payload.kind },
+          "Auto email skipped — disabled in email-automation settings"
+        );
+        return { ok: false, skipped: true, error: "auto-email-disabled" };
+      }
     }
 
     // Gate non-transactional sends on the suppression list.

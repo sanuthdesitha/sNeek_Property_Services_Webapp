@@ -59,7 +59,7 @@ export async function notifyAdminsByEmail(input: {
 
   if (emails.length === 0) return { ok: false, count: 0 };
 
-  const result = await sendEmailDetailed({
+  const result = await sendEmailDetailed({ kind: "admin_alert",
     to: emails,
     subject: input.subject,
     html: input.html,

@@ -128,7 +128,7 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
 }
 
 async function sendEmailNotification(input: DeliveryInput, recipient: Recipient, emailPayload: EmailPayload) {
-  const result = await sendEmailDetailed({
+  const result = await sendEmailDetailed({ kind: "report_delivery",
     to: recipient.email!,
     subject: emailPayload.subject,
     html: emailPayload.html,

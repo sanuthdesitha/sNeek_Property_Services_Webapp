@@ -215,7 +215,7 @@ export async function reviewTimeAdjustmentRequest(params: {
     const adminNoteLabel = params.adminNote?.trim()
       ? `<p><strong>Admin note:</strong> ${params.adminNote.trim().replace(/</g, "&lt;")}</p>`
       : "";
-    await sendEmailDetailed({
+    await sendEmailDetailed({ kind: "time_adjustment",
       to: existing.cleaner.email,
       subject: `${settings.companyName} - Clock Adjustment ${params.status}`,
       html: `

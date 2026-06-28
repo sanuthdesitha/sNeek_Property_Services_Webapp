@@ -318,7 +318,7 @@ async function sendDirectSummaryNotification(input: {
   await logPushNotification(input.recipient.id, input.webSubject, input.webBody);
 
   if (input.recipient.email) {
-    const result = await sendEmailDetailed({
+    const result = await sendEmailDetailed({ kind: "tomorrow_prep",
       to: input.recipient.email,
       subject: input.emailSubject,
       html: input.emailHtml,

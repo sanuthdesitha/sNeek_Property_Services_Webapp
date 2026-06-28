@@ -303,7 +303,7 @@ async function dispatchClientJobNotification(input: {
 
     if (sendEmail && recipient.email) {
       const emailPayload = buildEmailPayload(recipient.email, msg);
-      const result = await sendEmailDetailed({
+      const result = await sendEmailDetailed({ kind: "client_job_update",
         to: recipient.email,
         subject: emailPayload.subject,
         html: emailPayload.html,

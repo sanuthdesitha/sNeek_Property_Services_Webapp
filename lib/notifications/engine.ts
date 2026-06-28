@@ -1,5 +1,6 @@
 import { NotificationChannel, NotificationLogStatus, NotificationRecipientRole } from "@prisma/client";
 import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
 import { FINANCE_EVENTS } from "./events";
 
 type NotificationContext = Record<string, string | number | null | undefined>;
@@ -102,6 +103,12 @@ async function sendViaChannel(
     switch (channel) {
       case NotificationChannel.EMAIL: {
         if (!content.html || !options.to) return { ok: false, error: "Missing HTML or recipient email" };
+        // Master email kill-switch — when off, no automatic notification emails
+        // go out (per-category email toggles are applied upstream).
+        const appSettings = await getAppSettings();
+        if (!appSettings.emailAutomation?.masterEnabled) {
+          return { ok: false, error: "auto-email-disabled" };
+        }
         const creds = await getIntegrationCredentials();
         const resendApiKey = (creds.resendApiKey as string) || process.env.RESEND_API_KEY;
         if (!resendApiKey) return { ok: false, error: "RESEND_API_KEY not configured" };

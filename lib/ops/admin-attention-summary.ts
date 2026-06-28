@@ -214,7 +214,7 @@ export async function sendAdminAttentionSummary(options: SendAdminAttentionSumma
     });
 
     if (admin.email) {
-      const result = await sendEmailDetailed({
+      const result = await sendEmailDetailed({ kind: "admin_summary",
         to: admin.email,
         subject: emailTemplate.subject,
         html: emailTemplate.html,

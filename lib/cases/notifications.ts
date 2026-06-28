@@ -73,7 +73,7 @@ async function notifyAdmins(input: {
     }
 
     if (allowEmail && admin.email) {
-      await sendEmailDetailed({ to: admin.email, subject: template.subject, html: template.html });
+      await sendEmailDetailed({ kind: "case_alert", to: admin.email, subject: template.subject, html: template.html });
     }
   }
 }
@@ -141,7 +141,7 @@ async function notifyClientIfVisible(input: {
   }
 
   if (fallbackEmails.size > 0) {
-    await sendEmailDetailed({
+    await sendEmailDetailed({ kind: "case_alert",
       to: Array.from(fallbackEmails),
       subject: template.subject,
       html: template.html,

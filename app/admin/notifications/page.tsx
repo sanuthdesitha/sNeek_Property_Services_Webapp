@@ -5,6 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Bell, BellRing, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { DeliveryProfilesWorkspace } from "@/components/inventory/delivery-profiles-workspace";
+import { EMAIL_AUTO_KINDS } from "@/lib/notifications/email-kinds";
+
+type EmailAutomationState = { masterEnabled: boolean; types: Record<string, boolean> };
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,6 +152,7 @@ export default function NotificationsPage() {
   const [savingControl, setSavingControl] = useState(false);
   const [scheduled, setScheduled] = useState<ScheduledNotificationSettings | null>(null);
   const [defaults, setDefaults] = useState<NotificationDefaultsSettings | null>(null);
+  const [emailAutomation, setEmailAutomation] = useState<EmailAutomationState | null>(null);
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
 
@@ -185,6 +189,9 @@ export default function NotificationsPage() {
       setScheduled(settingsBody.scheduledNotifications);
       setDefaults(settingsBody.notificationDefaults);
     }
+    if (settingsRes.ok && settingsBody?.emailAutomation) {
+      setEmailAutomation(settingsBody.emailAutomation);
+    }
     setUsers(Array.isArray(usersBody) ? usersBody : []);
     setClients(Array.isArray(clientsBody) ? clientsBody : []);
     setLoadingControl(false);
@@ -215,7 +222,11 @@ export default function NotificationsPage() {
     const res = await fetch("/api/admin/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduledNotifications: scheduled, notificationDefaults: defaults }),
+      body: JSON.stringify({
+        scheduledNotifications: scheduled,
+        notificationDefaults: defaults,
+        ...(emailAutomation ? { emailAutomation } : {}),
+      }),
     });
     const body = await res.json().catch(() => ({}));
     setSavingControl(false);
@@ -407,6 +418,60 @@ export default function NotificationsPage() {
                             <Switch checked={Boolean(defaults.categories[category][channel])} onCheckedChange={(value) => setDefaults((prev) => prev ? { ...prev, categories: updateMatrix(prev.categories, category, channel, value) } : prev)} />
                           </div>
                         ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardTitle>Automatic emails</CardTitle>
+                <CardDescription>
+                  Master switch for every auto-sent email, plus each type individually. Manual sends (invoices, quotes,
+                  reports you click &ldquo;send&rdquo; on) and security emails (password reset, codes, invitations) are never affected.
+                </CardDescription>
+              </div>
+              <Button onClick={saveControlCenter} disabled={loadingControl || savingControl || !emailAutomation}>
+                {savingControl ? "Saving..." : "Save email settings"}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!emailAutomation ? (
+                <p className="text-sm text-muted-foreground">Loading email settings...</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+                    <div>
+                      <Label className="text-sm font-semibold">All automatic emails</Label>
+                      <p className="text-xs text-muted-foreground">One switch to turn every automatic email on or off.</p>
+                    </div>
+                    <Switch
+                      checked={emailAutomation.masterEnabled}
+                      onCheckedChange={(value) =>
+                        setEmailAutomation((prev) => (prev ? { ...prev, masterEnabled: value } : prev))
+                      }
+                    />
+                  </div>
+                  <div className={`grid gap-2 sm:grid-cols-2 ${emailAutomation.masterEnabled ? "" : "opacity-50"}`}>
+                    {EMAIL_AUTO_KINDS.map((k) => (
+                      <div key={k.key} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                        <div className="min-w-0">
+                          <Label className="text-sm">{k.label}</Label>
+                          <p className="text-xs text-muted-foreground">{k.description}</p>
+                        </div>
+                        <Switch
+                          disabled={!emailAutomation.masterEnabled}
+                          checked={emailAutomation.types?.[k.key] !== false}
+                          onCheckedChange={(value) =>
+                            setEmailAutomation((prev) =>
+                              prev ? { ...prev, types: { ...prev.types, [k.key]: value } } : prev
+                            )
+                          }
+                        />
                       </div>
                     ))}
                   </div>

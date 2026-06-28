@@ -205,7 +205,7 @@ export async function notifyAutoSyncChanges(input: {
     }
 
     if (allowEmail && admin.email) {
-      const result = await sendEmailDetailed({
+      const result = await sendEmailDetailed({ kind: "ical_alert",
         to: admin.email,
         subject,
         html: emailHtml,

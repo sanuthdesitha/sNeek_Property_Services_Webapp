@@ -88,7 +88,7 @@ export async function generateInvoiceForUser(
 
   // Email the client a notification that an invoice has been generated.
   if (user.email) {
-    await sendEmailDetailed({
+    await sendEmailDetailed({ kind: "auto_invoice",
       to: user.email,
       subject: `Your invoice ${invoice.invoiceNumber} from sNeek Property Services`,
       html: `<p>Hi ${user.name ?? "there"},</p>

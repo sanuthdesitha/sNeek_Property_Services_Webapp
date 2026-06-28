@@ -74,7 +74,7 @@ export async function notifyAdminsOfNewProfile(input: {
     }
 
     if (allowEmail && admin.email) {
-      await sendEmailDetailed({
+      await sendEmailDetailed({ kind: "profile_welcome",
         to: admin.email,
         subject: template.subject,
         html: template.html,

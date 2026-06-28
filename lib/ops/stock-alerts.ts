@@ -99,7 +99,7 @@ export async function sendStockAlerts(options: SendStockAlertsOptions = {}) {
     const inventoryLink = /^https?:\/\//i.test(inventoryUrl)
       ? `<p><a href="${inventoryUrl}">View shopping list</a></p>`
       : "";
-    const ok = await sendEmail({
+    const ok = await sendEmail({ kind: "stock_alert",
       to: admin.email,
       subject: `sNeek Ops: ${lowStocks.length} items low on stock`,
       html: `<p>${lowStocks.length} items are below reorder threshold:</p><pre>${lines}</pre>${inventoryLink}`,

@@ -58,7 +58,7 @@ async function notifyAdmins(input: {
     }
 
     if (allowEmail && admin.email) {
-      await sendEmailDetailed({
+      await sendEmailDetailed({ kind: "inventory_update",
         to: admin.email,
         subject: input.templateSubject,
         html: input.templateHtml,
