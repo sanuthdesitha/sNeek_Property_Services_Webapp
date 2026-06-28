@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getPerformanceMetrics } from "@/lib/workforce/performance";
+import {
+  getPerformanceMetrics,
+  emptyPerformanceMetrics,
+  type PerformanceMetrics,
+} from "@/lib/workforce/performance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Users, Star, Clock, CheckCircle2, ShieldCheck, FileCheck } from "lucide-react";
@@ -46,13 +50,35 @@ export async function PerformanceLeaderboard() {
     orderBy: { name: "asc" },
   });
 
-  const metricsPerCleaner = await Promise.all(
-    cleaners.map((c) =>
-      getPerformanceMetrics(c.id, 30).then((metrics) => ({
-        cleaner: c,
-        metrics,
-      })),
-    ),
+  // Computing metrics for EVERY cleaner at once (N × ~10 correlated queries)
+  // exhausted the connection pool and timed the request out into a 502 on real
+  // teams. Bound concurrency + time-box each cleaner so the page always renders;
+  // a slow/failed cleaner falls back to empty metrics ("—").
+  async function safeMetrics(userId: string): Promise<PerformanceMetrics> {
+    try {
+      return await Promise.race([
+        getPerformanceMetrics(userId, 30),
+        new Promise<PerformanceMetrics>((resolve) =>
+          setTimeout(() => resolve(emptyPerformanceMetrics(userId, 30)), 10_000),
+        ),
+      ]);
+    } catch {
+      return emptyPerformanceMetrics(userId, 30);
+    }
+  }
+
+  const CONCURRENCY = 5;
+  const metricsPerCleaner: Array<{ cleaner: (typeof cleaners)[number]; metrics: PerformanceMetrics }> =
+    new Array(cleaners.length);
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, cleaners.length) }, async () => {
+      while (cursor < cleaners.length) {
+        const idx = cursor++;
+        const c = cleaners[idx];
+        metricsPerCleaner[idx] = { cleaner: c, metrics: await safeMetrics(c.id) };
+      }
+    }),
   );
 
   // Roster-wide rollup for the header strip

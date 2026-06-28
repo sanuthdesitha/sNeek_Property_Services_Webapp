@@ -5,8 +5,25 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import {
   getPerformanceMetrics,
+  emptyPerformanceMetrics,
   type PerformanceMetrics,
 } from "@/lib/workforce/performance";
+
+// Bound each window's metrics computation so a slow/large account can never
+// hang the request into a gateway timeout (502). On timeout or error we render
+// the page with empty metrics for that window ("—") instead of failing.
+async function loadWindow(userId: string, windowDays: number): Promise<PerformanceMetrics> {
+  try {
+    return await Promise.race([
+      getPerformanceMetrics(userId, windowDays),
+      new Promise<PerformanceMetrics>((resolve) =>
+        setTimeout(() => resolve(emptyPerformanceMetrics(userId, windowDays)), 12_000),
+      ),
+    ]);
+  } catch {
+    return emptyPerformanceMetrics(userId, windowDays);
+  }
+}
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -101,11 +118,12 @@ export default async function CleanerPerformanceDetailPage({
     notFound();
   }
 
-  // Fetch metrics for all three windows in parallel
+  // Fetch metrics for all three windows in parallel, each time-bounded so the
+  // page can't 502 on a large account.
   const [m30, m90, m365] = await Promise.all([
-    getPerformanceMetrics(user.id, 30),
-    getPerformanceMetrics(user.id, 90),
-    getPerformanceMetrics(user.id, 365),
+    loadWindow(user.id, 30),
+    loadWindow(user.id, 90),
+    loadWindow(user.id, 365),
   ]);
 
   const trendData: WindowedMetric[] = [

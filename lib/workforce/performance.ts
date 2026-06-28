@@ -73,6 +73,28 @@ export interface PerformanceMetrics {
   };
 }
 
+/** A fully-empty metrics object — used as a graceful fallback when a window
+ *  errors or times out, so the performance page never 500s/502s. */
+export function emptyPerformanceMetrics(userId: string, windowDays: number): PerformanceMetrics {
+  return {
+    userId,
+    windowDays,
+    windowStart: new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000),
+    quality: { score: null, sampleSize: 0 },
+    reliability: { onTimePercent: null, sampleSize: 0 },
+    punctuality: { avgMinutesLate: null, sampleSize: 0 },
+    attendance: { completedJobs: 0, assignedJobs: 0, percent: null },
+    documentation: { fullyDocumentedPercent: null, sampleSize: 0 },
+    customerSatisfaction: { avgRating: null, sampleSize: 0 },
+    responseRate: { acceptedPercent: null, sampleSize: 0 },
+    disputeRate: { disputes: 0, totalJobs: 0, percent: null },
+    noShowRate: { noShows: 0, scheduled: 0, percent: null },
+    documentCompliance: { current: 0, expired: 0, percent: null },
+    trainingCompletion: { completed: 0, assigned: 0, percent: null },
+    reworkRate: { reworks: 0, majorReworks: 0, minutesLost: 0, amountLost: 0, totalJobs: 0, percent: null },
+  };
+}
+
 /**
  * Build a JS Date from Job.scheduledDate (UTC midnight) + Job.startTime ("HH:mm" local).
  * Returns null if either is missing. We treat the time as the property's local time but
