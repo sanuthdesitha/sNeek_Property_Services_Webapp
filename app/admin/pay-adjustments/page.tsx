@@ -130,6 +130,64 @@ export default function AdminPayAdjustmentsPage() {
   const [reverseAmount, setReverseAmount] = useState("");
   const [savingReverse, setSavingReverse] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Admin "add extra payment"
+  const [addOpen, setAddOpen] = useState(false);
+  const [cleaners, setCleaners] = useState<Array<{ id: string; name: string | null; email: string }>>([]);
+  const [addCleanerId, setAddCleanerId] = useState("");
+  const [addAmount, setAddAmount] = useState("");
+  const [addTitle, setAddTitle] = useState("Extra payment");
+  const [addNote, setAddNote] = useState("");
+  const [addJobNumber, setAddJobNumber] = useState("");
+  const [addAutoApprove, setAddAutoApprove] = useState(true);
+  const [addSaving, setAddSaving] = useState(false);
+
+  async function openAddPayment() {
+    setAddCleanerId("");
+    setAddAmount("");
+    setAddTitle("Extra payment");
+    setAddNote("");
+    setAddJobNumber("");
+    setAddAutoApprove(true);
+    setAddOpen(true);
+    if (cleaners.length === 0) {
+      const res = await fetch("/api/admin/users", { cache: "no-store" });
+      const body = await res.json().catch(() => []);
+      setCleaners(
+        (Array.isArray(body) ? body : [])
+          .filter((u: any) => u.role === "CLEANER" && u.isActive !== false)
+          .map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+      );
+    }
+  }
+
+  async function submitAddPayment() {
+    const amount = Number(addAmount);
+    if (!addCleanerId) return toast({ title: "Select a cleaner.", variant: "destructive" });
+    if (!Number.isFinite(amount) || amount <= 0) return toast({ title: "Enter a valid amount.", variant: "destructive" });
+    if (!addTitle.trim()) return toast({ title: "Title is required.", variant: "destructive" });
+    setAddSaving(true);
+    const res = await fetch("/api/admin/pay-adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cleanerId: addCleanerId,
+        amount,
+        title: addTitle.trim(),
+        note: addNote.trim() || undefined,
+        jobNumber: addJobNumber.trim() || undefined,
+        autoApprove: addAutoApprove,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setAddSaving(false);
+    if (!res.ok) {
+      toast({ title: "Could not add payment", description: body.error ?? "Request failed.", variant: "destructive" });
+      return;
+    }
+    toast({ title: addAutoApprove ? "Extra payment added & approved" : "Extra payment added (pending review)" });
+    setAddOpen(false);
+    await load();
+  }
 
   async function load() {
     setLoading(true);
@@ -471,7 +529,15 @@ export default function AdminPayAdjustmentsPage() {
         icon={<HandCoins />}
         title="Extra Payment Requests"
         description="Review cleaner hourly/fixed extra payment requests."
-        actions={<Button variant="outline" onClick={load}>Refresh</Button>}
+        actions={
+          <>
+            <Button onClick={openAddPayment}>
+              <HandCoins className="mr-2 h-4 w-4" />
+              Add extra payment
+            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
+          </>
+        }
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -683,6 +749,57 @@ export default function AdminPayAdjustmentsPage() {
             </div>
             <Button className="w-full" onClick={sendToClient} disabled={sendingClientApproval}>
               {sendingClientApproval ? "Sending..." : "Send to Client"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addOpen} onOpenChange={(open) => !open && setAddOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add extra payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Cleaner</Label>
+              <Select value={addCleanerId} onValueChange={setAddCleanerId}>
+                <SelectTrigger><SelectValue placeholder="Select cleaner..." /></SelectTrigger>
+                <SelectContent>
+                  {cleaners.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Amount ($)</Label>
+                <Input type="number" min={0} step="0.01" value={addAmount} onChange={(e) => setAddAmount(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Link to job # <span className="text-muted-foreground">(optional)</span></Label>
+                <Input value={addJobNumber} onChange={(e) => setAddJobNumber(e.target.value)} placeholder="Leave blank = standalone" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input value={addTitle} onChange={(e) => setAddTitle(e.target.value)} placeholder="e.g. Travel reimbursement" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note <span className="text-muted-foreground">(optional)</span></Label>
+              <Textarea value={addNote} onChange={(e) => setAddNote(e.target.value)} rows={2} />
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-border p-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={addAutoApprove}
+                onChange={(e) => setAddAutoApprove(e.target.checked)}
+              />
+              <span>Approve immediately (adds straight to the cleaner&apos;s invoice). Uncheck to leave pending.</span>
+            </label>
+            <Button className="w-full" onClick={submitAddPayment} disabled={addSaving}>
+              {addSaving ? "Adding..." : "Add payment"}
             </Button>
           </div>
         </DialogContent>
