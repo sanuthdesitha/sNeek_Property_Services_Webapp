@@ -174,6 +174,17 @@ export async function GET() {
 
     // Enrich pay adjustments with linked client approval (if any)
     const allClientApprovals = await listClientApprovals();
+
+    // Pay-request client approvals are surfaced (read-only / "client pending")
+    // under the Pay Requests tab — they must NOT also appear in the admin
+    // "Client Approvals" list as something the admin can approve on the client's
+    // behalf. Once a pay request is sent for client approval, only the client
+    // can approve it.
+    const clientApprovalsForAdmin = clientApprovals.filter((ca) => {
+      const meta = ca.metadata as Record<string, unknown> | null;
+      return meta?.source !== "pay_adjustment";
+    });
+
     const enrichedPayAdjustments = payAdjustments.map((pa) => {
       const linked = allClientApprovals
         .filter((ca) => {
@@ -194,7 +205,7 @@ export async function GET() {
       timingRequests: timingRequests.map((r) => ({ ...r, job: timingJobMap[r.jobId] ?? null })),
       payAdjustments: enrichedPayAdjustments,
       timeAdjustments,
-      clientApprovals,
+      clientApprovals: clientApprovalsForAdmin,
       flaggedLaundry,
       rescheduleRequests,
       qaReworkTransfers,
@@ -204,7 +215,7 @@ export async function GET() {
         timingRequests: timingRequests.length,
         payAdjustments: payAdjustments.length,
         timeAdjustments: timeAdjustments.length,
-        clientApprovals: clientApprovals.length,
+        clientApprovals: clientApprovalsForAdmin.length,
         flaggedLaundry: flaggedLaundry.length,
         rescheduleRequests: rescheduleRequests.length,
         qaReworkTransfers: qaReworkTransfers.length,
@@ -214,7 +225,7 @@ export async function GET() {
           timingRequests.length +
           payAdjustments.length +
           timeAdjustments.length +
-          clientApprovals.length +
+          clientApprovalsForAdmin.length +
           flaggedLaundry.length +
           rescheduleRequests.length +
           qaReworkTransfers.length +
