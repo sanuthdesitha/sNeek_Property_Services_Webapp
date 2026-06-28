@@ -290,7 +290,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
       return {
         jobId: job.id,
-        date: new Date(job.completedAt ?? job.scheduledDate).toLocaleDateString("en-AU"),
+        date: new Date(job.completedAt ?? job.scheduledDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
         jobName: `${job.property.name} - ${job.jobType.replace(/_/g, " ")}`,
         property: job.property.name,
         jobType: job.jobType.replace(/_/g, " "),
@@ -328,7 +328,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   });
   const expenseRows = shoppingExpenseRuns.map((run) => ({
     runId: run.id,
-    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU"),
+    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
     runName: run.name,
     properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
     amount: Number(run.totals.actualTotalCost ?? 0),
@@ -338,7 +338,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const expenseTotal = expenseRows.reduce((sum, row) => sum + row.amount, 0);
   const shoppingTimeRows = shoppingTimeRuns.map((run) => ({
     runId: run.id,
-    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU"),
+    date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
     runName: run.name,
     properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
     minutes: Number(run.shoppingTime.approvedMinutes ?? 0),
@@ -530,11 +530,11 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <div>
               <h1 class="title">${escapeHtml(data.companyName)} Cleaner Invoice</h1>
               <p class="sub"><strong>Cleaner:</strong> ${escapeHtml(data.cleanerName)} (${escapeHtml(data.cleanerEmail)})</p>
-              <p class="sub"><strong>Period:</strong> ${data.start.toLocaleDateString("en-AU")} to ${data.end.toLocaleDateString("en-AU")}</p>
+              <p class="sub"><strong>Period:</strong> ${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} to ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}</p>
             </div>
           </div>
           <div>
-            <p class="sub"><strong>Generated:</strong> ${new Date().toLocaleString("en-AU")}</p>
+            <p class="sub"><strong>Generated:</strong> ${new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</p>
           </div>
         </div>
         ${partiesHtml}
