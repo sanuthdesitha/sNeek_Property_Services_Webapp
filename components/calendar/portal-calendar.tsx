@@ -86,6 +86,10 @@ export function PortalCalendar({
   const [selectedEvent, setSelectedEvent] = useState<PortalCalendarSelectedEvent | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [currentView, setCurrentView] = useState<CalendarViewPreference>("dayGridMonth");
+  // On phones a month/week grid is unreadable, so we default to a clean
+  // day-grouped agenda list (built from the same events) and let users switch
+  // to the grid if they want.
+  const [agendaMode, setAgendaMode] = useState(false);
   const [periodLabel, setPeriodLabel] = useState("");
   // Tracks whether the user explicitly picked a view this session, so we don't
   // stomp their choice when the viewport flips between mobile/desktop.
@@ -99,11 +103,41 @@ export function PortalCalendar({
     }, {});
   }, [events]);
 
+  // Events grouped by day (ascending) for the mobile agenda list.
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, PortalCalendarEvent[]>();
+    [...events]
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+      .forEach((event) => {
+        const key = format(new Date(event.start), "yyyy-MM-dd");
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(event);
+      });
+    return Array.from(map.entries());
+  }, [events]);
+
+  function openAgendaEvent(event: PortalCalendarEvent) {
+    const d = event.extendedProps;
+    setSelectedEvent({
+      id: event.id,
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      badgeLabel: d.badgeLabel,
+      subtitle: d.subtitle,
+      meta: d.meta,
+      cleanerName: d.cleanerName,
+      href: d.href,
+      assignmentResponseStatus: d.assignmentResponseStatus,
+    });
+  }
+
   // Restore a saved desktop view preference (mobile always opens on Day).
   useEffect(() => {
     const media = window.matchMedia("(max-width: 768px)");
     const compact = media.matches;
     setIsCompactViewport(compact);
+    setAgendaMode(compact);
 
     let initial: CalendarViewPreference = compact ? "timeGridDay" : "dayGridMonth";
     if (!compact && viewPreferenceKey) {
@@ -123,6 +157,7 @@ export function PortalCalendar({
     const syncViewport = (event: MediaQueryListEvent) => {
       setIsCompactViewport(event.matches);
       if (explicitViewRef.current) return;
+      setAgendaMode(event.matches);
       const next: CalendarViewPreference = event.matches ? "timeGridDay" : "dayGridMonth";
       const calendarApi = calendarRef.current?.getApi();
       if (calendarApi && calendarApi.view.type !== next) calendarApi.changeView(next);
@@ -131,8 +166,14 @@ export function PortalCalendar({
     return () => media.removeEventListener("change", syncViewport);
   }, [viewPreferenceKey]);
 
+  function selectAgenda() {
+    explicitViewRef.current = true;
+    setAgendaMode(true);
+  }
+
   function changeView(view: CalendarViewPreference) {
     explicitViewRef.current = true;
+    setAgendaMode(false);
     const api = calendarRef.current?.getApi();
     if (api) api.changeView(view);
     setCurrentView(view);
@@ -318,38 +359,55 @@ export function PortalCalendar({
           {/* Custom toolbar — wraps and stacks cleanly on mobile, big tap targets. */}
           <div className="flex flex-col gap-3 border-b border-border bg-surface-raised/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
             <div className="flex items-center gap-2">
-              <div className="inline-flex items-center rounded-full border border-border bg-surface">
-                <button
-                  type="button"
-                  onClick={goPrev}
-                  aria-label="Previous"
-                  className="flex h-9 w-9 items-center justify-center rounded-l-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={goNext}
-                  aria-label="Next"
-                  className="flex h-9 w-9 items-center justify-center rounded-r-full border-l border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <Button type="button" size="sm" variant="outline" className="h-9 rounded-full" onClick={goToday}>
-                Today
-              </Button>
-              <p className="truncate text-sm font-semibold sm:text-base">{periodLabel}</p>
+              {agendaMode ? (
+                <p className="truncate text-sm font-semibold sm:text-base">Agenda · {events.length} {events.length === 1 ? "item" : "items"}</p>
+              ) : (
+                <>
+                  <div className="inline-flex items-center rounded-full border border-border bg-surface">
+                    <button
+                      type="button"
+                      onClick={goPrev}
+                      aria-label="Previous"
+                      className="flex h-9 w-9 items-center justify-center rounded-l-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      aria-label="Next"
+                      className="flex h-9 w-9 items-center justify-center rounded-r-full border-l border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" className="h-9 rounded-full" onClick={goToday}>
+                    Today
+                  </Button>
+                  <p className="truncate text-sm font-semibold sm:text-base">{periodLabel}</p>
+                </>
+              )}
             </div>
 
             <div className="inline-flex w-full shrink-0 rounded-full border border-border bg-surface p-0.5 sm:w-auto">
+              <button
+                type="button"
+                onClick={selectAgenda}
+                className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
+                  agendaMode
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Agenda
+              </button>
               {CALENDAR_VIEW_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => changeView(option.value)}
                   className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
-                    currentView === option.value
+                    !agendaMode && currentView === option.value
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
@@ -360,6 +418,63 @@ export function PortalCalendar({
             </div>
           </div>
 
+          {agendaMode ? (
+            <div className="max-h-[70vh] overflow-y-auto p-2 sm:p-3">
+              {eventsByDay.length === 0 ? (
+                <p className="p-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>
+              ) : (
+                <div className="space-y-4">
+                  {eventsByDay.map(([day, dayEvents]) => (
+                    <div key={day}>
+                      <p className="sticky top-0 z-[1] bg-surface/95 py-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                        {format(new Date(day), "EEEE d MMMM")}
+                      </p>
+                      <div className="space-y-2">
+                        {dayEvents.map((event) => {
+                          const d = event.extendedProps;
+                          return (
+                            <button
+                              key={event.id}
+                              type="button"
+                              onClick={() => openAgendaEvent(event)}
+                              className="flex w-full items-start gap-2.5 rounded-xl border border-border bg-surface-raised/40 p-3 text-left transition-colors active:bg-muted/50"
+                            >
+                              <span
+                                className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={dotStyle(event.borderColor)}
+                                aria-hidden
+                              />
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {d.badgeLabel}
+                                  </span>
+                                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                                    {event.allDay
+                                      ? "All day"
+                                      : `${format(new Date(event.start), "h:mm a")}${
+                                          event.end ? ` – ${format(new Date(event.end), "h:mm a")}` : ""
+                                        }`}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-semibold leading-snug text-foreground">{event.title}</p>
+                                {d.cleanerName ? (
+                                  <CleanerLine name={d.cleanerName} className="text-[11px] text-muted-foreground" />
+                                ) : null}
+                                {d.subtitle ? (
+                                  <p className="truncate text-[11px] text-muted-foreground">{d.subtitle}</p>
+                                ) : null}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
           <FullCalendar
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -404,6 +519,7 @@ export function PortalCalendar({
               },
             }}
           />
+          )}
         </div>
       )}
 
