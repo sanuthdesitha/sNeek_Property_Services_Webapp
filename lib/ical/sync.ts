@@ -879,6 +879,124 @@ async function syncTurnoverJobsForReservations(params: {
   }
 }
 
+// Statuses where the cleaner hasn't started work yet — safe to remove if the
+// booking vanished. Anything from EN_ROUTE onward means real work is underway
+// or done, so we never auto-delete those.
+const PRUNABLE_JOB_STATUSES = new Set(["UNASSIGNED", "OFFERED", "ASSIGNED"]);
+
+/**
+ * Remove jobs whose reservation is no longer in the feed (cancelled, or the
+ * booking moved to a brand-new UID). Only acts inside the window the feed
+ * covers ([today, furthest feed turnover]) so far-future jobs the feed didn't
+ * reach are never touched, and only on not-yet-started jobs. Assigned cleaners
+ * are notified, then the job + its now-orphaned reservation are removed.
+ */
+async function pruneVanishedReservationJobs(params: {
+  propertyId: string;
+  propertyName: string;
+  feedUids: Set<string>;
+  feedMaxEndDate: Date | null;
+  todayUtcDateOnly: Date;
+  summary: IcalSyncSummary;
+  snapshot: IcalSyncSnapshot;
+}) {
+  // No future events in the feed → we can't establish a safe window. Never
+  // prune on an empty/partial feed (that would wipe a property's schedule).
+  if (!params.feedMaxEndDate) return;
+
+  const stale = await db.reservation.findMany({
+    where: {
+      propertyId: params.propertyId,
+      uid: { notIn: Array.from(params.feedUids) },
+      endDate: { gte: params.todayUtcDateOnly, lte: addDays(params.feedMaxEndDate, 1) },
+    },
+    include: {
+      job: {
+        include: {
+          assignments: { where: { removedAt: null }, select: { userId: true } },
+        },
+      },
+    },
+  });
+
+  for (const reservation of stale) {
+    const job = reservation.job;
+
+    // Orphan reservation with no job — just clear it.
+    if (!job) {
+      try {
+        await db.reservation.delete({ where: { id: reservation.id } });
+      } catch (err) {
+        logger.error({ err, reservationId: reservation.id }, "[ical] failed to delete orphan reservation");
+      }
+      continue;
+    }
+
+    // Leave jobs where a cleaner already started/finished — that's real work.
+    if (!PRUNABLE_JOB_STATUSES.has(job.status)) continue;
+
+    const before = jobState(job);
+    const oldDateKey = job.scheduledDate.toISOString().slice(0, 10);
+    const assignedUserIds = Array.from(
+      new Set((job.assignments ?? []).map((a) => a.userId).filter((id): id is string => Boolean(id)))
+    );
+
+    try {
+      await db.$transaction(async (tx) => {
+        // Tell the assigned cleaner(s) first (no jobId — the job is being deleted).
+        if (assignedUserIds.length > 0) {
+          await tx.notification.createMany({
+            data: assignedUserIds.map((userId) => ({
+              userId,
+              channel: NotificationChannel.PUSH,
+              subject: "Shift cancelled — booking removed",
+              body: `${params.propertyName}: your shift on ${oldDateKey} was cancelled because the booking is no longer on the calendar. It has been removed from your schedule.`,
+              status: NotificationStatus.SENT,
+              sentAt: new Date(),
+            })),
+          });
+        }
+        // Safe cascade delete (mirrors the admin "delete job" handler).
+        await tx.stockTx.deleteMany({ where: { submission: { jobId: job.id } } });
+        await tx.submissionMedia.deleteMany({ where: { submission: { jobId: job.id } } });
+        await tx.formSubmission.deleteMany({ where: { jobId: job.id } });
+        await tx.timeLog.deleteMany({ where: { jobId: job.id } });
+        await tx.jobAssignment.deleteMany({ where: { jobId: job.id } });
+        await tx.qAReview.deleteMany({ where: { jobId: job.id } });
+        await tx.issueTicket.deleteMany({ where: { jobId: job.id } });
+        await tx.report.deleteMany({ where: { jobId: job.id } });
+        await tx.cleanerPayAdjustment.deleteMany({ where: { jobId: job.id } });
+        await tx.laundryConfirmation.deleteMany({ where: { laundryTask: { jobId: job.id } } });
+        await tx.laundryTask.deleteMany({ where: { jobId: job.id } });
+        // Detach any older job-linked notifications before deleting the job.
+        await tx.notification.deleteMany({ where: { jobId: job.id } });
+        await tx.auditLog.deleteMany({ where: { jobId: job.id } });
+        await tx.job.delete({ where: { id: job.id } });
+        await tx.reservation.delete({ where: { id: reservation.id } });
+      });
+
+      if (before) {
+        params.snapshot.jobs.push({
+          id: job.id,
+          reservationId: reservation.id,
+          created: false,
+          before,
+          after: { ...before, status: "DELETED" },
+        });
+      }
+      params.summary.assignedShiftsCleared += assignedUserIds.length > 0 ? 1 : 0;
+      params.summary.warnings.push(
+        `Removed a stale ${assignedUserIds.length > 0 ? "assigned " : ""}job on ${oldDateKey}${
+          assignedUserIds.length > 0 ? ` and notified ${assignedUserIds.length} cleaner${assignedUserIds.length === 1 ? "" : "s"}` : ""
+        } because the booking is no longer on the calendar.`
+      );
+    } catch (err) {
+      logger.error({ err, jobId: job.id, reservationId: reservation.id }, "[ical] failed to prune vanished reservation job");
+      params.summary.warnings.push(`Could not auto-remove a stale job on ${oldDateKey} (see logs).`);
+    }
+  }
+}
+
 async function finalizeRun(params: {
   runId: string;
   integrationId: string;
@@ -1012,6 +1130,17 @@ export async function syncPropertyIcal(
         );
       }
 
+    // The set of booking UIDs the feed still contains, and the furthest
+    // turnover date it covers. Used to detect bookings that VANISHED from the
+    // feed (cancelled, or moved to a brand-new UID) so their stale jobs can be
+    // removed — but only inside the window the feed actually covers, so we never
+    // wipe far-future jobs the feed simply didn't reach.
+    const feedUids = new Set(uniqueEvents.map((event) => event.uid));
+    let feedMaxEndDate: Date | null = null;
+    for (const event of uniqueEvents) {
+      if (!feedMaxEndDate || event.endDate > feedMaxEndDate) feedMaxEndDate = event.endDate;
+    }
+
     const sameDayCheckinsByDate = new Map<
       string,
       { checkinTime: string | null; reservationContext: JobReservationContext | undefined }
@@ -1082,6 +1211,21 @@ export async function syncPropertyIcal(
       snapshot,
       syncOptions,
     });
+
+    // Remove jobs whose booking is no longer in the calendar (cancelled, or
+    // moved to a new UID) — notifying any assigned cleaner. Gated on the same
+    // "keep linked jobs in sync" option as date updates.
+    if (syncOptions.updateExistingLinkedJobs) {
+      await pruneVanishedReservationJobs({
+        propertyId: integration.propertyId,
+        propertyName: integration.property.name,
+        feedUids,
+        feedMaxEndDate,
+        todayUtcDateOnly,
+        summary,
+        snapshot,
+      });
+    }
 
     try {
       const pendingLaundryDraft = await refreshLaundrySyncDraftForProperty({
