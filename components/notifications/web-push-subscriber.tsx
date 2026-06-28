@@ -106,7 +106,7 @@ export function WebPushSubscriber() {
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToBuffer(VAPID_PUBLIC_KEY),
+          applicationServerKey: urlBase64ToBuffer(vapidKey),
         });
       }
 
