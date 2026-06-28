@@ -21,58 +21,68 @@ export async function GET() {
   }
 
   const since = new Date(Date.now() - SNAPSHOT_WINDOW_MS);
-  const pings = await db.cleanerLocationPing.findMany({
-    where: { timestamp: { gte: since } },
-    orderBy: { timestamp: "desc" },
-    distinct: ["userId"],
-    include: {
-      user: { select: { id: true, name: true, lastSeenAt: true } },
-    },
-  });
 
-  const userIds = Array.from(new Set(pings.map((ping) => ping.userId)));
-
-  const [runningLogs, activeJobs] = userIds.length
-    ? await Promise.all([
-        // One running (stoppedAt: null) time log per cleaner — the live timer.
-        db.timeLog.findMany({
-          where: { userId: { in: userIds }, stoppedAt: null },
-          orderBy: { startedAt: "desc" },
-          select: {
-            userId: true,
-            startedAt: true,
-            job: {
-              select: {
-                id: true,
-                jobNumber: true,
-                status: true,
-                property: { select: { name: true, suburb: true } },
-              },
-            },
-          },
-        }),
-        // En-route / in-progress assignments for cleaners without a running log.
-        db.job.findMany({
-          where: {
-            status: { in: [JobStatus.EN_ROUTE, JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
-            assignments: { some: { userId: { in: userIds }, removedAt: null } },
-          },
-          orderBy: { updatedAt: "desc" },
+  // A cleaner counts as "active" if they have a running timer (clocked in) OR an
+  // en-route/in-progress assignment OR a fresh ping. We never gate purely on the
+  // 15-minute ping window, so a clocked-in cleaner whose phone stopped pinging
+  // (backgrounded / lost signal) still shows on the map at their last known spot.
+  const [runningLogs, activeJobs, freshPings] = await Promise.all([
+    db.timeLog.findMany({
+      where: { stoppedAt: null },
+      orderBy: { startedAt: "desc" },
+      select: {
+        userId: true,
+        startedAt: true,
+        job: {
           select: {
             id: true,
             jobNumber: true,
             status: true,
-            arrivedAt: true,
-            enRouteEtaMinutes: true,
             property: { select: { name: true, suburb: true } },
-            assignments: {
-              where: { removedAt: null, userId: { in: userIds } },
-              select: { userId: true },
-            },
           },
-        }),
-      ])
-    : [[], []];
+        },
+      },
+    }),
+    db.job.findMany({
+      where: {
+        status: { in: [JobStatus.EN_ROUTE, JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
+        assignments: { some: { removedAt: null } },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        jobNumber: true,
+        status: true,
+        arrivedAt: true,
+        enRouteEtaMinutes: true,
+        property: { select: { name: true, suburb: true } },
+        assignments: { where: { removedAt: null }, select: { userId: true } },
+      },
+    }),
+    db.cleanerLocationPing.findMany({
+      where: { timestamp: { gte: since } },
+      orderBy: { timestamp: "desc" },
+      distinct: ["userId"],
+      select: { userId: true },
+    }),
+  ]);
+
+  // Union of everyone we should plot.
+  const activeUserIds = new Set<string>();
+  runningLogs.forEach((log) => activeUserIds.add(log.userId));
+  activeJobs.forEach((job) => job.assignments.forEach((a) => activeUserIds.add(a.userId)));
+  freshPings.forEach((p) => activeUserIds.add(p.userId));
+  const userIds = Array.from(activeUserIds);
+
+  // Latest ping per active cleaner (ANY age) — their last known location.
+  const pings = userIds.length
+    ? await db.cleanerLocationPing.findMany({
+        where: { userId: { in: userIds } },
+        orderBy: { timestamp: "desc" },
+        distinct: ["userId"],
+        include: { user: { select: { id: true, name: true, lastSeenAt: true } } },
+      })
+    : [];
 
   const now = Date.now();
   const timerByUser = new Map<string, { startedAt: Date; job: (typeof runningLogs)[number]["job"] }>();
@@ -119,10 +129,13 @@ export async function GET() {
         : activeJob
           ? "ON_SITE"
           : "IDLE";
+    const pingAgeMinutes = Math.max(0, Math.round((now - ping.timestamp.getTime()) / 60_000));
     return {
       ...ping,
       liveStatus,
       activeJob,
+      pingAgeMinutes,
+      stale: now - ping.timestamp.getTime() > SNAPSHOT_WINDOW_MS,
       timer: timer
         ? {
             startedAt: timer.startedAt,

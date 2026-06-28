@@ -6,8 +6,26 @@ import { Bell, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 const DISMISS_KEY = "sneek-web-push-prompt-dismissed";
+
+// NEXT_PUBLIC_* is inlined at build time and is usually empty in prod Docker
+// builds, so resolve the VAPID public key at runtime from /api/public/push-config
+// (which reads the server-side key / admin credential), falling back to the
+// build-time value when present.
+let cachedVapidKey: string | null = null;
+async function resolveVapidPublicKey(): Promise<string> {
+  const buildTime = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "").trim();
+  if (buildTime) return buildTime;
+  if (cachedVapidKey !== null) return cachedVapidKey;
+  try {
+    const res = await fetch("/api/public/push-config", { cache: "force-cache" });
+    const body = await res.json().catch(() => ({}));
+    cachedVapidKey = String(body?.vapidPublicKey ?? "").trim();
+  } catch {
+    cachedVapidKey = "";
+  }
+  return cachedVapidKey;
+}
 
 /** Convert a base64url VAPID public key into the ArrayBuffer push expects. */
 function urlBase64ToBuffer(base64String: string): ArrayBuffer {
@@ -58,7 +76,8 @@ export function WebPushSubscriber() {
   const handledRef = useRef(false);
 
   const subscribe = useCallback(async () => {
-    if (!VAPID_PUBLIC_KEY) {
+    const vapidKey = await resolveVapidPublicKey();
+    if (!vapidKey) {
       toast({
         title: "Notifications unavailable",
         description: "Push is not configured on the server yet.",

@@ -32,6 +32,28 @@ export type StoredPushSubscription = {
 let configured: boolean | null = null;
 let missingKeysWarned = false;
 
+/**
+ * Resolve the VAPID PUBLIC key at runtime (Settings credential → server env →
+ * build-time public env) so the browser can subscribe even when the key is only
+ * present in the runtime container env (NEXT_PUBLIC_* is inlined at build time
+ * and is empty in prod Docker builds). Served to the client via
+ * /api/public/push-config.
+ */
+export async function getServerVapidPublicKey(): Promise<string> {
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: "integrationCredentials" } });
+    const creds = (row?.value as Record<string, string> | null) ?? {};
+    return (
+      creds.vapidPublicKey ||
+      process.env.VAPID_PUBLIC_KEY ||
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+      ""
+    ).trim();
+  } catch {
+    return (process.env.VAPID_PUBLIC_KEY || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "").trim();
+  }
+}
+
 async function configureWebPush(): Promise<boolean> {
   if (configured !== null) return configured;
 
