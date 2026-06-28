@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { parseJobInternalNotes, serializeJobInternalNotes, type JobReservationContext } from "@/lib/jobs/meta";
 import { classifySameDayCheckinPriority } from "@/lib/jobs/priority";
-import { SyncStatus } from "@prisma/client";
+import { SyncStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { DEFAULT_ICAL_SYNC_OPTIONS, parseIntegrationNotes, type IcalSyncOptions } from "@/lib/ical/options";
@@ -99,6 +99,7 @@ export type IcalSyncSummary = {
   jobsCreated: number;
   jobsUpdated: number;
   jobsSkippedConflict: number;
+  assignedShiftsCleared: number;
   warnings: string[];
 };
 
@@ -445,6 +446,7 @@ function buildEmptySummary(): IcalSyncSummary {
     jobsCreated: 0,
     jobsUpdated: 0,
     jobsSkippedConflict: 0,
+    assignedShiftsCleared: 0,
     warnings: [],
   };
 }
@@ -598,6 +600,7 @@ async function createOrUpdateReservations(params: {
 async function syncTurnoverJobsForReservations(params: {
   propertyId: string;
   property: {
+    name: string;
     defaultCheckoutTime: string;
     defaultCheckinTime: string;
     defaultEstimatedHours: number | null;
@@ -631,6 +634,12 @@ async function syncTurnoverJobsForReservations(params: {
   const existingJobs = await db.job.findMany({
     where: {
       reservationId: { in: params.reservations.map((reservation) => reservation.id) },
+    },
+    include: {
+      assignments: {
+        where: { removedAt: null },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      },
     },
   });
   const existingByReservationId = new Map(existingJobs.map((job) => [job.reservationId, job]));
@@ -737,6 +746,68 @@ async function syncTurnoverJobsForReservations(params: {
     }
 
     if (TERMINAL_SYNC_JOB_STATUSES.has(existingJob.status)) continue;
+
+    // A booking was moved to a different turnover date while the job is already
+    // assigned to a cleaner — that shift is no longer valid. Notify the assigned
+    // cleaner(s), clear their shift, and move the job to the new date as
+    // UNASSIGNED so ops can reassign. A manual admin reschedule is respected
+    // (we never override a date someone set by hand).
+    const newDateKey = turnoverDate.toISOString().slice(0, 10);
+    const oldDateKey = existingJob.scheduledDate.toISOString().slice(0, 10);
+    const dateMoved = newDateKey !== oldDateKey;
+    const activeAssignments = (existingJob.assignments ?? []).filter((a) => a.removedAt == null);
+    if (dateMoved && activeAssignments.length > 0 && existingJob.manuallyRescheduledAt == null) {
+      const before = jobState(existingJob);
+      await db.jobAssignment.updateMany({
+        where: { jobId: existingJob.id, removedAt: null },
+        data: { removedAt: new Date() },
+      });
+      const updated = await db.job.update({
+        where: { id: existingJob.id },
+        data: {
+          scheduledDate: turnoverDate,
+          startTime,
+          dueTime: sameDayCheckinTime,
+          status: "UNASSIGNED",
+          priorityBucket: priority.priorityBucket,
+          priorityReason: priority.priorityReason,
+          sameDayCheckin: priority.sameDayCheckin,
+          sameDayCheckinTime: priority.sameDayCheckinTime,
+        },
+      });
+      const recipientIds = Array.from(
+        new Set(activeAssignments.map((a) => a.userId).filter((id): id is string => Boolean(id)))
+      );
+      if (recipientIds.length > 0) {
+        await db.notification.createMany({
+          data: recipientIds.map((userId) => ({
+            userId,
+            jobId: updated.id,
+            channel: NotificationChannel.PUSH,
+            subject: "Shift cancelled — booking moved",
+            body: `${params.property.name}: your shift on ${oldDateKey} was removed because the booking moved to ${newDateKey}. The job is now unassigned.`,
+            status: NotificationStatus.SENT,
+            sentAt: new Date(),
+          })),
+        });
+      }
+      const movedAfter = jobState(updated);
+      if (before && movedAfter) {
+        params.snapshot.jobs.push({
+          id: updated.id,
+          reservationId: reservation.id,
+          created: false,
+          before,
+          after: movedAfter,
+        });
+      }
+      params.summary.jobsUpdated += 1;
+      params.summary.assignedShiftsCleared += 1;
+      params.summary.warnings.push(
+        `Removed an assigned shift and notified ${recipientIds.length} cleaner${recipientIds.length === 1 ? "" : "s"} because a booking moved from ${oldDateKey} to ${newDateKey}.`
+      );
+      continue;
+    }
 
     const currentEstimatedHours = normalizeEstimatedHours(existingJob.estimatedHours);
     const shouldBackfillEstimatedHours =
@@ -982,6 +1053,7 @@ export async function syncPropertyIcal(
     await syncTurnoverJobsForReservations({
       propertyId: integration.propertyId,
       property: {
+        name: integration.property.name,
         defaultCheckoutTime: integration.property.defaultCheckoutTime,
         defaultCheckinTime: integration.property.defaultCheckinTime,
         defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
