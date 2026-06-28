@@ -66,6 +66,30 @@ function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+// Quick-range presets. Each returns ISO yyyy-mm-dd strings using local time so the
+// date the cleaner sees matches the date pickers (which are also local).
+function isoLocal(d: Date) {
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
+function presetRange(kind: "thisMonth" | "lastMonth" | "last2Weeks"): { start: string; end: string } {
+  const now = new Date();
+  if (kind === "thisMonth") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start: isoLocal(start), end: isoLocal(now) };
+  }
+  if (kind === "lastMonth") {
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { start: isoLocal(start), end: isoLocal(end) };
+  }
+  // last 2 weeks (inclusive of today)
+  const start = new Date(now);
+  start.setDate(start.getDate() - 13);
+  return { start: isoLocal(start), end: isoLocal(now) };
+}
+
 export function CleanerInvoicesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -99,6 +123,26 @@ export function CleanerInvoicesPage() {
   }, []);
 
   const payableJobs = useMemo(() => invoicePreview?.rows ?? [], [invoicePreview]);
+
+  // Derived breakdown for the summary tiles. We sum the row fields the preview
+  // returns (no new money logic) so the tiles reconcile against the grand total.
+  const breakdown = useMemo(() => {
+    const rows = invoicePreview?.rows ?? [];
+    let jobsSubtotal = 0;
+    let extraPayments = 0;
+    let transport = 0;
+    for (const row of rows) {
+      jobsSubtotal += Number(row.baseAmount ?? 0);
+      extraPayments += Number(row.approvedExtraAmount ?? 0);
+      transport += Number(row.transportAllowance ?? 0);
+    }
+    return {
+      jobsSubtotal,
+      extraPayments,
+      transport,
+      shoppingTime: Number(invoicePreview?.shoppingTimeTotal ?? 0),
+    };
+  }, [invoicePreview]);
 
   function buildInvoicePayload() {
     const cleanedComments = Object.fromEntries(
@@ -254,14 +298,23 @@ export function CleanerInvoicesPage() {
     window.URL.revokeObjectURL(url);
   }
 
+  function applyPreset(kind: "thisMonth" | "lastMonth" | "last2Weeks") {
+    const range = presetRange(kind);
+    setStartDate(range.start);
+    setEndDate(range.end);
+  }
+
   const hasPendingAwaitingApproval =
     Number(invoicePreview?.estimatedPay ?? 0) <= 0 && Number(invoicePreview?.pendingAdjustmentCount ?? 0) > 0;
 
+  const expenseRows = invoicePreview?.expenseRows ?? [];
+  const shoppingTimeRows = invoicePreview?.shoppingTimeRows ?? [];
+
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-3xl space-y-5">
       <PageHeader
         title="Invoices"
-        description="Preview paid hours, add job comments, download invoice PDF, and email to accounts."
+        description="Pick a period, review your paid hours, then download or email your invoice."
         icon={<ReceiptText />}
       />
 
@@ -280,117 +333,206 @@ export function CleanerInvoicesPage() {
         </div>
       ) : null}
 
+      {/* ---------- Period selector ---------- */}
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Invoice (Allocated Hours + Approved Extras)</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Choose a period</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <Label className="text-xs text-muted-foreground">Start date (optional)</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("thisMonth")}>
+              This month
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("lastMonth")}>
+              Last month
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("last2Weeks")}>
+              Last 2 weeks
+            </Button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="invoice-start" className="text-xs text-muted-foreground">
+                Start date (optional)
+              </Label>
+              <Input
+                id="invoice-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
             </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">End date (optional)</Label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Switch checked={showSpentHours} onCheckedChange={setShowSpentHours} />
-                Show hours spent column
-              </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="invoice-end" className="text-xs text-muted-foreground">
+                End date (optional)
+              </Label>
+              <Input
+                id="invoice-end"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
             </div>
           </div>
 
-          <div className="rounded-md border p-2">
-            {loadingPreview ? (
-              <p className="text-sm text-muted-foreground">Loading invoice preview...</p>
-            ) : !invoicePreview ? (
-              <p className="text-sm text-muted-foreground">No preview available.</p>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-3 text-xs">
-                  <Badge variant="secondary">Paid Hours: {Number(invoicePreview.hours ?? 0).toFixed(2)}</Badge>
-                  <Badge variant="secondary">Estimated Pay: {money(invoicePreview.estimatedPay)}</Badge>
-                  <Badge variant="secondary">Jobs: {invoicePreview.rows.length}</Badge>
-                  {Number(invoicePreview.expenseTotal ?? 0) > 0 ? (
-                    <Badge variant="secondary">
-                      Shopping reimbursements: {money(invoicePreview.expenseTotal)}
-                    </Badge>
-                  ) : null}
-                  {Number(invoicePreview.shoppingTimeTotal ?? 0) > 0 ? (
-                    <Badge variant="secondary">
-                      Shopping time: {money(invoicePreview.shoppingTimeTotal)}
-                    </Badge>
-                  ) : null}
-                  {Number(invoicePreview.pendingAdjustmentCount ?? 0) > 0 ? (
-                    <Badge variant="warning">
-                      Pending approvals: {Number(invoicePreview.pendingAdjustmentCount ?? 0)} ({money(invoicePreview.pendingAdjustmentAmount)})
-                    </Badge>
-                  ) : null}
-                </div>
-                {hasPendingAwaitingApproval ? (
-                  <p className="text-xs text-destructive">
-                    Invoice email is blocked while total is $0.00 and pending extra payment approvals exist.
-                  </p>
-                ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <Switch checked={showSpentHours} onCheckedChange={setShowSpentHours} />
+              Show hours spent
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={loadInvoicePreview}
+              disabled={loadingPreview}
+            >
+              {loadingPreview ? "Refreshing…" : "Refresh preview"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-                <div className="max-h-[60vh] space-y-2 overflow-auto">
-                  {(invoicePreview.expenseRows ?? []).map((row) => (
-                    <div key={row.runId} className="rounded-lg border border-success/40 bg-success/10 p-2">
-                      <p className="text-xs font-medium">Shopping reimbursement - {row.runName}</p>
+      {/* ---------- Summary header ---------- */}
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Total to invoice
+            </span>
+            <span className="text-3xl font-semibold tabular-nums text-foreground">
+              {loadingPreview && !invoicePreview ? "—" : money(invoicePreview?.estimatedPay)}
+            </span>
+            <div className="mt-1 flex flex-wrap gap-2 text-xs">
+              <Badge variant="secondary">
+                Paid hours: {Number(invoicePreview?.hours ?? 0).toFixed(2)}
+              </Badge>
+              <Badge variant="secondary">Jobs: {payableJobs.length}</Badge>
+              {Number(invoicePreview?.pendingAdjustmentCount ?? 0) > 0 ? (
+                <Badge variant="warning">
+                  Pending approvals: {Number(invoicePreview?.pendingAdjustmentCount ?? 0)} (
+                  {money(invoicePreview?.pendingAdjustmentAmount)})
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border bg-surface p-3">
+              <p className="text-[11px] text-muted-foreground">Jobs subtotal</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{money(breakdown.jobsSubtotal)}</p>
+            </div>
+            <div className="rounded-lg border bg-surface p-3">
+              <p className="text-[11px] text-muted-foreground">Extra payments</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{money(breakdown.extraPayments)}</p>
+            </div>
+            <div className="rounded-lg border bg-surface p-3">
+              <p className="text-[11px] text-muted-foreground">Shopping time</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{money(breakdown.shoppingTime)}</p>
+            </div>
+            <div className="rounded-lg border bg-surface p-3">
+              <p className="text-[11px] text-muted-foreground">Transport</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{money(breakdown.transport)}</p>
+            </div>
+          </div>
+
+          {Number(invoicePreview?.expenseTotal ?? 0) > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Plus shopping reimbursements: {money(invoicePreview?.expenseTotal)} (listed below).
+            </p>
+          ) : null}
+
+          {hasPendingAwaitingApproval ? (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              Emailing is blocked while the total is $0.00 and pending extra payment approvals exist.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {/* ---------- Per-job list ---------- */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Jobs in this period</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loadingPreview && !invoicePreview ? (
+            <p className="text-sm text-muted-foreground">Loading invoice preview…</p>
+          ) : !invoicePreview ? (
+            <p className="text-sm text-muted-foreground">No preview available.</p>
+          ) : payableJobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No payable jobs in the selected range.</p>
+          ) : (
+            payableJobs.map((row) => {
+              const overrideRaw = jobHourOverridesInput[row.jobId];
+              const effectiveHours = Number(overrideRaw ?? row.hours);
+              const isChanged = effectiveHours !== Number(row.originalHours);
+              return (
+                <div key={row.jobId} className="rounded-xl border bg-surface p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{row.jobName}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        {row.date} | {row.properties} | {row.paymentMethod} | Total: {money(row.amount)}
+                        {row.date} · {row.jobType} · Split {row.split}
+                        {row.rate != null ? ` · Rate ${money(row.rate)}` : " · Rate not set"}
                       </p>
-                      {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
                     </div>
-                  ))}
-                  {(invoicePreview.shoppingTimeRows ?? []).map((row) => (
-                    <div key={`time-${row.runId}`} className="rounded-lg border border-info/30 bg-info/10 p-2">
-                      <p className="text-xs font-medium">Shopping time - {row.runName}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {row.date} | {row.properties} | {row.minutes} min | Rate: {money(row.hourlyRate)} | Total: {money(row.amount)}
-                      </p>
-                      {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
+                    <div className="text-right">
+                      <p className="text-sm font-semibold tabular-nums text-foreground">{money(row.amount)}</p>
+                      <p className="text-[11px] text-muted-foreground">line total</p>
                     </div>
-                  ))}
-                  {payableJobs.map((row) => (
-                    <div key={row.jobId} className="rounded border p-2">
-                      <p className="text-xs font-medium">{row.jobName} - {row.jobType}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {row.date} | Paid: {row.hours.toFixed(2)}h | Split: {row.split}
-                        {row.rate != null ? ` | Rate: ${money(row.rate)}` : " | Rate: Not set"}
-                        {showSpentHours ? ` | Spent: ${(row.spentHours ?? 0).toFixed(2)}h` : ""}
-                        {` | Extra: ${money(row.approvedExtraAmount)}`}
-                        {row.transportAllowance > 0 ? ` | Transport: ${money(row.transportAllowance)}` : ""}
-                        {` | Total: ${money(row.amount)}`}
-                        {row.isHoursOverridden && row.hoursChangeNote ? ` | Changed: ${row.hoursChangeNote}` : ""}
-                      </p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <Label className="text-[11px] text-muted-foreground">Paid hours override</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={jobHourOverridesInput[row.jobId] ?? ""}
-                            onChange={(e) =>
-                              setJobHourOverridesInput((prev) => ({
-                                ...prev,
-                                [row.jobId]: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                        {Number(jobHourOverridesInput[row.jobId] ?? row.hours) !== Number(row.originalHours) ? (
-                          <div className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-foreground">
-                            Hours changed: {Number(row.originalHours).toFixed(2)} {"->"} {Number(jobHourOverridesInput[row.jobId] ?? row.hours).toFixed(2)}
-                          </div>
-                        ) : null}
-                      </div>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>Paid: {row.hours.toFixed(2)}h</span>
+                    {showSpentHours ? <span>Spent: {(row.spentHours ?? 0).toFixed(2)}h</span> : null}
+                    <span>Extra: {money(row.approvedExtraAmount)}</span>
+                    {row.transportAllowance > 0 ? <span>Transport: {money(row.transportAllowance)}</span> : null}
+                    {row.isHoursOverridden && row.hoursChangeNote ? (
+                      <span>Changed: {row.hoursChangeNote}</span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor={`hours-${row.jobId}`}
+                        className="text-[11px] font-medium text-muted-foreground"
+                      >
+                        Paid hours override
+                      </Label>
+                      <Input
+                        id={`hours-${row.jobId}`}
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={jobHourOverridesInput[row.jobId] ?? ""}
+                        onChange={(e) =>
+                          setJobHourOverridesInput((prev) => ({
+                            ...prev,
+                            [row.jobId]: e.target.value,
+                          }))
+                        }
+                      />
+                      {isChanged ? (
+                        <p className="text-[11px] text-warning">
+                          {Number(row.originalHours).toFixed(2)}h {"->"} {effectiveHours.toFixed(2)}h — tap
+                          “Refresh preview” to recalculate.
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor={`comment-${row.jobId}`}
+                        className="text-[11px] font-medium text-muted-foreground"
+                      >
+                        Comment (optional)
+                      </Label>
                       <Textarea
-                        className="mt-2"
-                        placeholder="Optional comment for this job in invoice"
+                        id={`comment-${row.jobId}`}
+                        className="min-h-[40px]"
+                        placeholder="Note shown on this job line in the invoice"
                         value={jobComments[row.jobId] ?? ""}
                         onChange={(e) =>
                           setJobComments((prev) => ({
@@ -400,28 +542,82 @@ export function CleanerInvoicesPage() {
                         }
                       />
                     </div>
-                  ))}
-                  {payableJobs.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No payable jobs in selected range.</p>
-                  ) : null}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
 
-          <div className="grid gap-2 sm:grid-cols-3">
+      {/* ---------- Extra: shopping reimbursements ---------- */}
+      {expenseRows.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">
+              Shopping reimbursements · {money(invoicePreview?.expenseTotal)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {expenseRows.map((row) => (
+              <div key={row.runId} className="rounded-lg border border-success/40 bg-success/10 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{row.runName}</p>
+                  <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {row.date} · {row.properties} · {row.paymentMethod}
+                </p>
+                {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ---------- Shopping time ---------- */}
+      {shoppingTimeRows.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">
+              Shopping time · {money(invoicePreview?.shoppingTimeTotal)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {shoppingTimeRows.map((row) => (
+              <div key={`time-${row.runId}`} className="rounded-lg border border-info/30 bg-info/10 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{row.runName}</p>
+                  <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {row.date} · {row.properties} · {row.minutes} min · Rate {money(row.hourlyRate)}
+                </p>
+                {row.note ? <p className="mt-1 text-[11px] text-muted-foreground">{row.note}</p> : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ---------- Actions ---------- */}
+      <Card>
+        <CardContent className="space-y-2 pt-6">
+          <div className="grid gap-2 sm:grid-cols-2">
             <Button onClick={downloadInvoice} disabled={invoiceDownloading} className="w-full" variant="outline">
-              {invoiceDownloading ? "Generating..." : "Download Invoice PDF"}
+              {invoiceDownloading ? "Generating…" : "Download invoice PDF"}
             </Button>
             <Button
               onClick={openEmailPreviewFlow}
               disabled={invoiceSending || previewingPdf || hasPendingAwaitingApproval || missingProfileFields.length > 0}
               className="w-full"
             >
-              {previewingPdf ? "Opening preview..." : invoiceSending ? "Sending..." : "Email Invoice To Accounts"}
+              {previewingPdf ? "Opening preview…" : invoiceSending ? "Sending…" : "Email invoice to accounts"}
             </Button>
           </div>
-          <Button onClick={loadInvoicePreview} variant="ghost" className="w-full text-xs">Refresh totals</Button>
+          <Button onClick={loadInvoicePreview} variant="ghost" className="w-full text-xs">
+            Refresh totals
+          </Button>
         </CardContent>
       </Card>
 
@@ -476,7 +672,7 @@ export function CleanerInvoicesPage() {
               Back to edit
             </Button>
             <Button onClick={sendInvoice} disabled={invoiceSending || hasPendingAwaitingApproval}>
-              {invoiceSending ? "Emailing..." : "Approve and Email"}
+              {invoiceSending ? "Emailing…" : "Approve and Email"}
             </Button>
           </div>
         </DialogContent>
