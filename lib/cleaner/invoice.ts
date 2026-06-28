@@ -1,4 +1,4 @@
-import { JobStatus, PayAdjustmentStatus } from "@prisma/client";
+import { JobStatus, PayAdjustmentStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
@@ -15,6 +15,20 @@ interface InvoiceOptions {
   showSpentHours?: boolean;
   jobComments?: Record<string, string>;
   jobHourOverrides?: Record<string, number>;
+  /**
+   * When true, exclude jobs already attached to a payroll run (Job.payrollRunId
+   * set). This is the same idempotency guard the primary payroll engine uses
+   * (getPayrollSummary({ excludePaidJobs: true })) and prevents a job's pay being
+   * counted by more than one run. Off by default so cleaner-facing invoices keep
+   * showing every job in the period, paid or not.
+   */
+  excludePaidJobs?: boolean;
+  /**
+   * When recomputing the lines of an existing pay run, pass that run's id here so
+   * jobs already stamped with THIS run are still included (only jobs paid by a
+   * DIFFERENT run are excluded). Only meaningful together with excludePaidJobs.
+   */
+  includePaidRunId?: string;
 }
 
 export interface CleanerInvoiceData {
@@ -118,18 +132,30 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     throw new Error("Cleaner account not found.");
   }
 
-  const payableJobs = await db.job.findMany({
-    where: {
-      // Bucket by completion date when set (next-day/custom), else scheduled date.
-      OR: [
-        { completedAt: { gte: start, lte: end } },
-        { completedAt: null, scheduledDate: { gte: start, lte: end } },
-      ],
-      status: {
-        in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
-      },
-      assignments: { some: { userId: options.userId } },
+  const jobWhere: Prisma.JobWhereInput = {
+    // Bucket by completion date when set (next-day/custom), else scheduled date.
+    OR: [
+      { completedAt: { gte: start, lte: end } },
+      { completedAt: null, scheduledDate: { gte: start, lte: end } },
+    ],
+    status: {
+      in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
     },
+    assignments: { some: { userId: options.userId } },
+  };
+  if (options.excludePaidJobs) {
+    // Combined with AND so it coexists with the date OR above. A job counts only
+    // if it isn't already attached to another payroll run; when recomputing an
+    // existing run we still include that run's own previously-stamped jobs.
+    jobWhere.AND = [
+      options.includePaidRunId
+        ? { OR: [{ payrollRunId: null }, { payrollRunId: options.includePaidRunId }] }
+        : { payrollRunId: null },
+    ];
+  }
+
+  const payableJobs = await db.job.findMany({
+    where: jobWhere,
     include: {
       property: { select: { name: true } },
       assignments: {

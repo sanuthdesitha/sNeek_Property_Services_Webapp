@@ -194,6 +194,16 @@ export async function dispatchDueCampaigns(now: Date = new Date()): Promise<{ di
 
   const results: CampaignSendResult[] = [];
   for (const c of due) {
+    // Atomic claim: flip SCHEDULED -> SENDING with a conditional updateMany so an
+    // overlapping scheduler tick or a second app instance cannot both send the
+    // same campaign. Only the caller whose update actually transitions the row
+    // (count === 1) proceeds; any racing caller sees count === 0 and skips it.
+    const claim = await (db as any).emailCampaign.updateMany({
+      where: { id: c.id, campaignStatus: "SCHEDULED" },
+      data: { campaignStatus: "SENDING" },
+    });
+    if (claim.count !== 1) continue;
+
     try {
       const r = await sendCampaign(c.id);
       results.push(r);

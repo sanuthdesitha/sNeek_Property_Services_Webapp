@@ -1,9 +1,14 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
 interface StoredValue<T> {
   version: number;
   data: T;
 }
+
+// Accepts either the root client or a $transaction client, so the store write can
+// be committed atomically alongside other writes (e.g. payroll job stamping).
+type StoreClient = Prisma.TransactionClient | typeof db;
 
 export async function readSettingStore<T>(
   key: string,
@@ -24,8 +29,12 @@ export async function readSettingStore<T>(
   };
 }
 
-export async function writeSettingStore<T>(key: string, payload: StoredValue<T>) {
-  await db.appSetting.upsert({
+export async function writeSettingStore<T>(
+  key: string,
+  payload: StoredValue<T>,
+  client: StoreClient = db
+) {
+  await client.appSetting.upsert({
     where: { key },
     create: { key, value: payload as any },
     update: { value: payload as any },

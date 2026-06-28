@@ -160,6 +160,18 @@ export async function dispatchScheduledEmailCampaigns(now = new Date()) {
 
   let dispatched = 0;
   for (const campaign of campaigns) {
+    // Atomic claim (legacy status path): flip "scheduled" -> "sending" with a
+    // conditional updateMany so two overlapping ticks / app instances can't both
+    // dispatch the same campaign. Only the caller that actually transitions the
+    // row (count === 1) proceeds; a racing caller skips it. dispatchEmailCampaignById
+    // sets status -> "sent" on success; a failure leaves it "sending" (not
+    // re-picked by this query), preventing an accidental resend.
+    const claim = await db.emailCampaign.updateMany({
+      where: { id: campaign.id, status: "scheduled" },
+      data: { status: "sending" },
+    });
+    if (claim.count !== 1) continue;
+
     const result = await dispatchEmailCampaignById(campaign.id);
     dispatched += result.sent;
   }

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { JobStatus, Role } from "@prisma/client";
+import { JobStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
 import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
@@ -117,11 +117,33 @@ async function readStore() {
   return readSettingStore(PAYRUNS_KEY, DEFAULT_STORE, sanitizeStore);
 }
 
-async function writeStore(version: number, data: PayRunStore) {
-  return writeSettingStore(PAYRUNS_KEY, { version, data });
+async function writeStore(
+  version: number,
+  data: PayRunStore,
+  client?: Prisma.TransactionClient
+) {
+  return writeSettingStore(PAYRUNS_KEY, { version, data }, client);
 }
 
-async function computeLines(startDate: string, endDate: string): Promise<PayRunLine[]> {
+interface ComputedLines {
+  lines: PayRunLine[];
+  // Every job whose pay is captured by these lines. Stamped with the run id so the
+  // same job can't be paid again by another phase4 run or by the primary engine.
+  jobIds: string[];
+}
+
+/**
+ * Compute the per-cleaner pay lines for a period.
+ *
+ * @param runId  When recomputing an existing run, pass its id so jobs already
+ *               stamped with THIS run stay included (only jobs paid by a DIFFERENT
+ *               run are excluded). Omit for a brand-new run.
+ */
+async function computeLines(
+  startDate: string,
+  endDate: string,
+  runId?: string
+): Promise<ComputedLines> {
   const start = new Date(`${startDate}T00:00:00.000Z`);
   const end = new Date(`${endDate}T23:59:59.999Z`);
   const cleaners = await db.user.findMany({
@@ -149,14 +171,20 @@ async function computeLines(startDate: string, endDate: string): Promise<PayRunL
   });
 
   const lines: PayRunLine[] = [];
+  const jobIds = new Set<string>();
   for (const cleaner of cleaners) {
     const invoice = await getCleanerInvoiceData({
       userId: cleaner.id,
       startDate,
       endDate,
       showSpentHours: false,
+      // Idempotency: never recompute pay for a job already attached to another
+      // payroll run (phase4 OR the primary engine — both stamp Job.payrollRunId).
+      excludePaidJobs: true,
+      includePaidRunId: runId,
     });
     if (invoice.rows.length === 0) continue;
+    for (const row of invoice.rows) jobIds.add(row.jobId);
     lines.push({
       cleanerId: cleaner.id,
       cleanerName: invoice.cleanerName,
@@ -167,7 +195,10 @@ async function computeLines(startDate: string, endDate: string): Promise<PayRunL
     });
   }
 
-  return lines.sort((a, b) => a.cleanerName.localeCompare(b.cleanerName));
+  return {
+    lines: lines.sort((a, b) => a.cleanerName.localeCompare(b.cleanerName)),
+    jobIds: Array.from(jobIds),
+  };
 }
 
 function computeTotals(lines: PayRunLine[]) {
@@ -198,10 +229,15 @@ export async function createPayRun(input: {
   const periodStart = toIsoDateOnly(input.startDate);
   const periodEnd = toIsoDateOnly(input.endDate);
   if (periodStart > periodEnd) throw new Error("Start date must be before end date.");
-  const [store, lines] = await Promise.all([readStore(), computeLines(periodStart, periodEnd)]);
+  const id = randomUUID();
+  const [store, computed] = await Promise.all([
+    readStore(),
+    computeLines(periodStart, periodEnd),
+  ]);
+  const { lines, jobIds } = computed;
   const now = new Date().toISOString();
   const run: PayRunRecord = {
-    id: randomUUID(),
+    id,
     name:
       input.name?.trim().slice(0, 120) ||
       `Pay Run ${periodStart} to ${periodEnd}`,
@@ -220,7 +256,19 @@ export async function createPayRun(input: {
     notes: null,
   };
   const nextData: PayRunStore = { runs: [run, ...store.data.runs].slice(0, 250) };
-  await writeStore(store.version + 1, nextData);
+  // Atomic: stamp every included job with this run id AND persist the run together.
+  // The updateMany guard (payrollRunId: null) mirrors the primary engine so a
+  // concurrent run can't double-stamp; the same field also makes the primary
+  // engine's excludePaidJobs filter skip these jobs.
+  await db.$transaction(async (tx) => {
+    if (jobIds.length > 0) {
+      await tx.job.updateMany({
+        where: { id: { in: jobIds }, payrollRunId: null },
+        data: { payrollRunId: id },
+      });
+    }
+    await writeStore(store.version + 1, nextData, tx);
+  });
   return run;
 }
 
@@ -232,7 +280,13 @@ export async function refreshPayRun(id: string, userId: string) {
   if (existing.status !== "DRAFT") {
     throw new Error("Only draft pay runs can be refreshed.");
   }
-  const lines = await computeLines(existing.periodStart, existing.periodEnd);
+  // Recompute including this run's own previously-stamped jobs (includePaidRunId)
+  // so a refresh re-evaluates them rather than dropping them as "already paid".
+  const { lines, jobIds } = await computeLines(
+    existing.periodStart,
+    existing.periodEnd,
+    existing.id
+  );
   const now = new Date().toISOString();
   const updated: PayRunRecord = {
     ...existing,
@@ -243,7 +297,22 @@ export async function refreshPayRun(id: string, userId: string) {
   };
   const next = [...store.data.runs];
   next[index] = updated;
-  await writeStore(store.version + 1, { runs: next });
+  // Reconcile stamps in one transaction: release jobs no longer in this run, claim
+  // newly-included jobs (guarded on payrollRunId: null so we never steal a job that
+  // another run has already claimed), and persist the run together.
+  await db.$transaction(async (tx) => {
+    await tx.job.updateMany({
+      where: { payrollRunId: existing.id, id: { notIn: jobIds } },
+      data: { payrollRunId: null },
+    });
+    if (jobIds.length > 0) {
+      await tx.job.updateMany({
+        where: { id: { in: jobIds }, payrollRunId: null },
+        data: { payrollRunId: existing.id },
+      });
+    }
+    await writeStore(store.version + 1, { runs: next }, tx);
+  });
   return updated;
 }
 
@@ -285,6 +354,14 @@ export async function deletePayRun(id: string) {
     throw new Error("Only draft pay runs can be deleted.");
   }
   const next = store.data.runs.filter((row) => row.id !== id);
-  await writeStore(store.version + 1, { runs: next });
+  // Release this run's job stamps so the jobs are payable again, and remove the
+  // run, atomically.
+  await db.$transaction(async (tx) => {
+    await tx.job.updateMany({
+      where: { payrollRunId: id },
+      data: { payrollRunId: null },
+    });
+    await writeStore(store.version + 1, { runs: next }, tx);
+  });
   return true;
 }
