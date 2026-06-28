@@ -46,6 +46,7 @@ import {
   Wrench,
   LayoutTemplate,
   UserPlus,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -75,6 +76,7 @@ export const ADMIN_NAV_GROUPS = [
   {
     label: "People",
     items: [
+      { label: "Cleaners", href: "/admin/cleaners", icon: Sparkles },
       { label: "Workforce", href: "/admin/workforce", icon: Users },
       { label: "Hiring", href: "/admin/hiring", icon: UserPlus },
       { label: "Accounts", href: "/admin/accounts", icon: Users },
