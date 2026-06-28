@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { Role, Prisma } from "@prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import Link from "next/link";
@@ -89,20 +90,16 @@ export default async function AdminActivityPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
-            <History className="h-6 w-6 text-primary" />
-            Activity log
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every audited action across the platform — who changed what, and when.
+      <PageHeader
+        icon={<History />}
+        title="Activity log"
+        description="Every audited action across the platform — who changed what, and when."
+        actions={
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {total.toLocaleString()} entries
           </p>
-        </div>
-        <p className="text-xs tabular-nums text-muted-foreground">
-          {total.toLocaleString()} entries
-        </p>
-      </div>
+        }
+      />
 
       {/* Filters */}
       <form
