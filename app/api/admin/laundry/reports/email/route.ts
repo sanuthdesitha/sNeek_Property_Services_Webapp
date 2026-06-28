@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     const settings = await getAppSettings();
     const reportLabel = body.taskId
       ? data.propertyName ?? "Laundry job"
-      : `${data.start.toLocaleDateString("en-AU")} to ${data.end.toLocaleDateString("en-AU")}`;
+      : `${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} to ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}`;
     const emailTemplate = renderEmailTemplate(settings, "laundryReport", {
       recipientName: body.to,
       reportLabel,

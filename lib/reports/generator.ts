@@ -68,7 +68,7 @@ function renderTitle(theme: ReportThemeRecord | null, ctx: { job: any; property:
   return tpl
     .replace(/\{\{\s*job\.jobNumber\s*\}\}/g, String(ctx.job?.jobNumber ?? ctx.job?.id ?? ""))
     .replace(/\{\{\s*property\.name\s*\}\}/g, String(ctx.property?.name ?? ""))
-    .replace(/\{\{\s*job\.scheduledFor\s*\|\s*date short\s*\}\}/g, String(ctx.job?.scheduledDate ? new Date(ctx.job.scheduledDate).toLocaleDateString("en-AU") : ""));
+    .replace(/\{\{\s*job\.scheduledFor\s*\|\s*date short\s*\}\}/g, String(ctx.job?.scheduledDate ? new Date(ctx.job.scheduledDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }) : ""));
 }
 const s3Enabled = Boolean(
   process.env.S3_BUCKET_NAME &&

@@ -325,9 +325,9 @@ export function buildLaundryInvoiceHtml(args: {
 
   const rowsHtml = data.rows
     .map((row) => {
-      const serviceDate = new Date(row.serviceDate).toLocaleDateString("en-AU");
-      const pickupDate = new Date(row.pickupDate).toLocaleDateString("en-AU");
-      const dropoffDate = new Date(row.dropoffDate).toLocaleDateString("en-AU");
+      const serviceDate = new Date(row.serviceDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+      const pickupDate = new Date(row.pickupDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+      const dropoffDate = new Date(row.dropoffDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
       return `
       <tr>
         <td class="cell">${escapeHtml(row.propertyName)}</td>
@@ -388,7 +388,7 @@ export function buildLaundryInvoiceHtml(args: {
     .join("");
 
   const scopeLabel = data.propertyName ? `Property: ${data.propertyName}` : "All properties";
-  const periodLabel = `${data.start.toLocaleDateString("en-AU")} - ${data.end.toLocaleDateString("en-AU")}`;
+  const periodLabel = `${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} - ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}`;
 
   return `<!doctype html>
   <html lang="en">
@@ -422,7 +422,7 @@ export function buildLaundryInvoiceHtml(args: {
           <p class="sub">Period: ${escapeHtml(periodLabel)}</p>
         </div>
         <div class="muted" style="font-size:12px;text-align:right;">
-          <div><strong>Generated:</strong> ${new Date().toLocaleString("en-AU")}</div>
+          <div><strong>Generated:</strong> ${new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</div>
           <div><strong>Jobs:</strong> ${data.rows.length}</div>
         </div>
       </div>

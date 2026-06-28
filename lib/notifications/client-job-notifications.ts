@@ -18,7 +18,7 @@ function formatEta(etaMinutes: number | null | undefined): string | null {
   if (etaMinutes == null) return null;
   if (etaMinutes <= 1) return "less than a minute away";
   const arrival = new Date(Date.now() + etaMinutes * 60 * 1000);
-  const time = arrival.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true });
+  const time = arrival.toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit", hour12: true });
   return `about ${etaMinutes} minute${etaMinutes === 1 ? "" : "s"} away (arriving ~${time})`;
 }
 

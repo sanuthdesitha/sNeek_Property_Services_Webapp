@@ -8,7 +8,7 @@ import { recordHiringEmailSent } from "@/lib/workforce/service";
 function buildTemplate(template: string, application: any) {
   const safeName = application.fullName || "there";
   const positionTitle = application.position?.title || "the role";
-  const interviewDate = application.interviewDate ? new Date(application.interviewDate).toLocaleString("en-AU") : "to be confirmed";
+  const interviewDate = application.interviewDate ? new Date(application.interviewDate).toLocaleString("en-AU", { timeZone: "Australia/Sydney" }) : "to be confirmed";
   if (template === "interview") {
     return {
       subject: `Interview invitation - ${positionTitle}`,
