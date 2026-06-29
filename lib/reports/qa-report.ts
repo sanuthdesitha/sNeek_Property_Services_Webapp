@@ -23,16 +23,31 @@ function keyUrl(key: string): string {
   return publicUrl(key);
 }
 
-function photoGridHtml(keys: string[], opts: { size?: number } = {}): string {
+function photoGridHtml(
+  keys: string[],
+  opts: { size?: number; annotations?: Record<string, { overlayKey?: string; comment?: string }> } = {}
+): string {
   if (!keys.length) return "";
   const size = opts.size ?? 150;
   const items = keys
-    .map(
-      (key) =>
-        `<img src="${escapeHtml(keyUrl(key))}" alt="QA photo" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />`
-    )
+    .map((key) => {
+      const ann = opts.annotations?.[key];
+      const overlay = ann?.overlayKey
+        ? `<img src="${escapeHtml(keyUrl(ann.overlayKey))}" alt="" style="position:absolute;inset:0;width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;" />`
+        : "";
+      const comment = ann?.comment
+        ? `<p style="margin:4px 0 0;width:${size}px;font-size:10px;line-height:1.3;color:#b91c1c;">${escapeHtml(ann.comment)}</p>`
+        : "";
+      return `<div style="position:relative;width:${size}px;">
+        <div style="position:relative;width:${size}px;height:${size}px;">
+          <img src="${escapeHtml(keyUrl(key))}" alt="QA photo" style="position:absolute;inset:0;width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />
+          ${overlay}
+        </div>
+        ${comment}
+      </div>`;
+    })
     .join("");
-  return `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">${items}</div>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;align-items:flex-start;">${items}</div>`;
 }
 
 function readQaTools(data: unknown): QaInspectionTools | null {
@@ -127,7 +142,7 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
             ${typeof cat === "number" ? `<span style="font-size:12px;color:#64748b;">Section score: <strong>${cat}%</strong></span>` : ""}
           </div>
           <table style="width:100%;border-collapse:collapse;">${rows || `<tr><td style="padding:8px 10px;color:#94a3b8;">No fields captured.</td></tr>`}</table>
-          ${photos.length ? `<p style="margin:10px 0 0;font-size:12px;color:#64748b;">Inspector photos (${photos.length})</p>${photoGridHtml(photos)}` : ""}
+          ${photos.length ? `<p style="margin:10px 0 0;font-size:12px;color:#64748b;">Inspector photos (${photos.length})</p>${photoGridHtml(photos, { annotations: tools?.mediaAnnotations })}` : ""}
         </div>`;
     })
     .join("");
@@ -145,7 +160,7 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
             ${d.estimatedCost != null ? `<span style="margin-left:auto;font-size:12px;color:#64748b;">Est. cost: <strong>$${escapeHtml(Number(d.estimatedCost).toFixed(2))}</strong></span>` : ""}
           </div>
           ${d.description ? `<p style="margin:8px 0 0;color:#334155;font-size:13px;">${escapeHtml(d.description)}</p>` : ""}
-          ${photoGridHtml(d.photoKeys ?? [])}
+          ${photoGridHtml(d.photoKeys ?? [], { annotations: d.annotations })}
         </div>`;
     })
     .join("");
@@ -182,6 +197,25 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
   const score = qa?.score ?? submission?.score ?? null;
   const passed = qa?.passed ?? submission?.passed ?? null;
   const notes = (qa?.notes ?? submission?.notes ?? "").toString();
+
+  // ── Inspector sign-off ──────────────────────────────────────────────────────
+  const signOff = tools?.signOff ?? null;
+  const signedAtLabel =
+    signOff?.signedAt && Number.isFinite(new Date(signOff.signedAt).getTime())
+      ? format(toZonedTime(new Date(signOff.signedAt), TZ), "dd MMM yyyy, h:mm a")
+      : "";
+  const signOffHtml =
+    signOff && signOff.signatureKey
+      ? `
+        <h2>Inspector sign-off</h2>
+        <div class="qa-card" style="display:flex;flex-wrap:wrap;align-items:center;gap:24px;">
+          <div style="flex:0 0 auto;">
+            <img src="${escapeHtml(keyUrl(signOff.signatureKey))}" alt="Inspector signature" style="height:80px;max-width:260px;object-fit:contain;border-bottom:1px solid #cbd5e1;padding-bottom:4px;" />
+            <p style="margin:6px 0 0;font-size:12px;color:#64748b;"><strong style="color:#0f172a;">${escapeHtml(signOff.signedByName || inspector)}</strong>${signedAtLabel ? ` · ${escapeHtml(signedAtLabel)}` : ""}</p>
+          </div>
+          ${signOff.attested ? `<p style="flex:1 1 220px;min-width:200px;margin:0;font-size:12px;color:#334155;">&#10003; The inspector attested that this QA inspection is accurate and complete, and was carried out by them.</p>` : ""}
+        </div>`
+      : "";
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -271,6 +305,8 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
       ? `<h2>QA inspector notes</h2><div class="qa-card"><p style="margin:0;white-space:pre-wrap;color:#334155;font-size:13px;">${escapeHtml(notes)}</p></div>`
       : ""
   }
+
+  ${signOffHtml}
 
   <footer>Generated by ${escapeHtml(companyName)} — Quality Inspection Report · ${new Date().toISOString()}</footer>
 </body>
