@@ -24,8 +24,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
@@ -152,6 +154,108 @@ function WorkDoneDialog({ item }: { item: MaintenanceListItem }) {
 }
 
 type AssignableWorker = { id: string; name: string; trade: string | null; company: string | null };
+
+// Client can add a maintenance person and optionally invite them to the portal
+// (a secure set-password invite email — we never handle their password).
+function AddWorkerDialog() {
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ name: "", email: "", phone: "", trade: "", company: "" });
+  const [invite, setInvite] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  function set(k: keyof typeof form, v: string) {
+    setForm((prev) => ({ ...prev, [k]: v }));
+  }
+
+  async function save() {
+    if (!form.name.trim()) {
+      toast({ title: "Enter the person's name.", variant: "destructive" });
+      return;
+    }
+    if (invite && !form.email.trim()) {
+      toast({ title: "An email is required to send a portal invite.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/maintenance/workers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          trade: form.trade.trim() || undefined,
+          company: form.company.trim() || undefined,
+          invite,
+        }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not add", description: b.error ?? "Please retry.", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Maintenance person added",
+        description: invite
+          ? b.invitationEmailSent
+            ? "A portal invite has been emailed to them."
+            : "Saved — but the invite email couldn't be sent; an admin can resend it."
+          : "You can now assign them to your items.",
+      });
+      setOpen(false);
+      setForm({ name: "", email: "", phone: "", trade: "", company: "" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+        <WrenchIcon className="mr-2 h-4 w-4" /> Add a person
+      </Button>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add a maintenance person</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Name *</Label>
+              <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Trade</Label>
+              <Input value={form.trade} onChange={(e) => set("trade", e.target.value)} placeholder="e.g. Plumber" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Email{invite ? " *" : ""}</Label>
+            <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Phone</Label>
+              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Company</Label>
+              <Input value={form.company} onChange={(e) => set("company", e.target.value)} />
+            </div>
+          </div>
+          <label className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-2.5 text-xs leading-snug">
+            <Checkbox checked={invite} onCheckedChange={(v) => setInvite(v === true)} className="mt-0.5 shrink-0" />
+            <span>Invite them to the maintenance portal (emails a secure set-password link so they can manage their assigned jobs).</span>
+          </label>
+          <Button className="w-full" onClick={() => void save()} disabled={saving}>
+            {saving ? "Adding…" : "Add maintenance person"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // Client-side management: assign an existing maintenance worker and move/track
 // the status of an item on the client's own property.
@@ -315,14 +419,17 @@ export function ClientMaintenance({ properties }: { properties: ClientProperty[]
             ))}
           </SelectContent>
         </Select>
-        {reportProperty ? (
-          <ReportMaintenanceSheet
-            propertyId={reportProperty}
-            triggerLabel="Report an item"
-            triggerVariant="default"
-            onReported={load}
-          />
-        ) : null}
+        <div className="flex items-center gap-2">
+          <AddWorkerDialog />
+          {reportProperty ? (
+            <ReportMaintenanceSheet
+              propertyId={reportProperty}
+              triggerLabel="Report an item"
+              triggerVariant="default"
+              onReported={load}
+            />
+          ) : null}
+        </div>
       </div>
 
       {loading ? (
