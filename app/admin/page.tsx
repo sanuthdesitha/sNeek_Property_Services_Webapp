@@ -479,7 +479,7 @@ export default async function AdminDashboard() {
               ) : null}
               {qaPendingOver12h > 0 ? (
                 <li>
-                  <Link href="/admin/qa" className="hover:underline">
+                  <Link href="/qa" className="hover:underline">
                     {qaPendingOver12h} QA assignment
                     {qaPendingOver12h !== 1 ? "s" : ""} waiting &gt; 12h
                   </Link>
