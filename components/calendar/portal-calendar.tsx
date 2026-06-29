@@ -103,13 +103,16 @@ export function PortalCalendar({
     }, {});
   }, [events]);
 
-  // Events grouped by day (ascending) for the mobile agenda list.
+  // Events grouped by day (ascending) for the agenda list. The agenda is a
+  // "what's coming up" view, so it starts from today and hides past days.
   const eventsByDay = useMemo(() => {
+    const todayKey = format(new Date(), "yyyy-MM-dd");
     const map = new Map<string, PortalCalendarEvent[]>();
     [...events]
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .forEach((event) => {
         const key = format(new Date(event.start), "yyyy-MM-dd");
+        if (key < todayKey) return; // past day — not part of the upcoming agenda
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(event);
       });

@@ -89,6 +89,22 @@ export function AdminQaTemplatesClient() {
     await load();
   }
 
+  async function resetTemplate(template: any) {
+    if (!window.confirm(`Reset "${template.name}" to the latest detailed default? This replaces its scoring sections.`)) return;
+    const res = await fetch(`/api/admin/qa/templates/${template.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templateSchema: buildDefaultQaTemplateSchema(template.serviceType as JobType) }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast({ title: "Reset failed", description: body.error ?? "Please retry.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Reset to detailed default", description: "The form now uses the latest area-based sections." });
+    await load();
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -168,6 +184,10 @@ export function AdminQaTemplatesClient() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => void resetTemplate(template)}>
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                      Reset to default
+                    </Button>
                     <Label className="text-xs text-muted-foreground">Active</Label>
                     <Switch checked={template.isActive} onCheckedChange={() => void toggleTemplate(template)} />
                   </div>

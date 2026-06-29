@@ -1726,37 +1726,32 @@ function clockLimitSourceLabel(value: string | null | undefined) {
 
     if (!job?.property?.inventoryEnabled) return baseSections;
 
-    const hasCupboardStock = inventoryStock.some(
-      (stock) => normalizeInventoryLocation(stock?.item?.location) === "CLEANERS_CUPBOARD"
+    // Items the form already targets via an explicit per-field list. Anything NOT
+    // covered — including items added to the property after this form was built —
+    // is surfaced in a catch-all so the cleaner always sees the FULL inventory.
+    const explicitKeys = new Set<string>();
+    for (const section of baseSections) {
+      for (const field of section?.fields ?? []) {
+        if (field?.type !== "inventory") continue;
+        for (const sel of Array.isArray(field?.items) ? field.items : []) explicitKeys.add(String(sel));
+      }
+    }
+    const uncovered = inventoryStock.filter(
+      (stock) =>
+        !explicitKeys.has(String(stock?.item?.id ?? "")) &&
+        !explicitKeys.has(String(stock?.item?.sku ?? ""))
     );
-    if (!hasCupboardStock) return baseSections;
-
-    const hasCupboardInventoryField = baseSections.some((section: any) =>
-      (section?.fields ?? []).some((field: any) => {
-        if (field?.type !== "inventory") return false;
-        if (field?.location && normalizeInventoryLocation(field.location) === "CLEANERS_CUPBOARD") return true;
-        if (section?.location && normalizeInventoryLocation(section.location) === "CLEANERS_CUPBOARD") return true;
-        return (
-          inferLocationFromText(field?.label) === "CLEANERS_CUPBOARD" ||
-          inferLocationFromText(field?.id) === "CLEANERS_CUPBOARD" ||
-          inferLocationFromText(section?.label) === "CLEANERS_CUPBOARD" ||
-          inferLocationFromText(section?.id) === "CLEANERS_CUPBOARD"
-        );
-      })
-    );
-
-    if (hasCupboardInventoryField) return baseSections;
+    if (uncovered.length === 0) return baseSections;
 
     baseSections.push({
       id: "__auto_inventory_other",
-      label: "Other Inventory",
+      label: "Other & newly-added supplies",
       page: "checklist",
       fields: [
         {
-          id: "__auto_inventory_cleaners_cupboard",
+          id: "__auto_inventory_all_other",
           type: "inventory",
-          label: "Cleaners cupboard supplies used",
-          location: "CLEANERS_CUPBOARD",
+          label: "Other supplies used / restocked",
           inventoryUsage: true,
         },
       ],
@@ -2771,6 +2766,22 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   function getInventoryOptionsForField(field: any, section?: any) {
+    // Catch-all "Other & newly-added supplies": every property item not already
+    // targeted by an explicit per-field list (so nothing is ever hidden).
+    if (field?.id === "__auto_inventory_all_other") {
+      const explicitKeys = new Set<string>();
+      for (const sec of Array.isArray(sections) ? sections : []) {
+        for (const f of sec?.fields ?? []) {
+          if (f?.type !== "inventory") continue;
+          for (const sel of Array.isArray(f?.items) ? f.items : []) explicitKeys.add(String(sel));
+        }
+      }
+      return inventoryStock.filter(
+        (stock) =>
+          !explicitKeys.has(String(stock?.item?.id ?? "")) &&
+          !explicitKeys.has(String(stock?.item?.sku ?? ""))
+      );
+    }
     const selectors = Array.isArray(field?.items) ? field.items : [];
     const base = selectors.length === 0
       ? inventoryStock
