@@ -3,7 +3,7 @@ import { JobStatus, QaAssignmentStatus, QaReworkSeverity, Role, StockRunStatus }
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
-import { buildDefaultQaTemplateSchema, scoreQaSubmission } from "@/lib/qa/templates";
+import { buildDefaultQaTemplateSchema, scoreQaSubmission, QA_TEMPLATE_VERSION } from "@/lib/qa/templates";
 import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
@@ -134,7 +134,20 @@ async function resolveTemplate(jobId: string) {
     where: { propertyId: null, serviceType: job.jobType, isActive: true },
     orderBy: { version: "desc" },
   });
-  if (globalTemplate) return globalTemplate;
+  if (globalTemplate) {
+    // Auto-upgrade an auto-created "Default QA" template to the latest area-based
+    // schema when it's stale; never touch an admin-customised (renamed) template.
+    const schema = globalTemplate.schema as { version?: number } | null;
+    const isAutoDefault = globalTemplate.name?.startsWith("Default QA -");
+    const stale = !schema || typeof schema !== "object" || Number(schema.version ?? 0) < QA_TEMPLATE_VERSION;
+    if (isAutoDefault && stale) {
+      return db.qaFormTemplate.update({
+        where: { id: globalTemplate.id },
+        data: { schema: buildDefaultQaTemplateSchema(job.jobType) as any },
+      });
+    }
+    return globalTemplate;
+  }
   return db.qaFormTemplate.create({
     data: {
       name: `Default QA - ${String(job.jobType).replace(/_/g, " ")}`,
