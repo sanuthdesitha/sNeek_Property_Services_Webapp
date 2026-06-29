@@ -42,6 +42,7 @@ import {
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import { ImageAnnotator } from "@/components/shared/image-annotator";
+import { SignaturePad } from "@/components/shared/signature-pad";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import { toast } from "@/hooks/use-toast";
 import { isUploadFieldType } from "@/lib/forms/field-types";
@@ -94,6 +95,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [data, setData] = useState<Record<string, any>>({});
   const [notes, setNotes] = useState("");
   const [tools, setTools] = useState<QaInspectionTools>(() => emptyInspectionTools());
+  // ── Sign-off (Phase 1): the inspector signs + attests before submitting. ──
+  const [signatureDataUrl, setSignatureDataUrl] = useState("");
+  const [attested, setAttested] = useState(false);
+  const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
   // Display URLs for section photos, keyed by S3 key (seeded from GET, then
   // augmented locally as the inspector uploads new ones this session).
@@ -558,7 +563,40 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         }
       }
     }
+    // Sign-off is mandatory — an inspection is a record, so it must be attested + signed.
+    if (!attested) {
+      toast({ title: "Tick the attestation to sign off this inspection.", variant: "destructive" });
+      return;
+    }
+    if (!signatureDataUrl) {
+      toast({ title: "Add your signature to sign off this inspection.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
+    // Upload the signature image first so it travels with the submission.
+    let signatureKey: string | null = null;
+    try {
+      const sigBlob = await (await fetch(signatureDataUrl)).blob();
+      const fd = new FormData();
+      fd.append("file", new File([sigBlob], `qa-signature-${Date.now()}.png`, { type: "image/png" }));
+      fd.append("folder", "qa-signoff");
+      const upRes = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const upBody = await upRes.json().catch(() => ({}));
+      if (upRes.ok && upBody?.key) signatureKey = upBody.key as string;
+    } catch {
+      // handled below
+    }
+    if (!signatureKey) {
+      setSaving(false);
+      toast({ title: "Could not save your signature", description: "Please retry.", variant: "destructive" });
+      return;
+    }
+    const signOff = {
+      signatureKey,
+      attested: true,
+      signedByName: inspectorName,
+      signedAt: new Date().toISOString(),
+    };
     const res = await fetch(`/api/qa/jobs/${jobId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -576,6 +614,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           mediaAnnotations: tools.mediaAnnotations,
           onSite: { ...tools.onSite, minutes: onSiteMinutes },
           rework: rework.enabled ? rework : null,
+          signOff,
         },
       }),
     });
@@ -598,6 +637,8 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     setTools(emptyInspectionTools());
     setData({});
     setNotes("");
+    setSignatureDataUrl("");
+    setAttested(false);
     try {
       localStorage.removeItem(draftKey);
     } catch {
@@ -1351,6 +1392,24 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                 <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Internal notes and follow-up instructions" />
               </div>
 
+              {/* ── Inspector sign-off (required before submit) ── */}
+              <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Inspector sign-off</p>
+                  <p className="text-xs text-muted-foreground">Required — your signature is recorded on the inspection report.</p>
+                </div>
+                <SignaturePad
+                  label={`Signature — ${inspectorName}`}
+                  value={signatureDataUrl}
+                  onChange={setSignatureDataUrl}
+                  required
+                />
+                <label className="flex items-start gap-2.5 text-xs leading-snug text-foreground">
+                  <Checkbox checked={attested} onCheckedChange={(v) => setAttested(v === true)} className="mt-0.5 shrink-0" />
+                  <span>I attest that this QA inspection is accurate and complete, and was carried out by me ({inspectorName}).</span>
+                </label>
+              </div>
+
               <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
                 {!online ? (
                   <span className="text-amber-600">Offline — saved on this device, submit when you&apos;re back online.</span>
@@ -1360,9 +1419,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                   <span>Changes save automatically as you go.</span>
                 )}
               </p>
-              <Button className="h-11 w-full" onClick={() => void submit()} disabled={saving || !online}>
+              <Button className="h-11 w-full" onClick={() => void submit()} disabled={saving || !online || !attested || !signatureDataUrl}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                {saving ? "Submitting..." : !online ? "Offline — can't submit yet" : "Submit QA review"}
+                {saving
+                  ? "Submitting..."
+                  : !online
+                    ? "Offline — can't submit yet"
+                    : !signatureDataUrl
+                      ? "Sign to submit"
+                      : !attested
+                        ? "Confirm attestation to submit"
+                        : "Sign off & submit QA review"}
               </Button>
               {hasQaSubmission ? (
                 <Button variant="outline" className="h-11 w-full" asChild>

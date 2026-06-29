@@ -83,6 +83,18 @@ export interface QaReworkProposal {
   affectsCleanerStats: boolean;
 }
 
+/** The inspector's formal sign-off, captured at submit time. */
+export interface QaSignOff {
+  /** S3 key of the inspector's drawn signature PNG. */
+  signatureKey: string | null;
+  /** The inspector ticked the attestation checkbox. */
+  attested: boolean;
+  /** Name captured at the moment of signing (from the session). */
+  signedByName: string | null;
+  /** ISO timestamp the inspection was signed. */
+  signedAt: string | null;
+}
+
 /** Everything the inspector captured beyond the scored form. */
 export interface QaInspectionTools {
   damage: QaDamageEntry[];
@@ -108,6 +120,8 @@ export interface QaInspectionTools {
     minutes: number | null;
   };
   rework: QaReworkProposal | null;
+  /** The inspector's signature + attestation (set at submit). */
+  signOff: QaSignOff | null;
 }
 
 export const QA_TOOLS_DATA_KEY = "__qaTools";
@@ -139,6 +153,7 @@ export function emptyInspectionTools(): QaInspectionTools {
     mediaAnnotations: {},
     onSite: { startedAt: null, endedAt: null, minutes: null },
     rework: null,
+    signOff: null,
   };
 }
 

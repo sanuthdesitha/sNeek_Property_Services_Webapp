@@ -95,6 +95,15 @@ const toolsSchema = z
       })
       .default({}),
     rework: reworkSchema.nullable().optional(),
+    signOff: z
+      .object({
+        signatureKey: z.string().trim().min(1).nullable().optional(),
+        attested: z.boolean().optional(),
+        signedByName: z.string().trim().max(200).nullable().optional(),
+        signedAt: z.string().datetime().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
   })
   .optional();
 
