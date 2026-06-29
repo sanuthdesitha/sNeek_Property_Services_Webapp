@@ -36,7 +36,7 @@ function startDateForRange(range: RangeType) {
 export default async function ClientReportsPage({
   searchParams,
 }: {
-  searchParams?: { range?: string; propertyId?: string };
+  searchParams?: { range?: string; propertyId?: string; type?: string };
 }) {
   await ensureClientModuleAccess("reports");
   const session = await requireRole([Role.CLIENT]);
@@ -69,7 +69,9 @@ export default async function ClientReportsPage({
       ? searchParams.propertyId
       : undefined;
 
-  const reports = user?.clientId
+  // Fetch reports for the chosen range + property (without the type filter), so
+  // the available job-type chips reflect what actually exists in this slice.
+  const allReports = user?.clientId
     ? await db.report.findMany({
         where: {
           createdAt: { gte: fromDate },
@@ -93,8 +95,28 @@ export default async function ClientReportsPage({
       })
     : [];
 
+  const availableTypes = Array.from(new Set(allReports.map((r) => r.job.jobType))).sort();
+  const selectedType =
+    searchParams?.type && availableTypes.includes(searchParams.type as (typeof availableTypes)[number])
+      ? searchParams.type
+      : undefined;
+  const reports = selectedType ? allReports.filter((r) => r.job.jobType === selectedType) : allReports;
+
   const totalJobs = reports.length;
   const properties = Array.from(new Set(reports.map((r) => r.job.property.name))).length;
+
+  // Build hrefs that preserve the other active filters.
+  const buildHref = (overrides: { range?: RangeType; propertyId?: string | null; type?: string | null }) => {
+    const params = new URLSearchParams();
+    params.set("range", overrides.range ?? rangeType);
+    const p = overrides.propertyId === null ? undefined : overrides.propertyId ?? selectedPropertyId;
+    if (p) params.set("propertyId", p);
+    const t = overrides.type === null ? undefined : overrides.type ?? selectedType;
+    if (t) params.set("type", t);
+    return `/client/reports?${params.toString()}`;
+  };
+
+  const prettyType = (t: string) => t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="space-y-6">
@@ -109,32 +131,46 @@ export default async function ClientReportsPage({
         }
       />
 
-      <div className="flex flex-wrap gap-2">
-        <Button asChild variant={rangeType === "weekly" ? "default" : "outline"} size="sm">
-          <Link href="/client/reports?range=weekly">Weekly</Link>
-        </Button>
-        <Button asChild variant={rangeType === "monthly" ? "default" : "outline"} size="sm">
-          <Link href="/client/reports?range=monthly">Monthly</Link>
-        </Button>
-        <Button asChild variant={rangeType === "annual" ? "default" : "outline"} size="sm">
-          <Link href="/client/reports?range=annual">Annual</Link>
-        </Button>
-      </div>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="w-16 text-xs font-medium uppercase tracking-wide text-muted-foreground">Period</span>
+          {(["weekly", "monthly", "annual"] as const).map((r) => (
+            <Button key={r} asChild variant={rangeType === r ? "default" : "outline"} size="sm">
+              <Link href={buildHref({ range: r })}>{r[0].toUpperCase() + r.slice(1)}</Link>
+            </Button>
+          ))}
+        </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button asChild variant={!selectedPropertyId ? "default" : "outline"} size="sm">
-          <Link href={`/client/reports?range=${rangeType}`}>All properties</Link>
-        </Button>
-        {(user?.client?.properties ?? []).map((property) => (
-          <Button
-            key={property.id}
-            asChild
-            variant={selectedPropertyId === property.id ? "default" : "outline"}
-            size="sm"
-          >
-            <Link href={`/client/reports?range=${rangeType}&propertyId=${property.id}`}>{property.name}</Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="w-16 text-xs font-medium uppercase tracking-wide text-muted-foreground">Property</span>
+          <Button asChild variant={!selectedPropertyId ? "default" : "outline"} size="sm">
+            <Link href={buildHref({ propertyId: null })}>All</Link>
           </Button>
-        ))}
+          {(user?.client?.properties ?? []).map((property) => (
+            <Button
+              key={property.id}
+              asChild
+              variant={selectedPropertyId === property.id ? "default" : "outline"}
+              size="sm"
+            >
+              <Link href={buildHref({ propertyId: property.id })}>{property.name}</Link>
+            </Button>
+          ))}
+        </div>
+
+        {availableTypes.length > 1 || selectedType ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-16 text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</span>
+            <Button asChild variant={!selectedType ? "default" : "outline"} size="sm">
+              <Link href={buildHref({ type: null })}>All</Link>
+            </Button>
+            {availableTypes.map((t) => (
+              <Button key={t} asChild variant={selectedType === t ? "default" : "outline"} size="sm">
+                <Link href={buildHref({ type: t })}>{prettyType(t)}</Link>
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
