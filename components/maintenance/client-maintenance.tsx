@@ -74,6 +74,9 @@ interface MaintenanceListItem {
   resolvedAt: string | null;
   resolutionNote: string | null;
   outcome?: string | null;
+  quotedCost?: number | null;
+  costApprovalStatus?: string | null;
+  costDecidedAt?: string | null;
   property?: { name: string };
   photos?: Array<{ key: string; url: string }>;
 }
@@ -154,6 +157,71 @@ function WorkDoneDialog({ item }: { item: MaintenanceListItem }) {
 }
 
 type AssignableWorker = { id: string; name: string; trade: string | null; company: string | null };
+
+const money = (n: number) =>
+  n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
+
+// Cost approval: when admin/ops have quoted a price, the owning client can
+// approve or decline it right on the item card.
+function CostApproval({ item, onSaved }: { item: MaintenanceListItem; onSaved: () => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const status = item.costApprovalStatus ?? null;
+  const cost = item.quotedCost ?? null;
+  if (!status || cost == null) return null;
+
+  async function decide(decision: "APPROVED" | "DECLINED") {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/maintenance/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costDecision: decision }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not save", description: b.error ?? "Please retry.", variant: "destructive" });
+        return;
+      }
+      toast({ title: decision === "APPROVED" ? "Quote approved" : "Quote declined" });
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (status === "PENDING") {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-amber-900 dark:text-amber-200">Approval needed</p>
+            <p className="text-lg font-semibold text-amber-950 dark:text-amber-100">{money(cost)}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => decide("DECLINED")}>
+              Decline
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => decide("APPROVED")}>
+              Approve
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (status === "APPROVED") {
+    return (
+      <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Quote approved · {money(cost)}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+      Quote declined · {money(cost)}
+    </Badge>
+  );
+}
 
 // Client can add a maintenance person and optionally invite them to the portal
 // (a secure set-password invite email — we never handle their password).
@@ -489,6 +557,7 @@ export function ClientMaintenance({ properties }: { properties: ClientProperty[]
                     ))}
                   </div>
                 ) : null}
+                <CostApproval item={item} onSaved={load} />
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <ManageDialog item={item} onSaved={load} />
                 </div>

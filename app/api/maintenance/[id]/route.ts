@@ -12,6 +12,8 @@ import {
   getMaintenanceItem,
   updateMaintenanceItem,
   updateMaintenanceStatus,
+  setMaintenanceQuote,
+  decideMaintenanceCost,
 } from "@/lib/maintenance/service";
 import { resolvePropertyAccess, resolvePhotoUrls } from "@/lib/maintenance/access";
 import { userIsAssignedWorker, assignMaintenanceItem } from "@/lib/maintenance/workers";
@@ -50,6 +52,10 @@ const patchSchema = z
     clientVisible: z.boolean().optional(),
     // Assign an existing maintenance worker (admin/ops or the owning client).
     assignWorkerId: z.string().trim().min(1).optional(),
+    // Cost quote (admin/ops set a price for the client to approve).
+    quotedCost: z.number().nonnegative().optional(),
+    // Client (or admin/ops) approves/declines the quoted cost.
+    costDecision: z.enum(["APPROVED", "DECLINED"]).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "No changes supplied." });
 
@@ -149,6 +155,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const canClientAct = role === Role.CLIENT && Boolean(access?.allowed);
     const wantsStatus = body.status !== undefined;
     const wantsAssign = body.assignWorkerId !== undefined;
+    const wantsQuote = body.quotedCost !== undefined;
+    const wantsCostDecision = body.costDecision !== undefined;
     const fieldKeys = (["category", "area", "title", "description", "recommendedAction", "priority", "estimatedCost", "clientVisible"] as const)
       .filter((k) => body[k] !== undefined);
     const wantsEdit = fieldKeys.length > 0;
@@ -156,8 +164,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (wantsEdit && !canManage) {
       return NextResponse.json({ error: "Only admins can edit maintenance item details." }, { status: 403 });
     }
-    if ((wantsStatus || wantsAssign) && !canManage && !canClientAct) {
+    if (wantsQuote && !canManage) {
+      return NextResponse.json({ error: "Only admins can set a quote for approval." }, { status: 403 });
+    }
+    if ((wantsStatus || wantsAssign || wantsCostDecision) && !canManage && !canClientAct) {
       return NextResponse.json({ error: "You can't update this maintenance item." }, { status: 403 });
+    }
+
+    if (wantsQuote && body.quotedCost !== undefined) {
+      await setMaintenanceQuote({ itemId: params.id, quotedCost: body.quotedCost, userId: session.user.id });
+    }
+
+    if (wantsCostDecision && body.costDecision) {
+      await decideMaintenanceCost({ itemId: params.id, decision: body.costDecision, userId: session.user.id });
     }
 
     if (wantsAssign && body.assignWorkerId) {

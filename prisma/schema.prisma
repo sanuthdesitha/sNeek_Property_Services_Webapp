@@ -454,6 +454,10 @@ model PropertyMaintenanceItem {
   status           MaintenanceStatus       @default(OPEN)
   photoKeys        Json?
   estimatedCost    Float?
+  // Client-facing cost quote + approval (Phase 3 of the client maintenance epic).
+  quotedCost          Float?
+  costApprovalStatus  String? // null | PENDING | APPROVED | DECLINED
+  costDecidedAt       DateTime?
   clientVisible    Boolean                 @default(true)
   resolvedByUserId String?
   resolvedAt       DateTime?

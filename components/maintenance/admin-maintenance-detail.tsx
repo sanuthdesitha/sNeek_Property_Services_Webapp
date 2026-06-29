@@ -128,6 +128,9 @@ interface MaintenanceDetailItem {
   source?: MaintenanceSource;
   recommendedAction: keyof typeof ACTION_LABELS;
   estimatedCost: number | null;
+  quotedCost: number | null;
+  costApprovalStatus: string | null;
+  costDecidedAt: string | null;
   clientVisible: boolean;
   photos: Photo[];
   finishPhotos: Photo[];
@@ -220,6 +223,10 @@ export function AdminMaintenanceDetail({ itemId }: { itemId: string }) {
   const [nwCompany, setNwCompany] = React.useState("");
   const [creatingWorker, setCreatingWorker] = React.useState(false);
 
+  // Client cost quote (Phase 3).
+  const [quoteInput, setQuoteInput] = React.useState("");
+  const [savingQuote, setSavingQuote] = React.useState(false);
+
   const loadItem = React.useCallback(async () => {
     try {
       const res = await fetch(`/api/maintenance/${itemId}`, { cache: "no-store" });
@@ -266,6 +273,32 @@ export function AdminMaintenanceDetail({ itemId }: { itemId: string }) {
     setLoading(true);
     void Promise.all([loadItem(), loadWorkers(), loadUsers()]).finally(() => setLoading(false));
   }, [loadItem, loadWorkers, loadUsers]);
+
+  async function sendQuote() {
+    const amount = Number(quoteInput);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    setSavingQuote(true);
+    try {
+      const res = await fetch(`/api/maintenance/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quotedCost: amount }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not send quote", description: body.error ?? "Please retry.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Quote sent for approval", description: "The client can now approve or decline it." });
+      setQuoteInput("");
+      await loadItem();
+    } finally {
+      setSavingQuote(false);
+    }
+  }
 
   async function createWorker() {
     if (!nwName.trim()) {
@@ -438,6 +471,49 @@ export function AdminMaintenanceDetail({ itemId }: { itemId: string }) {
           <CardContent className="p-5 text-sm text-foreground">{item.description}</CardContent>
         </Card>
       ) : null}
+
+      {/* Client cost quote + approval state */}
+      <Card className="rounded-xl">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium">Client quote</p>
+            {item.costApprovalStatus === "APPROVED" ? (
+              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                Approved{item.quotedCost != null ? ` · $${item.quotedCost.toFixed(2)}` : ""}
+              </Badge>
+            ) : item.costApprovalStatus === "DECLINED" ? (
+              <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-700">
+                Declined{item.quotedCost != null ? ` · $${item.quotedCost.toFixed(2)}` : ""}
+              </Badge>
+            ) : item.costApprovalStatus === "PENDING" ? (
+              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                Awaiting client{item.quotedCost != null ? ` · $${item.quotedCost.toFixed(2)}` : ""}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Send a price to the owning client to approve or decline. Sending makes the item visible to them.
+          </p>
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-1.5">
+              <Label className="text-xs" htmlFor="quote-amount">Amount (AUD)</Label>
+              <Input
+                id="quote-amount"
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                placeholder={item.quotedCost != null ? item.quotedCost.toFixed(2) : "0.00"}
+                value={quoteInput}
+                onChange={(e) => setQuoteInput(e.target.value)}
+              />
+            </div>
+            <Button onClick={() => void sendQuote()} disabled={savingQuote}>
+              {item.costApprovalStatus === "PENDING" ? "Update quote" : "Send for approval"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* ── Left column: photos + visit progress + history ── */}

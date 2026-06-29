@@ -317,6 +317,73 @@ export async function updateMaintenanceItem(input: UpdateMaintenanceItemInput): 
   });
 }
 
+// ─── Cost quote + client approval (Phase 3) ────────────────────────────────────
+
+/**
+ * Admin/ops record a price to put to the owning client for approval. Sets the
+ * approval state to PENDING, makes the item client-visible, and logs an event.
+ */
+export async function setMaintenanceQuote(input: {
+  itemId: string;
+  quotedCost: number;
+  userId: string;
+}): Promise<MaintenanceItemDetail> {
+  return db.$transaction(async (tx) => {
+    const existing = await tx.propertyMaintenanceItem.findUniqueOrThrow({
+      where: { id: input.itemId },
+      select: { status: true },
+    });
+    await tx.propertyMaintenanceItem.update({
+      where: { id: input.itemId },
+      data: {
+        quotedCost: input.quotedCost,
+        costApprovalStatus: "PENDING",
+        costDecidedAt: null,
+        clientVisible: true,
+      },
+    });
+    await tx.propertyMaintenanceEvent.create({
+      data: {
+        itemId: input.itemId,
+        userId: input.userId,
+        fromStatus: existing.status,
+        toStatus: existing.status,
+        note: `Quote of $${input.quotedCost.toFixed(2)} sent to client for approval`,
+      },
+    });
+    return tx.propertyMaintenanceItem.findUniqueOrThrow({ where: { id: input.itemId }, include: detailInclude });
+  });
+}
+
+/** The owning client (or admin/ops) approves or declines the quoted cost. */
+export async function decideMaintenanceCost(input: {
+  itemId: string;
+  decision: "APPROVED" | "DECLINED";
+  userId: string;
+}): Promise<MaintenanceItemDetail> {
+  return db.$transaction(async (tx) => {
+    const existing = await tx.propertyMaintenanceItem.findUniqueOrThrow({
+      where: { id: input.itemId },
+      select: { status: true, quotedCost: true },
+    });
+    await tx.propertyMaintenanceItem.update({
+      where: { id: input.itemId },
+      data: { costApprovalStatus: input.decision, costDecidedAt: new Date() },
+    });
+    const amount = existing.quotedCost != null ? `$${existing.quotedCost.toFixed(2)} ` : "";
+    await tx.propertyMaintenanceEvent.create({
+      data: {
+        itemId: input.itemId,
+        userId: input.userId,
+        fromStatus: existing.status,
+        toStatus: existing.status,
+        note: `Client ${input.decision === "APPROVED" ? "approved" : "declined"} the ${amount}quote`,
+      },
+    });
+    return tx.propertyMaintenanceItem.findUniqueOrThrow({ where: { id: input.itemId }, include: detailInclude });
+  });
+}
+
 // ─── Summary (KPI counts) ─────────────────────────────────────────────────────
 
 export interface MaintenanceSummary {
