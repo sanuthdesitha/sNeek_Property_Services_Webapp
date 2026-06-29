@@ -21,6 +21,9 @@ const damageEntrySchema = z.object({
   severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
   photoKeys: z.array(z.string().trim().min(1)).default([]),
   estimatedCost: z.number().min(0).nullable().optional(),
+  annotations: z
+    .record(z.object({ overlayKey: z.string().trim().min(1).optional(), comment: z.string().trim().max(2000).optional() }))
+    .optional(),
 });
 
 const nextCleanSchema = z.object({

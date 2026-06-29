@@ -108,7 +108,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   // Photo currently being marked up (draw/pin/comment). scope = which collection
   // the photo belongs to (a QA section, or a rework flagged area).
   const [annotateTarget, setAnnotateTarget] = useState<
-    { scope: "section" | "flagged"; sectionId?: string; areaId?: string; key: string; url: string } | null
+    { scope: "section" | "flagged" | "damage"; sectionId?: string; areaId?: string; entryId?: string; key: string; url: string } | null
   >(null);
   const [savingAnnotation, setSavingAnnotation] = useState(false);
 
@@ -483,6 +483,14 @@ export function QaJobClient({ jobId }: { jobId: string }) {
             a.id === areaId ? { ...a, annotations: { ...(a.annotations ?? {}), [key]: markup } } : a
           ),
         });
+      } else if (annotateTarget.scope === "damage" && annotateTarget.entryId) {
+        const entryId = annotateTarget.entryId;
+        setTools((prev) => ({
+          ...prev,
+          damage: prev.damage.map((d) =>
+            d.id === entryId ? { ...d, annotations: { ...(d.annotations ?? {}), [key]: markup } } : d
+          ),
+        }));
       } else {
         setTools((prev) => ({
           ...prev,
@@ -515,6 +523,39 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   }
   function removeFlaggedArea(id: string) {
     setRework({ flaggedAreas: rework.flaggedAreas.filter((a) => a.id !== id) });
+  }
+  function addDamagePhoto(entryId: string, key: string) {
+    setTools((prev) => ({
+      ...prev,
+      damage: prev.damage.map((d) =>
+        d.id === entryId && !d.photoKeys.includes(key) ? { ...d, photoKeys: [...d.photoKeys, key] } : d
+      ),
+    }));
+    void (async () => {
+      try {
+        const res = await fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`);
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.url) setSectionPhotoUrls((prev) => ({ ...prev, [key]: body.url }));
+      } catch {
+        /* thumbnail best-effort */
+      }
+    })();
+  }
+  function removeDamagePhoto(entryId: string, key: string) {
+    setTools((prev) => ({
+      ...prev,
+      damage: prev.damage.map((d) =>
+        d.id === entryId
+          ? {
+              ...d,
+              photoKeys: d.photoKeys.filter((k) => k !== key),
+              annotations: d.annotations
+                ? Object.fromEntries(Object.entries(d.annotations).filter(([k]) => k !== key))
+                : d.annotations,
+            }
+          : d
+      ),
+    }));
   }
   function addFlaggedAreaPhoto(areaId: string, key: string) {
     setRework({
@@ -854,9 +895,55 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         }
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {entry.photoKeys.length} photo(s) attached
-                    </p>
+                    {entry.photoKeys.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {entry.photoKeys.map((key) => {
+                          const url = sectionPhotoUrls[key];
+                          const ann = entry.annotations?.[key];
+                          const overlayUrl = ann?.overlayKey ? sectionPhotoUrls[ann.overlayKey] : undefined;
+                          return (
+                            <div key={key} className="relative">
+                              {url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={url} alt="Damage" className="h-16 w-16 rounded-lg border border-border object-cover" />
+                              ) : (
+                                <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                                  <Camera className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                              {overlayUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={overlayUrl} alt="" className="pointer-events-none absolute inset-0 h-16 w-16 rounded-lg object-cover" />
+                              ) : null}
+                              {url ? (
+                                <button
+                                  type="button"
+                                  aria-label="Mark up photo"
+                                  title={ann?.comment || "Draw, pin and comment on this photo"}
+                                  className="absolute -bottom-1.5 -left-1.5 rounded-full bg-primary p-1 text-primary-foreground shadow"
+                                  onClick={() => setAnnotateTarget({ scope: "damage", entryId: entry.id, key, url })}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              ) : null}
+                              {ann ? (
+                                <span className="absolute left-0 top-0 rounded-br-lg rounded-tl-lg bg-primary px-1 py-0.5 text-[8px] font-bold text-primary-foreground">✎</span>
+                              ) : null}
+                              <button
+                                type="button"
+                                aria-label="Remove photo"
+                                className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground shadow"
+                                onClick={() => removeDamagePhoto(entry.id, key)}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No damage photos yet — add one below.</p>
+                    )}
                   </div>
                   <UploadDropzone
                     jobId={jobId}
@@ -867,7 +954,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                       tag: "damage",
                       contextLabel: ["Damage report", entry.area?.trim()].filter(Boolean).join(" · "),
                     }}
-                    onUploaded={(r) => updateDamage(entry.id, { photoKeys: [...entry.photoKeys, r.key] })}
+                    onUploaded={(r) => addDamagePhoto(entry.id, r.key)}
                   />
                   <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDamage(entry.id)}>
                     <Trash2 className="mr-2 h-4 w-4" /> Remove entry
@@ -1450,7 +1537,13 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           onOpenChange={(v) => {
             if (!v) setAnnotateTarget(null);
           }}
-          initialComment={tools.mediaAnnotations[annotateTarget.key]?.comment ?? ""}
+          initialComment={
+            annotateTarget.scope === "damage"
+              ? tools.damage.find((d) => d.id === annotateTarget.entryId)?.annotations?.[annotateTarget.key]?.comment ?? ""
+              : annotateTarget.scope === "flagged"
+                ? rework.flaggedAreas.find((a) => a.id === annotateTarget.areaId)?.annotations?.[annotateTarget.key]?.comment ?? ""
+                : tools.mediaAnnotations[annotateTarget.key]?.comment ?? ""
+          }
           saving={savingAnnotation}
           onSave={({ blob, comment }) => saveAnnotation(blob, comment)}
         />

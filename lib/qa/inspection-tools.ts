@@ -22,6 +22,8 @@ export interface QaDamageEntry {
   /** S3 keys for the damage photos (uploaded via the shared uploader). */
   photoKeys: string[];
   estimatedCost?: number | null;
+  /** Per-photo markup (overlay PNG + comment) keyed by the photo's S3 key. */
+  annotations?: Record<string, { overlayKey?: string; comment?: string }>;
 }
 
 /** A "do this next clean" / special request that attaches to the property. */
