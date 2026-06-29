@@ -41,6 +41,7 @@ export default async function CleanerLayout({ children }: { children: React.Reac
         ...(visibility.showCalendar ? [{ href: "/cleaner/calendar", label: "Calendar" }] : []),
         ...(visibility.showShopping ? [{ href: "/cleaner/shopping", label: "Shopping" }] : []),
         ...(visibility.showStockRuns ? [{ href: "/cleaner/stock-runs", label: "Stock Counts" }] : []),
+        ...(visibility.showStockRuns || visibility.showShopping ? [{ href: "/cleaner/restock", label: "Restock" }] : []),
         { href: "/cleaner/availability", label: "Availability" },
         ...(visibility.showInvoices ? [{ href: "/cleaner/invoices", label: "Invoices" }] : []),
         ...(visibility.showPayRequests ? [{ href: "/cleaner/pay-requests", label: "Pay Requests" }] : []),

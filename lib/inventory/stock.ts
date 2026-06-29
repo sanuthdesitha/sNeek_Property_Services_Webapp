@@ -65,6 +65,32 @@ export async function deductStockFromSubmission(
   }
 }
 
+/** Apply a manual restock: bump on-hand for each line and log a RESTOCKED tx.
+ *  Used by cleaners recording supplies they've topped up (in or out of a job). */
+export async function applyRestock(
+  lines: Array<{ propertyStockId: string; addQty: number }>,
+  byLabel?: string
+): Promise<Array<{ propertyStockId: string; onHand: number }>> {
+  const results: Array<{ propertyStockId: string; onHand: number }> = [];
+  for (const { propertyStockId, addQty } of lines) {
+    if (!(addQty > 0)) continue;
+    const stock = await db.propertyStock.findUnique({ where: { id: propertyStockId } });
+    if (!stock) continue;
+    const onHand = stock.onHand + addQty;
+    await db.propertyStock.update({ where: { id: stock.id }, data: { onHand, updatedAt: new Date() } });
+    await db.stockTx.create({
+      data: {
+        propertyStockId: stock.id,
+        txType: StockTxType.RESTOCKED,
+        quantity: addQty,
+        notes: byLabel ? `Restocked by ${byLabel}` : "Restocked",
+      },
+    });
+    results.push({ propertyStockId, onHand });
+  }
+  return results;
+}
+
 /** Build the combined shopping list across all (or one) property. */
 export async function getShoppingList(propertyId?: string) {
   const stocks = await db.propertyStock.findMany({
