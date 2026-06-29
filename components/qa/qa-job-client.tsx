@@ -43,6 +43,8 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { UploadDropzone } from "@/components/ui/upload-dropzone";
 import { ImageAnnotator } from "@/components/shared/image-annotator";
 import { SignaturePad } from "@/components/shared/signature-pad";
+import { GuidedCapture, type GuidedCaptureItem } from "@/components/forms/guided-capture";
+import { prepareUploadFile } from "@/lib/uploads/compress";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import { toast } from "@/hooks/use-toast";
 import { isUploadFieldType } from "@/lib/forms/field-types";
@@ -98,6 +100,9 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   // ── Sign-off (Phase 1): the inspector signs + attests before submitting. ──
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [attested, setAttested] = useState(false);
+  // ── Guided live-camera capture (Phase 3) ──
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [capturePending, setCapturePending] = useState<Record<string, number>>({});
   const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
   // Display URLs for section photos, keyed by S3 key (seeded from GET, then
@@ -443,6 +448,42 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         // ignore — thumbnail just won't render until reload
       }
     })();
+  }
+
+  // Guided live-camera capture → stamp/compress → upload → attach to the section.
+  async function captureSectionFiles(
+    fieldId: string,
+    files: File[],
+    _source: "camera" | "gallery"
+  ): Promise<{ failedCount: number }> {
+    setCapturePending((p) => ({ ...p, [fieldId]: (p[fieldId] ?? 0) + files.length }));
+    const label =
+      (template?.schema?.sections ?? []).find((s: any) => s.id === fieldId)?.label ||
+      (template?.schema?.sections ?? []).find((s: any) => s.id === fieldId)?.title ||
+      "QA evidence";
+    let failed = 0;
+    for (const file of files) {
+      try {
+        const stamped = await prepareUploadFile(file, {
+          ...evidenceStamp,
+          tag: "qa",
+          contextLabel: ["QA", typeof label === "string" ? label : ""].filter(Boolean).join(" · "),
+        });
+        const form = new FormData();
+        form.append("file", stamped);
+        form.append("folder", "qa-section");
+        form.append("jobId", jobId);
+        const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.key) addSectionPhoto(fieldId, body.key);
+        else failed += 1;
+      } catch {
+        failed += 1;
+      } finally {
+        setCapturePending((p) => ({ ...p, [fieldId]: Math.max(0, (p[fieldId] ?? 1) - 1) }));
+      }
+    }
+    return { failedCount: failed };
   }
   function removeSectionPhoto(sectionId: string, key: string) {
     setTools((prev) => {
@@ -1322,6 +1363,12 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
+              {(template?.schema?.sections ?? []).length > 0 ? (
+                <Button type="button" variant="outline" className="h-11 w-full" onClick={() => setCaptureOpen(true)}>
+                  <Camera className="mr-2 h-4 w-4" />
+                  Camera walkthrough — capture evidence
+                </Button>
+              ) : null}
               {(template?.schema?.sections ?? []).map((section: any) => {
                 const sectionPhotoKeys = tools.sectionPhotos[section.id] ?? [];
                 const uploaderOpen = openUploaders[section.id] === true;
@@ -1529,6 +1576,36 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           </Card>
         </div>
       </div>
+
+      {captureOpen ? (
+        <GuidedCapture
+          items={(template?.schema?.sections ?? []).map(
+            (s: any): GuidedCaptureItem => ({
+              fieldId: s.id,
+              label:
+                (typeof s.label === "string" && s.label.trim()) ||
+                (typeof s.title === "string" && s.title.trim()) ||
+                "Photos",
+              sectionLabel: "QA evidence",
+            })
+          )}
+          counts={Object.fromEntries(
+            (template?.schema?.sections ?? []).map((s: any) => [
+              s.id,
+              (tools.sectionPhotos[s.id]?.length ?? 0) + (capturePending[s.id] ?? 0),
+            ])
+          )}
+          pendingCounts={capturePending}
+          thumbnails={Object.fromEntries(
+            (template?.schema?.sections ?? []).map((s: any) => [
+              s.id,
+              (tools.sectionPhotos[s.id] ?? []).map((k) => sectionPhotoUrls[k]).filter(Boolean),
+            ])
+          )}
+          onFiles={captureSectionFiles}
+          onClose={() => setCaptureOpen(false)}
+        />
+      ) : null}
 
       {annotateTarget ? (
         <ImageAnnotator
