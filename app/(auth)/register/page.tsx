@@ -170,8 +170,8 @@ export default function RegisterPage() {
     <div className="relative flex min-h-screen items-center justify-center p-4">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(255,178,98,0.2),transparent_35%),radial-gradient(circle_at_86%_10%,rgba(38,157,169,0.2),transparent_31%)]" />
       <div className="w-full max-w-lg space-y-4 page-fade">
-        <div className="flex items-center justify-between rounded-full border border-white/70 bg-white/80 px-4 py-2 text-sm shadow-sm">
-          <Link href="/" className="font-medium text-primary hover:underline">Back to home</Link>
+        <div className="flex items-center justify-between rounded-full border border-border bg-surface/70 px-4 py-2 text-sm shadow-sm backdrop-blur-sm">
+          <Link href="/" className="font-medium text-primary hover:underline">← Back to home</Link>
           <Link href="/login" className="text-muted-foreground hover:text-foreground">Sign in</Link>
         </div>
       <Card className="w-full max-w-lg shadow-xl">

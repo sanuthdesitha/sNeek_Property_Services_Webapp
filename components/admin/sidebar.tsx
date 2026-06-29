@@ -167,7 +167,7 @@ export function AdminSidebar({
         )}
         {!collapsed && (
           <div className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-foreground">{companyName}</span>
+            <span className="block text-sm font-semibold leading-tight text-foreground line-clamp-2">{companyName}</span>
             <span className="block truncate text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
               Operations
             </span>

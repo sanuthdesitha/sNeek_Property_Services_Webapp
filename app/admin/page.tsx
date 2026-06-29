@@ -382,17 +382,17 @@ export default async function AdminDashboard() {
 
       {/* Quick-launch toolbar */}
       <section aria-label="Quick launch">
-        <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible md:grid-cols-6">
+        <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:gap-3 sm:overflow-visible md:grid-cols-3 2xl:grid-cols-6">
           {QUICK_LAUNCH.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="group flex min-w-[140px] flex-1 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-sm font-medium text-foreground shadow-sm transition hover:-translate-y-px hover:border-primary/40 hover:bg-surface-raised hover:shadow-md"
+              className="group flex shrink-0 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-sm font-medium text-foreground shadow-sm transition hover:-translate-y-px hover:border-primary/40 hover:bg-surface-raised hover:shadow-md sm:shrink"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary/15">
                 <item.icon className="h-[18px] w-[18px]" aria-hidden />
               </span>
-              <span className="truncate">{item.label}</span>
+              <span className="whitespace-nowrap">{item.label}</span>
             </Link>
           ))}
         </div>
