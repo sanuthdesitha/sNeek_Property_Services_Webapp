@@ -24,7 +24,7 @@ function statusTone(status: string) {
   return "secondary";
 }
 
-export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
+export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: Inspector[]; canAssign?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [selectedInspector, setSelectedInspector] = useState("");
@@ -200,7 +200,7 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
     <div className="space-y-4">
       <PageHeader
         title="QA Queue"
-        description="Review submitted jobs and assign inspections."
+        description={canAssign ? "Review submitted jobs and assign inspections to your QA team." : "Review and inspect the jobs assigned to you."}
         icon={<ClipboardCheck />}
         actions={
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
@@ -231,29 +231,31 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
         </section>
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Bulk assign inspections</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto]">
-          <Select value={selectedInspector} onValueChange={setSelectedInspector}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select QA inspector or OPS manager" />
-            </SelectTrigger>
-            <SelectContent>
-              {inspectors.map((inspector) => (
-                <SelectItem key={inspector.id} value={inspector.id}>
-                  {inspector.name || inspector.email} ({inspector.role.replace(/_/g, " ")})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={() => void bulkAssign()} disabled={!selectedInspector || selectedJobs.length === 0}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Assign {selectedJobs.length || ""}
-          </Button>
-        </CardContent>
-      </Card>
+      {canAssign ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Bulk assign inspections</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <Select value={selectedInspector} onValueChange={setSelectedInspector}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select QA inspector or OPS manager" />
+              </SelectTrigger>
+              <SelectContent>
+                {inspectors.map((inspector) => (
+                  <SelectItem key={inspector.id} value={inspector.id}>
+                    {inspector.name || inspector.email} ({inspector.role.replace(/_/g, " ")})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={() => void bulkAssign()} disabled={!selectedInspector || selectedJobs.length === 0}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Assign {selectedJobs.length || ""}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Filters + sort (mirrors the admin Jobs page) */}
       <Card>
@@ -328,18 +330,20 @@ export function QaQueueClient({ inspectors }: { inspectors: Inspector[] }) {
         ) : (
           filtered.map((row) => (
             <Card key={row.key} className="overflow-hidden">
-              <CardContent className="grid gap-3 p-4 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 accent-primary"
-                  checked={selectedJobs.includes(row.jobId)}
-                  onChange={(event) =>
-                    setSelectedJobs((prev) =>
-                      event.target.checked ? [...prev, row.jobId] : prev.filter((id) => id !== row.jobId)
-                    )
-                  }
-                  aria-label={`Select ${jobTitle(row.job)}`}
-                />
+              <CardContent className={`grid gap-3 p-4 lg:items-center ${canAssign ? "lg:grid-cols-[auto_1fr_auto]" : "lg:grid-cols-[1fr_auto]"}`}>
+                {canAssign ? (
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 accent-primary"
+                    checked={selectedJobs.includes(row.jobId)}
+                    onChange={(event) =>
+                      setSelectedJobs((prev) =>
+                        event.target.checked ? [...prev, row.jobId] : prev.filter((id) => id !== row.jobId)
+                      )
+                    }
+                    aria-label={`Select ${jobTitle(row.job)}`}
+                  />
+                ) : null}
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-foreground">{jobTitle(row.job)}</p>
