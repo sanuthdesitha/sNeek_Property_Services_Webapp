@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   Camera,
   CheckCircle2,
   Star,
@@ -103,6 +104,9 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   // ── Guided live-camera capture (Phase 3) ──
   const [captureOpen, setCaptureOpen] = useState(false);
   const [capturePending, setCapturePending] = useState<Record<string, number>>({});
+  // ── Guided two-step flow (Phase 4) ──
+  const QA_STEPS = ["Inspect & log findings", "Score, sign off & submit"];
+  const [step, setStep] = useState(0);
   const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
   // Display URLs for section photos, keyed by S3 key (seeded from GET, then
@@ -791,8 +795,34 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
-        <div className="space-y-4">
+      {/* Guided step header */}
+      <div className="sticky top-0 z-20 flex gap-2 rounded-xl border border-border bg-surface/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+        {QA_STEPS.map((label, i) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => {
+              setStep(i);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className={`flex flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ${
+              i === step ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-surface-raised"
+            }`}
+          >
+            <span
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                i === step ? "bg-primary text-primary-foreground" : "border border-border"
+              }`}
+            >
+              {i + 1}
+            </span>
+            <span className="truncate">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-4">
+        <div className={step === 0 ? "space-y-4" : "hidden"}>
           <Card>
             <CardHeader><CardTitle className="text-base">Cleaner submission evidence</CardTitle></CardHeader>
             <CardContent className="space-y-3">
@@ -1115,7 +1145,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className={step === 1 ? "space-y-4" : "hidden"}>
           {/* ── Time on site ── */}
           <Card className="h-fit">
             <CardHeader>
@@ -1575,6 +1605,37 @@ export function QaJobClient({ jobId }: { jobId: string }) {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Step navigation */}
+      <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 rounded-xl border border-border bg-surface/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={step === 0}
+          onClick={() => {
+            setStep((s) => Math.max(0, s - 1));
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        >
+          <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+        </Button>
+        <span className="text-xs font-medium text-muted-foreground">
+          Step {step + 1} of {QA_STEPS.length}
+        </span>
+        {step < QA_STEPS.length - 1 ? (
+          <Button
+            type="button"
+            onClick={() => {
+              setStep((s) => Math.min(QA_STEPS.length - 1, s + 1));
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          >
+            Next: score &amp; sign off <ArrowRight className="ml-1.5 h-4 w-4" />
+          </Button>
+        ) : (
+          <span className="text-xs font-medium text-primary">Submit below ↓</span>
+        )}
       </div>
 
       {captureOpen ? (
