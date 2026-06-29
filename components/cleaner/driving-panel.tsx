@@ -445,14 +445,22 @@ export function DrivingPanel(props: DrivingPanelProps) {
         </header>
 
         {mapEmbedUrl ? (
-          <iframe
-            title="Route map"
-            src={mapEmbedUrl}
-            className="h-[36vh] w-full border-0"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
-          />
+          <div className="relative h-[36vh] w-full bg-surface-raised">
+            {/* Branded placeholder shows while the embed loads, or if it fails
+                to render (poor signal, blocked embed) — beats a black void. */}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
+              <MapPin className="h-6 w-6 opacity-40" aria-hidden />
+              <span className="text-xs">Loading map…</span>
+            </div>
+            <iframe
+              title="Route map"
+              src={mapEmbedUrl}
+              className="absolute inset-0 h-full w-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+            />
+          </div>
         ) : null}
 
         <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{controls}</div>
