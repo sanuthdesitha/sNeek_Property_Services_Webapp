@@ -15,21 +15,31 @@ import {
   FileText,
   GripVertical,
   Plus,
+  Settings2,
   Trash2,
   Video,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/ui/status-pill";
-import { isUploadFieldType } from "@/lib/forms/field-types";
+import {
+  FIELD_TYPES,
+  FIELD_CATEGORY_LABELS,
+  FIELD_CATEGORY_ORDER,
+  getFieldTypeDef,
+  isUploadFieldType,
+} from "@/lib/forms/field-types";
 import {
   flattenFieldsOneLevel,
   isFlattenedFieldVisible,
   isTemplateNodeVisible,
 } from "@/lib/forms/visibility";
-import type { FormField, FormSchema, FormSection } from "@/lib/forms/types";
+import type { FormField, FormFieldType, FormSchema, FormSection } from "@/lib/forms/types";
+import { DIVIDER_LABEL } from "./form-blocks";
 import { FieldRenderer } from "./field-renderer";
 import { FieldReferences } from "./field-references";
+import { FieldIcon } from "./field-icon";
 import { FormThemeScope, ThemedSectionHeading } from "./form-theme";
 
 export interface BuilderCanvasProps {
@@ -46,18 +56,19 @@ export interface BuilderCanvasProps {
   onAddFieldToSection: (sectionId: string) => void;
   onRemoveField: (sectionId: string, fieldId: string) => void;
   onDuplicateField: (sectionId: string, fieldId: string) => void;
+  /** Inline edits committed straight from the canvas (label/help/required/options). */
+  onUpdateField: (sectionId: string, field: FormField) => void;
+  /** Insert a new field of `type` at `index` within a section (from a + inserter). */
+  onInsertField: (sectionId: string, type: FormFieldType, index: number) => void;
 }
 
 /**
- * Live, what-you-see-is-what-the-cleaner-gets canvas. Each section and each
- * top-level field is wrapped in a selectable + sortable shell, but the field
- * body itself is rendered with the EXACT same FieldRenderer / upload tile the
- * cleaner job page uses (mirrors form-preview.tsx). Local `answers` state lets
- * conditions / sub-fields / "details when No" exercise live while editing.
- *
- * Selecting a field opens it in the right-hand properties panel; dragging a
- * field re-orders it within or across sections (DnD context lives in the
- * parent FormBuilder).
+ * Live, what-you-see-is-what-the-cleaner-gets canvas with TRUE inline editing —
+ * each field's label, help text and (for choice fields) options are edited
+ * directly on the card, Google-Forms / Wix style. A floating toolbar handles
+ * duplicate / delete / required / advanced, drag re-orders, and "+" inserters
+ * between blocks add new fields of any type. Deep config still lives in the
+ * right-hand properties panel (opened via the ⚙ on a selected field).
  */
 export function BuilderCanvas(props: BuilderCanvasProps) {
   const { schema, onAddSection } = props;
@@ -70,7 +81,7 @@ export function BuilderCanvas(props: BuilderCanvasProps) {
       {sections.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed p-10 text-center text-sm text-muted-foreground">
           <p className="font-medium">Your form is empty</p>
-          <p className="mt-1">Add a section, then drag field types from the left.</p>
+          <p className="mt-1">Add a section, then click “+ Add field”, or drag a field type from the left.</p>
         </div>
       ) : null}
 
@@ -107,9 +118,10 @@ function CanvasSection({
   onUpdateSectionDescription,
   onRemoveSection,
   onDuplicateSection,
-  onAddFieldToSection,
   onRemoveField,
   onDuplicateField,
+  onUpdateField,
+  onInsertField,
 }: BuilderCanvasProps & {
   section: FormSection;
   answers: Record<string, unknown>;
@@ -184,7 +196,7 @@ function CanvasSection({
       </div>
 
       {!collapsed && (
-        <div className="space-y-3 p-4">
+        <div className="space-y-2 p-4">
           <div className="space-y-1">
             <ThemedSectionHeading title={section.title || "Section"} description={section.description} />
             <Input
@@ -196,37 +208,131 @@ function CanvasSection({
             />
           </div>
 
-          <div ref={setDropRef} className={`space-y-2 rounded-xl ${isOver ? "bg-primary-soft/60 ring-2 ring-primary/40" : ""}`}>
+          <div ref={setDropRef} className={`space-y-1 rounded-xl ${isOver ? "bg-primary-soft/60 ring-2 ring-primary/40" : ""}`}>
+            <InsertPoint onInsert={(type) => onInsertField(section.id, type, 0)} />
             <SortableContext items={section.fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-              {section.fields.map((field) => (
-                <CanvasField
-                  key={field.id}
-                  field={field}
-                  sectionId={section.id}
-                  selected={field.id === selectedFieldId}
-                  hidden={!visibleFlat.some((vf) => vf.id === field.id && !vf._isChild)}
-                  answers={answers}
-                  onAnswer={onAnswer}
-                  onSelect={() => onSelectField(field.id)}
-                  onRemove={() => onRemoveField(section.id, field.id)}
-                  onDuplicate={() => onDuplicateField(section.id, field.id)}
-                />
+              {section.fields.map((field, index) => (
+                <React.Fragment key={field.id}>
+                  <CanvasField
+                    field={field}
+                    sectionId={section.id}
+                    selected={field.id === selectedFieldId}
+                    hidden={!visibleFlat.some((vf) => vf.id === field.id && !vf._isChild)}
+                    answers={answers}
+                    onAnswer={onAnswer}
+                    onSelect={() => onSelectField(field.id)}
+                    onUpdate={(next) => onUpdateField(section.id, next)}
+                    onRemove={() => onRemoveField(section.id, field.id)}
+                    onDuplicate={() => onDuplicateField(section.id, field.id)}
+                  />
+                  <InsertPoint onInsert={(type) => onInsertField(section.id, type, index + 1)} />
+                </React.Fragment>
               ))}
             </SortableContext>
 
             {section.fields.length === 0 ? (
               <div className="rounded-xl border-2 border-dashed p-6 text-center text-xs text-muted-foreground">
-                Drag a field type here, or use the button below.
+                Drag a field type here, or use “+ Add field”.
               </div>
             ) : null}
           </div>
-
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onAddFieldToSection(section.id)}>
-            <Plus className="mr-1 size-4" /> Add field
-          </Button>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A thin "+" affordance that, on click, reveals a categorized field-type picker
+ * and inserts the chosen type at this position (Gutenberg/Wix style).
+ */
+function InsertPoint({ onInsert }: { onInsert: (type: FormFieldType) => void }) {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <div className="relative">
+      {open ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 cursor-default"
+            aria-label="Close field picker"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-1/2 top-full z-50 mt-1 w-72 -translate-x-1/2 rounded-xl border border-border bg-popover p-2 shadow-lg">
+            <div className="max-h-72 space-y-2 overflow-y-auto">
+              {FIELD_CATEGORY_ORDER.map((category) => {
+                const types = (Object.values(FIELD_TYPES) as Array<(typeof FIELD_TYPES)[FormFieldType]>).filter(
+                  (d) => d.category === category,
+                );
+                if (types.length === 0) return null;
+                return (
+                  <div key={category}>
+                    <p className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {FIELD_CATEGORY_LABELS[category]}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {types.map((d) => (
+                        <button
+                          key={d.type}
+                          type="button"
+                          onClick={() => {
+                            onInsert(d.type as FormFieldType);
+                            setOpen(false);
+                          }}
+                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-accent"
+                        >
+                          <FieldIcon name={d.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{d.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      <div className="group/insert relative flex h-3 items-center justify-center">
+        <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-primary/30 opacity-0 transition-opacity group-hover/insert:opacity-100" aria-hidden />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="relative z-10 inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground opacity-0 shadow-sm transition-opacity hover:border-primary hover:text-primary group-hover/insert:opacity-100"
+        >
+          <Plus className="size-3" /> Add field
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Borderless text editor that looks like plain text until focused. */
+function InlineText({
+  value,
+  onChange,
+  placeholder,
+  className,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className={`w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 outline-none transition-colors placeholder:text-muted-foreground/60 hover:border-border focus:border-input focus:bg-background ${className ?? ""}`}
+    />
   );
 }
 
@@ -238,6 +344,7 @@ function CanvasField({
   answers,
   onAnswer,
   onSelect,
+  onUpdate,
   onRemove,
   onDuplicate,
 }: {
@@ -248,6 +355,7 @@ function CanvasField({
   answers: Record<string, unknown>;
   onAnswer: (fieldId: string, value: unknown) => void;
   onSelect: () => void;
+  onUpdate: (field: FormField) => void;
   onRemove: () => void;
   onDuplicate: () => void;
 }) {
@@ -261,6 +369,12 @@ function CanvasField({
     opacity: isDragging ? 0.4 : 1,
   };
 
+  const def = getFieldTypeDef(field.type);
+  const isDivider = field.type === "instruction" && field.label === DIVIDER_LABEL;
+  const isInstruction = field.type === "instruction" && !isDivider;
+  const isChoice = Boolean(def?.hasOptions); // select / multiselect / radio
+  const canRequire = !isDivider && !isInstruction && field.type !== "instruction";
+
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {isOver ? <div className="absolute -top-1 left-0 right-0 h-0.5 rounded-full bg-primary" aria-hidden /> : null}
@@ -269,12 +383,12 @@ function CanvasField({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
             e.preventDefault();
             onSelect();
           }
         }}
-        className={`group/field relative cursor-pointer rounded-xl border bg-background p-3 pl-9 transition-colors ${
+        className={`group/field relative rounded-xl border bg-background p-3 pl-9 transition-colors ${
           selected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"
         } ${hidden ? "opacity-60" : ""}`}
       >
@@ -283,15 +397,43 @@ function CanvasField({
           {...attributes}
           {...listeners}
           onClick={(e) => e.stopPropagation()}
-          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/60 opacity-0 transition-opacity group-hover/field:opacity-100"
+          className="absolute left-2 top-3 cursor-grab text-muted-foreground/60 opacity-0 transition-opacity group-hover/field:opacity-100"
           aria-label="Drag field"
         >
           <GripVertical className="size-4" />
         </button>
 
-        {/* hover toolbar */}
-        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/field:opacity-100">
+        {/* Floating block toolbar */}
+        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/field:opacity-100 data-[selected=true]:opacity-100" data-selected={selected}>
           {hidden ? <StatusPill variant="neutral" size="sm">Hidden now</StatusPill> : null}
+          {canRequire ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`size-7 text-base font-semibold ${field.required ? "text-destructive" : "text-muted-foreground"}`}
+              title={field.required ? "Required — click to make optional" : "Optional — click to require"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate({ ...field, required: !field.required });
+              }}
+              aria-label="Toggle required"
+            >
+              *
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+            aria-label="Advanced settings"
+            title="Advanced settings"
+          >
+            <Settings2 className="size-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -318,11 +460,96 @@ function CanvasField({
           </Button>
         </div>
 
-        {/* The real rendered field — exactly what the cleaner sees. */}
-        <div className="pointer-events-none select-none">
-          <FieldBody field={field} answers={answers} onAnswer={onAnswer} />
+        {/* Inline-editable label + type chip */}
+        <div className="flex items-start gap-2 pr-24">
+          <InlineText
+            value={field.label}
+            onChange={(label) => onUpdate({ ...field, label })}
+            placeholder={isInstruction ? "Heading / note" : "Question / label"}
+            ariaLabel="Field label"
+            className={`flex-1 font-medium ${isInstruction ? "text-sm" : "text-sm"}`}
+          />
+          {field.required && canRequire ? <span className="pt-1 text-destructive">*</span> : null}
+        </div>
+
+        {/* Inline-editable help text */}
+        {!isDivider ? (
+          <InlineText
+            value={field.helpText ?? ""}
+            onChange={(helpText) => onUpdate({ ...field, helpText: helpText || undefined })}
+            placeholder="Add help text (optional)"
+            ariaLabel="Help text"
+            className="mt-0.5 text-xs text-muted-foreground"
+          />
+        ) : null}
+
+        {/* Body / preview */}
+        <div className="mt-2">
+          {isDivider ? (
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span className="h-px flex-1 bg-border" /> Divider <span className="h-px flex-1 bg-border" />
+            </div>
+          ) : isInstruction ? (
+            <p className="text-[11px] italic text-muted-foreground">Shown to the cleaner as an info note.</p>
+          ) : isChoice ? (
+            <OptionsEditor field={field} onUpdate={onUpdate} />
+          ) : (
+            <div className="pointer-events-none select-none">
+              <FieldBody field={field} answers={answers} onAnswer={onAnswer} />
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Inline option list editor for select / multiselect / radio fields. */
+function OptionsEditor({ field, onUpdate }: { field: FormField; onUpdate: (f: FormField) => void }) {
+  const options = field.options ?? [];
+  const setOptions = (next: string[]) => onUpdate({ ...field, options: next });
+  const marker =
+    field.type === "multiselect"
+      ? "rounded-[4px]"
+      : field.type === "radio"
+        ? "rounded-full"
+        : "rounded-[4px] opacity-0"; // dropdown shows no marker
+
+  return (
+    <div className="space-y-1">
+      {options.map((opt, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className={`size-3.5 shrink-0 border border-muted-foreground/50 ${marker}`} aria-hidden />
+          <InlineText
+            value={opt}
+            onChange={(v) => setOptions(options.map((o, idx) => (idx === i ? v : o)))}
+            placeholder={`Option ${i + 1}`}
+            ariaLabel={`Option ${i + 1}`}
+            className="flex-1 text-sm"
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOptions(options.filter((_, idx) => idx !== i));
+            }}
+            className="shrink-0 rounded-md p-1 text-muted-foreground/60 hover:text-destructive"
+            aria-label="Remove option"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOptions([...options, `Option ${options.length + 1}`]);
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-1 text-xs font-medium text-primary hover:underline"
+      >
+        <Plus className="size-3.5" /> Add option
+      </button>
     </div>
   );
 }
@@ -330,7 +557,7 @@ function CanvasField({
 /**
  * Renders one top-level field (and its visible sub-fields) the way the cleaner
  * sees it — reusing FieldRenderer for inputs and the dashed capture tile for
- * uploads, identical to form-preview.tsx.
+ * uploads, with the field's own label suppressed (the card edits it inline).
  */
 function FieldBody({
   field,
@@ -341,30 +568,30 @@ function FieldBody({
   answers: Record<string, unknown>;
   onAnswer: (fieldId: string, value: unknown) => void;
 }) {
-  // Flatten just this field so its visible children render indented under it,
-  // matching the cleaner flow.
   const entries = flattenFieldsOneLevel([field]);
   return (
     <div className="space-y-2">
       {entries.map((entry: any) =>
         isUploadFieldType(entry.type) ? (
-          <UploadTile key={entry.id} field={entry} />
+          <UploadTile key={entry.id} field={entry} hideLabel={!entry._isChild} />
         ) : (
-          <FieldRenderer key={entry.id} field={entry} answers={answers} onAnswer={onAnswer} />
+          <FieldRenderer key={entry.id} field={entry} answers={answers} onAnswer={onAnswer} hideLabel={!entry._isChild} />
         ),
       )}
     </div>
   );
 }
 
-function UploadTile({ field }: { field: any }) {
+function UploadTile({ field, hideLabel }: { field: any; hideLabel?: boolean }) {
   return (
     <div className={`space-y-1 ${field._isChild ? "ml-4 border-l-2 border-border pl-3" : ""}`}>
-      <p className="text-xs font-medium text-muted-foreground">
-        {field.label}
-        {field.required ? " *" : ""}
-        {field.locationTag ? ` · ${field.locationTag}` : ""}
-      </p>
+      {!hideLabel ? (
+        <p className="text-xs font-medium text-muted-foreground">
+          {field.label}
+          {field.required ? " *" : ""}
+          {field.locationTag ? ` · ${field.locationTag}` : ""}
+        </p>
+      ) : null}
       <FieldReferences references={field.references} />
       <div className="flex min-h-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-2 text-xs text-muted-foreground">
         {field.type === "video" ? (

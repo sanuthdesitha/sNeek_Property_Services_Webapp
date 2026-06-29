@@ -26,6 +26,9 @@ export interface FieldInputProps {
   value: unknown;
   onChange: (value: unknown) => void;
   className?: string;
+  /** Suppress the field's own label — used by the builder canvas, which renders
+   *  its own inline-editable label above the control. */
+  hideLabel?: boolean;
 }
 
 const OTHER = "__other__";
@@ -74,7 +77,7 @@ function FieldShell({
           {field.required ? <span className="text-destructive"> *</span> : null}
         </Label>
       )}
-      {field.helpText ? <p className="text-xs text-muted-foreground">{field.helpText}</p> : null}
+      {!hideLabel && field.helpText ? <p className="text-xs text-muted-foreground">{field.helpText}</p> : null}
       <InstructionsReveal title={field.label} instructions={field.instructions} references={field.references} />
       <FieldReferenceBlock field={field} value={value} />
       {children}
@@ -87,7 +90,7 @@ function FieldShell({
  * type EXCEPT media uploads (photo/video/file) and inventory, which the cleaner
  * page routes to dedicated steps.
  */
-export function FieldInput({ field, value, onChange }: FieldInputProps) {
+export function FieldInput({ field, value, onChange, hideLabel }: FieldInputProps) {
   const id = `fi-${field.id}`;
   const theme = useFormTheme();
   const headingFontStyle: React.CSSProperties | undefined = theme?.headingFont
@@ -111,7 +114,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "longtext":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Textarea
             id={id}
             placeholder={field.placeholder}
@@ -125,7 +128,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     case "number":
     case "currency": {
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="relative">
             {field.type === "currency" ? (
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -156,14 +159,14 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "email":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Input id={id} type="email" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );
 
     case "phone":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Input id={id} type="tel" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );
@@ -172,7 +175,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     case "time":
     case "datetime":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Input
             id={id}
             type={field.type === "datetime" ? "datetime-local" : field.type}
@@ -188,10 +191,14 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
           <FieldReferenceBlock field={field} value={value} />
           <label className="flex items-start gap-3 text-sm leading-snug">
             <Checkbox checked={value === true} onCheckedChange={(checked) => onChange(checked === true)} />
-            <span>
-              {field.label}
-              {field.required ? <span className="text-destructive"> *</span> : null}
-            </span>
+            {hideLabel ? (
+              <span className="text-muted-foreground">Checkbox</span>
+            ) : (
+              <span>
+                {field.label}
+                {field.required ? <span className="text-destructive"> *</span> : null}
+              </span>
+            )}
           </label>
         </FieldShell>
       );
@@ -207,7 +214,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         (val === false && value === false) ||
         (val === "na" && value === "na");
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="flex gap-2">
             {choices.map((c) => (
               <Button
@@ -231,7 +238,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const isOther = field.allowOther && typeof value === "string" && value !== "" && !options.includes(value);
       const selectValue = isOther ? OTHER : typeof value === "string" ? value : "";
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Select
             value={selectValue}
             onValueChange={(v) => onChange(v === OTHER ? "" : v)}
@@ -264,7 +271,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const options = field.options ?? [];
       const isOther = field.allowOther && typeof value === "string" && value !== "" && !options.includes(value);
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="space-y-1.5">
             {options.map((opt) => (
               <label key={opt} className="flex items-center gap-2 text-sm">
@@ -302,7 +309,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const toggle = (opt: string) =>
         onChange(selected.includes(opt) ? selected.filter((s) => s !== opt) : [...selected, opt]);
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="space-y-1.5">
             {options.map((opt) => (
               <label key={opt} className="flex items-center gap-2 text-sm">
@@ -319,7 +326,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const maxStars = Math.round(field.max ?? 5);
       const current = typeof value === "number" ? value : 0;
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="flex gap-1">
             {Array.from({ length: maxStars }, (_, i) => i + 1).map((star) => (
               <button key={star} type="button" onClick={() => onChange(star)} aria-label={`${star} star`}>
@@ -337,7 +344,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const step = field.step ?? 1;
       const current = typeof value === "number" ? value : min;
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -369,7 +376,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
         onChange(n);
       };
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="flex items-center gap-3">
             <Button type="button" variant="outline" size="icon" onClick={() => set(current - step)}>
               <Minus className="size-4" />
@@ -389,7 +396,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
       const max = Math.round(field.max ?? 5);
       const points = Array.from({ length: Math.max(0, max - min + 1) }, (_, i) => min + i);
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <div className="flex flex-wrap gap-2">
             {points.map((p) => (
               <Button
@@ -410,14 +417,14 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
 
     case "location":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <LocationCapture value={value} onChange={onChange} />
         </FieldShell>
       );
 
     case "barcode":
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <BarcodeCapture value={value} onChange={onChange} placeholder={field.placeholder} />
         </FieldShell>
       );
@@ -438,7 +445,7 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
     default:
       // text + any unknown type fall back to a text input.
       return (
-        <FieldShell field={field} value={value}>
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <Input id={id} type="text" placeholder={field.placeholder} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
         </FieldShell>
       );

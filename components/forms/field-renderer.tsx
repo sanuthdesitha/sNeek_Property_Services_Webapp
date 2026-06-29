@@ -15,6 +15,8 @@ export interface FieldRendererProps {
   answers: Record<string, unknown>;
   onAnswer: (fieldId: string, value: unknown) => void;
   className?: string;
+  /** Suppress the field's own label (builder canvas renders its own editable one). */
+  hideLabel?: boolean;
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -29,7 +31,7 @@ const SEVERITY_STYLES: Record<string, string> = {
  * Sub-fields are NOT rendered here — callers flatten them with
  * flattenFieldsOneLevel and indent entries flagged `_isChild`.
  */
-export function FieldRenderer({ field, answers, onAnswer, className }: FieldRendererProps) {
+export function FieldRenderer({ field, answers, onAnswer, className, hideLabel }: FieldRendererProps) {
   const value = answers[field.id];
   const showDetails = field.type === "yesno" && Boolean(field.detailsWhenNo) && value === false;
   const detailsKey = fieldDetailsKey(field.id);
@@ -60,7 +62,7 @@ export function FieldRenderer({ field, answers, onAnswer, className }: FieldRend
         </div>
       ) : null}
 
-      <FieldInput field={field} value={value} onChange={(v) => onAnswer(field.id, v)} />
+      <FieldInput field={field} value={value} onChange={(v) => onAnswer(field.id, v)} hideLabel={hideLabel} />
 
       {showDetails ? (
         <div className="space-y-1 rounded-lg border border-warning/40 bg-warning/5 p-2.5">

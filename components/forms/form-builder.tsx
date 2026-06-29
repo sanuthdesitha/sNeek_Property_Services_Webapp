@@ -577,6 +577,12 @@ export function FormBuilder({
                 if (selectedFieldId === fieldId) setSelectedFieldId(null);
               }}
               onDuplicateField={(sectionId, fieldId) => dispatch({ type: "DUPLICATE_FIELD", sectionId, fieldId })}
+              onUpdateField={(sectionId, field) => dispatch({ type: "UPDATE_FIELD", sectionId, field })}
+              onInsertField={(sectionId, type, index) => {
+                const field = makeField(type);
+                dispatch({ type: "ADD_FIELD", sectionId, field, index });
+                setSelectedFieldId(field.id);
+              }}
             />
           </main>
 
