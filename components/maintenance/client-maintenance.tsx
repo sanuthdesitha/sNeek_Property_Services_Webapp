@@ -24,6 +24,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import {
@@ -148,6 +151,132 @@ function WorkDoneDialog({ item }: { item: MaintenanceListItem }) {
   );
 }
 
+type AssignableWorker = { id: string; name: string; trade: string | null; company: string | null };
+
+// Client-side management: assign an existing maintenance worker and move/track
+// the status of an item on the client's own property.
+function ManageDialog({ item, onSaved }: { item: MaintenanceListItem; onSaved: () => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [workers, setWorkers] = React.useState<AssignableWorker[]>([]);
+  const [workerId, setWorkerId] = React.useState("");
+  const [status, setStatus] = React.useState<MaintenanceStatus>(item.status);
+  const [note, setNote] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setStatus(item.status);
+    setWorkerId("");
+    setNote("");
+    fetch("/api/maintenance/workers", { cache: "no-store" })
+      .then((r) => r.json().catch(() => ({})))
+      .then((b) => setWorkers(Array.isArray(b.workers) ? b.workers : []));
+  }, [open, item.status]);
+
+  async function patch(payload: Record<string, unknown>, successTitle: string) {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/maintenance/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not update", description: b.error ?? "Please retry.", variant: "destructive" });
+        return false;
+      }
+      toast({ title: successTitle });
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setOpen(true)}>
+        <WrenchIcon className="mr-1 h-3 w-3" /> Manage
+      </Button>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Manage — {item.title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5">
+          {/* Assign a worker */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Assign a maintenance person</Label>
+            <Select value={workerId} onValueChange={setWorkerId}>
+              <SelectTrigger><SelectValue placeholder="Choose a worker…" /></SelectTrigger>
+              <SelectContent>
+                {workers.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">No workers available yet.</div>
+                ) : (
+                  workers.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}{w.trade ? ` · ${w.trade}` : ""}{w.company ? ` (${w.company})` : ""}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              className="w-full"
+              disabled={saving || !workerId}
+              onClick={async () => {
+                if (await patch({ assignWorkerId: workerId }, "Worker assigned")) {
+                  setOpen(false);
+                  onSaved();
+                }
+              }}
+            >
+              Assign worker
+            </Button>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          {/* Update + track status */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Update status</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as MaintenanceStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.values(MaintenanceStatus).map((s) => (
+                  <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Add a note for the tracker (optional)"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full"
+              disabled={saving}
+              onClick={async () => {
+                if (await patch({ status, note: note.trim() || undefined }, "Status updated")) {
+                  setOpen(false);
+                  onSaved();
+                }
+              }}
+            >
+              Save status
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ClientMaintenance({ properties }: { properties: ClientProperty[] }) {
   const [propertyId, setPropertyId] = React.useState<string>("ALL");
   const [items, setItems] = React.useState<MaintenanceListItem[]>([]);
@@ -253,6 +382,9 @@ export function ClientMaintenance({ properties }: { properties: ClientProperty[]
                     ))}
                   </div>
                 ) : null}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <ManageDialog item={item} onSaved={load} />
+                </div>
                 {item.status === "IN_PROGRESS" ? (
                   <p className="text-xs text-muted-foreground">Our maintenance team is handling this.</p>
                 ) : null}

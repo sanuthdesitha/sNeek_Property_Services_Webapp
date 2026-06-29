@@ -14,7 +14,7 @@ import {
   updateMaintenanceStatus,
 } from "@/lib/maintenance/service";
 import { resolvePropertyAccess, resolvePhotoUrls } from "@/lib/maintenance/access";
-import { userIsAssignedWorker } from "@/lib/maintenance/workers";
+import { userIsAssignedWorker, assignMaintenanceItem } from "@/lib/maintenance/workers";
 import { decryptSecret } from "@/lib/security/encryption";
 
 /** Decrypt the stored access codes so on-site staff see the real values. */
@@ -48,6 +48,8 @@ const patchSchema = z
     priority: z.nativeEnum(MaintenancePriority).optional(),
     estimatedCost: z.number().nonnegative().optional().nullable(),
     clientVisible: z.boolean().optional(),
+    // Assign an existing maintenance worker (admin/ops or the owning client).
+    assignWorkerId: z.string().trim().min(1).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "No changes supplied." });
 
@@ -140,16 +142,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    // Only ADMIN/OPS can change status or edit item fields. Clients/cleaners/QA
-    // can report new items but do not work the tracker down.
+    // ADMIN/OPS manage everything. The OWNING client may also drive their own
+    // items: assign a worker and move the status (it's their property) — but not
+    // edit the core item fields (category/title/etc., admin-curated).
     const canManage = role === Role.ADMIN || role === Role.OPS_MANAGER;
+    const canClientAct = role === Role.CLIENT && Boolean(access?.allowed);
     const wantsStatus = body.status !== undefined;
+    const wantsAssign = body.assignWorkerId !== undefined;
     const fieldKeys = (["category", "area", "title", "description", "recommendedAction", "priority", "estimatedCost", "clientVisible"] as const)
       .filter((k) => body[k] !== undefined);
     const wantsEdit = fieldKeys.length > 0;
 
-    if ((wantsStatus || wantsEdit) && !canManage) {
-      return NextResponse.json({ error: "Only admins can update maintenance items." }, { status: 403 });
+    if (wantsEdit && !canManage) {
+      return NextResponse.json({ error: "Only admins can edit maintenance item details." }, { status: 403 });
+    }
+    if ((wantsStatus || wantsAssign) && !canManage && !canClientAct) {
+      return NextResponse.json({ error: "You can't update this maintenance item." }, { status: 403 });
+    }
+
+    if (wantsAssign && body.assignWorkerId) {
+      await assignMaintenanceItem({
+        itemId: params.id,
+        workerId: body.assignWorkerId,
+        assignedByUserId: session.user.id,
+      });
     }
 
     if (wantsStatus) {
