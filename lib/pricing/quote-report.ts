@@ -1,4 +1,19 @@
 import { format } from "date-fns";
+import { publicUrl } from "@/lib/s3";
+
+/** Make a logo value loadable by the server-side PDF renderer: pass absolute
+ *  URLs / data URIs straight through; turn an S3 key or bare path into an
+ *  absolute URL so the branding logo always renders on the quote. */
+function resolveLogoUrl(raw: string): string {
+  const v = raw.trim();
+  if (!v) return "";
+  if (/^(https?:|data:)/i.test(v)) return v;
+  try {
+    return publicUrl(v.replace(/^\/+/, ""));
+  } catch {
+    return v;
+  }
+}
 
 type QuoteMeta = {
   bedrooms?: number;
@@ -44,7 +59,7 @@ export function buildQuoteHtml(
   branding?: { companyName?: string; logoUrl?: string; companyAddress?: string }
 ) {
   const companyName = branding?.companyName?.trim() || "sNeek Property Services";
-  const logoUrl = branding?.logoUrl?.trim() || "";
+  const logoUrl = resolveLogoUrl(branding?.logoUrl ?? "");
   const companyAddress = branding?.companyAddress?.trim() || "";
   const recipient = quote.client?.name ?? quote.lead?.name ?? "Client";
   const recipientAddress =
