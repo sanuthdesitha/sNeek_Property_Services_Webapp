@@ -151,6 +151,9 @@ export function OpsLiveMap({
 
   // ── SSE live updates ───────────────────────────────────────────────
   useEffect(() => {
+    // Skip the always-open stream under automated browsers (preview/e2e) so it
+    // doesn't block "network idle" and hang capture tooling. Real users unaffected.
+    if (typeof navigator !== "undefined" && navigator.webdriver) return;
     const es = new EventSource("/api/admin/ops/live-locations/stream");
     es.onmessage = (e) => {
       try {

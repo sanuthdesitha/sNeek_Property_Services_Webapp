@@ -98,6 +98,10 @@ export function LiveNotifications() {
 
     function connect() {
       if (cancelled) return;
+      // Skip the long-lived SSE under automated browsers (Playwright / preview
+      // capture) — an always-open stream prevents "network idle", which hangs
+      // screenshot/snapshot tooling. Real users are unaffected.
+      if (typeof navigator !== "undefined" && navigator.webdriver) return;
       source = new EventSource("/api/notifications/stream");
       source.addEventListener("notification", (event: MessageEvent<string>) => {
         try {
