@@ -480,7 +480,7 @@ export function buildClientInvoiceHtml(
       <body style="font-family:Arial,sans-serif;color:#111827;margin:32px;max-width:800px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;">
           <div>
-            ${logoUrl ? `<img src="${logoUrl}" alt="${escapeHtml(companyName)}" style="height:52px;margin-bottom:12px;" />` : ""}
+            ${logoUrl ? `<img src="${logoUrl}" alt="${escapeHtml(companyName)}" style="height:52px;margin-bottom:12px;background:#ffffff;border-radius:8px;padding:5px;" />` : ""}
             <h1 style="margin:0 0 4px;font-size:26px;color:#111827;">${escapeHtml(companyName)}</h1>
             ${invoicingSettings?.abn ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">ABN: ${escapeHtml(invoicingSettings.abn)}</p>` : ""}
             ${invoicingSettings?.companyAddress ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">${escapeHtml(invoicingSettings.companyAddress)}</p>` : ""}

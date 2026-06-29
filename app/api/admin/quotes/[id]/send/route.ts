@@ -89,6 +89,7 @@ export async function POST(
     const html = buildQuoteHtml(quote, {
       companyName: settings.companyName,
       logoUrl: settings.reportLogoUrl || settings.logoUrl,
+      companyAddress: settings.invoicing?.companyAddress,
     });
 
     // Best-effort: attach the service checklist (covered/not-covered + extras)

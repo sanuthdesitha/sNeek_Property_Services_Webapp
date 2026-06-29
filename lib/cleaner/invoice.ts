@@ -502,7 +502,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           body { font-family: Arial, sans-serif; color: #111; margin: 24px; }
           .header { display: flex; justify-content: space-between; margin-bottom: 18px; gap: 12px; }
           .brand { display: flex; gap: 12px; align-items: center; }
-          .logo { max-width: 180px; max-height: 64px; width: auto; height: auto; object-fit: contain; }
+          .logo { max-width: 180px; max-height: 64px; width: auto; height: auto; object-fit: contain; background: #ffffff; border-radius: 8px; padding: 5px; }
           .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
           .party { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
           .party h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 6px; }

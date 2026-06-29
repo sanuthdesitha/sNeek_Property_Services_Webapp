@@ -28,6 +28,7 @@ export async function GET(
     const html = buildQuoteHtml(quote, {
       companyName: settings.companyName,
       logoUrl: settings.reportLogoUrl || settings.logoUrl,
+      companyAddress: settings.invoicing?.companyAddress,
     });
 
     try {
