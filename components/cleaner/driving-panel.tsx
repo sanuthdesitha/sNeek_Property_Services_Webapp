@@ -334,9 +334,9 @@ export function DrivingPanel(props: DrivingPanelProps) {
 
   const primaryAction = !arrived ? (
     <div className="space-y-2">
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {navigateUrl ? (
-          <Button asChild variant="outline" className="h-14 flex-1 text-base">
+          <Button asChild className="h-14 w-full rounded-xl text-base font-semibold shadow-sm">
             <a href={navigateUrl} target="_blank" rel="noreferrer">
               <Navigation className="mr-2 h-5 w-5" />
               Navigate
@@ -344,19 +344,19 @@ export function DrivingPanel(props: DrivingPanelProps) {
           </Button>
         ) : null}
         {canResume ? (
-          <Button type="button" className="h-14 flex-1 text-base" disabled={resuming} onClick={onResume}>
+          <Button type="button" className="h-14 w-full rounded-xl text-base font-semibold shadow-sm" disabled={resuming} onClick={onResume}>
             <TimerReset className="mr-2 h-5 w-5" />
             {resuming ? "Resuming…" : "Resume driving"}
           </Button>
         ) : (
-          <Button type="button" className="h-14 flex-1 text-base" disabled={!canArrive || arriving} onClick={onArrived}>
+          <Button type="button" className="h-14 w-full rounded-xl bg-success text-base font-semibold text-white shadow-sm hover:bg-success/90" disabled={!canArrive || arriving} onClick={onArrived}>
             <MapPin className="mr-2 h-5 w-5" />
             {arriving ? "Saving…" : "I've arrived"}
           </Button>
         )}
       </div>
       {canResume && canArrive ? (
-        <Button type="button" variant="outline" className="h-12 w-full" disabled={arriving} onClick={onArrived}>
+        <Button type="button" className="h-12 w-full rounded-xl bg-success font-semibold text-white shadow-sm hover:bg-success/90" disabled={arriving} onClick={onArrived}>
           <MapPin className="mr-2 h-4 w-4" />
           {arriving ? "Saving…" : "I've arrived"}
         </Button>
