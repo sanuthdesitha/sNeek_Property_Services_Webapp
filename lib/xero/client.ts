@@ -6,12 +6,20 @@ const XERO_AUTH_BASE = "https://login.xero.com";
 const CREDENTIAL_KEY = "integrationCredentials";
 
 /**
- * OAuth scopes we request. These MUST also be enabled on the Xero app at
- * https://developer.xero.com/app/manage (OAuth 2.0 scopes), otherwise Xero
- * returns "invalid_scope" on the authorize step. Kept as one source of truth so
- * the authorize URL and the stored scopes never drift apart.
+ * OAuth scopes we request for the Authorization Code flow ("Connect to Xero").
+ * This is the complete, Xero-recommended set for accounting access:
+ *   - openid profile email  → identity + the id_token we read on callback
+ *   - accounting.transactions → create/read invoices & bills
+ *   - accounting.contacts     → create/read client & cleaner contacts
+ *   - offline_access          → refresh tokens (long-lived connection)
+ *
+ * IMPORTANT: this flow requires a **Web app** (Auth Code) in the Xero developer
+ * portal — NOT a "Custom Connection" (machine-to-machine / client-credentials).
+ * A Custom Connection rejects these scopes with "invalid_scope". The Custom
+ * Connection is only for the separate Xero MCP server.
  */
-const XERO_SCOPES = "offline_access accounting.transactions accounting.contacts";
+const XERO_SCOPES =
+  "openid profile email accounting.transactions accounting.contacts offline_access";
 
 /** Pull a human-readable message out of Xero's various error response shapes. */
 function extractXeroError(raw: string): string {

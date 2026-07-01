@@ -43,7 +43,7 @@ export function XeroSettingsTab() {
   // Friendly, actionable explanations for the common OAuth failures.
   const errorHelp: Record<string, string> = {
     invalid_scope:
-      "Your Xero app doesn't have the required scopes enabled. In the Xero developer portal (developer.xero.com/app/manage) open this app → add the OAuth 2.0 scopes: accounting.transactions and accounting.contacts (offline_access is included automatically), then reconnect.",
+      "Xero rejected the requested scopes — almost always because this app is a 'Custom Connection' (machine-to-machine), which can't use the Connect flow. In the Xero developer portal (developer.xero.com/app/manage) create a Web app (Auth Code) instead: set the redirect URI to this site's /api/xero/callback, copy its Client ID & Secret into Settings → Integrations, then reconnect. (A Custom Connection is only for the Xero MCP server, not this button.)",
     access_denied: "Authorisation was cancelled or declined in Xero. Try connecting again and click Allow.",
     invalid_state: "The connection link expired or was opened in a different browser. Click Connect again and complete it in one go.",
     exchange_failed:
