@@ -341,11 +341,18 @@ export default async function AdminDashboard() {
   const continuationJobIds = Array.from(
     new Set(pendingContinuations.map((row) => row.jobId)),
   );
+  // Match the approval center: pay-request client approvals are surfaced under
+  // Pay Requests, NOT as standalone admin "client approvals", so exclude them
+  // here too — otherwise the dashboard over-counts vs the approvals page.
+  const adminClientApprovals = pendingClientApprovals.filter((ca) => {
+    const meta = ca.metadata as Record<string, unknown> | null;
+    return meta?.source !== "pay_adjustment";
+  });
   const totalApprovalsCount =
     pendingContinuations.length +
     pendingTimingRequests.length +
     pendingPayAdj +
-    pendingClientApprovals.length +
+    adminClientApprovals.length +
     pendingFlaggedLaundry;
   const continuationJobs = continuationJobIds.length
     ? await db.job.findMany({
@@ -427,9 +434,9 @@ export default async function AdminDashboard() {
                   {pendingPayAdj} pay
                 </span>
               )}
-              {pendingClientApprovals.length > 0 && (
+              {adminClientApprovals.length > 0 && (
                 <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                  {pendingClientApprovals.length} client
+                  {adminClientApprovals.length} client
                 </span>
               )}
               {pendingFlaggedLaundry > 0 && (

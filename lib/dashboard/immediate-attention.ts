@@ -104,7 +104,12 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
         },
       }),
       listContinuationRequests({ status: "PENDING" }).then((rows) => rows.length),
-      listClientApprovals({ status: "PENDING" }).then((rows) => rows.length),
+      // Exclude pay-request client approvals — they are surfaced under Pay
+      // Requests, not as standalone admin client approvals (matches the approval
+      // center + dashboard banner, so counts don't disagree).
+      listClientApprovals({ status: "PENDING" }).then(
+        (rows) => rows.filter((r) => (r.metadata as Record<string, unknown> | null)?.source !== "pay_adjustment").length,
+      ),
       db.issueTicket.findMany({
         where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
         select: { description: true, status: true },

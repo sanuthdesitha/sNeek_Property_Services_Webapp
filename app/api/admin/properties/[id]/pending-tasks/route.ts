@@ -19,13 +19,21 @@ export async function GET(
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
+    // Show tasks queued for the next job. A task is auto-attached to the next
+    // upcoming job the moment it's created (jobId gets set), so filtering on
+    // jobId: null alone made freshly-added tasks vanish. Include tasks attached
+    // to a not-yet-completed job so they stay visible until that job is done.
     const tasks = await db.jobTask.findMany({
       where: {
         propertyId: params.id,
         source: "ADMIN",
-        jobId: null,
         executionStatus: "OPEN",
+        OR: [
+          { jobId: null },
+          { job: { status: { notIn: ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"] } } },
+        ],
       },
+      include: { job: { select: { id: true, scheduledDate: true } } },
       orderBy: { createdAt: "desc" },
     });
 
