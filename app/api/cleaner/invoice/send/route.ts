@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
@@ -107,6 +108,34 @@ export async function POST(req: NextRequest) {
           ...data.shoppingTimeRows.map((row) => row.runId),
         ])
       ),
+    });
+
+    // Snapshot the invoice so admin can review it + push it to Xero as a bill.
+    const billLines = [
+      ...data.rows.map((r) => ({ description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.expenseRows.map((r) => ({ description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.shoppingTimeRows.map((r) => ({ description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+    ].filter((l) => Number.isFinite(l.unitAmount));
+    await db.cleanerInvoiceSubmission.create({
+      data: {
+        cleanerId: session.user.id,
+        periodStart: data.start,
+        periodEnd: data.end,
+        hours: data.hours,
+        totalAmount: data.estimatedPay,
+        jobCount: data.rows.length,
+        status: "SUBMITTED",
+        lineData: {
+          contact: {
+            name: data.cleanerName,
+            email: data.cleanerEmail,
+            phone: data.cleanerPhone ?? null,
+            address: data.cleanerAddress ?? null,
+            abn: data.cleanerAbn ?? null,
+          },
+          lines: billLines,
+        } as any,
+      },
     });
 
     return NextResponse.json({

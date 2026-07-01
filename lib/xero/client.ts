@@ -466,19 +466,24 @@ export async function pushClientInvoiceToXero(input: {
 export async function pushCleanerBillToXero(input: {
   cleanerName: string;
   cleanerEmail: string;
+  cleanerPhone?: string;
+  cleanerAddress?: string;
   cleanerXeroContactId?: string;
   lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; itemCode?: string }>;
   reference?: string;
-}): Promise<{ xeroBillId: string }> {
+}): Promise<{ xeroBillId: string; contactId: string }> {
   const tokenData = await getXeroToken();
   if (!tokenData) throw new Error("No active Xero connection");
 
-  // Ensure contact exists
+  // Match an existing Xero contact by name (or the stored id) or create one with
+  // all the cleaner details we have.
   let contactId = input.cleanerXeroContactId;
   if (!contactId) {
     const result = await syncXeroContact({
       name: input.cleanerName,
       email: input.cleanerEmail,
+      phone: input.cleanerPhone,
+      address: input.cleanerAddress,
       isClient: false,
     });
     contactId = result.xeroContactId;
@@ -508,5 +513,5 @@ export async function pushCleanerBillToXero(input: {
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero bill");
 
-  return { xeroBillId: invoices[0].InvoiceID };
+  return { xeroBillId: invoices[0].InvoiceID, contactId: contactId! };
 }

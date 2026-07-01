@@ -2066,6 +2066,27 @@ model ClientInvoice {
   @@index([clientId, status])
 }
 
+// A cleaner's own invoice, snapshotted when they "send" it, so admin can review
+// it and push it to Xero as a bill (ACCPAY).
+model CleanerInvoiceSubmission {
+  id             String    @id @default(cuid())
+  cleanerId      String
+  periodStart    DateTime
+  periodEnd      DateTime
+  hours          Float     @default(0)
+  totalAmount    Float     @default(0)
+  jobCount       Int       @default(0)
+  lineData       Json? // snapshot: cleaner contact + line rows for the Xero bill
+  status         String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED
+  xeroBillId     String?
+  xeroExportedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([cleanerId])
+  @@index([status])
+}
+
 model ClientInvoiceLine {
   id            String   @id @default(cuid())
   invoiceId     String

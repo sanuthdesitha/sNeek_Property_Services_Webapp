@@ -95,6 +95,7 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
       { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
       { label: "Finance", href: "/admin/finance", icon: Wallet },
+      { label: "Cleaner Invoices", href: "/admin/cleaner-invoices", icon: FileText },
       { label: "Reports", href: "/admin/reports", icon: FileBarChart },
     ],
   },

@@ -39,10 +39,23 @@ export function PayrollRunsList() {
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const [creating, setCreating] = useState(false);
+  const [cleaners, setCleaners] = useState<Array<{ id: string; name: string }>>([]);
+  const [cleanerId, setCleanerId] = useState(""); // "" = everyone
   const router = useRouter();
 
   useEffect(() => {
     loadRuns();
+    fetch("/api/admin/users")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: any[]) => {
+        const rows = Array.isArray(list) ? list : [];
+        setCleaners(
+          rows
+            .filter((u) => u?.role === "CLEANER" && u?.isActive !== false)
+            .map((u) => ({ id: u.id, name: u.name || u.email || "Cleaner" })),
+        );
+      })
+      .catch(() => {});
   }, []);
 
   async function loadRuns() {
@@ -63,7 +76,7 @@ export function PayrollRunsList() {
       const res = await fetch("/api/admin/payroll/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ periodStart, periodEnd }),
+        body: JSON.stringify({ periodStart, periodEnd, ...(cleanerId ? { cleanerId } : {}) }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -100,8 +113,21 @@ export function PayrollRunsList() {
               <label className="mb-1 block text-sm font-medium">Period End</label>
               <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Person</label>
+              <select
+                value={cleanerId}
+                onChange={(e) => setCleanerId(e.target.value)}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Everyone</option>
+                {cleaners.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
             <Button onClick={handleCreate} disabled={creating || !periodStart || !periodEnd}>
-              {creating ? "Creating..." : "Create Payroll Run"}
+              {creating ? "Creating..." : cleanerId ? "Create for this person" : "Create Payroll Run"}
             </Button>
           </div>
         </CardContent>

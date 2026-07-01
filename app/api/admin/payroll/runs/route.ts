@@ -21,6 +21,7 @@ const createSchema = z.object({
   periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().optional(),
+  cleanerId: z.string().trim().min(1).optional(), // scope the run to one person
 });
 
 export async function POST(req: NextRequest) {
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
       periodEnd: body.periodEnd,
       notes: body.notes,
       createdByUserId: session.user.id,
+      cleanerId: body.cleanerId,
     });
 
     return NextResponse.json(run, { status: 201 });

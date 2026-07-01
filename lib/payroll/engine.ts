@@ -42,7 +42,7 @@ export interface PayoutDetail {
  * Create a new payroll run from a date range.
  * Calculates all cleaner pay from jobs, adjustments, shopping reimbursements, and transport allowances.
  */
-export async function createPayrollRun(input: { periodStart: string; periodEnd: string; notes?: string; createdByUserId: string }) {
+export async function createPayrollRun(input: { periodStart: string; periodEnd: string; notes?: string; createdByUserId: string; cleanerId?: string }) {
   // excludePaidJobs: never include a job already attached to a prior payroll run.
   const summary = await getPayrollSummary({
     startDate: input.periodStart,
@@ -50,11 +50,17 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
     excludePaidJobs: true,
   });
 
-  // Filter to cleaners with actual pay
-  const payableCleaners = summary.filter((c) => c.totals.grossPay > 0);
+  // Filter to cleaners with actual pay — optionally scoped to a single person.
+  const payableCleaners = summary
+    .filter((c) => c.totals.grossPay > 0)
+    .filter((c) => !input.cleanerId || c.cleaner.id === input.cleanerId);
 
   if (payableCleaners.length === 0) {
-    throw new Error("No payable cleaners found for this date range. Ensure jobs are submitted and adjustments are approved, and that these jobs haven't already been paid in another run.");
+    throw new Error(
+      input.cleanerId
+        ? "This person has no unpaid, payable jobs in this date range (jobs must be submitted, adjustments approved, and not already paid in another run)."
+        : "No payable cleaners found for this date range. Ensure jobs are submitted and adjustments are approved, and that these jobs haven't already been paid in another run."
+    );
   }
 
   // Job IDs whose pay is captured by this run — stamped so they can't be paid again.
