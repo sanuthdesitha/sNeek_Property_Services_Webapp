@@ -5,8 +5,25 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+interface XeroInvoiceDefaults {
+  defaultAccountCode: string;
+  defaultItemCode: string;
+  salesTaxType: string;
+  contactFallbackEmail: string;
+}
 
 export function XeroSettingsTab() {
+  const [cfg, setCfg] = useState<XeroInvoiceDefaults>({
+    defaultAccountCode: "",
+    defaultItemCode: "",
+    salesTaxType: "",
+    contactFallbackEmail: "",
+  });
+  const [savingCfg, setSavingCfg] = useState(false);
+  const [cfgSaved, setCfgSaved] = useState(false);
   const [status, setStatus] = useState<{ connected: boolean; tenantName?: string; lastSyncAt?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -29,7 +46,7 @@ export function XeroSettingsTab() {
     unauthorized: "You need to be signed in as an admin to connect Xero.",
   };
 
-  useEffect(() => { loadStatus(); }, []);
+  useEffect(() => { loadStatus(); loadCfg(); }, []);
 
   async function loadStatus() {
     try {
@@ -38,6 +55,39 @@ export function XeroSettingsTab() {
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }
+
+  async function loadCfg() {
+    try {
+      const res = await fetch("/api/admin/integrations/settings");
+      if (!res.ok) return;
+      const data = await res.json();
+      const x = data?.xero ?? {};
+      setCfg({
+        defaultAccountCode: x.defaultAccountCode ?? "",
+        defaultItemCode: x.defaultItemCode ?? "",
+        salesTaxType: x.salesTaxType ?? "",
+        contactFallbackEmail: x.contactFallbackEmail ?? "",
+      });
+    } catch { /* ignore */ }
+  }
+
+  async function saveCfg() {
+    setSavingCfg(true);
+    setCfgSaved(false);
+    try {
+      const res = await fetch("/api/admin/integrations/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ xero: cfg }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error ?? "Could not save"); return; }
+      setCfgSaved(true);
+      setTimeout(() => setCfgSaved(false), 2500);
+    } catch { alert("Could not save Xero invoice defaults"); }
+    finally { setSavingCfg(false); }
+  }
+
+  const setField = (k: keyof XeroInvoiceDefaults, v: string) => setCfg((prev) => ({ ...prev, [k]: v }));
 
   async function handleConnect() {
     setConnecting(true);
@@ -124,10 +174,76 @@ export function XeroSettingsTab() {
             <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
               <li>Client contacts are created/updated in Xero when invoices are pushed</li>
               <li>Cleaner contacts are created as suppliers in Xero</li>
-              <li>Client invoices are pushed as DRAFT invoices (ACCREC)</li>
+              <li>Client invoices are pushed as DRAFT invoices (ACCREC) with full line
+                  descriptions (service · property · date · note) and your item code</li>
               <li>Cleaner bills are pushed as DRAFT bills (ACCPAY)</li>
-              <li>GST tax types are set based on per-invoice GST toggle</li>
+              <li>GST tax types are set from your override or the per-invoice GST toggle</li>
             </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Invoice defaults</CardTitle>
+          <CardDescription>
+            Applied to every invoice pushed to Xero. The item code links each line to your
+            Xero inventory item so it lands under the right account &amp; description.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="xero-item">Item code (Xero item number)</Label>
+              <Input
+                id="xero-item"
+                value={cfg.defaultItemCode}
+                onChange={(e) => setField("defaultItemCode", e.target.value)}
+                placeholder="e.g. CLEAN"
+              />
+              <p className="text-xs text-muted-foreground">
+                Must match an Item Code in Xero (Business → Products &amp; services). Leave blank for none.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="xero-account">Sales account code</Label>
+              <Input
+                id="xero-account"
+                value={cfg.defaultAccountCode}
+                onChange={(e) => setField("defaultAccountCode", e.target.value)}
+                placeholder="200"
+              />
+              <p className="text-xs text-muted-foreground">Revenue account, e.g. 200 (Sales).</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="xero-tax">Sales tax type (optional)</Label>
+              <Input
+                id="xero-tax"
+                value={cfg.salesTaxType}
+                onChange={(e) => setField("salesTaxType", e.target.value)}
+                placeholder="OUTPUT (blank = auto from GST toggle)"
+              />
+              <p className="text-xs text-muted-foreground">
+                Xero tax type code, e.g. OUTPUT or OUTPUT2 (AU GST on Income).
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="xero-fallback">Contact fallback email</Label>
+              <Input
+                id="xero-fallback"
+                type="email"
+                value={cfg.contactFallbackEmail}
+                onChange={(e) => setField("contactFallbackEmail", e.target.value)}
+                placeholder="billing@yourbusiness.com.au"
+              />
+              <p className="text-xs text-muted-foreground">Used when a client has no email on file.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={saveCfg} disabled={savingCfg}>
+              {savingCfg ? "Saving…" : "Save invoice defaults"}
+            </Button>
+            {cfgSaved && <span className="text-sm text-green-600">Saved</span>}
           </div>
         </CardContent>
       </Card>

@@ -354,7 +354,7 @@ export async function pushClientInvoiceToXero(input: {
   clientName: string;
   clientEmail: string;
   clientXeroContactId?: string;
-  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string }>;
+  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string; itemCode?: string }>;
   date?: string;
   dueDate?: string;
   reference?: string;
@@ -385,13 +385,20 @@ export async function pushClientInvoiceToXero(input: {
     Contact: { ContactID: contactId },
     InvoiceNumber: input.invoiceNumber,
     LineAmountTypes: lineAmountTypes,
-    LineItems: input.lineItems.map((line) => ({
-      Description: line.description,
-      Quantity: line.quantity,
-      UnitAmount: line.unitAmount,
-      AccountCode: line.accountCode || "200", // Sales account
-      TaxType: line.taxType ?? defaultTaxType,
-    })),
+    LineItems: input.lineItems.map((line) => {
+      const item: Record<string, unknown> = {
+        Description: line.description,
+        Quantity: line.quantity,
+        UnitAmount: line.unitAmount,
+        AccountCode: line.accountCode || "200", // Sales account
+        TaxType: line.taxType ?? defaultTaxType,
+      };
+      // The Xero inventory Item code ("item number"). When set, Xero links the
+      // line to that tracked item and can auto-fill its defaults; our explicit
+      // Description/AccountCode still win. Omitted entirely when blank.
+      if (line.itemCode && line.itemCode.trim()) item.ItemCode = line.itemCode.trim();
+      return item;
+    }),
     Status: "DRAFT",
     ...(input.date ? { Date: input.date } : {}),
     ...(input.dueDate ? { DueDate: input.dueDate } : {}),
@@ -413,7 +420,7 @@ export async function pushCleanerBillToXero(input: {
   cleanerName: string;
   cleanerEmail: string;
   cleanerXeroContactId?: string;
-  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string }>;
+  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; itemCode?: string }>;
   reference?: string;
 }): Promise<{ xeroBillId: string }> {
   const tokenData = await getXeroToken();
@@ -433,13 +440,17 @@ export async function pushCleanerBillToXero(input: {
   const bill = {
     Type: "ACCPAY", // Accounts Payable (cleaner bill)
     Contact: { ContactID: contactId },
-    LineItems: input.lineItems.map((line) => ({
-      Description: line.description,
-      Quantity: line.quantity,
-      UnitAmount: line.unitAmount,
-      AccountCode: line.accountCode || "400", // Cost of goods sold / wages
-      TaxType: "INPUT",
-    })),
+    LineItems: input.lineItems.map((line) => {
+      const item: Record<string, unknown> = {
+        Description: line.description,
+        Quantity: line.quantity,
+        UnitAmount: line.unitAmount,
+        AccountCode: line.accountCode || "400", // Cost of goods sold / wages
+        TaxType: "INPUT",
+      };
+      if (line.itemCode && line.itemCode.trim()) item.ItemCode = line.itemCode.trim();
+      return item;
+    }),
     Status: "DRAFT",
     ...(input.reference ? { Reference: input.reference } : {}),
   };

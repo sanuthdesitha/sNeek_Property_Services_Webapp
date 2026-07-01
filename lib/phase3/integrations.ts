@@ -15,6 +15,10 @@ export interface Phase3IntegrationsSettings {
     enabled: boolean;
     tenantId: string;
     defaultAccountCode: string;
+    /** Xero inventory Item code applied to invoice lines (the "item number"). */
+    defaultItemCode: string;
+    /** Optional sales TaxType override (e.g. OUTPUT2 for AU GST on Income). Blank = auto. */
+    salesTaxType: string;
     trackingCategory: string;
     contactFallbackEmail: string;
   };
@@ -41,6 +45,8 @@ export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
     enabled: false,
     tenantId: "",
     defaultAccountCode: "200",
+    defaultItemCode: "",
+    salesTaxType: "",
     trackingCategory: "Branch",
     contactFallbackEmail: "",
   },
@@ -102,6 +108,10 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
         typeof xeroRaw.defaultAccountCode === "string" && xeroRaw.defaultAccountCode.trim()
           ? xeroRaw.defaultAccountCode.trim().slice(0, 32)
           : DEFAULT_PHASE3_INTEGRATIONS.xero.defaultAccountCode,
+      defaultItemCode:
+        typeof xeroRaw.defaultItemCode === "string" ? xeroRaw.defaultItemCode.trim().slice(0, 30) : "",
+      salesTaxType:
+        typeof xeroRaw.salesTaxType === "string" ? xeroRaw.salesTaxType.trim().toUpperCase().slice(0, 50) : "",
       trackingCategory:
         typeof xeroRaw.trackingCategory === "string" && xeroRaw.trackingCategory.trim()
           ? xeroRaw.trackingCategory.trim().slice(0, 100)

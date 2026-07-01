@@ -16,7 +16,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const [invoice, integrations] = await Promise.all([
       db.clientInvoice.findUnique({
         where: { id: params.id },
-        include: { lines: true, client: true },
+        include: {
+          client: true,
+          lines: {
+            include: {
+              job: {
+                select: {
+                  scheduledDate: true,
+                  property: { select: { name: true, suburb: true } },
+                },
+              },
+            },
+          },
+        },
       }),
       getPhase3IntegrationsSettings(),
     ]);
@@ -24,10 +36,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
     const accountCode = integrations.xero.defaultAccountCode || "200";
+    const itemCode = integrations.xero.defaultItemCode?.trim() || undefined;
+    // Explicit tax-type override (e.g. AU "OUTPUT2" for GST on Income) wins;
+    // otherwise fall back to the per-invoice GST toggle.
+    const taxType =
+      integrations.xero.salesTaxType?.trim() || (invoice.gstEnabled ? "OUTPUT" : "NONE");
     const reference =
       invoice.periodStart && invoice.periodEnd
         ? `Service period ${isoDate(invoice.periodStart)} – ${isoDate(invoice.periodEnd)}`
         : undefined;
+
+    // Build a rich, self-explanatory Xero line description: what was done, at
+    // which property, on which service date, plus any per-job note.
+    const buildDescription = (line: (typeof invoice.lines)[number]) => {
+      const parts: string[] = [line.description];
+      const propertyName = line.job?.property?.name;
+      if (propertyName) parts.push(propertyName);
+      if (line.job?.scheduledDate) parts.push(isoDate(line.job.scheduledDate));
+      let desc = parts.join(" · ");
+      if (line.note) desc += ` — ${line.note}`;
+      return desc;
+    };
 
     const result = await pushClientInvoiceToXero({
       invoiceNumber: invoice.invoiceNumber,
@@ -35,11 +64,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       clientEmail: invoice.client.email || integrations.xero.contactFallbackEmail || "no-reply@sneekops.com.au",
       clientXeroContactId: invoice.client.xeroContactId ?? undefined,
       lineItems: invoice.lines.map((line) => ({
-        description: line.note ? `${line.description} — ${line.note}` : line.description,
+        description: buildDescription(line),
         quantity: line.quantity,
         unitAmount: line.unitPrice,
         accountCode,
-        taxType: invoice.gstEnabled ? "OUTPUT" : "NONE",
+        taxType,
+        itemCode,
       })),
       date: isoDate(invoice.createdAt),
       reference,
