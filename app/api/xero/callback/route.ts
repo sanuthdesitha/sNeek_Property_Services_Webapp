@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Must match the redirect URI used at /connect exactly — derive it the same way.
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || req.nextUrl.origin).replace(/\/+$/, "");
+  const origin = req.nextUrl.origin.replace("://0.0.0.0", "://localhost");
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || origin).replace(/\/+$/, "");
   const redirectUri = `${baseUrl}/api/xero/callback`;
 
   const result = await exchangeXeroCode(code, redirectUri);
