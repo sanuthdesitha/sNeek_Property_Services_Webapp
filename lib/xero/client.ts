@@ -6,20 +6,18 @@ const XERO_AUTH_BASE = "https://login.xero.com";
 const CREDENTIAL_KEY = "integrationCredentials";
 
 /**
- * OAuth scopes we request for the Authorization Code flow ("Connect to Xero").
- * This is the complete, Xero-recommended set for accounting access:
- *   - openid profile email  → identity + the id_token we read on callback
- *   - accounting.transactions → create/read invoices & bills
- *   - accounting.contacts     → create/read client & cleaner contacts
- *   - offline_access          → refresh tokens (long-lived connection)
+ * OAuth scopes we request. Restricted to exactly the scopes this Xero app
+ * exposes (its Authorisation list): only the granular accounting scopes are
+ * available — NOT accounting.transactions, openid, profile, email, or
+ * offline_access — so requesting any of those returns "invalid_scope".
+ *   - accounting.contacts → create/read client & cleaner contacts
+ *   - accounting.invoices → create/read invoices (ACCREC) & bills (ACCPAY)
  *
- * IMPORTANT: this flow requires a **Web app** (Auth Code) in the Xero developer
- * portal — NOT a "Custom Connection" (machine-to-machine / client-credentials).
- * A Custom Connection rejects these scopes with "invalid_scope". The Custom
- * Connection is only for the separate Xero MCP server.
+ * NOTE: without offline_access no refresh token is issued, so the access token
+ * is short-lived (~30 min). We handle a missing refresh token gracefully; push
+ * an invoice shortly after connecting, or reconnect if it lapses.
  */
-const XERO_SCOPES =
-  "openid profile email accounting.transactions accounting.contacts offline_access";
+const XERO_SCOPES = "accounting.contacts accounting.invoices";
 
 /** Pull a human-readable message out of Xero's various error response shapes. */
 function extractXeroError(raw: string): string {
@@ -98,6 +96,9 @@ async function getXeroToken(): Promise<{ token: XeroToken; tenantId: string } | 
 async function refreshXeroToken(conn: { id: string; refreshToken: string }): Promise<XeroToken | null> {
   const { clientId, clientSecret } = await getXeroCredentials();
   if (!clientId || !clientSecret) return null;
+  // No refresh token (offline_access not granted) — nothing to refresh. Caller
+  // treats null as "reconnect needed" rather than crashing.
+  if (!conn.refreshToken) return null;
 
   try {
     const res = await fetch(`${XERO_AUTH_BASE}/connect/token`, {
@@ -214,9 +215,9 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
 
     const tokenData = await tokenRes.json() as {
       access_token: string;
-      refresh_token: string;
+      refresh_token?: string; // absent when offline_access is not granted
       expires_in: number;
-      id_token: string;
+      id_token?: string;
     };
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
@@ -248,14 +249,14 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
         tenantId: tenant.tenantId,
         tenantName: tenant.tenantName,
         accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        refreshToken: tokenData.refresh_token ?? "",
         expiresAt,
         scopes: XERO_SCOPES.split(" "),
         isActive: true,
       },
       update: {
         accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        refreshToken: tokenData.refresh_token ?? "",
         expiresAt,
         tenantName: tenant.tenantName,
         isActive: true,
