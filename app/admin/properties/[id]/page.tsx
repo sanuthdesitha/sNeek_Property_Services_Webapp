@@ -19,6 +19,7 @@ import {
   type PropertyAccessInfo,
 } from "@/components/admin/property-access-fields";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
+import { AccessInstructionsEditor, type AccessSection } from "@/components/admin/access-instructions-editor";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, Clock, Trash2, Save, Copy, MapPinned, Plus, ClipboardList, Camera, FileText, X } from "lucide-react";
@@ -98,6 +99,8 @@ export default function PropertyDetailPage() {
     laundryTeamUserIds: [],
     attachments: [],
   });
+  const [accessSections, setAccessSections] = useState<AccessSection[]>([]);
+  const [accessPdfUrl, setAccessPdfUrl] = useState<string | null>(null);
   const [syncOptions, setSyncOptions] = useState<IcalSyncOptions>({ ...DEFAULT_ICAL_SYNC_OPTIONS });
   const [form, setForm] = useState({
     name: "",
@@ -166,6 +169,8 @@ export default function PropertyDetailPage() {
             .filter((item) => item.url)
         : [],
     });
+    setAccessSections(Array.isArray(access.sections) ? (access.sections as AccessSection[]) : []);
+    setAccessPdfUrl(typeof access.pdfUrl === "string" && access.pdfUrl.trim() ? access.pdfUrl : null);
     setForm({
       name: data.name ?? "",
       address: data.address ?? "",
@@ -383,7 +388,9 @@ export default function PropertyDetailPage() {
         accessInfo.other ||
         accessInfo.instructions ||
         (accessInfo.laundryTeamUserIds?.length ?? 0) > 0 ||
-        normalizedAttachments.length > 0
+        normalizedAttachments.length > 0 ||
+        accessSections.length > 0 ||
+        Boolean(accessPdfUrl)
           ? {
               ...(Number(form.defaultCleanDurationHours) > 0
                 ? { defaultCleanDurationHours: Number(form.defaultCleanDurationHours) }
@@ -401,6 +408,8 @@ export default function PropertyDetailPage() {
                   ? accessInfo.laundryTeamUserIds
                   : undefined,
               attachments: normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
+              sections: accessSections.length > 0 ? accessSections : undefined,
+              pdfUrl: accessPdfUrl || undefined,
             }
           : null,
       linenBufferSets: Number(form.linenBufferSets || 0),
@@ -1053,6 +1062,22 @@ export default function PropertyDetailPage() {
                   postcode: form.postcode,
                 }}
               />
+
+              <div className="space-y-2 rounded-xl border border-border p-4">
+                <div>
+                  <p className="text-sm font-semibold">Detailed access instructions</p>
+                  <p className="text-xs text-muted-foreground">
+                    Shown in the cleaner’s job brief so someone new can find everything: cleaner’s cupboard,
+                    lockbox, main entrance, bin room + codes, laundry drop-off / pickup, etc. Or attach a PDF guide.
+                  </p>
+                </div>
+                <AccessInstructionsEditor
+                  sections={accessSections}
+                  pdfUrl={accessPdfUrl}
+                  onChange={({ sections, pdfUrl }) => { setAccessSections(sections); setAccessPdfUrl(pdfUrl); }}
+                />
+              </div>
+
               <div className="flex justify-end">
                 <Button onClick={saveProperty} disabled={savingProperty}>
                   <Save className="mr-2 h-4 w-4" />
