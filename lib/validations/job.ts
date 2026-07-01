@@ -10,6 +10,17 @@ import {
   requiredSuburbSchema,
 } from "@/lib/validations/common";
 
+// Room/guest/floor counts map to integer DB columns. The number inputs let a
+// user type a decimal (e.g. "2.5" bathrooms); rather than hard-fail job creation
+// with "expected integer, received float", round the stray decimal to the
+// nearest whole number (the only value an Int column can hold).
+const intCount = (min: number, max: number) =>
+  z
+    .number()
+    .min(min)
+    .max(max)
+    .transform((n) => Math.round(n));
+
 const timeRuleSchema = z.object({
   enabled: z.boolean().optional(),
   preset: z.enum(["none", "11:00", "12:30", "custom"]).optional(),
@@ -41,7 +52,7 @@ const serviceContextSchema = z.object({
   siteContactName: z.string().max(200).optional(),
   siteContactPhone: optionalAustralianPhoneSchema,
   serviceAreaSqm: z.number().positive().max(100000).optional(),
-  floorCount: z.number().int().min(1).max(200).optional(),
+  floorCount: intCount(1, 200).optional(),
 });
 
 const reservationContextSchema = z.object({
@@ -50,10 +61,10 @@ const reservationContextSchema = z.object({
   guestPhone: optionalInternationalPhoneSchema,
   guestEmail: z.string().email().max(200).optional(),
   guestProfileUrl: z.string().url().max(2000).optional(),
-  adults: z.number().int().min(0).max(100).optional(),
-  children: z.number().int().min(0).max(100).optional(),
-  infants: z.number().int().min(0).max(100).optional(),
-  preparationGuestCount: z.number().int().min(0).max(100).optional(),
+  adults: intCount(0, 100).optional(),
+  children: intCount(0, 100).optional(),
+  infants: intCount(0, 100).optional(),
+  preparationGuestCount: intCount(0, 100).optional(),
   preparationSource: z.enum(["INCOMING_BOOKING", "PROPERTY_MAX"]).optional(),
   checkinAtLocal: z.string().datetime().optional(),
   checkoutAtLocal: z.string().datetime().optional(),
@@ -68,8 +79,8 @@ const serviceSiteSchema = z.object({
   suburb: requiredSuburbSchema,
   state: optionalAustralianStateSchema,
   postcode: optionalPostcodeSchema,
-  bedrooms: z.number().int().min(0).max(200).optional(),
-  bathrooms: z.number().int().min(0).max(200).optional(),
+  bedrooms: intCount(0, 200).optional(),
+  bathrooms: intCount(0, 200).optional(),
   hasBalcony: z.boolean().optional(),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
