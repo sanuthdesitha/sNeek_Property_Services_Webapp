@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       jobHourOverrides: body.jobHourOverrides,
     });
     const missingProfile = cleanerInvoiceMissingFields({
+      name: data.cleanerName,
       phone: data.cleanerPhone,
       email: data.cleanerEmail,
       address: data.cleanerAddress,

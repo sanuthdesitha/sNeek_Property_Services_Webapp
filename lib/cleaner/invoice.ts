@@ -446,6 +446,11 @@ function formatCurrency(value: number) {
 }
 
 export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
+  // Stable, human-readable invoice reference derived from the billing period.
+  const invoiceNumber = `INV-${data.start.toISOString().slice(0, 10).replace(/-/g, "")}-${data.end
+    .toISOString()
+    .slice(0, 10)
+    .replace(/-/g, "")}`;
   const includeTransportColumn = data.rows.some((row) => row.transportAllowance > 0);
   const includeHoursChangeColumn = data.rows.some((row) => row.isHoursOverridden);
   const changedRowsCount = data.rows.filter((row) => row.isHoursOverridden).length;
@@ -516,9 +521,14 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
   const partiesHtml = `
         <div class="parties">
           <div class="party">
-            <h2>From (Cleaner)</h2>
+            <h2>From (Contractor)</h2>
             <p><strong>${escapeHtml(data.cleanerName)}</strong></p>
             ${cleanerLines}
+          </div>
+          <div class="party">
+            <h2>Bill to</h2>
+            <p><strong>${escapeHtml(data.companyName)}</strong></p>
+            <p>Accounts Payable</p>
           </div>
           <div class="party">
             <h2>Payment details</h2>
@@ -569,7 +579,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           .header { display: flex; justify-content: space-between; margin-bottom: 18px; gap: 12px; }
           .brand { display: flex; gap: 12px; align-items: center; }
           .logo { max-width: 180px; max-height: 64px; width: auto; height: auto; object-fit: contain; background: #ffffff; border-radius: 8px; padding: 5px; }
-          .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+          .parties { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }
           .party { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
           .party h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 6px; }
           .party p { margin: 2px 0; font-size: 12px; color: #222; }
@@ -594,13 +604,15 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <div class="brand">
             ${logoHtml}
             <div>
-              <h1 class="title">${escapeHtml(data.companyName)} Cleaner Invoice</h1>
-              <p class="sub"><strong>Cleaner:</strong> ${escapeHtml(data.cleanerName)} (${escapeHtml(data.cleanerEmail)})</p>
+              <h1 class="title">Tax Invoice</h1>
+              <p class="sub"><strong>From:</strong> ${escapeHtml(data.cleanerName)} (${escapeHtml(data.cleanerEmail)})</p>
               <p class="sub"><strong>Period:</strong> ${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} to ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}</p>
             </div>
           </div>
-          <div>
-            <p class="sub"><strong>Generated:</strong> ${new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</p>
+          <div style="text-align:right;">
+            <p class="sub"><strong>Invoice #:</strong> ${escapeHtml(invoiceNumber)}</p>
+            <p class="sub"><strong>Issued:</strong> ${new Date().toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}</p>
+            ${data.cleanerAbn ? `<p class="sub"><strong>ABN:</strong> ${escapeHtml(data.cleanerAbn)}</p>` : '<p class="sub" style="color:#b91c1c;">No ABN on file</p>'}
           </div>
         </div>
         ${partiesHtml}

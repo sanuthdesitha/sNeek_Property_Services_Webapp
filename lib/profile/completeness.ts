@@ -76,6 +76,7 @@ export function computeProfileCompleteness(user: ProfileUserLike, role: Role): P
 // payment details). Used to gate invoice send/download and to show a banner.
 export function cleanerInvoiceMissingFields(user: ProfileUserLike): ProfileFieldCheck[] {
   const fields: ProfileFieldCheck[] = [
+    { key: "name", label: "Full name" },
     { key: "phone", label: "Mobile number" },
     { key: "email", label: "Email address" },
     ...CLEANER_EXTRA_FIELDS,
