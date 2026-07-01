@@ -23,8 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               job: {
                 select: {
                   jobType: true,
-                  scheduledDate: true,
-                  property: { select: { name: true, suburb: true } },
+                  jobNumber: true,
                 },
               },
             },
@@ -54,14 +53,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? `Service period ${isoDate(invoice.periodStart)} – ${isoDate(invoice.periodEnd)}`
         : undefined;
 
-    // Build a rich, self-explanatory Xero line description: what was done, at
-    // which property, on which service date, plus any per-job note.
+    // The stored line.description already reads "Property - Service - date"; just
+    // append the job number (and any per-job note) — no duplicate property/date.
     const buildDescription = (line: (typeof invoice.lines)[number]) => {
-      const parts: string[] = [line.description];
-      const propertyName = line.job?.property?.name;
-      if (propertyName) parts.push(propertyName);
-      if (line.job?.scheduledDate) parts.push(isoDate(line.job.scheduledDate));
-      let desc = parts.join(" · ");
+      let desc = line.description;
+      if (line.job?.jobNumber) desc += ` · Job ${line.job.jobNumber}`;
       if (line.note) desc += ` — ${line.note}`;
       return desc;
     };
