@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { HandCoins, Upload } from "lucide-react";
+import Link from "next/link";
+import { HandCoins, Upload, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,7 @@ export function CleanerPayRequestsPage({
   properties: PropertyOption[];
 }) {
   const [payRequests, setPayRequests] = useState<any[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("ALL");
   const [loadingPayRequests, setLoadingPayRequests] = useState(false);
   const [savingPayRequest, setSavingPayRequest] = useState(false);
   const [scope, setScope] = useState<"JOB" | "PROPERTY" | "STANDALONE">("JOB");
@@ -357,16 +359,38 @@ export function CleanerPayRequestsPage({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">My Requests</CardTitle>
+          <CardTitle className="text-base">My Extra Payments</CardTitle>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {(["ALL", "APPROVED", "PENDING", "REJECTED"] as const).map((f) => {
+              const count = f === "ALL" ? payRequests.length : payRequests.filter((r: any) => r.status === f).length;
+              return (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    statusFilter === f
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-surface text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {f === "ALL" ? "All" : f.charAt(0) + f.slice(1).toLowerCase()} ({count})
+                </button>
+              );
+            })}
+          </div>
         </CardHeader>
         <CardContent>
           {loadingPayRequests ? (
             <p className="text-sm text-muted-foreground">Loading...</p>
           ) : payRequests.length === 0 ? (
             <p className="text-sm text-muted-foreground">No requests yet.</p>
+          ) : payRequests.filter((r: any) => statusFilter === "ALL" || r.status === statusFilter).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No {statusFilter.toLowerCase()} requests.</p>
           ) : (
             <div className="space-y-3">
-              {payRequests.map((row: any) => {
+              {payRequests
+                .filter((r: any) => statusFilter === "ALL" || r.status === statusFilter)
+                .map((row: any) => {
                 const scopeLabel =
                   row.scope === "JOB"
                     ? row.job?.property?.name ?? "Related job"
@@ -410,6 +434,20 @@ export function CleanerPayRequestsPage({
                     </div>
                     {row.cleanerNote ? <p className="mt-1 text-xs text-muted-foreground">Note: {row.cleanerNote}</p> : null}
                     {row.adminNote ? <p className="mt-1 text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
+                    {row.job?.id ? (
+                      <Link
+                        href={`/cleaner/jobs/${row.job.id}`}
+                        className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        View related job
+                        {row.job.jobNumber ? ` #${row.job.jobNumber}` : ""}
+                        <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    ) : row.scope === "STANDALONE" ? (
+                      <p className="mt-1.5 text-xs italic text-muted-foreground">
+                        Not linked to a job — shown as a separate line on your invoice.
+                      </p>
+                    ) : null}
                     {galleryItems.length > 0 ? (
                       <div className="mt-3">
                         <MediaGallery items={galleryItems} title="Pay request evidence" className="grid grid-cols-2 gap-2 md:grid-cols-3" />
