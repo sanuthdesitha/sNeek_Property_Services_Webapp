@@ -124,11 +124,20 @@ function isLaundryLikeLabel(value: unknown) {
 }
 
 function resolveFieldStep(field: any, section: any): RenderableFormStep {
+  // Media capture fields (photo/video/file) can only be rendered in the uploads
+  // (or laundry) step — the checklist & submit renderers use FieldInput, which
+  // intentionally skips media types. So a photo/video field that inherits a
+  // "checklist"/"submit" page slot would silently render nothing (this is why
+  // "record video" didn't appear on regular forms). Never strand media there.
+  const isUpload = isUploadFieldType(field?.type);
+  const redirectMedia = (slot: RenderableFormStep): RenderableFormStep =>
+    isUpload && (slot === "checklist" || slot === "submit") ? "uploads" : slot;
+
   const fieldSlot = normalizeFormPageSlot(field?.page);
-  if (fieldSlot !== "auto") return fieldSlot;
+  if (fieldSlot !== "auto") return redirectMedia(fieldSlot);
 
   const sectionSlot = normalizeFormPageSlot(section?.page);
-  if (sectionSlot !== "auto") return sectionSlot;
+  if (sectionSlot !== "auto") return redirectMedia(sectionSlot);
 
   if (
     isLaundryLikeLabel(field?.id) ||
@@ -139,7 +148,7 @@ function resolveFieldStep(field: any, section: any): RenderableFormStep {
     return "laundry";
   }
 
-  if (isUploadFieldType(field?.type)) return "uploads";
+  if (isUpload) return "uploads";
   return "checklist";
 }
 

@@ -107,6 +107,9 @@ export function FieldInput({ field, value, onChange, hideLabel }: FieldInputProp
           <p className="text-sm font-medium" style={headingFontStyle}>
             {field.label}
           </p>
+          {field.instructions ? (
+            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">{field.instructions}</p>
+          ) : null}
           {field.helpText ? <p className="mt-1 text-xs text-muted-foreground">{field.helpText}</p> : null}
           <FieldReferences references={field.references} className="mt-2" />
         </div>

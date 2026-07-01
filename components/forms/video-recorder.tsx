@@ -269,10 +269,19 @@ export function VideoRecorder({
 
       const limit = Math.max(1, maxDurationSec || 60);
       autoStopRef.current = setTimeout(() => stopRecording(), limit * 1000);
-    } catch {
+    } catch (err: any) {
+      // Canvas-stream recording is unsupported/blocked on this device (common on
+      // iOS Safari and some in-app webviews). Degrade to the native camera /
+      // file picker so "Record video" still produces a clip instead of dead-ending.
       cleanup();
       setPreparing(false);
-      setError("Could not access the camera — upload a video instead.");
+      setRecording(false);
+      const denied = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+      if (denied) {
+        setError("Camera permission was blocked — enable it, or use Upload to attach a video.");
+      } else {
+        fallbackInputRef.current?.click();
+      }
     }
   }
 
