@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { PayRequestsWorkspace } from "@/components/admin/pay-requests-workspace";
+import { ClockAdjustmentsWorkspace } from "@/components/admin/clock-adjustments-workspace";
 import { format, parseISO } from "date-fns";
 import {
   AlertTriangle,
@@ -86,10 +89,19 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── main component ────────────────────────────────────────────────────────────
 
-export default function AdminApprovalsPage() {
+function ApprovalsPageInner() {
+  const searchParams = useSearchParams();
   const [data, setData] = useState<AllApprovals | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("continuations");
+
+  // Deep-link support: the old /admin/pay-adjustments and /admin/time-adjustments
+  // routes now redirect here with ?tab=pay / ?tab=clock.
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "pay") setActiveTab("payAdjustments");
+    else if (tab === "clock") setActiveTab("timeAdjustments");
+  }, [searchParams]);
   const [acting, setActing] = useState<string | null>(null);
   const [payApproveAmounts, setPayApproveAmounts] = useState<Record<string, string>>({});
   const [sendingClientApproval, setSendingClientApproval] = useState<string | null>(null);
@@ -349,143 +361,10 @@ export default function AdminApprovalsPage() {
           )}
 
           {/* ── Pay Adjustments ── */}
-          {activeTab === "payAdjustments" && (
-            data.payAdjustments.length === 0 ? <Empty /> : data.payAdjustments.map((row) => {
-              const propertyName = row.job?.property?.name ?? row.property?.name ?? null;
-              const propertySuburb = row.job?.property?.suburb ?? row.property?.suburb ?? null;
-              const defaultAmount = String(primaryPayAmount(row).toFixed(2));
-              const approveAmount = payApproveAmounts[row.id] ?? defaultAmount;
-              const clientApproval = row.clientApproval ?? null;
-              const clientApprovalBlocking = clientApproval && clientApproval.status !== "APPROVED";
-              const isSendingThis = sendingClientApproval === row.id;
-              return (
-                <Card key={row.id}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <Avatar name={row.cleaner?.name} image={row.cleaner?.image} size={40} />
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold">{row.cleaner?.name ?? "Cleaner"}</p>
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            {row.cleaner?.role ?? "Cleaner"}
-                          </span>
-                          <StatusBadge status={row.status} />
-                          <span className="text-xs text-muted-foreground">{row.scope} / {row.type}</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{row.title || "Pay request"}</p>
-                      {propertyName && (
-                        <p className="text-sm text-muted-foreground">
-                          {propertyName}{propertySuburb ? ` · ${propertySuburb}` : ""}
-                          {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
-                          {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
-                          {row.job?.startTime ? ` ${row.job.startTime}` : ""}
-                        </p>
-                      )}
-                      {!propertyName && row.scope === "STANDALONE" && (
-                        <p className="text-sm text-muted-foreground">Standalone — no property linked</p>
-                      )}
-                      <p className="text-sm">
-                        <span className="font-medium">Requested:</span> ${primaryPayAmount(row).toFixed(2)}
-                        {row.type === "HOURLY" && row.requestedHours ? ` (${row.requestedHours}h × $${Number(row.requestedRate ?? 0).toFixed(2)})` : ""}
-                      </p>
-                      {row.clientRequestedAmount != null ? (
-                        <p className="text-xs text-muted-foreground">
-                          Cleaner requested: ${Number(row.cleanerRequestedAmount ?? row.requestedAmount ?? 0).toFixed(2)} · Client amount: ${Number(row.clientRequestedAmount ?? 0).toFixed(2)}
-                        </p>
-                      ) : null}
-                      {row.cleanerNote && <p className="text-sm text-muted-foreground">{row.cleanerNote}</p>}
-                      {clientApproval ? (
-                        <p className={cn("text-xs font-medium", clientApproval.status === "APPROVED" ? "text-green-700" : "text-amber-700")}>
-                          Client approval: {clientApproval.status}
-                          {clientApproval.amount != null ? ` · AUD ${Number(clientApproval.amount).toFixed(2)}` : ""}
-                          {clientApproval.respondedAt ? ` · responded ${fmt(clientApproval.respondedAt)}` : ""}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Client approval: not sent</p>
-                      )}
-                      <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt)}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="h-8 w-28 text-sm"
-                        value={approveAmount}
-                        onChange={(e) => setPayApproveAmounts((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                        placeholder="Approve $"
-                        disabled={!!clientApprovalBlocking}
-                      />
-                      <Button
-                        size="sm"
-                        disabled={!!acting || !!clientApprovalBlocking}
-                        title={clientApprovalBlocking ? `Client approval is ${clientApproval?.status} — approve client first` : undefined}
-                        onClick={() => act(
-                          `/api/admin/pay-adjustments/${row.id}`,
-                          "PATCH",
-                          { status: "APPROVED", approvedAmount: Number(approveAmount) },
-                          "Approved"
-                        )}
-                      >
-                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!!acting}
-                        onClick={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
-                      >
-                        <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                        Reject
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={isSendingThis || !!acting || clientApproval?.status === "PENDING"}
-                        onClick={() => openSendPayToClient(row)}
-                      >
-                        {isSendingThis ? "Sending…" : clientApproval?.status === "PENDING" ? "Client pending" : "Send to client"}
-                      </Button>
-                      {clientApproval ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={reversingClientApproval === row.id || !!acting}
-                          onClick={() => reversePayClientApproval(row)}
-                          className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                        >
-                          {reversingClientApproval === row.id ? "Reversing..." : "Reverse client send"}
-                        </Button>
-                      ) : null}
-                      {row.jobId && (
-                        <Button asChild size="sm" variant="ghost">
-                          <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
-                        </Button>
-                      )}
-                      <Button asChild size="sm" variant="ghost">
-                        <Link href="/admin/pay-adjustments">All requests</Link>
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })
-          )}
-
-          {/* ── Time Adjustments ── */}
-          {activeTab === "timeAdjustments" && (
-            data.timeAdjustments.length === 0 ? <Empty /> : data.timeAdjustments.map((row) => (
-              <ClockAdjustmentCard
-                key={row.id}
-                row={row}
-                acting={acting}
-                onApprove={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Approved")}
-                onReject={() => act(`/api/admin/time-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rejected")}
-              />
-            ))
-          )}
+          {/* Full pay-requests workspace (pending + approved, edit, reverse). */}
+          {activeTab === "payAdjustments" && <PayRequestsWorkspace />}
+          {/* Full clock-adjustments workspace (pending + approved history). */}
+          {activeTab === "timeAdjustments" && <ClockAdjustmentsWorkspace />}
 
           {/* ── Client Approvals ── */}
           {activeTab === "clientApprovals" && (
@@ -857,6 +736,15 @@ export default function AdminApprovalsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function AdminApprovalsPage() {
+  // useSearchParams (inside ApprovalsPageInner) requires a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>}>
+      <ApprovalsPageInner />
+    </Suspense>
   );
 }
 

@@ -92,8 +92,6 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Pricing", href: "/admin/pricing", icon: Tags },
       { label: "Checklists", href: "/admin/checklists", icon: ListChecks },
       { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
-      { label: "Pay Requests", href: "/admin/pay-adjustments", icon: HandCoins },
-      { label: "Clock Adjustments", href: "/admin/time-adjustments", icon: Clock3 },
       { label: "Finance", href: "/admin/finance", icon: Wallet },
       { label: "Cleaner Invoices", href: "/admin/cleaner-invoices", icon: FileText },
       { label: "Reports", href: "/admin/reports", icon: FileBarChart },
@@ -229,8 +227,6 @@ const BADGE_HREFS: Record<string, (counts: Record<string, number>) => number> = 
   "/admin/approvals": (c) => c.total ?? 0,
   "/admin/laundry":   (c) => c.flaggedLaundry ?? 0,
   "/admin/jobs":      (c) => (c.continuations ?? 0) + (c.timingRequests ?? 0),
-  "/admin/pay-adjustments": (c) => c.payAdjustments ?? 0,
-  "/admin/time-adjustments": (c) => c.timeAdjustments ?? 0,
 };
 
 /**
