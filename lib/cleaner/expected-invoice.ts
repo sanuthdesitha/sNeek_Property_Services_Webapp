@@ -183,7 +183,9 @@ export async function getExpectedInvoicesForPeriod(opts: {
       jobCount: data.rows.length,
       overriddenCount: data.rows.filter((r) => r.isHoursOverridden).length,
       approvedExtraTotal: Number(
-        data.rows.reduce((sum, r) => sum + (r.approvedExtraAmount ?? 0), 0).toFixed(2),
+        (
+          data.rows.reduce((sum, r) => sum + (r.approvedExtraAmount ?? 0), 0) + data.extraLineTotal
+        ).toFixed(2),
       ),
       pendingCount: data.pendingAdjustmentCount,
       pendingAmount: Number(data.pendingAdjustmentAmount.toFixed(2)),

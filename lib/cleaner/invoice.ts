@@ -89,6 +89,18 @@ export interface CleanerInvoiceData {
     note?: string;
   }>;
   shoppingTimeTotal: number;
+  /**
+   * Approved extra payments NOT tied to a specific job — they appear as their
+   * own invoice lines with the cleaner's description (e.g. a one-off bonus or a
+   * property-level allowance) instead of being folded into a job's clean price.
+   */
+  extraLineRows: Array<{
+    id: string;
+    date: string;
+    description: string;
+    amount: number;
+  }>;
+  extraLineTotal: number;
   pendingAdjustmentCount: number;
   pendingAdjustmentAmount: number;
   companyName: string;
@@ -186,17 +198,44 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     where: {
       cleanerId: options.userId,
       status: PayAdjustmentStatus.PENDING,
-      job: {
-        // Match the same completedAt ?? scheduledDate window used for payable jobs.
-        OR: [
-          { completedAt: { gte: start, lte: end } },
-          { completedAt: null, scheduledDate: { gte: start, lte: end } },
-        ],
-      },
+      OR: [
+        {
+          // Job-linked: match the same window used for payable jobs.
+          job: {
+            OR: [
+              { completedAt: { gte: start, lte: end } },
+              { completedAt: null, scheduledDate: { gte: start, lte: end } },
+            ],
+          },
+        },
+        // Unlinked (no job): fall back to the request date being in the window.
+        { jobId: null, requestedAt: { gte: start, lte: end } },
+      ],
     },
     select: {
       requestedAmount: true,
     },
+  });
+
+  // Approved extra payments NOT tied to a job — surfaced as their own invoice
+  // lines. Windowed by request date since there is no job date to anchor them.
+  const unlinkedApprovedAdjustments = await db.cleanerPayAdjustment.findMany({
+    where: {
+      cleanerId: options.userId,
+      jobId: null,
+      status: PayAdjustmentStatus.APPROVED,
+      requestedAt: { gte: start, lte: end },
+    },
+    select: {
+      id: true,
+      title: true,
+      cleanerNote: true,
+      approvedAmount: true,
+      requestedAmount: true,
+      requestedAt: true,
+      reviewedAt: true,
+    },
+    orderBy: { requestedAt: "asc" },
   });
 
   const extrasByJob = new Map<string, number>();
@@ -352,9 +391,19 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   }));
   const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
 
+  const extraLineRows = unlinkedApprovedAdjustments.map((adj) => ({
+    id: adj.id,
+    date: new Date(adj.reviewedAt ?? adj.requestedAt).toLocaleDateString("en-AU", {
+      timeZone: "Australia/Sydney",
+    }),
+    description: adj.title?.trim() || adj.cleanerNote?.trim() || "Extra payment",
+    amount: Number(adj.approvedAmount ?? adj.requestedAmount ?? 0),
+  }));
+  const extraLineTotal = extraLineRows.reduce((sum, row) => sum + row.amount, 0);
+
   const hours = rows.reduce((sum, row) => sum + row.hours, 0);
   const estimatedPay =
-    rows.reduce((sum, row) => sum + row.amount, 0) + expenseTotal + shoppingTimeTotal;
+    rows.reduce((sum, row) => sum + row.amount, 0) + extraLineTotal + expenseTotal + shoppingTimeTotal;
   const pendingAdjustmentAmount = pendingAdjustments.reduce(
     (sum, row) => sum + Number(row.requestedAmount ?? 0),
     0
@@ -383,6 +432,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     expenseTotal,
     shoppingTimeRows,
     shoppingTimeTotal,
+    extraLineRows,
+    extraLineTotal,
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,
@@ -426,6 +477,17 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <td class="cell right">${formatCurrency(row.hourlyRate)}</td>
           <td class="cell right">${formatCurrency(row.amount)}</td>
           <td class="cell">${row.note ? escapeHtml(row.note) : "-"}</td>
+        </tr>
+      `
+    )
+    .join("");
+  const extraLineRowsHtml = data.extraLineRows
+    .map(
+      (row) => `
+        <tr>
+          <td class="cell">${row.date}</td>
+          <td class="cell">${escapeHtml(row.description)}</td>
+          <td class="cell right">${formatCurrency(row.amount)}</td>
         </tr>
       `
     )
@@ -611,6 +673,24 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
                   </tr>
                 </thead>
                 <tbody>${shoppingTimeRowsHtml}</tbody>
+              </table>
+            `
+            : ""
+        }
+
+        ${
+          data.extraLineRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">Extra payments (not job-linked)</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>${extraLineRowsHtml}</tbody>
               </table>
             `
             : ""

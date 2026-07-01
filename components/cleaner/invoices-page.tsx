@@ -59,6 +59,13 @@ interface InvoicePreview {
     note?: string;
   }>;
   shoppingTimeTotal?: number;
+  extraLineRows?: Array<{
+    id: string;
+    date: string;
+    description: string;
+    amount: number;
+  }>;
+  extraLineTotal?: number;
   pendingAdjustmentCount?: number;
   pendingAdjustmentAmount?: number;
 }
@@ -138,6 +145,9 @@ export function CleanerInvoicesPage() {
       extraPayments += Number(row.approvedExtraAmount ?? 0);
       transport += Number(row.transportAllowance ?? 0);
     }
+    // Approved extras not tied to a job (their own invoice lines) count toward
+    // the Extra payments tile too.
+    extraPayments += Number(invoicePreview?.extraLineTotal ?? 0);
     return {
       jobsSubtotal,
       extraPayments,
