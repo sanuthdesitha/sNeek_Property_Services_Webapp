@@ -5,7 +5,7 @@ import { getClientInvoice, renderClientInvoicePdf } from "@/lib/billing/client-i
 import { getAppSettings } from "@/lib/settings";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -14,11 +14,13 @@ export async function GET(
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     }
+    // ?inline=1 renders in-browser (for the send-preview) instead of downloading.
+    const inline = new URL(req.url).searchParams.get("inline");
     const pdf = await renderClientInvoicePdf(invoice, settings.companyName || "sNeek Property Services", settings.reportLogoUrl || settings.logoUrl, settings.invoicing);
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${invoice.invoiceNumber.toLowerCase()}.pdf"`,
+        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${invoice.invoiceNumber.toLowerCase()}.pdf"`,
       },
     });
   } catch (err: any) {

@@ -268,6 +268,7 @@ export function ClientInvoicesPage() {
   // Send dialog
   const [showSend, setShowSend] = useState(false);
   const [sendEmail, setSendEmail] = useState("");
+  const [sendReviewed, setSendReviewed] = useState(false);
 
   // Status filter
   const [statusFilter, setStatusFilter] = useState<string>("active");
@@ -351,6 +352,32 @@ export function ClientInvoicesPage() {
       .sort((a, b) => key(a.l).localeCompare(key(b.l)) || a.i - b.i)
       .map((x) => x.l);
     void persistLineOrder(next);
+  }
+
+  // Manual status change (any → any) with guards for consequential moves. This
+  // NEVER emails the client — that only happens via "Send to client".
+  async function changeStatus(next: Invoice["status"]) {
+    if (!selected || next === selected.status) return;
+    const cur = selected.status;
+    const notes: string[] = [];
+    if (next === "SENT") notes.push("This marks it Sent WITHOUT emailing the client — use “Send to client” to actually email it.");
+    if (next === "PAID") notes.push("This marks the invoice PAID and stamps the payment date; make sure payment was actually received.");
+    if (next === "VOID") notes.push("Voiding cancels the invoice.");
+    if ((cur === "PAID" || cur === "SENT") && (next === "DRAFT" || next === "APPROVED")) {
+      notes.push(`Moving back from ${STATUS_CONFIG[cur].label} to ${STATUS_CONFIG[next].label} is a manual correction.`);
+    }
+    if (selected.xeroInvoiceId) {
+      notes.push("This invoice is already in Xero — changing status here does NOT change it in Xero; update it there too if needed.");
+    }
+    if (notes.length) {
+      const ok = await confirm({
+        title: `Set status to ${STATUS_CONFIG[next].label}?`,
+        description: notes.join(" "),
+        confirmLabel: `Set ${STATUS_CONFIG[next].label}`,
+      });
+      if (!ok) return;
+    }
+    await patch(selected.id, { status: next }, `Status set to ${STATUS_CONFIG[next].label}`);
   }
 
   async function generateInvoice() {
@@ -591,7 +618,7 @@ export function ClientInvoicesPage() {
                       </Button>
                     )}
                     {(selected.status === "DRAFT" || selected.status === "APPROVED") && (
-                      <Button size="sm" variant="outline" onClick={() => { setShowSend(true); setSendEmail(selected.client.email ?? ""); }}>
+                      <Button size="sm" variant="outline" onClick={() => { setShowSend(true); setSendEmail(selected.client.email ?? ""); setSendReviewed(false); }}>
                         <Send className="mr-1 h-3.5 w-3.5" /> Send to client
                       </Button>
                     )}
@@ -606,6 +633,17 @@ export function ClientInvoicesPage() {
                         Void
                       </Button>
                     )}
+                    {/* Manual status override (any → any, with guards) */}
+                    <Select value={selected.status} onValueChange={(v) => changeStatus(v as Invoice["status"])}>
+                      <SelectTrigger className="h-8 w-[140px] text-xs" title="Manually set the invoice status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(["DRAFT", "APPROVED", "SENT", "PAID", "VOID"] as const).map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">{STATUS_CONFIG[s].label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button size="sm" variant="outline" onClick={() => downloadFromApi(`/api/admin/invoices/${selected.id}/pdf`, `${selected.invoiceNumber.toLowerCase()}.pdf`)}>
                       <Download className="mr-1 h-3.5 w-3.5" /> PDF
                     </Button>
@@ -844,31 +882,46 @@ export function ClientInvoicesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Send dialog ── */}
+      {/* ── Send dialog (with preview + verification) ── */}
       <Dialog open={showSend} onOpenChange={setShowSend}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Send invoice to client</DialogTitle>
+            <DialogTitle>Review &amp; send invoice to client</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              The invoice PDF will be attached to the email. Payment details from your invoicing settings will be included.
+              Review the exact PDF the client will receive. Sending emails them immediately and marks the invoice as Sent — this can’t be undone.
             </p>
-            <div className="space-y-1.5">
-              <Label>Send to email</Label>
-              <Input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} placeholder={selected?.client.email} />
-              <p className="text-xs text-muted-foreground">Leave blank to use client's delivery profile.</p>
-            </div>
             {selected && (
-              <div className="rounded-lg border p-3 space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-semibold">{selected.invoiceNumber}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Client</span><span>{selected.client.name}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">{money(selected.totalAmount)}</span></div>
+              <div className="rounded-lg border overflow-hidden bg-muted/20">
+                <iframe
+                  title="Invoice preview"
+                  src={`/api/admin/invoices/${selected.id}/pdf?inline=1`}
+                  className="h-[52vh] w-full"
+                />
               </div>
             )}
-            <Button className="w-full" onClick={sendInvoice} disabled={busy === "send"}>
+            {selected && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Send to email</Label>
+                  <Input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} placeholder={selected.client.email} />
+                  <p className="text-xs text-muted-foreground">Leave blank to use the client’s delivery profile.</p>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-semibold">{selected.invoiceNumber}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Client</span><span>{selected.client.name}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span className="font-bold">{money(selected.totalAmount)}</span></div>
+                </div>
+              </div>
+            )}
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-2.5 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={sendReviewed} onChange={(e) => setSendReviewed(e.target.checked)} />
+              <span>I’ve reviewed the invoice above and confirm it’s correct to send to the client.</span>
+            </label>
+            <Button className="w-full" onClick={sendInvoice} disabled={busy === "send" || !sendReviewed}>
               <Mail className="mr-2 h-4 w-4" />
-              {busy === "send" ? "Sending…" : "Send invoice"}
+              {busy === "send" ? "Sending…" : "Send invoice to client"}
             </Button>
           </div>
         </DialogContent>
