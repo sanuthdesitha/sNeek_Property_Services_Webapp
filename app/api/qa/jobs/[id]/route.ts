@@ -545,7 +545,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     let reworkTransferId: string | null = null;
     let reworkJobId: string | null = null;
     const rk = tools?.rework;
-    if (!result.passed && rk?.enabled) {
+    // Honour the inspector's explicit rework toggle regardless of the numeric
+    // pass/fail — if they enabled rework and flagged areas, they are requesting a
+    // rework job. (Previously this was gated on !result.passed, so a clean that
+    // scored above the pass threshold silently created no rework job.)
+    if (rk?.enabled) {
       const flagged =
         (rk.flaggedAreas ?? []).length > 0
           ? rk.flaggedAreas.map((a, i) => ({
