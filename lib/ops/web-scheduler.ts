@@ -8,6 +8,7 @@ import { sendStaleCaseFollowUps } from "@/lib/cases/follow-up";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
+import { dispatchCleanerDayReminders } from "@/lib/ops/cleaner-day-reminders";
 import { sendPendingPayApprovalReminders } from "@/lib/ops/pending-pay-approval-reminders";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
@@ -47,6 +48,10 @@ const JOBS: FallbackJob[] = [
   // Called frequently; syncAllIcalIfDue gates each feed by its own due time.
   { name: "ical-sync", minIntervalMs: 20 * MIN, run: async () => { await syncAllIcalIfDue(new Date()); } },
   { name: "reminder-dispatch", minIntervalMs: 30 * MIN, run: async () => { await dispatchJobReminders({ reminderType: "ALL" }); } },
+  // Day-of high-alert reminder to the assigned cleaner (web+email+sms per their
+  // prefs). Runs every 30 min; the dispatcher gates on 6AM / within-2h and
+  // de-dupes, so it fires once per cleaner+job per day.
+  { name: "cleaner-day-reminder", minIntervalMs: 30 * MIN, run: async () => { await dispatchCleanerDayReminders(new Date()); } },
   { name: "job-task-auto-approve", minIntervalMs: HOUR, run: async () => { await autoApprovePendingClientJobTasks(new Date()); } },
   { name: "case-follow-up", minIntervalMs: 4 * HOUR, run: async () => { await sendStaleCaseFollowUps(new Date()); } },
   { name: "stock-alerts", minIntervalMs: 2 * HOUR, run: async () => { await sendStockAlerts(); } },
