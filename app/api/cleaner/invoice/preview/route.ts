@@ -12,6 +12,8 @@ const schema = z.object({
   showSpentHours: z.boolean().optional(),
   jobComments: z.record(z.string(), z.string()).optional(),
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
+  excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
+  excludedRunIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -31,6 +33,7 @@ export async function GET(req: NextRequest) {
       startDate,
       endDate,
       showSpentHours,
+      excludeInvoicedJobs: true,
     });
 
     return NextResponse.json(data);
@@ -56,6 +59,9 @@ export async function POST(req: NextRequest) {
       showSpentHours: body.showSpentHours,
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
+      excludeInvoicedJobs: true,
+      excludedJobIds: body.excludedJobIds,
+      excludedRunIds: body.excludedRunIds,
     });
 
     return NextResponse.json(data);

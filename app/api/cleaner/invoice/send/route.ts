@@ -21,6 +21,8 @@ const schema = z.object({
   showSpentHours: z.boolean().optional(),
   jobComments: z.record(z.string(), z.string()).optional(),
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
+  excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
+  excludedRunIds: z.array(z.string().min(1)).max(500).optional(),
   confirmEmail: z.literal(true),
 });
 
@@ -39,6 +41,9 @@ export async function POST(req: NextRequest) {
       showSpentHours: body.showSpentHours,
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
+      excludeInvoicedJobs: true,
+      excludedJobIds: body.excludedJobIds,
+      excludedRunIds: body.excludedRunIds,
     });
     const missingProfile = cleanerInvoiceMissingFields({
       name: data.cleanerName,
@@ -136,6 +141,9 @@ export async function POST(req: NextRequest) {
             abn: data.cleanerAbn ?? null,
           },
           lines: billLines,
+          // Jobs invoiced here — used to exclude them from future invoices so a
+          // job can't be submitted twice and won't reappear once invoiced.
+          jobIds: data.rows.map((r) => r.jobId),
         } as any,
       },
     });

@@ -29,6 +29,21 @@ interface InvoiceOptions {
    * DIFFERENT run are excluded). Only meaningful together with excludePaidJobs.
    */
   includePaidRunId?: string;
+  /**
+   * When true, exclude jobs the cleaner has ALREADY submitted on a prior invoice
+   * (tracked via CleanerInvoiceSubmission.lineData.jobIds). Keeps a job from being
+   * invoiced twice and stops it reappearing on the cleaner's invoice screen once
+   * submitted. Used by the cleaner-facing preview/download/send.
+   */
+  excludeInvoicedJobs?: boolean;
+  /**
+   * Job ids the cleaner has removed from THIS invoice (transient — they stay
+   * available for a future invoice). Also excludes matching expense/shopping runs
+   * via excludedRunIds.
+   */
+  excludedJobIds?: string[];
+  /** Shopping-run ids the cleaner removed from this invoice. */
+  excludedRunIds?: string[];
 }
 
 export interface CleanerInvoiceData {
@@ -144,6 +159,24 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     throw new Error("Cleaner account not found.");
   }
 
+  // Jobs the cleaner has already put on a submitted invoice — never show again.
+  const alreadyInvoicedJobIds: string[] = [];
+  if (options.excludeInvoicedJobs) {
+    const priorSubmissions = await db.cleanerInvoiceSubmission.findMany({
+      where: { cleanerId: options.userId, status: { not: "VOID" } },
+      select: { lineData: true },
+    });
+    for (const sub of priorSubmissions) {
+      const ld = (sub.lineData ?? {}) as { jobIds?: unknown };
+      if (Array.isArray(ld.jobIds)) {
+        for (const id of ld.jobIds) if (typeof id === "string") alreadyInvoicedJobIds.push(id);
+      }
+    }
+  }
+  const excludedJobIds = Array.from(
+    new Set([...(options.excludedJobIds ?? []), ...alreadyInvoicedJobIds]),
+  );
+
   const jobWhere: Prisma.JobWhereInput = {
     // Bucket by completion date when set (next-day/custom), else scheduled date.
     OR: [
@@ -154,6 +187,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
     },
     assignments: { some: { userId: options.userId } },
+    ...(excludedJobIds.length > 0 ? { id: { notIn: excludedJobIds } } : {}),
   };
   if (options.excludePaidJobs) {
     // Combined with AND so it coexists with the date OR above. A job counts only
@@ -359,16 +393,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
-  const shoppingExpenseRuns = await listCleanerReimbursableShoppingRuns({
-    cleanerId: options.userId,
-    start,
-    end,
-  });
-  const shoppingTimeRuns = await listCleanerApprovedShoppingTimeRuns({
-    cleanerId: options.userId,
-    start,
-    end,
-  });
+  const excludedRunSet = new Set(options.excludedRunIds ?? []);
+  const shoppingExpenseRuns = (
+    await listCleanerReimbursableShoppingRuns({ cleanerId: options.userId, start, end })
+  ).filter((run) => !excludedRunSet.has(run.id));
+  const shoppingTimeRuns = (
+    await listCleanerApprovedShoppingTimeRuns({ cleanerId: options.userId, start, end })
+  ).filter((run) => !excludedRunSet.has(run.id));
   const expenseRows = shoppingExpenseRuns.map((run) => ({
     runId: run.id,
     date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),

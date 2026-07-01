@@ -16,6 +16,8 @@ const schema = z.object({
   showSpentHours: z.boolean().optional(),
   jobComments: z.record(z.string(), z.string()).optional(),
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
+  excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
+  excludedRunIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
 async function buildInvoicePdfResponse(input: {
@@ -25,8 +27,10 @@ async function buildInvoicePdfResponse(input: {
   showSpentHours?: boolean;
   jobComments?: Record<string, string>;
   jobHourOverrides?: Record<string, number>;
+  excludedJobIds?: string[];
+  excludedRunIds?: string[];
 }) {
-  const data = await getCleanerInvoiceData(input);
+  const data = await getCleanerInvoiceData({ ...input, excludeInvoicedJobs: true });
   const html = buildCleanerInvoiceHtml(data);
   const pdf = await renderCleanerInvoicePdf(html);
   const fileName = `cleaner-invoice-${data.start.toISOString().slice(0, 10)}-to-${data.end
@@ -80,6 +84,8 @@ export async function POST(req: NextRequest) {
       showSpentHours: body.showSpentHours,
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
+      excludedJobIds: body.excludedJobIds,
+      excludedRunIds: body.excludedRunIds,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

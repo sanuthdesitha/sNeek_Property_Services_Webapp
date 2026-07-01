@@ -154,6 +154,26 @@ function SubmittedTab() {
     }
   }
 
+  async function setStatus(id: string, status: string, label: string) {
+    setBusy(id);
+    try {
+      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Update failed", description: b.error ?? "Please retry.", variant: "destructive" });
+        return;
+      }
+      toast({ title: label });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading) {
     return <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading cleaner invoices…</div>;
   }
@@ -185,11 +205,22 @@ function SubmittedTab() {
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-lg font-bold tabular-nums">{money(r.totalAmount)}</span>
-                  {r.status === "XERO_PUSHED" ? (
-                    <Badge variant="success">In Xero</Badge>
+                  {r.status === "PAID" ? (
+                    <Badge variant="success">Paid</Badge>
+                  ) : r.status === "XERO_PUSHED" ? (
+                    <Badge variant="secondary">In Xero</Badge>
                   ) : (
                     <Button size="sm" disabled={busy === r.id} onClick={() => pushToXero(r.id)}>
                       <Send className="mr-1 h-3.5 w-3.5" /> {busy === r.id ? "Pushing…" : "Push to Xero (bill)"}
+                    </Button>
+                  )}
+                  {r.status !== "PAID" ? (
+                    <Button size="sm" variant="outline" disabled={busy === r.id} onClick={() => setStatus(r.id, "PAID", "Marked as paid")}>
+                      Mark paid
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled={busy === r.id} onClick={() => setStatus(r.id, "SUBMITTED", "Marked unpaid")}>
+                      Unmark paid
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => setExpanded(open ? null : r.id)}>

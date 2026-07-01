@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { ReceiptText } from "lucide-react";
+import { ReceiptText, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,6 +108,9 @@ export function CleanerInvoicesPage() {
   const [invoicePreview, setInvoicePreview] = useState<InvoicePreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [jobComments, setJobComments] = useState<Record<string, string>>({});
+  const [excludedJobIds, setExcludedJobIds] = useState<string[]>([]);
+  const [excludedRunIds, setExcludedRunIds] = useState<string[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
   const [previewPdfUrl, setPreviewPdfUrl] = useState("");
   const [previewingPdf, setPreviewingPdf] = useState(false);
   const [emailReviewOpen, setEmailReviewOpen] = useState(false);
@@ -174,7 +177,18 @@ export function CleanerInvoicesPage() {
       showSpentHours,
       jobComments: cleanedComments,
       jobHourOverrides: cleanedHourOverrides,
+      excludedJobIds,
+      excludedRunIds,
     };
+  }
+
+  // Remove a job / shopping run from THIS invoice (stays available for a future
+  // invoice), then refresh totals.
+  function removeJobFromInvoice(jobId: string) {
+    setExcludedJobIds((prev) => (prev.includes(jobId) ? prev : [...prev, jobId]));
+  }
+  function removeRunFromInvoice(runId: string) {
+    setExcludedRunIds((prev) => (prev.includes(runId) ? prev : [...prev, runId]));
   }
 
   async function loadInvoicePreview() {
@@ -219,7 +233,19 @@ export function CleanerInvoicesPage() {
   useEffect(() => {
     loadInvoicePreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, showSpentHours]);
+  }, [startDate, endDate, showSpentHours, excludedJobIds, excludedRunIds]);
+
+  async function loadSubmissions() {
+    try {
+      const res = await fetch("/api/cleaner/invoice/submissions");
+      if (res.ok) setSubmissions(await res.json());
+    } catch {
+      /* ignore */
+    }
+  }
+  useEffect(() => {
+    loadSubmissions();
+  }, []);
 
   useEffect(
     () => () => {
@@ -251,6 +277,11 @@ export function CleanerInvoicesPage() {
       title: "Invoice sent",
       description: `Sent to ${body.sentTo}. Paid Hours: ${Number(body.hours ?? 0).toFixed(2)}, Est: ${money(body.estimatedPay)}`,
     });
+    // Invoiced jobs are now excluded — refresh the preview + the submitted list.
+    setExcludedJobIds([]);
+    setExcludedRunIds([]);
+    void loadInvoicePreview();
+    void loadSubmissions();
   }
 
   async function previewInvoicePdf() {
@@ -506,7 +537,25 @@ export function CleanerInvoicesPage() {
       {/* ---------- Per-job list ---------- */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Jobs in this period</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">Jobs in this period</CardTitle>
+            {excludedJobIds.length + excludedRunIds.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setExcludedJobIds([]);
+                  setExcludedRunIds([]);
+                }}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Restore {excludedJobIds.length + excludedRunIds.length} removed item
+                {excludedJobIds.length + excludedRunIds.length === 1 ? "" : "s"}
+              </button>
+            ) : null}
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Removed items stay available for a future invoice. Once you email this invoice, its jobs are marked invoiced and won&apos;t appear again.
+          </p>
         </CardHeader>
         <CardContent className="space-y-3">
           {loadingPreview && !invoicePreview ? (
@@ -530,9 +579,20 @@ export function CleanerInvoicesPage() {
                         {row.rate != null ? ` · Rate ${money(row.rate)}` : " · Rate not set"}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold tabular-nums text-foreground">{money(row.amount)}</p>
-                      <p className="text-[11px] text-muted-foreground">line total</p>
+                    <div className="flex items-start gap-2">
+                      <div className="text-right">
+                        <p className="text-sm font-semibold tabular-nums text-foreground">{money(row.amount)}</p>
+                        <p className="text-[11px] text-muted-foreground">line total</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeJobFromInvoice(row.jobId)}
+                        title="Remove this job from the invoice"
+                        aria-label="Remove this job from the invoice"
+                        className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
 
@@ -615,7 +675,18 @@ export function CleanerInvoicesPage() {
               <div key={row.runId} className="rounded-lg border border-success/40 bg-success/10 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-medium text-foreground">{row.runName}</p>
-                  <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeRunFromInvoice(row.runId)}
+                      title="Remove from invoice"
+                      aria-label="Remove from invoice"
+                      className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   {row.date} · {row.properties} · {row.paymentMethod}
@@ -640,7 +711,18 @@ export function CleanerInvoicesPage() {
               <div key={`time-${row.runId}`} className="rounded-lg border border-info/30 bg-info/10 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-medium text-foreground">{row.runName}</p>
-                  <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold tabular-nums">{money(row.amount)}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeRunFromInvoice(row.runId)}
+                      title="Remove from invoice"
+                      aria-label="Remove from invoice"
+                      className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   {row.date} · {row.properties} · {row.minutes} min · Rate {money(row.hourlyRate)}
@@ -672,6 +754,39 @@ export function CleanerInvoicesPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ---------- My submitted invoices ---------- */}
+      {submissions.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">My submitted invoices</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {submissions.map((s) => {
+              const label =
+                s.status === "PAID" ? "Paid" : s.status === "XERO_PUSHED" ? "Processing" : "Submitted";
+              const variant = s.status === "PAID" ? "success" : s.status === "XERO_PUSHED" ? "secondary" : "warning";
+              return (
+                <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {new Date(s.periodStart).toLocaleDateString("en-AU")} – {new Date(s.periodEnd).toLocaleDateString("en-AU")}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {s.jobCount} job{s.jobCount === 1 ? "" : "s"} · {Number(s.hours ?? 0).toFixed(1)}h · submitted{" "}
+                      {new Date(s.createdAt).toLocaleDateString("en-AU")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold tabular-nums">{money(s.totalAmount)}</span>
+                    <Badge variant={variant as any}>{label}</Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Dialog open={emailReviewOpen} onOpenChange={setEmailReviewOpen}>
         <DialogContent className="max-w-5xl">
