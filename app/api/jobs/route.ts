@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { Role, JobStatus, JobType } from "@prisma/client";
+import { Role, JobStatus, JobType, PayAdjustmentStatus } from "@prisma/client";
 
 function buildWhereClause(params: {
   status: JobStatus | null;
@@ -86,8 +86,8 @@ const JOB_INCLUDE = {
   },
   // Pending extra-pay requests on this job — surfaced so the list can flag jobs
   // that need a pay decision.
-  payAdjustmentRequests: {
-    where: { status: "PENDING" },
+  payAdjustments: {
+    where: { status: PayAdjustmentStatus.PENDING },
     select: { id: true },
     take: 5,
   },

@@ -50,7 +50,7 @@ export function BoardCard({
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   const isRework = Boolean(job?.isRework);
-  const hasPayRequest = Array.isArray(job?.payAdjustmentRequests) && job.payAdjustmentRequests.length > 0;
+  const hasPayRequest = Array.isArray(job?.payAdjustments) && job.payAdjustments.length > 0;
   // Colour-code the card so rework / damage / pay-request jobs are easy to spot.
   const cardHighlight = isRework
     ? "border-violet-300 bg-violet-50/60"

@@ -97,7 +97,7 @@ export function JobRow({
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   const isRework = Boolean(job?.isRework);
-  const hasPayRequest = Array.isArray(job?.payAdjustmentRequests) && job.payAdjustmentRequests.length > 0;
+  const hasPayRequest = Array.isArray(job?.payAdjustments) && job.payAdjustments.length > 0;
   // Left-tint the row so rework / damage / pay-request jobs stand out in the list.
   const rowHighlight = isRework
     ? "border-l-4 border-l-violet-400 bg-violet-50/50"
