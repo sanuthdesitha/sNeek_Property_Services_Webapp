@@ -51,7 +51,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   });
 
   // Filter to cleaners with actual pay — optionally scoped to a single person.
-  const payableCleaners = summary
+  let payableCleaners = summary
     .filter((c) => c.totals.grossPay > 0)
     .filter((c) => !input.cleanerId || c.cleaner.id === input.cleanerId);
 
@@ -60,6 +60,23 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       input.cleanerId
         ? "This person has no unpaid, payable jobs in this date range (jobs must be submitted, adjustments approved, and not already paid in another run)."
         : "No payable cleaners found for this date range. Ensure jobs are submitted and adjustments are approved, and that these jobs haven't already been paid in another run."
+    );
+  }
+
+  // Contractors are NOT payrolled — they invoice us and are paid as a bill. Drop
+  // any CONTRACTOR from the run so payroll only covers employees/casuals.
+  const employmentByCleaner = new Map(
+    (
+      await db.user.findMany({
+        where: { id: { in: payableCleaners.map((c) => c.cleaner.id) } },
+        select: { id: true, employmentType: true },
+      })
+    ).map((u) => [u.id, u.employmentType]),
+  );
+  payableCleaners = payableCleaners.filter((c) => employmentByCleaner.get(c.cleaner.id) !== "CONTRACTOR");
+  if (payableCleaners.length === 0) {
+    throw new Error(
+      "Everyone payable in this range is a contractor — contractors invoice rather than being payrolled. Review their invoices under Cleaner Invoices.",
     );
   }
 
