@@ -8,6 +8,7 @@ import { sendStaleCaseFollowUps } from "@/lib/cases/follow-up";
 import { buildLaundryPlanDraft } from "@/lib/laundry/planner";
 import { sendAdminAttentionSummary } from "@/lib/ops/admin-attention-summary";
 import { dispatchJobReminders } from "@/lib/ops/reminders";
+import { sendPendingPayApprovalReminders } from "@/lib/ops/pending-pay-approval-reminders";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { generateRecurringJobs } from "@/lib/ops/recurring";
@@ -62,6 +63,7 @@ const JOBS: FallbackJob[] = [
   // Time-pinned daily jobs (Sydney). minInterval > 1h so they only fire once
   // per window across multiple 5-min ticks.
   { name: "daily-ops-briefing", minIntervalMs: 20 * HOUR, hour: 7, run: async () => { await sendDailyOpsBriefing(new Date()); } },
+  { name: "pending-pay-approval-reminder", minIntervalMs: 20 * HOUR, hour: 9, run: async () => { await sendPendingPayApprovalReminders({ now: new Date() }); } },
   { name: "daily-invoice-generation", minIntervalMs: 20 * HOUR, hour: 8, run: async () => {
     const { listUsersDueForInvoicing } = await import("@/lib/finance/cadence");
     const { generateInvoiceForUser } = await import("@/lib/finance/auto-invoice");
