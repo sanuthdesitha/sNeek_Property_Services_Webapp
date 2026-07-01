@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { publicUrl } from "@/lib/s3";
@@ -220,10 +221,12 @@ export async function generateClientInvoice(input: {
     .map((job) => {
       const charge = chargeByJob.get(job.id);
       if (!charge || charge.amount == null) return null;
-      const lineDate = job.completedAt ?? job.scheduledDate;
+      // Use the SCHEDULED date in Sydney time (matches the small-print subtitle
+      // and the jobs page). completedAt could cross the Sydney midnight boundary
+      // and format() used the server timezone, so the big-title date drifted a day.
       const description =
         charge.description?.trim() ||
-        `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${format(new Date(lineDate), "dd MMM yyyy")}`;
+        `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${formatInTimeZone(new Date(job.scheduledDate), "Australia/Sydney", "dd MMM yyyy")}`;
       const lineTotal = charge.amount;
       return {
         jobId: job.id,
