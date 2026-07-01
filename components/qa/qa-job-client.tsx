@@ -60,6 +60,17 @@ import {
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
 
+/** Convert a `data:image/...;base64,...` URL to a Blob without using fetch()
+ *  (fetch on data: URLs is CSP-blocked in some mobile webviews). */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [meta, b64 = ""] = dataUrl.split(",");
+  const mime = /data:(.*?);base64/.exec(meta)?.[1] || "image/png";
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 function uid() {
   if (typeof window !== "undefined" && window.crypto?.randomUUID) return window.crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -661,20 +672,24 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     setSaving(true);
     // Upload the signature image first so it travels with the submission.
     let signatureKey: string | null = null;
+    let signatureError = "Please retry.";
     try {
-      const sigBlob = await (await fetch(signatureDataUrl)).blob();
+      // Decode the data URL directly — fetch() on a data: URL is blocked by CSP
+      // in some mobile webviews, which was making the signature fail to save.
+      const sigBlob = dataUrlToBlob(signatureDataUrl);
       const fd = new FormData();
       fd.append("file", new File([sigBlob], `qa-signature-${Date.now()}.png`, { type: "image/png" }));
       fd.append("folder", "qa-signoff");
       const upRes = await fetch("/api/uploads/direct", { method: "POST", body: fd });
       const upBody = await upRes.json().catch(() => ({}));
       if (upRes.ok && upBody?.key) signatureKey = upBody.key as string;
-    } catch {
-      // handled below
+      else if (upBody?.error) signatureError = String(upBody.error);
+    } catch (err) {
+      signatureError = err instanceof Error ? err.message : "Please retry.";
     }
     if (!signatureKey) {
       setSaving(false);
-      toast({ title: "Could not save your signature", description: "Please retry.", variant: "destructive" });
+      toast({ title: "Could not save your signature", description: signatureError, variant: "destructive" });
       return;
     }
     const signOff = {
@@ -1531,22 +1546,27 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         <p className="text-[11px] text-muted-foreground">Take photos or record a video for this area.</p>
                       </div>
                     ) : null}
-                    {(section.fields ?? []).map((field: any) => (
-                      <div key={field.id} className="space-y-1.5">
-                        {isUploadFieldType(field.type) ? (
-                          <div className="rounded-lg border border-border bg-surface-raised p-3 text-sm text-muted-foreground">
-                            <Camera className="mb-2 h-4 w-4" />
-                            Use &quot;Add photos&quot; on this section header (or the Damage report uploader) for QA photo evidence.
-                          </div>
-                        ) : (
-                          <FieldInput
-                            field={field}
-                            value={data[field.id]}
-                            onChange={(value) => setField(field.id, value)}
-                          />
-                        )}
-                      </div>
-                    ))}
+                    {(section.fields ?? [])
+                      // Signature fields are redundant here — the inspector signs
+                      // once in the mandatory sign-off below, so hide any signature
+                      // field the template carries to avoid two places to sign.
+                      .filter((field: any) => field.type !== "signature")
+                      .map((field: any) => (
+                        <div key={field.id} className="space-y-1.5">
+                          {isUploadFieldType(field.type) ? (
+                            <div className="rounded-lg border border-border bg-surface-raised p-3 text-sm text-muted-foreground">
+                              <Camera className="mb-2 h-4 w-4" />
+                              Use &quot;Add photos&quot; on this section header (or the Damage report uploader) for QA photo evidence.
+                            </div>
+                          ) : (
+                            <FieldInput
+                              field={field}
+                              value={data[field.id]}
+                              onChange={(value) => setField(field.id, value)}
+                            />
+                          )}
+                        </div>
+                      ))}
                   </div>
                 );
               })}
