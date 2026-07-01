@@ -949,7 +949,7 @@ export function PayRequestsWorkspace() {
       </Dialog>
 
       <Dialog open={Boolean(detailRow)} onOpenChange={(open) => !open && setDetailRow(null)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Extra Pay Request Details</DialogTitle>
           </DialogHeader>

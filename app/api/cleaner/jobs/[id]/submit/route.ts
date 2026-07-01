@@ -168,9 +168,14 @@ export async function POST(
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
     const bagLocation = body.bagLocation?.trim();
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
-    const { outcome: laundryOutcome, legacyReady } = normalizeLaundrySubmission(body);
-    const laundrySkipReasonCode = body.laundrySkipReasonCode?.trim();
-    const laundrySkipReasonNote = body.laundrySkipReasonNote?.trim();
+    // Rework/reclean jobs (and laundry-disabled properties) never create a laundry
+    // booking or record a laundry update — they reuse the original clean's linen.
+    const laundrySuppressed = job.isRework || job.property.laundryEnabled === false;
+    const { outcome: rawLaundryOutcome, legacyReady: rawLegacyReady } = normalizeLaundrySubmission(body);
+    const laundryOutcome = laundrySuppressed ? undefined : rawLaundryOutcome;
+    const legacyReady = laundrySuppressed ? undefined : rawLegacyReady;
+    const laundrySkipReasonCode = laundrySuppressed ? undefined : body.laundrySkipReasonCode?.trim();
+    const laundrySkipReasonNote = laundrySuppressed ? undefined : body.laundrySkipReasonNote?.trim();
 
     const lockedStatuses: JobStatus[] = [
       JobStatus.SUBMITTED,
