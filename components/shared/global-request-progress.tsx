@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 
-const SHOW_DELAY_MS = 350;
+const SHOW_DELAY_MS = 600;
 const SUCCESS_CLOSE_MS = 900;
 const ERROR_CLOSE_MS = 1800;
 
@@ -70,7 +70,26 @@ function buildRequestInfo(input: RequestInfo | URL, init?: RequestInit) {
   };
 }
 
-function shouldTrackRequest(url: URL, method: string, headers: Headers) {
+/**
+ * Only genuinely slow/heavy operations warrant a progress toast — uploads,
+ * file downloads/exports/PDFs, and report/invoice generation. Ordinary quick
+ * mutations (saving a form, toggling a status, submitting a quote) finish fast
+ * and don't need one; showing it there just floods the screen. Anything that
+ * truly needs it can opt in with the `x-progress-toast: force` header.
+ */
+function isHeavyOperation(url: URL): boolean {
+  const p = url.pathname;
+  if (p.startsWith("/api/uploads/")) return true;
+  if (looksLikeDownloadPath(p)) return true;
+  if (url.searchParams.get("download") === "1") return true;
+  if (p.includes("/api/reports/")) return true;
+  if (p.includes("/api/invoices/")) return true;
+  if (p.includes("/api/laundry/reports")) return true;
+  if (p.includes("/api/cleaner/invoice/")) return true; // preview / download / send PDF
+  return false;
+}
+
+function shouldTrackRequest(url: URL, _method: string, headers: Headers) {
   const explicitMode = headers.get("x-progress-toast")?.toLowerCase();
   if (explicitMode === "off") return false;
   if (explicitMode === "force") return true;
@@ -78,11 +97,10 @@ function shouldTrackRequest(url: URL, method: string, headers: Headers) {
   if (url.origin !== window.location.origin) return false;
   if (!url.pathname.startsWith("/api/")) return false;
   if (url.pathname.startsWith("/api/auth/")) return false;
+  // Public marketing pages should never surface an internal progress toast.
+  if (url.pathname.startsWith("/api/public/")) return false;
 
-  if (method !== "GET" && method !== "HEAD") return true;
-  if (looksLikeDownloadPath(url.pathname)) return true;
-  if (url.searchParams.get("download") === "1") return true;
-  return false;
+  return isHeavyOperation(url);
 }
 
 export function GlobalRequestProgress() {
