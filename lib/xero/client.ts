@@ -321,7 +321,33 @@ export async function getXeroStatus(): Promise<{ connected: boolean; tenantName?
 // ── Contacts ──
 
 /**
- * Create or update a contact in Xero.
+ * Find an existing ACTIVE Xero contact by exact name so we reuse it instead of
+ * hitting "The contact name … is already assigned to another contact". Returns
+ * null when there's no match or the lookup errors (caller then creates).
+ */
+async function findActiveXeroContactId(tenantId: string, name: string): Promise<string | null> {
+  const clean = name.trim();
+  if (!clean) return null;
+  const escaped = clean.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const where = encodeURIComponent(`Name=="${escaped}"`);
+  try {
+    const result = await xeroRequest<{ Contacts?: Array<{ ContactID: string; ContactStatus?: string }> }>(
+      "GET",
+      `/api.xro/2.0/Contacts?where=${where}`,
+      tenantId,
+    );
+    const list = result.Contacts ?? [];
+    const active = list.find((c) => (c.ContactStatus ?? "ACTIVE") === "ACTIVE");
+    return (active ?? list[0])?.ContactID ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a Xero contact id for the given party: reuse the stored id, else an
+ * existing contact with the same name, else create a new one. Reusing by name
+ * avoids Xero's unique-name 400 and never clobbers a contact we didn't create.
  */
 export async function syncXeroContact(input: {
   name: string;
@@ -334,6 +360,12 @@ export async function syncXeroContact(input: {
   const tokenData = await getXeroToken();
   if (!tokenData) throw new Error("No active Xero connection");
 
+  // No stored link yet → try to match an existing contact by name and reuse it.
+  if (!input.xeroContactId) {
+    const existingId = await findActiveXeroContactId(tokenData.tenantId, input.name);
+    if (existingId) return { xeroContactId: existingId };
+  }
+
   const contact: Record<string, unknown> = {
     Name: input.name,
     EmailAddress: input.email,
@@ -341,12 +373,6 @@ export async function syncXeroContact(input: {
     Addresses: input.address ? [{ AddressType: "STREET", AddressLine1: input.address }] : [],
     ContactStatus: "ACTIVE",
   };
-
-  if (input.isClient) {
-    contact.AccountsReceivableTaxType = "OUTPUT";
-  } else {
-    contact.AccountsPayableTaxType = "INPUT";
-  }
 
   let result: unknown;
   if (input.xeroContactId) {
