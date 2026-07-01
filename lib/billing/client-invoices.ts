@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
 import { db } from "@/lib/db";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
+import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { computeClientCharge } from "@/lib/finance/job-money";
@@ -390,7 +391,12 @@ export async function getClientInvoice(invoiceId: string) {
   return db.clientInvoice.findUnique({
     where: { id: invoiceId },
     include: {
-      client: { select: { id: true, name: true, email: true } },
+      client: {
+        select: {
+          id: true, name: true, email: true, phone: true,
+          address: true, suburb: true, state: true, postcode: true,
+        },
+      },
       lines: {
         include: {
           job: {
@@ -406,6 +412,19 @@ export async function getClientInvoice(invoiceId: string) {
       },
     },
   });
+}
+
+/** Make a logo value loadable by the server-side PDF renderer: absolute URLs /
+ *  data URIs pass through; an S3 key or bare path becomes an absolute URL. */
+function resolveInvoiceLogo(raw?: string | null): string {
+  const v = (raw ?? "").trim();
+  if (!v) return "";
+  if (/^(https?:|data:)/i.test(v)) return v;
+  try {
+    return publicUrl(v.replace(/^\/+/, ""));
+  } catch {
+    return v;
+  }
 }
 
 export function buildClientInvoiceHtml(
@@ -475,12 +494,16 @@ export function buildClientInvoiceHtml(
       `
       : "";
 
+  const logo = resolveInvoiceLogo(logoUrl);
+  const c = invoice.client;
+  const clientCityLine = [c.suburb, c.state, c.postcode].filter(Boolean).join(" ").trim();
+
   return `
     <html>
       <body style="font-family:Arial,sans-serif;color:#111827;margin:32px;max-width:800px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;">
           <div>
-            ${logoUrl ? `<img src="${logoUrl}" alt="${escapeHtml(companyName)}" style="height:52px;margin-bottom:12px;background:#ffffff;border-radius:8px;padding:5px;" />` : ""}
+            ${logo ? `<img src="${logo}" alt="${escapeHtml(companyName)}" style="height:56px;margin-bottom:12px;background:#ffffff;border-radius:8px;padding:6px;" />` : ""}
             <h1 style="margin:0 0 4px;font-size:26px;color:#111827;">${escapeHtml(companyName)}</h1>
             ${invoicingSettings?.abn ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">ABN: ${escapeHtml(invoicingSettings.abn)}</p>` : ""}
             ${invoicingSettings?.companyAddress ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">${escapeHtml(invoicingSettings.companyAddress)}</p>` : ""}
@@ -496,9 +519,12 @@ export function buildClientInvoiceHtml(
 
         <div style="margin-bottom:28px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;">
           <p style="margin:0 0 4px;font-size:11px;font-weight:600;text-transform:uppercase;color:#6b7280;letter-spacing:0.05em;">Bill To</p>
-          <p style="margin:0;font-weight:700;font-size:16px;">${escapeHtml(invoice.client.name)}</p>
-          ${invoice.client.email ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(invoice.client.email)}</p>` : ""}
-          ${invoice.periodStart && invoice.periodEnd ? `<p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Period: ${format(new Date(invoice.periodStart), "dd MMM yyyy")} – ${format(new Date(invoice.periodEnd), "dd MMM yyyy")}</p>` : ""}
+          <p style="margin:0;font-weight:700;font-size:16px;">${escapeHtml(c.name)}</p>
+          ${c.address ? `<p style="margin:2px 0 0;font-size:13px;color:#374151;">${escapeHtml(c.address)}</p>` : ""}
+          ${clientCityLine ? `<p style="margin:1px 0 0;font-size:13px;color:#374151;">${escapeHtml(clientCityLine)}</p>` : ""}
+          ${c.phone ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(c.phone)}</p>` : ""}
+          ${c.email ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(c.email)}</p>` : ""}
+          ${invoice.periodStart && invoice.periodEnd ? `<p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Service period: ${format(new Date(invoice.periodStart), "dd MMM yyyy")} – ${format(new Date(invoice.periodEnd), "dd MMM yyyy")}</p>` : ""}
         </div>
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
