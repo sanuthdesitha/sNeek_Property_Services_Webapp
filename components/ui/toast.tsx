@@ -13,22 +13,25 @@ const ToastViewport = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Viewport
     ref={ref}
-    className={cn("fixed top-2 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]", className)}
+    className={cn("fixed right-0 top-0 z-[100] flex max-h-screen w-full flex-col gap-2 p-4 sm:max-w-[420px]", className)}
     {...props}
   />
 ))
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName
 
 const toastVariants = cva(
-  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-lg border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
+  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-lg border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full",
   {
     variants: {
       variant: {
         default: "border-border bg-surface text-foreground",
-        destructive: "border-destructive/30 bg-destructive/10 text-destructive [&_button]:text-destructive",
-        success: "border-success/30 bg-success/10 text-success [&_button]:text-success",
-        warning: "border-warning/30 bg-warning/10 text-warning [&_button]:text-warning",
-        info: "border-info/30 bg-info/10 text-info [&_button]:text-info",
+        destructive:
+          "border-destructive/40 bg-[color-mix(in_srgb,hsl(var(--destructive))_12%,hsl(var(--surface)))] text-destructive [&_button]:text-destructive",
+        success:
+          "border-success/40 bg-[color-mix(in_srgb,hsl(var(--success))_12%,hsl(var(--surface)))] text-success [&_button]:text-success",
+        warning:
+          "border-warning/40 bg-[color-mix(in_srgb,hsl(var(--warning))_14%,hsl(var(--surface)))] text-warning [&_button]:text-warning",
+        info: "border-info/40 bg-[color-mix(in_srgb,hsl(var(--info))_12%,hsl(var(--surface)))] text-info [&_button]:text-info",
       },
     },
     defaultVariants: { variant: "default" },
