@@ -22,8 +22,10 @@ const schema = z.object({
   bagCount: z.number().int().min(1).max(50).optional(),
   loadWeightKg: z.number().min(0).max(500).optional(),
   pickupPhotoKey: z.string().trim().optional(),
+  pickupKeyPhotoKey: z.string().trim().optional(),
   dropoffLocation: z.string().trim().optional(),
   dropoffPhotoKey: z.string().trim().optional(),
+  dropoffKeyPhotoKey: z.string().trim().optional(),
   receiptImageKey: z.string().trim().optional(),
   supplierId: z.string().trim().optional(),
   totalPrice: z.number().min(0).max(100000).optional(),
@@ -103,8 +105,10 @@ export async function POST(
       bagCount,
       loadWeightKg,
       pickupPhotoKey,
+      pickupKeyPhotoKey,
       dropoffLocation,
       dropoffPhotoKey,
+      dropoffKeyPhotoKey,
       receiptImageKey,
       supplierId,
       totalPrice,
@@ -352,6 +356,7 @@ export async function POST(
         return NextResponse.json({ error: "Bag count is required for pickup." }, { status: 400 });
       }
       data.pickedUpAt = new Date();
+      data.pickupKeyPhotoUrl = pickupKeyPhotoKey?.trim() ? publicUrl(pickupKeyPhotoKey.trim()) : null;
     }
     if (nextStatus === "DROPPED") {
       if (!dropoffLocation?.trim()) {
@@ -376,6 +381,7 @@ export async function POST(
       data.bagWeightKg = loadWeightKg ?? null;
       data.dropoffCostAud = totalPrice ?? null;
       data.receiptImageUrl = receiptImageKey?.trim() ? publicUrl(receiptImageKey.trim()) : existing.receiptImageUrl ?? null;
+      data.dropoffKeyPhotoUrl = dropoffKeyPhotoKey?.trim() ? publicUrl(dropoffKeyPhotoKey.trim()) : null;
       data.supplierId = supplierId?.trim() || null;
     }
     if (notes) data.flagNotes = notes;
@@ -409,6 +415,8 @@ export async function POST(
           event: nextStatus,
           bagCount: nextStatus === "PICKED_UP" ? bagCount : undefined,
           pickupPhotoKey: nextStatus === "PICKED_UP" ? pickupPhotoKey?.trim() : undefined,
+          pickupKeyPhotoKey: nextStatus === "PICKED_UP" ? pickupKeyPhotoKey?.trim() : undefined,
+          dropoffKeyPhotoKey: nextStatus === "DROPPED" ? dropoffKeyPhotoKey?.trim() : undefined,
           dropoffLocation: nextStatus === "DROPPED" ? dropoffLocation?.trim() : undefined,
           totalPrice: nextStatus === "DROPPED" ? totalPrice : undefined,
           loadWeightKg: nextStatus === "DROPPED" ? loadWeightKg : undefined,

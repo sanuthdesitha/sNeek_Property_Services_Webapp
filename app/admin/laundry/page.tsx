@@ -1267,6 +1267,12 @@ export default function LaundryPage() {
                             mediaType: "PHOTO",
                           }
                         : null,
+                      task.pickupKeyPhotoUrl
+                        ? { id: `${task.id}-key-pickup`, url: task.pickupKeyPhotoUrl, label: "Key at pickup", mediaType: "PHOTO" }
+                        : null,
+                      task.dropoffKeyPhotoUrl
+                        ? { id: `${task.id}-key-dropoff`, url: task.dropoffKeyPhotoUrl, label: "Key returned", mediaType: "PHOTO" }
+                        : null,
                     ].filter(Boolean) as any[];
                     return (
                       <>

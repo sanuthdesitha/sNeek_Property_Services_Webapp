@@ -254,6 +254,52 @@ function isImageFile(file: File) {
   return file.type?.toLowerCase().startsWith("image/") || /\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(file.name ?? "");
 }
 
+// Compact key-return evidence capture (photo of key at pickup / when returned).
+function KeyPhotoCapture({
+  label,
+  file,
+  onSelect,
+  onClear,
+}: {
+  label: string;
+  file: File | null;
+  onSelect: (files: FileList | null, source: UploadSource) => void | Promise<void>;
+  onClear: () => void;
+}) {
+  return (
+    <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5">
+      <Label className="text-amber-900">{label}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-xs hover:bg-muted">
+          <Camera className="h-3.5 w-3.5" /> Take photo
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={async (e) => { const input = e.currentTarget; await onSelect(input.files, "camera"); input.value = ""; }}
+          />
+        </label>
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-xs hover:bg-muted">
+          Upload
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => { const input = e.currentTarget; await onSelect(input.files, "gallery"); input.value = ""; }}
+          />
+        </label>
+        {file ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {file.name}
+            <button type="button" className="ml-1 text-muted-foreground hover:text-destructive" onClick={onClear} aria-label="Remove key photo">✕</button>
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function LaundryPortal() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
@@ -283,9 +329,11 @@ export default function LaundryPortal() {
   const [actionType, setActionType] = useState<ActionType | null>(null);
   const [bagCount, setBagCount] = useState("1");
   const [pickupPhoto, setPickupPhoto] = useState<File | null>(null);
+  const [pickupKeyPhoto, setPickupKeyPhoto] = useState<File | null>(null);
   const [dropoffSelection, setDropoffSelection] = useState<string>("__custom");
   const [dropoffCustom, setDropoffCustom] = useState("");
   const [dropoffPhoto, setDropoffPhoto] = useState<File | null>(null);
+  const [dropoffKeyPhoto, setDropoffKeyPhoto] = useState<File | null>(null);
   const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
   const [supplierSelection, setSupplierSelection] = useState<string>("__none");
   const [dropoffTotalPrice, setDropoffTotalPrice] = useState("");
@@ -315,9 +363,11 @@ export default function LaundryPortal() {
     setActionType(null);
     setBagCount("1");
     setPickupPhoto(null);
+    setPickupKeyPhoto(null);
     setDropoffSelection(dropoffOptions[0] ?? "__custom");
     setDropoffCustom("");
     setDropoffPhoto(null);
+    setDropoffKeyPhoto(null);
     setReceiptPhoto(null);
     setSupplierSelection("__none");
     setDropoffTotalPrice("");
@@ -713,6 +763,18 @@ export default function LaundryPortal() {
     setDropoffPhoto(prepared);
   }
 
+  async function setPickupKeyPhotoFromSelection(fileList: FileList | null, source: UploadSource) {
+    const selected = fileList?.[0] ?? null;
+    if (!selected) { setPickupKeyPhoto(null); return; }
+    setPickupKeyPhoto(await prepareLaundryPhoto(selected, source));
+  }
+
+  async function setDropoffKeyPhotoFromSelection(fileList: FileList | null, source: UploadSource) {
+    const selected = fileList?.[0] ?? null;
+    if (!selected) { setDropoffKeyPhoto(null); return; }
+    setDropoffKeyPhoto(await prepareLaundryPhoto(selected, source));
+  }
+
   async function uploadViaDirect(file: File, folder: string): Promise<string> {
     const form = new FormData();
     form.append("file", file);
@@ -950,6 +1012,14 @@ export default function LaundryPortal() {
           return;
         }
       }
+      if (pickupKeyPhoto) {
+        try {
+          payload.pickupKeyPhotoKey = await uploadOneFile(pickupKeyPhoto, "laundry/key");
+        } catch (err: any) {
+          toast({ title: "Key photo upload failed", description: err.message ?? "Could not upload key photo.", variant: "destructive" });
+          return;
+        }
+      }
     }
 
     if (status === "RETURNED") {
@@ -1000,6 +1070,14 @@ export default function LaundryPortal() {
           payload.dropoffPhotoKey = key;
         } catch (err: any) {
           toast({ title: "Photo upload failed", description: err.message ?? "Could not upload photo.", variant: "destructive" });
+          return;
+        }
+      }
+      if (dropoffKeyPhoto) {
+        try {
+          payload.dropoffKeyPhotoKey = await uploadOneFile(dropoffKeyPhoto, "laundry/key");
+        } catch (err: any) {
+          toast({ title: "Key photo upload failed", description: err.message ?? "Could not upload key-return photo.", variant: "destructive" });
           return;
         }
       }
@@ -1890,6 +1968,12 @@ export default function LaundryPortal() {
                   <Label>How many bags picked up?</Label>
                   <Input type="number" min="1" max="50" value={bagCount} onChange={(e) => setBagCount(e.target.value)} />
                 </div>
+                <KeyPhotoCapture
+                  label="Key handling photo (optional) — proof of key at pickup"
+                  file={pickupKeyPhoto}
+                  onSelect={setPickupKeyPhotoFromSelection}
+                  onClear={() => setPickupKeyPhoto(null)}
+                />
                 {laundryConfig.showPickupPhoto && (
                   <div className="space-y-1.5">
                     <Label>Pickup photo (optional)</Label>
@@ -2092,6 +2176,12 @@ export default function LaundryPortal() {
                     <Input value={dropoffCustom} onChange={(e) => setDropoffCustom(e.target.value)} placeholder="Type location" />
                   )}
                 </div>
+                <KeyPhotoCapture
+                  label="Key return photo (optional) — proof the key was returned"
+                  file={dropoffKeyPhoto}
+                  onSelect={setDropoffKeyPhotoFromSelection}
+                  onClear={() => setDropoffKeyPhoto(null)}
+                />
                 <div className="space-y-1.5">
                   <Label>
                     Drop-off photo {actionType === "EDIT_COMPLETED" ? "(optional replacement)" : laundryConfig.requireDropoffPhoto ? "" : "(optional)"}

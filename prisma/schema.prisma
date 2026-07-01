@@ -1674,6 +1674,9 @@ model LaundryTask {
   bagWeightKg       Float?
   dropoffCostAud    Float?
   receiptImageUrl   String?
+  // Key-handling evidence: photo of the key at pickup + when returned at drop-off.
+  pickupKeyPhotoUrl  String?
+  dropoffKeyPhotoUrl String?
   supplierId        String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
