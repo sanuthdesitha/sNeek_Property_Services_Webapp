@@ -7,12 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { JobType } from "@prisma/client";
+import { jobTypeLabel } from "@/lib/qa/templates";
+
+const JOB_TYPES = Object.values(JobType) as JobType[];
 
 interface XeroInvoiceDefaults {
   defaultAccountCode: string;
   defaultItemCode: string;
   salesTaxType: string;
   contactFallbackEmail: string;
+  itemCodeByService: Record<string, string>;
 }
 
 export function XeroSettingsTab() {
@@ -21,6 +26,7 @@ export function XeroSettingsTab() {
     defaultItemCode: "",
     salesTaxType: "",
     contactFallbackEmail: "",
+    itemCodeByService: {},
   });
   const [savingCfg, setSavingCfg] = useState(false);
   const [cfgSaved, setCfgSaved] = useState(false);
@@ -67,6 +73,7 @@ export function XeroSettingsTab() {
         defaultItemCode: x.defaultItemCode ?? "",
         salesTaxType: x.salesTaxType ?? "",
         contactFallbackEmail: x.contactFallbackEmail ?? "",
+        itemCodeByService: x.itemCodeByService && typeof x.itemCodeByService === "object" ? x.itemCodeByService : {},
       });
     } catch { /* ignore */ }
   }
@@ -87,7 +94,15 @@ export function XeroSettingsTab() {
     finally { setSavingCfg(false); }
   }
 
-  const setField = (k: keyof XeroInvoiceDefaults, v: string) => setCfg((prev) => ({ ...prev, [k]: v }));
+  const setField = (k: "defaultAccountCode" | "defaultItemCode" | "salesTaxType" | "contactFallbackEmail", v: string) =>
+    setCfg((prev) => ({ ...prev, [k]: v }));
+  const setServiceCode = (jobType: string, v: string) =>
+    setCfg((prev) => {
+      const next = { ...prev.itemCodeByService };
+      if (v.trim()) next[jobType] = v;
+      else delete next[jobType];
+      return { ...prev, itemCodeByService: next };
+    });
 
   async function handleConnect() {
     setConnecting(true);
@@ -239,6 +254,31 @@ export function XeroSettingsTab() {
               <p className="text-xs text-muted-foreground">Used when a client has no email on file.</p>
             </div>
           </div>
+          <div className="space-y-2 rounded-lg border p-4">
+            <div>
+              <p className="text-sm font-medium">Per-service item codes (optional)</p>
+              <p className="text-xs text-muted-foreground">
+                Map a Xero item code to each service type. A line uses its service&apos;s code if set,
+                otherwise the default item code above. Leave a row blank to use the default.
+              </p>
+            </div>
+            <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              {JOB_TYPES.map((jt) => (
+                <div key={jt} className="flex items-center gap-2">
+                  <span className="w-40 shrink-0 truncate text-sm text-muted-foreground" title={jobTypeLabel(jt)}>
+                    {jobTypeLabel(jt)}
+                  </span>
+                  <Input
+                    value={cfg.itemCodeByService[jt] ?? ""}
+                    onChange={(e) => setServiceCode(jt, e.target.value)}
+                    placeholder="item code"
+                    className="h-8"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="flex items-center gap-3">
             <Button onClick={saveCfg} disabled={savingCfg}>
               {savingCfg ? "Saving…" : "Save invoice defaults"}

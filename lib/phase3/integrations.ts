@@ -17,6 +17,8 @@ export interface Phase3IntegrationsSettings {
     defaultAccountCode: string;
     /** Xero inventory Item code applied to invoice lines (the "item number"). */
     defaultItemCode: string;
+    /** Per-service item codes, keyed by JobType (falls back to defaultItemCode). */
+    itemCodeByService: Record<string, string>;
     /** Optional sales TaxType override (e.g. OUTPUT2 for AU GST on Income). Blank = auto. */
     salesTaxType: string;
     trackingCategory: string;
@@ -46,6 +48,7 @@ export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
     tenantId: "",
     defaultAccountCode: "200",
     defaultItemCode: "",
+    itemCodeByService: {},
     salesTaxType: "",
     trackingCategory: "Branch",
     contactFallbackEmail: "",
@@ -66,6 +69,22 @@ function sanitizeUrl(value: unknown) {
   } catch {
     return "";
   }
+}
+
+/** Keep only string→non-empty-string entries; cap keys + value length. */
+function sanitizeItemCodeMap(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, string> = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (count >= 100) break;
+    if (typeof value !== "string") continue;
+    const code = value.trim().slice(0, 30);
+    if (!code) continue;
+    out[String(key).trim().slice(0, 60)] = code;
+    count += 1;
+  }
+  return out;
 }
 
 function sanitize(input: unknown): Phase3IntegrationsSettings {
@@ -110,6 +129,7 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
           : DEFAULT_PHASE3_INTEGRATIONS.xero.defaultAccountCode,
       defaultItemCode:
         typeof xeroRaw.defaultItemCode === "string" ? xeroRaw.defaultItemCode.trim().slice(0, 30) : "",
+      itemCodeByService: sanitizeItemCodeMap(xeroRaw.itemCodeByService),
       salesTaxType:
         typeof xeroRaw.salesTaxType === "string" ? xeroRaw.salesTaxType.trim().toUpperCase().slice(0, 50) : "",
       trackingCategory:

@@ -24,6 +24,7 @@ const schema = z.object({
       tenantId: z.string().trim().max(200).optional(),
       defaultAccountCode: z.string().trim().max(32).optional(),
       defaultItemCode: z.string().trim().max(30).optional(),
+      itemCodeByService: z.record(z.string().trim().max(30)).optional(),
       salesTaxType: z.string().trim().max(50).optional(),
       trackingCategory: z.string().trim().max(100).optional(),
       contactFallbackEmail: z.string().trim().max(200).optional(),
