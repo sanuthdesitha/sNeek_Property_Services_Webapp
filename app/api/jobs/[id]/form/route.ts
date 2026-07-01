@@ -285,7 +285,10 @@ export async function GET(
     const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
     if (job.isRework && reworkAreas.length > 0) {
       const reworkTemplate = await ensureReworkFormTemplate(job.jobType);
-      template = { ...reworkTemplate, schema: buildReworkFormSchema(reworkAreas) as any } as typeof template;
+      template = {
+        ...reworkTemplate,
+        schema: buildReworkFormSchema(reworkAreas, { categorized: jobMeta.reworkCategorized }) as any,
+      } as typeof template;
     }
 
     const resolvedTemplate = await resolveTemplateReferenceUrls(template);

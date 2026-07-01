@@ -239,7 +239,9 @@ export async function POST(
     const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
     const effectiveSchema =
       job.isRework && reworkAreas.length > 0
-        ? (buildReworkFormSchema(reworkAreas) as any)
+        ? (buildReworkFormSchema(reworkAreas, {
+            categorized: parseJobInternalNotes(job.internalNotes).reworkCategorized,
+          }) as any)
         : template.schema;
 
     const answers = (body.data ?? {}) as Record<string, unknown>;

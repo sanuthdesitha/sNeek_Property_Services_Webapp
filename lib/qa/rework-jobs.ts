@@ -333,6 +333,8 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
     internalNoteText: `Rework of job ${input.originalJobId}. ${input.reason}`.trim().slice(0, 4000),
     tags: ["rework", reworkTagFor(input.originalJobId)],
     cleanerPayouts,
+    // Persist the QA's layout choice so the cleaner's fix checklist honours it.
+    reworkCategorized: input.categorized !== false,
   });
 
   // Flatten any QA markup onto its photo so the cleaner's reclean guidance shows

@@ -78,6 +78,9 @@ export interface JobMeta {
   reservationContext?: JobReservationContext;
   // Quote extras that became part of this job (rendered as Additionals).
   additionals: JobAdditional[];
+  // For rework jobs: present the cleaner's fix checklist grouped by area (true,
+  // default) or as a single flat list (false). Set from the QA rework proposal.
+  reworkCategorized?: boolean;
 }
 
 const DEFAULT_RULE: JobTimingRule = {
@@ -100,6 +103,7 @@ export function defaultJobMeta(): JobMeta {
     serviceContext: undefined,
     reservationContext: undefined,
     additionals: [],
+    reworkCategorized: undefined,
   };
 }
 
@@ -314,6 +318,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       serviceContext: normalizeServiceContext(parsed.serviceContext),
       reservationContext: normalizeReservationContext(parsed.reservationContext),
       additionals: normalizeAdditionals(parsed.additionals),
+      reworkCategorized: typeof parsed.reworkCategorized === "boolean" ? parsed.reworkCategorized : undefined,
     };
   } catch {
     return { ...fallback, internalNoteText: raw };
@@ -350,7 +355,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     Object.keys(meta.cleanerPayouts).length > 0 ||
     Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
     Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0) ||
-    meta.additionals.length > 0;
+    meta.additionals.length > 0 ||
+    typeof meta.reworkCategorized === "boolean";
 
   if (!hasStructuredData) {
     return meta.internalNoteText.trim() || undefined;
@@ -370,6 +376,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     serviceContext: meta.serviceContext,
     reservationContext: meta.reservationContext,
     additionals: meta.additionals,
+    reworkCategorized: meta.reworkCategorized,
   });
 }
 
