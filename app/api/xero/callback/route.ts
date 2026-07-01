@@ -44,7 +44,8 @@ export async function GET(req: NextRequest) {
     return response;
   }
 
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+  // Must match the redirect URI used at /connect exactly — derive it the same way.
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || req.nextUrl.origin).replace(/\/+$/, "");
   const redirectUri = `${baseUrl}/api/xero/callback`;
 
   const result = await exchangeXeroCode(code, redirectUri);

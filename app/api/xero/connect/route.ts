@@ -8,7 +8,10 @@ export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN]);
 
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+    // Prefer the configured public URL; otherwise derive from the real request
+    // origin so the redirect URI is always this deployment's actual domain
+    // (never localhost), which is what must be registered on the Xero Web app.
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || req.nextUrl.origin).replace(/\/+$/, "");
     const redirectUri = `${baseUrl}/api/xero/callback`;
     const state = randomBytes(16).toString("hex");
 
