@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { AdminPageLock } from "@/components/admin/admin-page-lock";
 import { toast } from "@/hooks/use-toast";
 
 type Band = { label: string; price: number };
@@ -53,7 +54,7 @@ function NumField({ label, value, onChange }: { label: string; value: number | u
   );
 }
 
-export default function PricingPage() {
+function PricingEditor() {
   const [services, setServices] = useState<Service[]>([]);
   const [gstEnabled, setGstEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -218,5 +219,17 @@ export default function PricingPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <AdminPageLock
+      lockId="pricing"
+      title="Pricing is locked"
+      description="Enter your admin PIN or password to view and edit service pricing."
+    >
+      <PricingEditor />
+    </AdminPageLock>
   );
 }
