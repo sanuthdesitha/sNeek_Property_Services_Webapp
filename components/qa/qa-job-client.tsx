@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -94,6 +95,7 @@ const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
 
 export function QaJobClient({ jobId }: { jobId: string }) {
+  const router = useRouter();
   const { data: authSession } = useSession();
   const [payload, setPayload] = useState<any>(null);
   // Evidence stamp inputs (branding + GPS), fetched once per session and reused
@@ -735,18 +737,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
       title: "QA submitted",
       description: `Score ${Math.round(body.review?.score ?? 0)}%.${extras.length ? ` Created: ${extras.join(", ")}.` : ""}`,
     });
-    setTools(emptyInspectionTools());
-    setData({});
-    setNotes("");
-    setSignatureDataUrl("");
-    setAttested(false);
+    // Stop the on-site timer and clear the local draft — this inspection is done.
+    setTimer({ running: false, elapsedMs: 0, runningSince: null });
     try {
       localStorage.removeItem(draftKey);
     } catch {
       /* ignore */
     }
     setDraftSavedAt(null);
-    await load();
+    // Return to the QA home queue; the submitted job now lives under "Submitted".
+    router.push("/qa");
+    router.refresh();
   }
 
   async function decideOverride(id: string, status: "APPROVED" | "DECLINED") {

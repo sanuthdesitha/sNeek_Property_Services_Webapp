@@ -352,7 +352,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             completedAt: new Date(),
             pickedUpById: session.user.id,
             onSiteStartedAt: tools?.onSite?.startedAt ? new Date(tools.onSite.startedAt) : undefined,
-            onSiteEndedAt: tools?.onSite?.endedAt ? new Date(tools.onSite.endedAt) : undefined,
+            // Always stamp an end time on completion, even if the inspector never
+            // hit "stop", so the on-site timer can't resume running on reopen.
+            onSiteEndedAt: tools?.onSite?.endedAt ? new Date(tools.onSite.endedAt) : new Date(),
             onSiteMinutes: onSiteMinutes ?? undefined,
           },
         });

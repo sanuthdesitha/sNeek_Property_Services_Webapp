@@ -29,6 +29,7 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+  const [scope, setScope] = useState<"active" | "completed">("active");
 
   // Filters + sort, mirroring the admin Jobs page.
   const [search, setSearch] = useState("");
@@ -40,7 +41,7 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/qa/queue", { cache: "no-store" });
+    const res = await fetch(`/api/qa/queue?scope=${scope}`, { cache: "no-store" });
     const body = await res.json().catch(() => ({}));
     setLoading(false);
     if (!res.ok) {
@@ -52,7 +53,8 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
 
   useEffect(() => {
     void load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   const rows = useMemo(() => {
     const assigned = (data.assignments ?? []).map((assignment: any) => ({
@@ -218,6 +220,28 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
           </Button>
         }
       />
+
+      {/* To-inspect vs submitted (completed) — submitted QAs show separately. */}
+      <div className="inline-flex rounded-full border border-border bg-surface p-0.5">
+        {(["active", "completed"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setScope(s)}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+              scope === s ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {s === "active" ? "To inspect" : "Submitted"}
+          </button>
+        ))}
+      </div>
+
+      {scope === "completed" ? (
+        <p className="text-xs text-muted-foreground">
+          Submitted inspections. Open one to review or reopen and make changes.
+        </p>
+      ) : null}
 
       {!loading && (
         <section className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
