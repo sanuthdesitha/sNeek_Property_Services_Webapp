@@ -354,8 +354,8 @@ export default async function FormStatsPage({
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">By area (location tag)</CardTitle>
               </CardHeader>
-              <CardContent className="p-4 pt-0">
-                <table className="w-full text-sm">
+              <CardContent className="overflow-x-auto p-4 pt-0">
+                <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs text-muted-foreground">
                       <th className="py-2 font-medium">Area</th>

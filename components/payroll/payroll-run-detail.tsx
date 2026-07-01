@@ -268,9 +268,9 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
         <CardContent>
           <div className="space-y-2">
             {run.payouts.map((payout) => (
-              <div key={payout.id} className="flex items-center justify-between rounded-lg border p-3">
+              <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{payout.cleanerName || payout.cleanerEmail}</span>
                     <Badge className={PAYOUT_STATUS_COLORS[payout.status] || "bg-surface-raised text-muted-foreground"}>
                       {payout.status}

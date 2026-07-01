@@ -718,7 +718,8 @@ export default function PropertyDetailPage() {
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start gap-1 overflow-x-auto">
+
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="jobs">Jobs &amp; History</TabsTrigger>
           <TabsTrigger value="edit">Edit</TabsTrigger>

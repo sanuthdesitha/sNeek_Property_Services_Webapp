@@ -758,7 +758,8 @@ export default function QuotesPage() {
               <Badge variant="outline">{prettify(selectedLead?.serviceType)}</Badge>
               {selectedLead?.requestedServiceLabel ? <Badge variant="secondary">{selectedLead.requestedServiceLabel}</Badge> : null}
             </div>
-            <div className="overflow-hidden rounded-xl border">
+            <div className="overflow-x-auto rounded-xl border">
+              <div className="min-w-[520px]">
               <div className="grid grid-cols-[1.6fr_0.8fr_0.6fr_0.8fr_56px] gap-2 bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
                 <span>Description</span>
                 <span>Unit price</span>
@@ -778,6 +779,7 @@ export default function QuotesPage() {
                     </Button>
                   </div>
                 ))}
+              </div>
               </div>
             </div>
             <div className="flex justify-between">
