@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +92,7 @@ function presetRange(kind: "thisMonth" | "lastMonth" | "last2Weeks"): { start: s
 }
 
 export function CleanerInvoicesPage() {
+  const router = useRouter();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showSpentHours, setShowSpentHours] = useState(true);
@@ -270,6 +272,21 @@ export function CleanerInvoicesPage() {
   }
 
   async function openEmailPreviewFlow() {
+    // Warn before generating the invoice if extra payments are still awaiting
+    // admin approval — sending now leaves that money off this invoice.
+    if (hasPendingApprovals && !hasPendingAwaitingApproval) {
+      const proceed = window.confirm(
+        `You have ${pendingApprovalCount} extra payment${pendingApprovalCount === 1 ? "" : "s"} (${money(
+          pendingApprovalAmount,
+        )}) still awaiting admin approval.\n\n` +
+          `If you send this invoice now, those amounts will NOT be included. ` +
+          `Cancel to review them under "Extra pay requests" first, or press OK to invoice without them.`,
+      );
+      if (!proceed) {
+        router.push("/cleaner/pay-requests");
+        return;
+      }
+    }
     await loadInvoicePreview();
     await previewInvoicePdf();
   }
@@ -304,8 +321,13 @@ export function CleanerInvoicesPage() {
     setEndDate(range.end);
   }
 
+  const pendingApprovalCount = Number(invoicePreview?.pendingAdjustmentCount ?? 0);
+  const pendingApprovalAmount = Number(invoicePreview?.pendingAdjustmentAmount ?? 0);
+  // Any unapproved extra-pay request in this period — they'd be LEFT OFF the
+  // invoice if sent now, so we warn (and, at $0 total, block entirely).
+  const hasPendingApprovals = pendingApprovalCount > 0;
   const hasPendingAwaitingApproval =
-    Number(invoicePreview?.estimatedPay ?? 0) <= 0 && Number(invoicePreview?.pendingAdjustmentCount ?? 0) > 0;
+    Number(invoicePreview?.estimatedPay ?? 0) <= 0 && hasPendingApprovals;
 
   const expenseRows = invoicePreview?.expenseRows ?? [];
   const shoppingTimeRows = invoicePreview?.shoppingTimeRows ?? [];
@@ -443,10 +465,30 @@ export function CleanerInvoicesPage() {
             </p>
           ) : null}
 
-          {hasPendingAwaitingApproval ? (
-            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              Emailing is blocked while the total is $0.00 and pending extra payment approvals exist.
-            </p>
+          {hasPendingApprovals ? (
+            <div
+              className={
+                hasPendingAwaitingApproval
+                  ? "rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
+                  : "rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs text-foreground"
+              }
+            >
+              <p className="font-medium">
+                {pendingApprovalCount} extra payment{pendingApprovalCount === 1 ? "" : "s"} ({money(pendingApprovalAmount)})
+                {" "}awaiting admin approval.
+              </p>
+              <p className="mt-0.5 text-muted-foreground">
+                {hasPendingAwaitingApproval
+                  ? "Emailing is blocked while the total is $0.00 and these are unapproved."
+                  : "These are NOT on this invoice yet — sending now leaves that money off."}
+              </p>
+              <Link
+                href="/cleaner/pay-requests"
+                className="mt-2 inline-block rounded-md border border-border bg-surface px-3 py-1.5 font-medium hover:opacity-80"
+              >
+                Review extra pay requests
+              </Link>
+            </div>
           ) : null}
         </CardContent>
       </Card>
