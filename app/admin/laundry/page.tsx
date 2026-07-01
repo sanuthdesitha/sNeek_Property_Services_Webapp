@@ -424,8 +424,8 @@ export default function LaundryPage() {
         taskId
           ? { taskId }
           : reportPeriod === "custom"
-            ? { period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined }
-            : { period: reportPeriod, anchorDate: reportAnchorDate || undefined }
+            ? { period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined, includePending: true }
+            : { period: reportPeriod, anchorDate: reportAnchorDate || undefined, includePending: true }
       ),
     });
     setReportDownloading(false);
@@ -460,8 +460,8 @@ export default function LaundryPage() {
         taskId
           ? { to: reportEmail.trim(), taskId }
           : reportPeriod === "custom"
-            ? { to: reportEmail.trim(), period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined }
-            : { to: reportEmail.trim(), period: reportPeriod, anchorDate: reportAnchorDate || undefined }
+            ? { to: reportEmail.trim(), period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined, includePending: true }
+            : { to: reportEmail.trim(), period: reportPeriod, anchorDate: reportAnchorDate || undefined, includePending: true }
       ),
     });
     const body = await res.json().catch(() => ({}));

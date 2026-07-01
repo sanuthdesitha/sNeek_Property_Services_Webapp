@@ -21,6 +21,7 @@ const bodySchema = z.object({
   endDate: z.string().date().optional(),
   propertyId: z.string().trim().min(1).optional(),
   taskId: z.string().trim().min(1).optional(),
+  includePending: z.boolean().optional(),
   template: z
     .object({
       companyName: z.string().trim().min(1).max(200).optional(),
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       endDate: body.endDate,
       propertyId: body.propertyId,
       taskId: body.taskId,
+      includePending: body.includePending,
     });
 
     const html = buildLaundryInvoiceHtml({ data, template });
