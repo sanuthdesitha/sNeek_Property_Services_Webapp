@@ -45,10 +45,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const svc = line.job?.jobType ? itemCodeByService[line.job.jobType]?.trim() : "";
       return svc || defaultItemCode || undefined;
     };
-    // Explicit tax-type override (e.g. AU "OUTPUT2" for GST on Income) wins;
-    // otherwise fall back to the per-invoice GST toggle.
-    const taxType =
-      integrations.xero.salesTaxType?.trim() || (invoice.gstEnabled ? "OUTPUT" : "NONE");
+    // Only send an explicit tax type when configured (e.g. AU "OUTPUT2"); leaving
+    // it undefined lets Xero apply the sales account's own default tax rate,
+    // which avoids region-specific "invalid TaxType" 400s.
+    const taxType = integrations.xero.salesTaxType?.trim() || undefined;
     const reference =
       invoice.periodStart && invoice.periodEnd
         ? `Service period ${isoDate(invoice.periodStart)} – ${isoDate(invoice.periodEnd)}`

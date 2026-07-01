@@ -29,11 +29,18 @@ function extractXeroError(raw: string): string {
   if (!raw) return "no response body";
   try {
     const j = JSON.parse(raw) as Record<string, any>;
-    const validation = j?.Elements?.[0]?.ValidationErrors?.map((e: any) => e.Message).filter(Boolean).join("; ");
+    // Pull the specific per-element validation messages first — Xero's top-level
+    // Message is just the generic "A validation exception occurred".
+    const elementErrors = Array.isArray(j?.Elements)
+      ? j.Elements.flatMap((el: any) =>
+          Array.isArray(el?.ValidationErrors) ? el.ValidationErrors.map((e: any) => e.Message) : [],
+        ).filter(Boolean)
+      : [];
+    const validation = elementErrors.join("; ");
     return (
+      validation ||
       j.Detail ||
       j.Message ||
-      validation ||
       j.error_description ||
       j.error ||
       raw
@@ -385,7 +392,6 @@ export async function pushClientInvoiceToXero(input: {
   }
 
   const gstOn = input.gstEnabled !== false;
-  const defaultTaxType = gstOn ? "OUTPUT" : "NONE";
   // Our line prices are GST-EXCLUSIVE (invoice stores subtotal + gstAmount
   // separately), so let Xero add GST on top when enabled.
   const lineAmountTypes = gstOn ? "Exclusive" : "NoTax";
@@ -401,8 +407,13 @@ export async function pushClientInvoiceToXero(input: {
         Quantity: line.quantity,
         UnitAmount: line.unitAmount,
         AccountCode: line.accountCode || "200", // Sales account
-        TaxType: line.taxType ?? defaultTaxType,
       };
+      // TaxType: only send an explicit code when the admin configured one — its
+      // value is region-specific (e.g. AU uses OUTPUT2, NZ uses OUTPUT), and a
+      // wrong code is a 400 validation error. Otherwise let Xero apply the
+      // account's default tax rate. For a no-GST invoice, force NONE (universal).
+      if (line.taxType && line.taxType.trim()) item.TaxType = line.taxType.trim();
+      else if (!gstOn) item.TaxType = "NONE";
       // The Xero inventory Item code ("item number"). When set, Xero links the
       // line to that tracked item and can auto-fill its defaults; our explicit
       // Description/AccountCode still win. Omitted entirely when blank.
@@ -456,8 +467,9 @@ export async function pushCleanerBillToXero(input: {
         Quantity: line.quantity,
         UnitAmount: line.unitAmount,
         AccountCode: line.accountCode || "400", // Cost of goods sold / wages
-        TaxType: "INPUT",
       };
+      // Let Xero apply the account's default tax rate (region-safe) rather than a
+      // hardcoded INPUT that AU/other regions reject.
       if (line.itemCode && line.itemCode.trim()) item.ItemCode = line.itemCode.trim();
       return item;
     }),
