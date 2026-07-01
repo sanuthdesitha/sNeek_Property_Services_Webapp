@@ -402,7 +402,7 @@ export async function getClientInvoice(invoiceId: string) {
             },
           },
         },
-        orderBy: [{ createdAt: "asc" }],
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
     },
   });

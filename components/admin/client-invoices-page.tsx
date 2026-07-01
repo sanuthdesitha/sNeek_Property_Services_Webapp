@@ -1,13 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { format, addDays } from "date-fns";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Building2,
   Check,
   ChevronRight,
   Download,
   FileText,
+  GripVertical,
+  Layers,
   Mail,
   Pencil,
   Plus,
@@ -93,6 +112,110 @@ function fmtDateFull(v: string | null | undefined) {
   try { return format(new Date(v), "dd MMM yyyy HH:mm"); } catch { return v; }
 }
 
+// A single invoice line as a drag-sortable table row (draft invoices only).
+function SortableLineRow({
+  line,
+  isDraft,
+  isEditing,
+  colSpanActions,
+  lineEditDesc,
+  lineEditQty,
+  lineEditRate,
+  setLineEditDesc,
+  setLineEditQty,
+  setLineEditRate,
+  onStartEdit,
+  onSave,
+  onCancel,
+  onRemove,
+}: {
+  line: InvoiceLine;
+  isDraft: boolean;
+  isEditing: boolean;
+  colSpanActions: boolean;
+  lineEditDesc: string;
+  lineEditQty: string;
+  lineEditRate: string;
+  setLineEditDesc: (v: string) => void;
+  setLineEditQty: (v: string) => void;
+  setLineEditRate: (v: string) => void;
+  onStartEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: line.id,
+    disabled: isEditing || !isDraft,
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  if (isEditing) {
+    return (
+      <tr ref={setNodeRef} style={style} className="bg-muted/30">
+        <td className="px-3 py-1.5">
+          <Input className="h-7 text-xs" value={lineEditDesc} onChange={(e) => setLineEditDesc(e.target.value)} />
+        </td>
+        <td className="px-3 py-1.5">
+          <Input className="h-7 text-xs w-16 text-right" type="number" min={0.01} step={0.5} value={lineEditQty} onChange={(e) => setLineEditQty(e.target.value)} />
+        </td>
+        <td className="px-3 py-1.5">
+          <Input className="h-7 text-xs w-24 text-right" type="number" min={0} step={0.01} value={lineEditRate} onChange={(e) => setLineEditRate(e.target.value)} />
+        </td>
+        <td className="px-3 py-1.5 text-right text-xs font-medium">{money(Number(lineEditQty) * Number(lineEditRate))}</td>
+        <td className="px-2 py-1.5">
+          <div className="flex gap-1">
+            <button onClick={onSave} className="rounded p-1 hover:bg-green-100 text-green-700"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={onCancel} className="rounded p-1 hover:bg-muted text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr ref={setNodeRef} style={style} className="hover:bg-muted/20">
+      <td className="px-3 py-2">
+        <div className="flex items-start gap-1.5">
+          {isDraft && (
+            <button
+              {...attributes}
+              {...listeners}
+              className="mt-0.5 cursor-grab touch-none text-muted-foreground/40 hover:text-foreground"
+              aria-label="Drag to reorder"
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <div>
+            <p className="font-medium">{line.description}</p>
+            {line.job && (
+              <p className="text-xs text-muted-foreground">
+                {line.job.property.name} · #{line.job.jobNumber} · {fmtDate(line.job.scheduledDate)}
+              </p>
+            )}
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2 text-right text-muted-foreground">{line.quantity.toFixed(2)}</td>
+      <td className="px-3 py-2 text-right text-muted-foreground">{money(line.unitPrice)}</td>
+      <td className="px-3 py-2 text-right font-semibold">{money(line.lineTotal)}</td>
+      {colSpanActions && (
+        <td className="px-2 py-2">
+          <div className="flex gap-1">
+            <button onClick={onStartEdit} className="rounded p-1 hover:bg-muted text-muted-foreground"><Pencil className="h-3.5 w-3.5" /></button>
+            <button onClick={onRemove} className="rounded p-1 hover:bg-red-100 text-destructive"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </td>
+      )}
+    </tr>
+  );
+}
+
 // ── main page ──────────────────────────────────────────────────────────────────
 
 export function ClientInvoicesPage() {
@@ -125,6 +248,16 @@ export function ClientInvoicesPage() {
   const [lineEditDesc, setLineEditDesc] = useState("");
   const [lineEditQty, setLineEditQty] = useState("1");
   const [lineEditRate, setLineEditRate] = useState("0");
+
+  // Local ordered copy of the selected invoice's lines (for drag + group-by-property).
+  const [orderedLines, setOrderedLines] = useState<InvoiceLine[]>([]);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  useEffect(() => {
+    setOrderedLines(selected?.lines ?? []);
+  }, [selected]);
 
   // Add line dialog
   const [showAddLine, setShowAddLine] = useState(false);
@@ -196,6 +329,28 @@ export function ClientInvoicesPage() {
     await load();
     if (selected?.id === id) await loadInvoice(id);
     return true;
+  }
+
+  // ── Line ordering (group by property + drag) ──
+  async function persistLineOrder(next: InvoiceLine[]) {
+    setOrderedLines(next);
+    if (selected) await patch(selected.id, { reorderLineIds: next.map((l) => l.id) }, "Line order saved");
+  }
+  function onLineDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = orderedLines.findIndex((l) => l.id === active.id);
+    const newIndex = orderedLines.findIndex((l) => l.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    void persistLineOrder(arrayMove(orderedLines, oldIndex, newIndex));
+  }
+  function groupLinesByProperty() {
+    const key = (l: InvoiceLine) => l.job?.property?.name ?? "￿"; // lines without a property sink to the end
+    const next = orderedLines
+      .map((l, i) => ({ l, i }))
+      .sort((a, b) => key(a.l).localeCompare(key(b.l)) || a.i - b.i)
+      .map((x) => x.l);
+    void persistLineOrder(next);
   }
 
   async function generateInvoice() {
@@ -513,73 +668,71 @@ export function ClientInvoicesPage() {
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-sm font-semibold">Line items</p>
                     {selected.status === "DRAFT" && (
-                      <Button size="sm" variant="outline" onClick={() => setShowAddLine(true)}>
-                        <Plus className="mr-1 h-3.5 w-3.5" /> Add line
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={groupLinesByProperty} disabled={orderedLines.length < 2}>
+                          <Layers className="mr-1 h-3.5 w-3.5" /> Group by property
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setShowAddLine(true)}>
+                          <Plus className="mr-1 h-3.5 w-3.5" /> Add line
+                        </Button>
+                      </div>
                     )}
                   </div>
+                  {selected.status === "DRAFT" && orderedLines.length > 1 && (
+                    <p className="mb-1.5 text-xs text-muted-foreground">Drag the handle to reorder lines. Use “Group by property” to cluster them, then fine-tune.</p>
+                  )}
                   <div className="rounded-xl border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
-                          <th className="px-3 py-2 text-left font-medium">Description</th>
-                          <th className="px-3 py-2 text-right font-medium w-16">Qty</th>
-                          <th className="px-3 py-2 text-right font-medium w-24">Rate</th>
-                          <th className="px-3 py-2 text-right font-medium w-24">Total</th>
-                          {selected.status === "DRAFT" && <th className="px-3 py-2 w-16" />}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {selected.lines.map((line) => (
-                          <tr key={line.id} className={cn(editingLineId === line.id ? "bg-muted/30" : "hover:bg-muted/20")}>
-                            {editingLineId === line.id ? (
-                              <>
-                                <td className="px-3 py-1.5">
-                                  <Input className="h-7 text-xs" value={lineEditDesc} onChange={(e) => setLineEditDesc(e.target.value)} />
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <Input className="h-7 text-xs w-16 text-right" type="number" min={0.01} step={0.5} value={lineEditQty} onChange={(e) => setLineEditQty(e.target.value)} />
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <Input className="h-7 text-xs w-24 text-right" type="number" min={0} step={0.01} value={lineEditRate} onChange={(e) => setLineEditRate(e.target.value)} />
-                                </td>
-                                <td className="px-3 py-1.5 text-right text-xs font-medium">
-                                  {money(Number(lineEditQty) * Number(lineEditRate))}
-                                </td>
-                                <td className="px-2 py-1.5">
-                                  <div className="flex gap-1">
-                                    <button onClick={() => saveLine(selected.id, line.id)} className="rounded p-1 hover:bg-green-100 text-green-700"><Check className="h-3.5 w-3.5" /></button>
-                                    <button onClick={() => setEditingLineId(null)} className="rounded p-1 hover:bg-muted text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
-                                  </div>
-                                </td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="px-3 py-2">
-                                  <p className="font-medium">{line.description}</p>
-                                  {line.job && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {line.job.property.name} · #{line.job.jobNumber} · {fmtDate(line.job.scheduledDate)}
-                                    </p>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2 text-right text-muted-foreground">{line.quantity.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right text-muted-foreground">{money(line.unitPrice)}</td>
-                                <td className="px-3 py-2 text-right font-semibold">{money(line.lineTotal)}</td>
-                                {selected.status === "DRAFT" && (
-                                  <td className="px-2 py-2">
-                                    <div className="flex gap-1">
-                                      <button onClick={() => { setEditingLineId(line.id); setLineEditDesc(line.description); setLineEditQty(String(line.quantity)); setLineEditRate(String(line.unitPrice)); }} className="rounded p-1 hover:bg-muted text-muted-foreground"><Pencil className="h-3.5 w-3.5" /></button>
-                                      <button onClick={() => patch(selected.id, { removeLineId: line.id }, "Line removed")} className="rounded p-1 hover:bg-red-100 text-destructive"><X className="h-3.5 w-3.5" /></button>
-                                    </div>
-                                  </td>
-                                )}
-                              </>
-                            )}
+                    <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onLineDragEnd}>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
+                            <th className="px-3 py-2 text-left font-medium">Description</th>
+                            <th className="px-3 py-2 text-right font-medium w-16">Qty</th>
+                            <th className="px-3 py-2 text-right font-medium w-24">Rate</th>
+                            <th className="px-3 py-2 text-right font-medium w-24">Total</th>
+                            {selected.status === "DRAFT" && <th className="px-3 py-2 w-16" />}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <SortableContext items={orderedLines.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+                          <tbody className="divide-y">
+                            {orderedLines.map((line, idx) => {
+                              const prop = line.job?.property?.name ?? "Other charges";
+                              const prevProp = idx > 0 ? (orderedLines[idx - 1].job?.property?.name ?? "Other charges") : null;
+                              const showHeader = prop !== prevProp;
+                              return (
+                                <React.Fragment key={line.id}>
+                                  {showHeader && (
+                                    <tr className="bg-muted/30">
+                                      <td colSpan={selected.status === "DRAFT" ? 5 : 4} className="px-3 py-1.5">
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                                          <Building2 className="h-3 w-3" /> {prop}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <SortableLineRow
+                                    line={line}
+                                    isDraft={selected.status === "DRAFT"}
+                                    isEditing={editingLineId === line.id}
+                                    colSpanActions={selected.status === "DRAFT"}
+                                    lineEditDesc={lineEditDesc}
+                                    lineEditQty={lineEditQty}
+                                    lineEditRate={lineEditRate}
+                                    setLineEditDesc={setLineEditDesc}
+                                    setLineEditQty={setLineEditQty}
+                                    setLineEditRate={setLineEditRate}
+                                    onStartEdit={() => { setEditingLineId(line.id); setLineEditDesc(line.description); setLineEditQty(String(line.quantity)); setLineEditRate(String(line.unitPrice)); }}
+                                    onSave={() => saveLine(selected.id, line.id)}
+                                    onCancel={() => setEditingLineId(null)}
+                                    onRemove={() => patch(selected.id, { removeLineId: line.id }, "Line removed")}
+                                  />
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </SortableContext>
+                      </table>
+                    </DndContext>
                   </div>
                 </div>
 

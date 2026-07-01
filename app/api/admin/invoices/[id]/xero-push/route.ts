@@ -27,6 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 },
               },
             },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
         },
       }),

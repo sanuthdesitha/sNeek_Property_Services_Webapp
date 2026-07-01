@@ -2074,6 +2074,7 @@ model ClientInvoiceLine {
   unitPrice     Float    @default(0)
   lineTotal     Float    @default(0)
   category      String
+  sortOrder     Int      @default(0) // admin-controlled ordering (group by property + drag)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

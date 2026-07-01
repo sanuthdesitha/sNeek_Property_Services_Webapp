@@ -26,6 +26,8 @@ const patchSchema = z.object({
     category: z.string().default("SERVICE"),
   }).optional(),
   removeLineId: z.string().cuid().optional(),
+  // Full ordered list of line ids → persisted as sortOrder (group by property + drag).
+  reorderLineIds: z.array(z.string().cuid()).optional(),
 });
 
 export async function GET(
@@ -59,8 +61,20 @@ export async function PATCH(
     if (!existing) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
     // Handle line operations in a transaction
-    if (body.updateLines?.length || body.addLine || body.removeLineId) {
+    if (body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length) {
       await db.$transaction(async (tx) => {
+        if (body.reorderLineIds?.length) {
+          // Persist the given order as sortOrder (0-based); ignore ids not on
+          // this invoice via the invoiceId guard.
+          await Promise.all(
+            body.reorderLineIds.map((lineId, index) =>
+              tx.clientInvoiceLine.updateMany({
+                where: { id: lineId, invoiceId: params.id },
+                data: { sortOrder: index },
+              }),
+            ),
+          );
+        }
         if (body.removeLineId) {
           await tx.clientInvoiceLine.delete({ where: { id: body.removeLineId, invoiceId: params.id } });
         }
