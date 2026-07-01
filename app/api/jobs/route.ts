@@ -84,6 +84,13 @@ const JOB_INCLUDE = {
     select: { id: true, status: true, severity: true, title: true },
     take: 5,
   },
+  // Pending extra-pay requests on this job — surfaced so the list can flag jobs
+  // that need a pay decision.
+  payAdjustmentRequests: {
+    where: { status: "PENDING" },
+    select: { id: true },
+    take: 5,
+  },
   _count: { select: { formSubmissions: true } },
 };
 

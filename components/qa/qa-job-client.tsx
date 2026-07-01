@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -1241,6 +1242,36 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                       onChange={(e) => setRework({ reason: e.target.value })}
                       placeholder="e.g. Bathroom not sanitized and floors not mopped — see flagged areas."
                     />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Allocated hours for the rework</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={rework.allocatedHours ?? ""}
+                        onChange={(e) =>
+                          setRework({ allocatedHours: e.target.value === "" ? null : Number(e.target.value) })
+                        }
+                        placeholder="Leave blank to keep the original job's hours"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Sets the rework job&apos;s time. Same-cleaner reworks are unpaid; a different cleaner is paid below.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Fix checklist layout</Label>
+                      <label className="flex h-10 items-center justify-between rounded-md border border-input px-3 text-sm">
+                        <span>{rework.categorized ? "One section per area" : "Single flat list"}</span>
+                        <Switch
+                          checked={rework.categorized}
+                          onCheckedChange={(v: boolean) => setRework({ categorized: v === true })}
+                        />
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">Categorise the cleaner&apos;s checklist by area, or keep it as one list.</p>
+                    </div>
                   </div>
 
                   {/* Flagged areas — each becomes a section in the cleaner's fix checklist */}

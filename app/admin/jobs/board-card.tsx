@@ -49,17 +49,25 @@ export function BoardCard({
   const status = String(job?.status ?? "");
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
+  const isRework = Boolean(job?.isRework);
+  const hasPayRequest = Array.isArray(job?.payAdjustmentRequests) && job.payAdjustmentRequests.length > 0;
+  // Colour-code the card so rework / damage / pay-request jobs are easy to spot.
+  const cardHighlight = isRework
+    ? "border-violet-300 bg-violet-50/60"
+    : hasDamage
+      ? "border-red-300 bg-red-50/50"
+      : hasPayRequest
+        ? "border-sky-300 bg-sky-50/50"
+        : pendingContinuation
+          ? "border-warning/40 bg-warning/10"
+          : "";
   const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
   const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
   const isLiveVisit = ["EN_ROUTE", "IN_PROGRESS", "PAUSED"].includes(status);
   const showGps = !isSkipped && isLiveVisit && job?.gpsDistanceMeters != null;
 
   return (
-    <Card
-      className={`transition-colors hover:border-primary/50 ${
-        pendingContinuation ? "border-warning/40 bg-warning/10" : ""
-      }`}
-    >
+    <Card className={`transition-colors hover:border-primary/50 ${cardHighlight}`}>
       <CardContent className="p-3">
         <div className="mb-2 flex items-center gap-2">
           <Checkbox checked={selected} onCheckedChange={() => onToggleSelect(job.id)} />
@@ -75,6 +83,16 @@ export function BoardCard({
               className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950 tabular-nums"
             >
               {job.jobNumber}
+            </Badge>
+          ) : null}
+          {isRework ? (
+            <Badge className="border-violet-300 bg-violet-100 text-[10px] font-semibold uppercase tracking-wide text-violet-900">
+              Rework
+            </Badge>
+          ) : null}
+          {hasPayRequest ? (
+            <Badge className="border-sky-300 bg-sky-100 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+              Pay request
             </Badge>
           ) : null}
           {hasDamage ? (

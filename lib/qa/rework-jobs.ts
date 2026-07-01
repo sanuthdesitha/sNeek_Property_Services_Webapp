@@ -116,40 +116,117 @@ export function normalizeReworkAreas(input: unknown): ReworkArea[] {
  * references) and a required "after" photo upload. References use `storageKey`
  * so the form API presigns them at render time.
  */
-export function buildReworkFormSchema(areas: ReworkArea[]): FormSchema {
-  const sections = areas.map((area) => ({
-    id: area.id,
-    title: `Fix: ${area.label}`,
-    description: area.note || "QA flagged this area — re-clean it and upload an after photo.",
+/** Access + safety checklist shown on EVERY rework visit, regardless of the
+ *  flagged areas — lockbox/key evidence + a door/window safety check. */
+function buildAccessSafetySection() {
+  return {
+    id: "rework_access_safety",
+    title: "Access & safety (every visit)",
+    description: "Confirm access and lock-up for this visit before you start the fixes.",
     fields: [
       {
-        id: `${area.id}__qa_flag`,
-        type: "instruction" as const,
-        label: "What QA flagged",
-        instructions:
-          area.note ||
-          "QA marked this area as not meeting the standard. Compare against the photo, re-clean, and capture an after photo.",
-        references: area.photoKeys.map((key) => ({
-          kind: "image" as const,
-          url: "",
-          storageKey: key,
-          caption: "QA photo",
-        })),
-        showExampleOnTick: true,
-      },
-      {
-        id: `${REWORK_AREA_FIELD_PREFIX}${area.id}`,
+        id: "rework_lockbox_key_photo",
         type: "photo" as const,
-        // Allow the cleaner to attach an after PHOTO or VIDEO for this area.
-        mediaMode: "both" as const,
-        label: `After photo / video — ${area.label}`,
+        mediaMode: "photo" as const,
+        label: "Lockbox / key evidence",
         required: true,
         minPhotos: 1,
-        stampTag: "after" as const,
-        instructions: "Upload a clear after photo (or short video) showing this area now meets the standard.",
+        stampTag: "before" as const,
+        instructions: "Photo of the key back in the lockbox / returned, showing the code scrambled or key secured.",
+      },
+      {
+        id: "rework_doors_windows_secure",
+        type: "checkbox" as const,
+        label: "All doors and windows locked / secured on leaving",
+        required: true,
+      },
+      {
+        id: "rework_safety_note",
+        type: "textarea" as const,
+        label: "Safety / access notes (optional)",
+        required: false,
+        placeholder: "Anything the office should know about access or safety on this visit.",
       },
     ],
-  }));
+  };
+}
+
+/** One fix item → a checkbox (fixed), a note area, and an after photo/video. */
+function buildAreaFields(area: ReworkArea) {
+  return [
+    {
+      id: `${area.id}__qa_flag`,
+      type: "instruction" as const,
+      label: "What QA flagged",
+      instructions:
+        area.note ||
+        "QA marked this area as not meeting the standard. Compare against the photo, re-clean, and capture an after photo.",
+      references: area.photoKeys.map((key) => ({
+        kind: "image" as const,
+        url: "",
+        storageKey: key,
+        caption: "QA photo",
+      })),
+      showExampleOnTick: true,
+    },
+    {
+      id: `${area.id}__fixed`,
+      type: "checkbox" as const,
+      label: `Fixed / re-cleaned — ${area.label}`,
+      required: true,
+    },
+    {
+      id: `${area.id}__note`,
+      type: "textarea" as const,
+      label: "Notes (what you did / anything to flag)",
+      required: false,
+      placeholder: "Describe how you addressed it, or note anything the office should know.",
+    },
+    {
+      id: `${REWORK_AREA_FIELD_PREFIX}${area.id}`,
+      type: "photo" as const,
+      // Allow the cleaner to attach an after PHOTO or VIDEO for this area.
+      mediaMode: "both" as const,
+      label: `After photo / video — ${area.label}`,
+      required: true,
+      minPhotos: 1,
+      stampTag: "after" as const,
+      instructions: "Upload a clear after photo (or short video) showing this area now meets the standard.",
+    },
+  ];
+}
+
+/**
+ * Build the cleaner's rework fix checklist. Always starts with the Access &
+ * safety section (lockbox/key + door lock-up), then the QA-flagged items. When
+ * `categorized` (default) each flagged item is its own section; otherwise all
+ * items live under a single "Fix the flagged items" section.
+ */
+export function buildReworkFormSchema(
+  areas: ReworkArea[],
+  opts?: { categorized?: boolean },
+): FormSchema {
+  const categorized = opts?.categorized !== false;
+  const sections: FormSchema["sections"] = [buildAccessSafetySection() as any];
+
+  if (categorized) {
+    for (const area of areas) {
+      sections.push({
+        id: area.id,
+        title: `Fix: ${area.label}`,
+        description: area.note || "QA flagged this area — re-clean it and upload an after photo.",
+        fields: buildAreaFields(area) as any,
+      } as any);
+    }
+  } else {
+    sections.push({
+      id: "rework_items",
+      title: "Fix the flagged items",
+      description: "QA flagged these items — re-clean each and upload an after photo.",
+      fields: areas.flatMap((area) => buildAreaFields(area)) as any,
+    } as any);
+  }
+
   return { sections };
 }
 
@@ -197,6 +274,11 @@ export interface CreateReworkJobInput {
   payAmount?: number | null;
   /** Optional scheduled date for the rework (defaults to +4h from now). */
   scheduledDate?: Date | null;
+  /** Hours QA allocates to the rework — becomes the rework job's estimatedHours.
+   *  Null/undefined → inherit the original job's estimate. */
+  allocatedHours?: number | null;
+  /** Group the cleaner checklist by area (default true) or a single flat list. */
+  categorized?: boolean;
 }
 
 /**
@@ -285,7 +367,12 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
         scheduledDate,
         startTime: original.startTime,
         dueTime: original.dueTime,
-        estimatedHours: original.estimatedHours,
+        // QA-allocated rework hours drive the cleaner pay basis; fall back to the
+        // original job's estimate when QA didn't specify.
+        estimatedHours:
+          input.allocatedHours != null && Number.isFinite(input.allocatedHours) && input.allocatedHours > 0
+            ? input.allocatedHours
+            : original.estimatedHours,
         notes: "Rework — fix the QA-flagged areas and upload after photos.",
         internalNotes,
         isRework: true,

@@ -63,6 +63,12 @@ const reworkSchema = z.object({
   areas: z.array(z.string().trim().min(1)).default([]),
   // Structured flagged areas (each with QA photos) → the rework checklist.
   flaggedAreas: z.array(flaggedAreaSchema).max(40).default([]),
+  // Allocated hours QA assigns to the rework (drives the rework job's estimated
+  // hours / cleaner pay basis). Null → inherit the original job's hours.
+  allocatedHours: z.number().min(0).max(100).nullable().optional(),
+  // Group the cleaner's fix checklist into one section per flagged area (true) or
+  // present a single flat list of items (false).
+  categorized: z.boolean().default(true),
   // Who redoes it + the pay decision.
   assignee: z.enum(["SAME", "OTHER"]).default("SAME"),
   payeeCleanerId: z.string().min(1).nullable().optional(),
@@ -577,6 +583,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             sourceReviewId: created.review.id,
             assignToCleanerId: rk.assignee === "OTHER" ? rk.payeeCleanerId ?? null : null,
             payAmount: rk.assignee === "OTHER" ? rk.payAmount : 0,
+            allocatedHours: rk.allocatedHours ?? null,
+            categorized: rk.categorized,
           });
         } catch (err) {
           console.error("[qa-submit] rework job create failed", err);

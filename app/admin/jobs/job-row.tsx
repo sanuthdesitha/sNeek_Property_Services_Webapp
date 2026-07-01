@@ -96,6 +96,18 @@ export function JobRow({
   const status = String(job?.status ?? "");
   const assignmentNames = getAssignmentNames(job);
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
+  const isRework = Boolean(job?.isRework);
+  const hasPayRequest = Array.isArray(job?.payAdjustmentRequests) && job.payAdjustmentRequests.length > 0;
+  // Left-tint the row so rework / damage / pay-request jobs stand out in the list.
+  const rowHighlight = isRework
+    ? "border-l-4 border-l-violet-400 bg-violet-50/50"
+    : hasDamage
+      ? "border-l-4 border-l-red-400 bg-red-50/40"
+      : hasPayRequest
+        ? "border-l-4 border-l-sky-400 bg-sky-50/40"
+        : pendingContinuation
+          ? "bg-warning/10"
+          : "";
   const qa = getLatestQa(job);
   const isSkipped = String(job?.cleanSkipStatus ?? "") === "SKIPPED";
   const skipRequested = String(job?.cleanSkipStatus ?? "") === "REQUESTED";
@@ -106,9 +118,7 @@ export function JobRow({
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${
-        pendingContinuation ? "bg-warning/10" : ""
-      }`}
+      className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-muted/50 ${rowHighlight}`}
     >
       <div className="flex items-start gap-3">
         <div className="pt-1">
@@ -125,6 +135,16 @@ export function JobRow({
                 className="border-amber-300 bg-amber-100 text-[10px] font-semibold uppercase tracking-wide text-amber-950 tabular-nums"
               >
                 {job.jobNumber}
+              </Badge>
+            ) : null}
+            {isRework ? (
+              <Badge className="border-violet-300 bg-violet-100 text-[10px] font-semibold uppercase tracking-wide text-violet-900">
+                Rework
+              </Badge>
+            ) : null}
+            {hasPayRequest ? (
+              <Badge className="border-sky-300 bg-sky-100 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+                Pay request
               </Badge>
             ) : null}
             {hasDamage ? (

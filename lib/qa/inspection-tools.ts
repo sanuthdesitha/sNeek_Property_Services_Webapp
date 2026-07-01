@@ -73,6 +73,11 @@ export interface QaReworkProposal {
   areas: string[];
   /** Structured flagged areas (each with QA photos) → the rework checklist. */
   flaggedAreas: QaFlaggedArea[];
+  /** Hours QA allocates to the rework — drives the rework job's estimated hours
+   *  (and hence the pay basis). Null → inherit the original job's estimate. */
+  allocatedHours: number | null;
+  /** Present the cleaner's fix checklist grouped by area (true) or flat (false). */
+  categorized: boolean;
   /** Who redoes it: the SAME cleaner (no pay) or a DIFFERENT cleaner (paid). */
   assignee: "SAME" | "OTHER";
   /** When assignee = OTHER: the cleaner who will be paid for the rework. */
@@ -136,6 +141,8 @@ export function emptyReworkProposal(): QaReworkProposal {
     reason: "",
     areas: [],
     flaggedAreas: [],
+    allocatedHours: null,
+    categorized: true,
     assignee: "SAME",
     payeeCleanerId: null,
     payAmount: 0,
