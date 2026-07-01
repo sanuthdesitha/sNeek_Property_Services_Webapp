@@ -3,18 +3,15 @@ import { randomBytes } from "crypto";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getXeroAuthUrl } from "@/lib/xero/client";
+import { resolveAppBaseUrl } from "@/lib/xero/redirect";
 
 export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN]);
 
-    // Prefer the configured public URL; otherwise derive from the real request
-    // origin. Normalise the dev bind address 0.0.0.0 → localhost (0.0.0.0 is not
-    // a valid browser/redirect host). This must EXACTLY match a redirect URI
-    // registered on the Xero app, so set NEXT_PUBLIC_APP_URL in production.
-    const origin = req.nextUrl.origin.replace("://0.0.0.0", "://localhost");
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || origin).replace(/\/+$/, "");
-    const redirectUri = `${baseUrl}/api/xero/callback`;
+    // Derived from proxy/host headers (or NEXT_PUBLIC_APP_URL if set). Must match
+    // a redirect URI registered on the Xero app exactly.
+    const redirectUri = `${resolveAppBaseUrl(req)}/api/xero/callback`;
     const state = randomBytes(16).toString("hex");
 
     const authUrl = await getXeroAuthUrl(redirectUri, state);
