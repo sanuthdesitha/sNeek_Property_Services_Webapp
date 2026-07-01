@@ -290,7 +290,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
       return {
         jobId: job.id,
-        date: new Date(job.completedAt ?? job.scheduledDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
+        // Use the SCHEDULED date (matches the jobs page + the scheduledDate sort
+        // order). Using completedAt here caused a job scheduled late one day but
+        // completed after the Sydney midnight boundary to display as the next
+        // day, misaligning dates against back-to-back rows (e.g. 12th → 13th).
+        date: new Date(job.scheduledDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
         jobName: `${job.property.name} - ${job.jobType.replace(/_/g, " ")}`,
         property: job.property.name,
         jobType: job.jobType.replace(/_/g, " "),

@@ -80,6 +80,29 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
     }
   }
 
+  async function changeRunStatus(status: string) {
+    const res = await fetch(`/api/admin/payroll/runs/${runId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) setRun(await res.json());
+    else alert((await res.json().catch(() => ({}))).error || "Failed to update status");
+  }
+
+  async function changePayoutStatus(payoutId: string, payoutStatus: string) {
+    const res = await fetch(`/api/admin/payroll/runs/${runId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payoutId, payoutStatus }),
+    });
+    if (res.ok) setRun(await res.json());
+    else alert((await res.json().catch(() => ({}))).error || "Failed to update payout");
+  }
+
+  const RUN_STATUSES = ["DRAFT", "CONFIRMED", "PROCESSING", "COMPLETED", "FAILED", "VOID"];
+  const PAYOUT_STATUSES = ["PENDING", "PROCESSING", "PAID", "FAILED", "CANCELLED", "REFUNDED"];
+
   async function handleConfirm() {
     setConfirming(true);
     try {
@@ -220,6 +243,19 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                 Completed {run.completedAt ? new Date(run.completedAt).toLocaleString() : ""}
               </Badge>
             )}
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Set status manually:</span>
+              <select
+                value={run.status}
+                onChange={(e) => changeRunStatus(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                title="Manually override the run status"
+              >
+                {RUN_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -242,6 +278,16 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                     <Badge variant="outline" className="text-xs">
                       {payout.method.replace(/_/g, " ")}
                     </Badge>
+                    <select
+                      value={payout.status}
+                      onChange={(e) => changePayoutStatus(payout.id, e.target.value)}
+                      className="h-6 rounded border border-input bg-background px-1 text-[11px]"
+                      title="Mark this payout paid / pending / etc."
+                    >
+                      {PAYOUT_STATUSES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mt-1 flex gap-4 text-xs text-muted-foreground">
                     {payout.shoppingReimbursement > 0 && (
