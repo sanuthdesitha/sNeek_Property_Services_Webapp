@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2, BarChart3 } from "lucide-react";
+import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2, BarChart3, ListChecks } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { ChecklistsWorkspace } from "@/components/forms/checklists-workspace";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -127,6 +128,12 @@ export default function FormsPage() {
   const [submissionBagLocation, setSubmissionBagLocation] = useState("");
   const [activeTab, setActiveTab] = useState("builder");
   const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
+
+  // Deep-link support: /admin/checklists now redirects here with ?tab=checklists.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "checklists" || tab === "submissions" || tab === "builder") setActiveTab(tab);
+  }, []);
 
   const isEditing = selectedTemplateId !== "new";
 
@@ -518,8 +525,15 @@ export default function FormsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="builder">Builder</TabsTrigger>
+          <TabsTrigger value="checklists">
+            <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Checklists
+          </TabsTrigger>
           <TabsTrigger value="submissions">Submissions ({submissions.length})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="checklists" className="space-y-4">
+          <ChecklistsWorkspace />
+        </TabsContent>
 
         <TabsContent value="builder" className="space-y-4">
           <div className="grid gap-4 xl:grid-cols-[320px_1fr]">

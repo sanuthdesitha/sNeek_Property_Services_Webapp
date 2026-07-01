@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Bell, BellRing, ChevronLeft, ChevronRight, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { DeliveryProfilesWorkspace } from "@/components/inventory/delivery-profiles-workspace";
+import { EmailTemplatesWorkspace } from "@/components/admin/templates/email-templates-workspace";
 import { EMAIL_AUTO_KINDS } from "@/lib/notifications/email-kinds";
 
 type EmailAutomationState = { masterEnabled: boolean; types: Record<string, boolean> };
@@ -144,7 +145,7 @@ function updateMatrix<T extends Record<string, NotificationChannelPreference>>(
 
 export default function NotificationsPage() {
   const searchParams = useSearchParams();
-  const initialTab = ["control", "log", "delivery"].includes(searchParams?.get("tab") ?? "")
+  const initialTab = ["control", "log", "delivery", "templates"].includes(searchParams?.get("tab") ?? "")
     ? (searchParams!.get("tab") as string)
     : "control";
   const [tab, setTab] = useState(initialTab);
@@ -365,11 +366,16 @@ export default function NotificationsPage() {
       />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList className="grid w-full max-w-xl grid-cols-3">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="control">Control center</TabsTrigger>
+          <TabsTrigger value="templates">Email &amp; SMS templates</TabsTrigger>
           <TabsTrigger value="log">Delivery log</TabsTrigger>
           <TabsTrigger value="delivery">Report &amp; invoice delivery</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="templates" className="space-y-6">
+          <EmailTemplatesWorkspace />
+        </TabsContent>
 
         <TabsContent value="control" className="space-y-6">
           <Card>

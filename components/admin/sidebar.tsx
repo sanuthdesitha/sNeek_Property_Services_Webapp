@@ -71,7 +71,6 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Inventory", href: "/admin/inventory", icon: Package },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
       { label: "Forms", href: "/admin/forms", icon: FileText },
-      { label: "Templates", href: "/admin/templates", icon: LayoutTemplate },
     ],
   },
   {
@@ -90,7 +89,6 @@ export const ADMIN_NAV_GROUPS = [
     items: [
       { label: "Quotes", href: "/admin/quotes", icon: DollarSign },
       { label: "Pricing", href: "/admin/pricing", icon: Tags },
-      { label: "Checklists", href: "/admin/checklists", icon: ListChecks },
       { label: "Approvals", href: "/admin/approvals", icon: CheckCircle2 },
       { label: "Finance", href: "/admin/finance", icon: Wallet },
       { label: "Cleaner Invoices", href: "/admin/cleaner-invoices", icon: FileText },
