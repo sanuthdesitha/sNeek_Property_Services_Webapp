@@ -1,7 +1,12 @@
 import { db } from "@/lib/db";
 
 const XERO_BASE = "https://api.xero.com";
+// Authorize lives on login.xero.com; the token + revocation endpoints live on
+// identity.xero.com (posting the token exchange to login.xero.com/connect/token
+// 404s and surfaces as a generic "exchange failed").
 const XERO_AUTH_BASE = "https://login.xero.com";
+const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+const XERO_REVOKE_URL = "https://identity.xero.com/connect/revocation";
 
 const CREDENTIAL_KEY = "integrationCredentials";
 
@@ -101,7 +106,7 @@ async function refreshXeroToken(conn: { id: string; refreshToken: string }): Pro
   if (!conn.refreshToken) return null;
 
   try {
-    const res = await fetch(`${XERO_AUTH_BASE}/connect/token`, {
+    const res = await fetch(XERO_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -185,16 +190,15 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
 /**
  * Exchange authorization code for tokens.
  */
-export async function exchangeXeroCode(code: string, redirectUri: string): Promise<{ tenantId: string; tenantName: string } | null> {
+export async function exchangeXeroCode(code: string, redirectUri: string): Promise<{ tenantId: string; tenantName: string }> {
   const { clientId, clientSecret } = await getXeroCredentials();
   if (!clientId || !clientSecret) {
-    console.error("[xero] Missing credentials. clientId:", !!clientId, "clientSecret:", !!clientSecret);
-    return null;
+    throw new Error("Xero Client ID/Secret not configured in Settings → Integrations.");
   }
 
   try {
     // Get tokens
-    const tokenRes = await fetch(`${XERO_AUTH_BASE}/connect/token`, {
+    const tokenRes = await fetch(XERO_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -208,9 +212,8 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
 
     if (!tokenRes.ok) {
       const errBody = await tokenRes.text().catch(() => "");
-      console.error("[xero] Token exchange failed:", tokenRes.status, errBody);
-      console.error("[xero] redirect_uri:", redirectUri);
-      return null;
+      console.error("[xero] Token exchange failed:", tokenRes.status, errBody, "redirect_uri:", redirectUri);
+      throw new Error(`Token exchange failed (${tokenRes.status}): ${extractXeroError(errBody)}`);
     }
 
     const tokenData = await tokenRes.json() as {
@@ -229,14 +232,12 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
 
     if (!connectionsRes.ok) {
       const errBody = await connectionsRes.text().catch(() => "");
-      console.error("[xero] Connections fetch failed:", connectionsRes.status, errBody);
-      return null;
+      throw new Error(`Could not read Xero organisations (${connectionsRes.status}): ${extractXeroError(errBody)}`);
     }
 
     const connections = await connectionsRes.json() as Array<{ tenantId: string; tenantName: string }>;
     if (connections.length === 0) {
-      console.error("[xero] No tenants found");
-      return null;
+      throw new Error("Connected, but no Xero organisation was authorised for this app.");
     }
 
     const tenant = connections[0];
@@ -266,7 +267,7 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
     return { tenantId: tenant.tenantId, tenantName: tenant.tenantName };
   } catch (err) {
     console.error("[xero] exchangeXeroCode error:", err);
-    return null;
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -280,7 +281,7 @@ export async function disconnectXero(): Promise<void> {
   // Revoke token
   const { clientId } = await getXeroCredentials();
   if (clientId) {
-    await fetch(`${XERO_AUTH_BASE}/connect/revocation`, {
+    await fetch(XERO_REVOKE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

@@ -50,10 +50,12 @@ export async function GET(req: NextRequest) {
   // Must match the redirect URI used at /connect exactly — derived the same way.
   const redirectUri = `${appBase}/api/xero/callback`;
 
-  const result = await exchangeXeroCode(code, redirectUri);
-
-  if (!result) {
-    const response = back("error=exchange_failed");
+  let result: { tenantId: string; tenantName: string };
+  try {
+    result = await exchangeXeroCode(code, redirectUri);
+  } catch (err: any) {
+    const msg = err?.message ? String(err.message) : "Token exchange failed.";
+    const response = back(`error=exchange_failed&error_description=${encodeURIComponent(msg)}`);
     response.cookies.delete("xero_oauth_state");
     return response;
   }
