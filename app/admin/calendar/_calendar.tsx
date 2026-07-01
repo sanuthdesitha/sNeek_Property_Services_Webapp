@@ -93,6 +93,7 @@ export default function CalendarView() {
   const [currentView, setCurrentView] = useState<CalendarViewPreference>("dayGridMonth");
   const [periodLabel, setPeriodLabel] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [agendaMode, setAgendaMode] = useState(false);
   const explicitViewRef = useRef(false);
   const [undoState, setUndoState] = useState<null | {
     jobId: string;
@@ -187,6 +188,22 @@ export default function CalendarView() {
     () => (statusFilter === "ALL" ? events : events.filter((event) => event.extendedProps.status === statusFilter)),
     [events, statusFilter]
   );
+
+  // Agenda view: upcoming jobs, closest first. Includes anything from the start
+  // of today onward, grouped by day.
+  const agendaGroups = useMemo(() => {
+    const cutoff = `${todayIso}T00:00:00`;
+    const upcoming = visibleEvents
+      .filter((event) => (event.end ?? event.start) >= cutoff)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    const groups = new Map<string, CalendarEvent[]>();
+    for (const event of upcoming) {
+      const day = event.start.slice(0, 10);
+      if (!groups.has(day)) groups.set(day, []);
+      groups.get(day)!.push(event);
+    }
+    return Array.from(groups.entries());
+  }, [visibleEvents, todayIso]);
 
   function renderEventContent(arg: EventContentArg) {
     const details = arg.event.extendedProps as CalendarEvent["extendedProps"];
@@ -456,9 +473,12 @@ export default function CalendarView() {
               <button
                 key={option.value}
                 type="button"
-                onClick={() => changeView(option.value)}
+                onClick={() => {
+                  setAgendaMode(false);
+                  changeView(option.value);
+                }}
                 className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
-                  currentView === option.value
+                  !agendaMode && currentView === option.value
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -466,6 +486,17 @@ export default function CalendarView() {
                 {option.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setAgendaMode(true)}
+              className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
+                agendaMode
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Agenda
+            </button>
           </div>
         </div>
 
@@ -481,6 +512,70 @@ export default function CalendarView() {
           </div>
         ) : null}
 
+        {agendaMode ? (
+          <div className="divide-y divide-border">
+            {agendaGroups.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">No upcoming jobs.</p>
+            ) : (
+              agendaGroups.map(([day, dayEvents]) => (
+                <div key={day}>
+                  <div className="sticky top-0 z-10 flex items-center justify-between bg-surface-raised/80 px-4 py-2 backdrop-blur">
+                    <span className="text-sm font-semibold">
+                      {new Date(`${day}T00:00:00`).toLocaleDateString("en-AU", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long",
+                        timeZone: SYDNEY_TZ,
+                      })}
+                      {day === todayIso ? " · Today" : ""}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {dayEvents.length} {dayEvents.length === 1 ? "job" : "jobs"}
+                    </span>
+                  </div>
+                  {dayEvents.map((event) => {
+                    const details = event.extendedProps;
+                    const meta = STATUS_META[details.status] ?? STATUS_META.ASSIGNED;
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={() => router.push(`/admin/jobs/${event.id}`)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                      >
+                        <span
+                          className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: `hsl(var(--${meta.variant}))` }}
+                          aria-hidden
+                        />
+                        <span className="w-16 shrink-0 text-sm font-medium tabular-nums text-muted-foreground">
+                          {details.startTime || "—"}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{details.propertyName}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {details.jobTypeLabel}
+                            {details.suburb ? ` · ${details.suburb}` : ""}
+                            {details.cleanerName ? ` · ${details.cleanerName}` : " · Unassigned"}
+                          </span>
+                        </span>
+                        <span
+                          className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          style={{
+                            backgroundColor: `hsl(var(--${meta.variant}) / 0.15)`,
+                            color: `hsl(var(--${meta.variant}))`,
+                          }}
+                        >
+                          {meta.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -535,6 +630,7 @@ export default function CalendarView() {
             );
           }}
         />
+        )}
       </div>
 
       <style jsx global>{`
