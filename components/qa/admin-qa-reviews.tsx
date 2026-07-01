@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Save, X, ShieldCheck } from "lucide-react";
+import { Pencil, Trash2, Save, X, ShieldCheck, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,12 +103,47 @@ export function AdminQaReviews({ jobId }: { jobId: string }) {
     }
   }
 
+  async function resetQa() {
+    if (
+      !window.confirm(
+        "Reset QA for this job? This deletes any existing QA score(s), reopens the QA inspection, and puts the job back in the QA queue for a fresh review.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/qa-reset`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not reset QA.");
+      toast({
+        title: "QA reset — re-requested",
+        description:
+          body.deletedReviews > 0
+            ? `Cleared ${body.deletedReviews} score(s). The job is back in the QA queue.`
+            : "The job is back in the QA queue for inspection.",
+      });
+      await refresh();
+      router.refresh();
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <p className="text-xs text-muted-foreground">Loading QA scores…</p>;
-  if (reviews.length === 0) return null;
 
   return (
     <div className="mt-4 space-y-2 border-t border-border pt-3">
-      <p className="text-xs font-semibold text-muted-foreground">All QA scores ({reviews.length})</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-muted-foreground">
+          {reviews.length > 0 ? `All QA scores (${reviews.length})` : "No QA review on this job yet"}
+        </p>
+        <Button size="sm" variant="outline" className="h-8" disabled={busy} onClick={() => void resetQa()}>
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          {reviews.length > 0 ? "Reset QA & re-request" : "Request QA inspection"}
+        </Button>
+      </div>
       {reviews.map((r) => (
         <div key={r.id} className="rounded-lg border border-border p-2.5 text-sm">
           {editingId === r.id ? (

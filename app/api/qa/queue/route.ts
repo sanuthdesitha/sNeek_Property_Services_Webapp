@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
         pickedUpBy: { select: { id: true, name: true, email: true } },
         job: {
           include: {
-            property: { select: { name: true, address: true, suburb: true } },
+            property: { select: { name: true, address: true, suburb: true, client: { select: { name: true } } } },
             assignments: {
               where: { removedAt: null },
               select: { user: { select: { id: true, name: true, email: true } } },
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
             ],
           },
           include: {
-            property: { select: { name: true, address: true, suburb: true } },
+            property: { select: { name: true, address: true, suburb: true, client: { select: { name: true } } } },
             assignments: {
               where: { removedAt: null },
               select: { user: { select: { id: true, name: true, email: true } } },

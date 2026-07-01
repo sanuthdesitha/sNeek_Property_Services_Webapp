@@ -139,6 +139,15 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
           );
         case "property-asc":
           return String(a.job?.property?.name ?? "").localeCompare(String(b.job?.property?.name ?? ""));
+        case "client-asc":
+          return String(a.job?.property?.client?.name ?? "").localeCompare(
+            String(b.job?.property?.client?.name ?? ""),
+          );
+        case "location-asc": {
+          const locOf = (r: any) =>
+            `${r.job?.property?.suburb ?? ""} ${r.job?.property?.address ?? ""}`.trim();
+          return locOf(a).localeCompare(locOf(b));
+        }
         case "finished-desc":
         default:
           return finishedAt(b) - finishedAt(a);
@@ -309,6 +318,8 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
               <SelectItem value="finished-asc">Finished — oldest first</SelectItem>
               <SelectItem value="scheduled-desc">Scheduled — newest first</SelectItem>
               <SelectItem value="property-asc">Property A–Z</SelectItem>
+              <SelectItem value="client-asc">Client A–Z</SelectItem>
+              <SelectItem value="location-asc">Location (suburb) A–Z</SelectItem>
             </SelectContent>
           </Select>
         </CardContent>
