@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
+import { publicUrl } from "@/lib/s3";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
@@ -20,6 +21,14 @@ const updateLaundryTaskSchema = z.object({
   adminOverrideNote: z.string().trim().max(2000).optional().nullable(),
   action: z.enum(["APPROVE_FAILED_PICKUP_SKIP", "APPROVE_FAILED_PICKUP_DELETE", "REJECT_FAILED_PICKUP_REQUEST"]).optional(),
   resolutionNotes: z.string().trim().max(2000).optional().nullable(),
+  // Admin manual status override with evidence: attach photos, set the
+  // drop-off price / bag count, and stamp the lifecycle timestamps so the
+  // change is fully reflected in reports and the confirmation timeline.
+  totalPrice: z.number().min(0).max(100000).optional().nullable(),
+  bagCount: z.number().int().min(1).max(50).optional().nullable(),
+  evidencePhotoKeys: z.array(z.string().trim().min(1)).max(8).optional(),
+  receiptImageKey: z.string().trim().optional().nullable(),
+  evidenceNote: z.string().trim().max(2000).optional().nullable(),
 });
 
 function parseNotesJson(notes: string | null | undefined) {
@@ -224,6 +233,9 @@ export async function PATCH(
         skipReasonCode: true,
         skipReasonNote: true,
         adminOverrideNote: true,
+        confirmedAt: true,
+        pickedUpAt: true,
+        droppedAt: true,
       },
     });
     if (!existingTask) {
@@ -259,6 +271,17 @@ export async function PATCH(
       }
     }
 
+    // Stamp lifecycle timestamps + drop-off cost so a manual status change is
+    // reflected consistently in reports (which key off droppedAt / dropoffCostAud).
+    const now = new Date();
+    if (body.status === LaundryStatus.CONFIRMED && !existingTask.confirmedAt) data.confirmedAt = now;
+    if (body.status === LaundryStatus.PICKED_UP && !existingTask.pickedUpAt) data.pickedUpAt = now;
+    if (body.status === LaundryStatus.DROPPED && !existingTask.droppedAt) data.droppedAt = now;
+    if (body.totalPrice !== undefined) data.dropoffCostAud = body.totalPrice;
+    if (body.receiptImageKey !== undefined) {
+      data.receiptImageUrl = body.receiptImageKey ? publicUrl(body.receiptImageKey) : null;
+    }
+
     const task = await db.laundryTask.update({
       where: { id: params.taskId },
       data,
@@ -267,6 +290,64 @@ export async function PATCH(
         job: { select: { scheduledDate: true } },
       },
     });
+
+    // Record an evidence confirmation so admin-attached photos / price / bag
+    // count appear in the report and confirmation timeline.
+    const evidenceKeys = body.evidencePhotoKeys ?? [];
+    const hasEvidence =
+      evidenceKeys.length > 0 ||
+      body.totalPrice != null ||
+      body.bagCount != null ||
+      Boolean(body.receiptImageKey) ||
+      Boolean(body.evidenceNote && body.evidenceNote.trim());
+    if (hasEvidence) {
+      const targetStatus = body.status ?? existingTask.status;
+      const event =
+        targetStatus === LaundryStatus.DROPPED
+          ? "DROPPED"
+          : targetStatus === LaundryStatus.PICKED_UP
+            ? "PICKED_UP"
+            : "ADMIN_STATUS_CHANGE";
+      const primaryKey = evidenceKeys[0];
+      await db.laundryConfirmation.create({
+        data: {
+          laundryTaskId: params.taskId,
+          confirmedById: session.user.id,
+          laundryReady: true,
+          s3Key: primaryKey ?? null,
+          photoUrl: primaryKey ? publicUrl(primaryKey) : null,
+          notes: JSON.stringify({
+            event,
+            adminEdited: true,
+            editedById: session.user.id,
+            status: targetStatus,
+            totalPrice: body.totalPrice ?? undefined,
+            bagCount: body.bagCount ?? undefined,
+            dropoffPhotoKey: event === "DROPPED" ? primaryKey : undefined,
+            pickupPhotoKey: event === "PICKED_UP" ? primaryKey : undefined,
+            receiptImageKey: body.receiptImageKey ?? undefined,
+            evidenceKeys,
+            notes: body.evidenceNote?.trim() || undefined,
+          }),
+        },
+      });
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          jobId: existingTask.jobId,
+          action: "ADMIN_LAUNDRY_STATUS_EVIDENCE",
+          entity: "LaundryTask",
+          entityId: params.taskId,
+          before: { status: existingTask.status } as any,
+          after: {
+            status: targetStatus,
+            totalPrice: body.totalPrice ?? null,
+            bagCount: body.bagCount ?? null,
+            evidenceCount: evidenceKeys.length,
+          } as any,
+        },
+      });
+    }
 
     if (body.status === LaundryStatus.SKIPPED_PICKUP) {
       await createRoleNotifications(

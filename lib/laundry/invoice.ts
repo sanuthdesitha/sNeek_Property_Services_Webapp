@@ -1,7 +1,40 @@
+import { LaundryStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 
 export type LaundryInvoicePeriod = "daily" | "weekly" | "monthly" | "annual" | "custom";
+
+/** Which timestamp the selected date range is applied against. */
+export type LaundryDateField = "scheduled" | "confirmed" | "pickup" | "dropped";
+
+const ALL_LAUNDRY_STATUSES: LaundryStatus[] = [
+  LaundryStatus.PENDING,
+  LaundryStatus.CONFIRMED,
+  LaundryStatus.PICKED_UP,
+  LaundryStatus.DROPPED,
+  LaundryStatus.FLAGGED,
+  LaundryStatus.SKIPPED_PICKUP,
+];
+
+const DATE_FIELD_LABELS: Record<LaundryDateField, string> = {
+  scheduled: "Scheduled date",
+  confirmed: "Confirmed date",
+  pickup: "Pickup date",
+  dropped: "Drop-off date",
+};
+
+const STATUS_LABELS: Record<LaundryStatus, string> = {
+  PENDING: "Pending",
+  CONFIRMED: "Confirmed",
+  PICKED_UP: "Picked up",
+  DROPPED: "Dropped off",
+  FLAGGED: "Flagged",
+  SKIPPED_PICKUP: "Skipped pickup",
+};
+
+export function laundryStatusLabel(status: string): string {
+  return STATUS_LABELS[status as LaundryStatus] ?? status;
+}
 
 export interface LaundryInvoiceTemplate {
   companyName: string;
@@ -37,6 +70,11 @@ export interface LaundryInvoiceData {
   end: Date;
   propertyId?: string;
   propertyName?: string | null;
+  clientName?: string | null;
+  dateField: LaundryDateField;
+  dateFieldLabel: string;
+  statusLabel: string;
+  groupByProperty: boolean;
   rows: LaundryInvoiceRow[];
   totalAmount: number;
   propertyBreakdown: Array<{ propertyId: string; propertyName: string; suburb: string; jobs: number; amount: number }>;
@@ -50,6 +88,16 @@ interface LaundryInvoiceQueryInput {
   propertyId?: string;
   taskId?: string;
   includePending?: boolean;
+  /** Filter to properties owned by this client. */
+  clientId?: string;
+  /** Restrict to a specific set of properties. */
+  propertyIds?: string[];
+  /** Which statuses to include. Omitted / empty = all statuses. */
+  statuses?: LaundryStatus[];
+  /** Which timestamp the date range is measured against. Defaults to "dropped". */
+  dateField?: LaundryDateField;
+  /** Presentation hint: group the job table by property with subtotals. */
+  groupByProperty?: boolean;
 }
 
 function parseMeta(notes: string | null | undefined): any {
@@ -171,8 +219,72 @@ export async function saveLaundryInvoiceTemplate(
   return next;
 }
 
+function buildDateRangeWhere(
+  input: LaundryInvoiceQueryInput,
+  start: Date,
+  end: Date
+): Prisma.LaundryTaskWhereInput {
+  // Explicit date-field selection takes precedence and gives deterministic ranges.
+  if (input.dateField) {
+    switch (input.dateField) {
+      case "scheduled":
+        return { job: { scheduledDate: { gte: start, lte: end } } };
+      case "confirmed":
+        return { confirmedAt: { gte: start, lte: end } };
+      case "pickup":
+        return { pickedUpAt: { gte: start, lte: end } };
+      case "dropped":
+      default:
+        return { droppedAt: { gte: start, lte: end } };
+    }
+  }
+  // Legacy behaviour: pending-inclusive OR across timestamps, else completed-only.
+  return input.includePending
+    ? {
+        OR: [
+          { droppedAt: { gte: start, lte: end } },
+          { pickupDate: { gte: start, lte: end } },
+          { dropoffDate: { gte: start, lte: end } },
+        ],
+      }
+    : { droppedAt: { gte: start, lte: end } };
+}
+
 export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Promise<LaundryInvoiceData> {
   const { period, start, end } = resolveRange(input);
+  const dateField: LaundryDateField = input.dateField ?? "dropped";
+
+  const requestedStatuses =
+    input.statuses && input.statuses.length > 0
+      ? input.statuses.filter((s) => ALL_LAUNDRY_STATUSES.includes(s))
+      : null;
+
+  const propertyIds =
+    input.propertyIds && input.propertyIds.length > 0
+      ? Array.from(new Set(input.propertyIds.filter((id) => typeof id === "string" && id.trim())))
+      : null;
+
+  const scopeWhere: Prisma.LaundryTaskWhereInput = {};
+  if (input.propertyId) {
+    scopeWhere.propertyId = input.propertyId;
+  } else if (propertyIds) {
+    scopeWhere.propertyId = { in: propertyIds };
+  }
+  if (input.clientId) {
+    scopeWhere.property = { clientId: input.clientId };
+  }
+  if (requestedStatuses) {
+    scopeWhere.status = { in: requestedStatuses };
+  }
+
+  const orderField =
+    dateField === "scheduled"
+      ? undefined // ordered client-side by service date
+      : dateField === "confirmed"
+        ? { confirmedAt: "asc" as const }
+        : dateField === "pickup"
+          ? { pickedUpAt: "asc" as const }
+          : { droppedAt: "asc" as const };
 
   const tasks = input.taskId
     ? await db.laundryTask.findMany({
@@ -186,25 +298,15 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
       })
     : await db.laundryTask.findMany({
         where: {
-          ...(input.includePending
-            ? {
-                OR: [
-                  { droppedAt: { gte: start, lte: end } },
-                  { pickupDate: { gte: start, lte: end } },
-                  { dropoffDate: { gte: start, lte: end } },
-                ],
-              }
-            : {
-                droppedAt: { gte: start, lte: end },
-              }),
-          ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+          ...buildDateRangeWhere(input, start, end),
+          ...scopeWhere,
         },
         include: {
           property: { select: { id: true, name: true, suburb: true } },
           job: { select: { id: true, scheduledDate: true } },
           confirmations: { orderBy: { createdAt: "asc" } },
         },
-        orderBy: [{ droppedAt: "asc" }],
+        orderBy: orderField ?? undefined,
       });
 
   const rows: LaundryInvoiceRow[] = tasks.map((task) => {
@@ -218,10 +320,15 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
       [...task.confirmations].reverse().find((c) => parseMeta(c.notes)?.event === "DROPPED") ?? null;
     const pickedMeta = parseMeta(pickedUpConfirmation?.notes);
     const droppedMeta = parseMeta(droppedConfirmation?.notes);
+    // Prefer the confirmation-meta price, but fall back to the canonical
+    // dropoffCostAud column so previews, downloads and emails never disagree
+    // when the meta happens to be missing.
     const amount =
       typeof droppedMeta?.totalPrice === "number" && Number.isFinite(droppedMeta.totalPrice)
         ? Number(droppedMeta.totalPrice)
-        : 0;
+        : typeof task.dropoffCostAud === "number" && Number.isFinite(task.dropoffCostAud)
+          ? Number(task.dropoffCostAud)
+          : 0;
 
     return {
       taskId: task.id,
@@ -261,6 +368,11 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
     };
   });
 
+  // "scheduled" range can't be ordered in Prisma via a scalar column, so sort here.
+  if (dateField === "scheduled") {
+    rows.sort((a, b) => new Date(a.serviceDate).getTime() - new Date(b.serviceDate).getTime());
+  }
+
   const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
 
   const byProperty = new Map<string, { propertyId: string; propertyName: string; suburb: string; jobs: number; amount: number }>();
@@ -290,7 +402,22 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
       select: { name: true },
     });
     propertyName = property?.name ?? null;
+  } else if (propertyIds && propertyIds.length === 1) {
+    propertyName = propertyBreakdown[0]?.propertyName ?? null;
   }
+
+  let clientName: string | null = null;
+  if (input.clientId) {
+    const client = await db.client.findUnique({
+      where: { id: input.clientId },
+      select: { name: true },
+    });
+    clientName = client?.name ?? null;
+  }
+
+  const statusLabel = requestedStatuses
+    ? requestedStatuses.map((s) => STATUS_LABELS[s]).join(", ")
+    : "All statuses";
 
   return {
     period,
@@ -298,6 +425,11 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
     end,
     propertyId: input.propertyId,
     propertyName,
+    clientName,
+    dateField,
+    dateFieldLabel: DATE_FIELD_LABELS[dateField],
+    statusLabel,
+    groupByProperty: input.groupByProperty === true,
     rows,
     totalAmount,
     propertyBreakdown,
@@ -323,15 +455,17 @@ export function buildLaundryInvoiceHtml(args: {
 }) {
   const { data, template } = args;
 
-  const rowsHtml = data.rows
-    .map((row) => {
-      const serviceDate = new Date(row.serviceDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
-      const pickupDate = new Date(row.pickupDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
-      const dropoffDate = new Date(row.dropoffDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
-      return `
+  const JOB_TABLE_COLSPAN = 11;
+
+  const renderRow = (row: LaundryInvoiceRow): string => {
+    const serviceDate = new Date(row.serviceDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+    const pickupDate = new Date(row.pickupDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+    const dropoffDate = new Date(row.dropoffDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+    return `
       <tr>
         <td class="cell">${escapeHtml(row.propertyName)}</td>
         <td class="cell">${escapeHtml(row.suburb)}</td>
+        <td class="cell">${escapeHtml(laundryStatusLabel(row.status))}</td>
         <td class="cell">${serviceDate}</td>
         <td class="cell">${pickupDate}</td>
         <td class="cell">${dropoffDate}</td>
@@ -371,8 +505,54 @@ export function buildLaundryInvoiceHtml(args: {
         <td class="cell right">${money(row.amount)}</td>
       </tr>
       `;
-    })
-    .join("");
+  };
+
+  let rowsHtml: string;
+  if (data.groupByProperty && data.rows.length > 0) {
+    // Group rows by property, each group ending with a subtotal, then a grand total.
+    const groups = new Map<string, LaundryInvoiceRow[]>();
+    for (const row of data.rows) {
+      const list = groups.get(row.propertyId) ?? [];
+      list.push(row);
+      groups.set(row.propertyId, list);
+    }
+    const orderedGroups = Array.from(groups.values()).sort((a, b) =>
+      a[0].propertyName.localeCompare(b[0].propertyName)
+    );
+    rowsHtml = orderedGroups
+      .map((groupRows) => {
+        const subtotal = groupRows.reduce((sum, r) => sum + r.amount, 0);
+        const header = `
+          <tr>
+            <td class="cell group-head" colspan="${JOB_TABLE_COLSPAN}">
+              ${escapeHtml(groupRows[0].propertyName)}
+              <span class="muted" style="font-weight:400;">· ${escapeHtml(groupRows[0].suburb)} · ${groupRows.length} job${groupRows.length === 1 ? "" : "s"}</span>
+            </td>
+          </tr>`;
+        const body = groupRows.map(renderRow).join("");
+        const footer = `
+          <tr>
+            <td class="cell subtotal" colspan="${JOB_TABLE_COLSPAN - 1}">Subtotal — ${escapeHtml(groupRows[0].propertyName)}</td>
+            <td class="cell subtotal right">${money(subtotal)}</td>
+          </tr>`;
+        return header + body + footer;
+      })
+      .join("");
+    rowsHtml += `
+      <tr>
+        <td class="cell grand" colspan="${JOB_TABLE_COLSPAN - 1}">Grand total</td>
+        <td class="cell grand right">${money(data.totalAmount)}</td>
+      </tr>`;
+  } else {
+    rowsHtml = data.rows.map(renderRow).join("");
+    if (data.rows.length > 0) {
+      rowsHtml += `
+        <tr>
+          <td class="cell grand" colspan="${JOB_TABLE_COLSPAN - 1}">Total</td>
+          <td class="cell grand right">${money(data.totalAmount)}</td>
+        </tr>`;
+    }
+  }
 
   const breakdownHtml = data.propertyBreakdown
     .map(
@@ -387,7 +567,11 @@ export function buildLaundryInvoiceHtml(args: {
     )
     .join("");
 
-  const scopeLabel = data.propertyName ? `Property: ${data.propertyName}` : "All properties";
+  const scopeLabel = data.clientName
+    ? `Client: ${data.clientName}${data.propertyName ? ` · ${data.propertyName}` : ""}`
+    : data.propertyName
+      ? `Property: ${data.propertyName}`
+      : "All properties";
   const periodLabel = `${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} - ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}`;
 
   return `<!doctype html>
@@ -410,6 +594,9 @@ export function buildLaundryInvoiceHtml(args: {
         .cell { border-bottom: 1px solid #e5e7eb; padding: 8px; vertical-align: top; }
         .right { text-align: right; white-space: nowrap; }
         .muted { color: #6b7280; }
+        .group-head { background: #f3f4f6; font-weight: 700; font-size: 12px; }
+        .subtotal { background: #fafafa; font-weight: 600; }
+        .grand { background: #111827; color: #ffffff; font-weight: 700; }
         .footer { margin-top: 24px; font-size: 12px; color: #6b7280; }
       </style>
     </head>
@@ -419,7 +606,8 @@ export function buildLaundryInvoiceHtml(args: {
           <h1 class="title">${escapeHtml(template.companyName)}</h1>
           <p class="sub">${escapeHtml(template.invoiceTitle)}</p>
           <p class="sub">${escapeHtml(scopeLabel)}</p>
-          <p class="sub">Period: ${escapeHtml(periodLabel)}</p>
+          <p class="sub">Period (${escapeHtml(data.dateFieldLabel)}): ${escapeHtml(periodLabel)}</p>
+          <p class="sub">Statuses: ${escapeHtml(data.statusLabel)}</p>
         </div>
         <div class="muted" style="font-size:12px;text-align:right;">
           <div><strong>Generated:</strong> ${new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</div>
@@ -430,7 +618,7 @@ export function buildLaundryInvoiceHtml(args: {
       <div class="summary">
         <div class="tile"><div class="label">Properties</div><div class="value">${data.propertyBreakdown.length}</div></div>
         <div class="tile"><div class="label">Jobs</div><div class="value">${data.rows.length}</div></div>
-        <div class="tile"><div class="label">Period</div><div class="value">${escapeHtml(data.period)}</div></div>
+        <div class="tile"><div class="label">Date basis</div><div class="value" style="font-size:13px;">${escapeHtml(data.dateFieldLabel)}</div></div>
         <div class="tile"><div class="label">Total</div><div class="value">${money(data.totalAmount)}</div></div>
       </div>
 
@@ -456,6 +644,7 @@ export function buildLaundryInvoiceHtml(args: {
             <tr>
               <th>Property</th>
               <th>Suburb</th>
+              <th>Status</th>
               <th>Service Date</th>
               <th>Pickup</th>
               <th>Return</th>
@@ -466,7 +655,7 @@ export function buildLaundryInvoiceHtml(args: {
               <th class="right">Amount</th>
             </tr>
           </thead>
-          <tbody>${rowsHtml || `<tr><td class="cell" colspan="10">No jobs found for selected period.</td></tr>`}</tbody>
+          <tbody>${rowsHtml || `<tr><td class="cell" colspan="11">No jobs found for selected period.</td></tr>`}</tbody>
         </table>
       </div>
 

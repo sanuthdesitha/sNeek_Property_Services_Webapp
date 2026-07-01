@@ -192,6 +192,15 @@ export default function LaundryPage() {
   const [reportHistory, setReportHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false);
+  // Report scope + filters (shared by preview / download / email so all three
+  // always compute the identical task set and total).
+  const [reportScope, setReportScope] = useState<"all" | "client" | "property" | "selected">("all");
+  const [reportClientId, setReportClientId] = useState<string>("");
+  const [reportPropertyId, setReportPropertyId] = useState<string>("");
+  const [reportPropertyIds, setReportPropertyIds] = useState<string[]>([]);
+  const [reportStatuses, setReportStatuses] = useState<string[]>([]);
+  const [reportDateField, setReportDateField] = useState<"scheduled" | "confirmed" | "pickup" | "dropped">("dropped");
+  const [reportGroupByProperty, setReportGroupByProperty] = useState(false);
   const [replacingConfirmationId, setReplacingConfirmationId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -206,7 +215,10 @@ export default function LaundryPage() {
     skipReasonCode: "NONE",
     skipReasonNote: "",
     adminOverrideNote: "",
+    totalPrice: "",
+    evidenceNote: "",
   });
+  const [editEvidenceFiles, setEditEvidenceFiles] = useState<File[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -380,6 +392,41 @@ export default function LaundryPage() {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks]);
 
+  // Single source of truth for the report scope/filters. Both the query-string
+  // (preview) and JSON-body (download/email) forms derive from this so the three
+  // surfaces never disagree on which tasks — and therefore which total — apply.
+  function reportScopeFilters(): {
+    clientId?: string;
+    propertyIds?: string[];
+    statuses?: string[];
+    dateField?: string;
+    groupByProperty?: boolean;
+  } {
+    const filters: {
+      clientId?: string;
+      propertyIds?: string[];
+      statuses?: string[];
+      dateField?: string;
+      groupByProperty?: boolean;
+    } = {};
+    if (reportScope === "client" && reportClientId) filters.clientId = reportClientId;
+    if (reportScope === "property" && reportPropertyId) filters.propertyIds = [reportPropertyId];
+    if (reportScope === "selected" && reportPropertyIds.length) filters.propertyIds = reportPropertyIds;
+    if (reportStatuses.length) filters.statuses = reportStatuses;
+    filters.dateField = reportDateField;
+    if (reportGroupByProperty) filters.groupByProperty = true;
+    return filters;
+  }
+
+  function reportBody(extra?: Record<string, unknown>) {
+    const filters = reportScopeFilters();
+    const base =
+      reportPeriod === "custom"
+        ? { period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined }
+        : { period: reportPeriod, anchorDate: reportAnchorDate || undefined };
+    return { ...base, includePending: true, ...filters, ...extra };
+  }
+
   function buildReportQuery(taskId?: string) {
     const params = new URLSearchParams();
     params.set("period", reportPeriod);
@@ -394,6 +441,12 @@ export default function LaundryPage() {
     } else if (reportAnchorDate) {
       params.set("anchorDate", reportAnchorDate);
     }
+    const filters = reportScopeFilters();
+    if (filters.clientId) params.set("clientId", filters.clientId);
+    if (filters.propertyIds?.length) params.set("propertyIds", filters.propertyIds.join(","));
+    if (filters.statuses?.length) params.set("statuses", filters.statuses.join(","));
+    if (filters.dateField) params.set("dateField", filters.dateField);
+    if (filters.groupByProperty) params.set("groupByProperty", "true");
     return params.toString();
   }
 
@@ -420,13 +473,7 @@ export default function LaundryPage() {
     const res = await fetch("/api/laundry/invoice/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        taskId
-          ? { taskId }
-          : reportPeriod === "custom"
-            ? { period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined, includePending: true }
-            : { period: reportPeriod, anchorDate: reportAnchorDate || undefined, includePending: true }
-      ),
+      body: JSON.stringify(taskId ? { taskId } : reportBody()),
     });
     setReportDownloading(false);
     if (!res.ok) {
@@ -456,13 +503,7 @@ export default function LaundryPage() {
     const res = await fetch("/api/admin/laundry/reports/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        taskId
-          ? { to: reportEmail.trim(), taskId }
-          : reportPeriod === "custom"
-            ? { to: reportEmail.trim(), period: reportPeriod, startDate: reportStartDate || undefined, endDate: reportEndDate || undefined, includePending: true }
-            : { to: reportEmail.trim(), period: reportPeriod, anchorDate: reportAnchorDate || undefined, includePending: true }
-      ),
+      body: JSON.stringify(taskId ? { to: reportEmail.trim(), taskId } : reportBody({ to: reportEmail.trim() })),
     });
     const body = await res.json().catch(() => ({}));
     setReportEmailing(false);
@@ -555,7 +596,10 @@ export default function LaundryPage() {
       skipReasonCode: editTask.skipReasonCode ?? "NONE",
       skipReasonNote: editTask.skipReasonNote ?? "",
       adminOverrideNote: editTask.adminOverrideNote ?? "",
+      totalPrice: editTask.dropoffCostAud != null ? String(editTask.dropoffCostAud) : "",
+      evidenceNote: "",
     });
+    setEditEvidenceFiles([]);
   }, [editTask]);
 
   async function generatePlan() {
@@ -649,6 +693,35 @@ export default function LaundryPage() {
       setSavingTask(false);
       return;
     }
+
+    // Upload any attached evidence photos first so we can pass their keys.
+    let evidencePhotoKeys: string[] = [];
+    try {
+      for (const file of editEvidenceFiles) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("folder", "laundry-confirmations");
+        const uploadRes = await fetch("/api/uploads/direct", { method: "POST", body: form });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok || !uploadBody?.key) {
+          throw new Error(uploadBody.error ?? "Could not upload evidence photo.");
+        }
+        evidencePhotoKeys.push(uploadBody.key);
+      }
+    } catch (error: any) {
+      setSavingTask(false);
+      toast({ title: "Upload failed", description: error?.message ?? "Could not upload evidence.", variant: "destructive" });
+      return;
+    }
+
+    const trimmedPrice = editForm.totalPrice.trim();
+    const parsedPrice = trimmedPrice ? Number(trimmedPrice) : null;
+    if (trimmedPrice && (!Number.isFinite(parsedPrice) || (parsedPrice as number) < 0)) {
+      setSavingTask(false);
+      toast({ title: "Invalid price", description: "Enter a valid drop-off price.", variant: "destructive" });
+      return;
+    }
+
     const res = await fetch(`/api/admin/laundry/${editTask.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -660,6 +733,9 @@ export default function LaundryPage() {
         skipReasonCode: editForm.status === "SKIPPED_PICKUP" ? (editForm.skipReasonCode === "NONE" ? null : editForm.skipReasonCode) : null,
         skipReasonNote: editForm.skipReasonNote || null,
         adminOverrideNote: editForm.adminOverrideNote || null,
+        ...(trimmedPrice ? { totalPrice: parsedPrice } : {}),
+        ...(evidencePhotoKeys.length ? { evidencePhotoKeys } : {}),
+        ...(editForm.evidenceNote.trim() ? { evidenceNote: editForm.evidenceNote.trim() } : {}),
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1098,6 +1174,169 @@ export default function LaundryPage() {
               </Select>
             </div>
           </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Scope</Label>
+              <Select
+                value={reportScope}
+                onValueChange={(value: any) => {
+                  setReportScope(value);
+                  if (value !== "selected") setReportPropertyIds([]);
+                  if (value !== "property") setReportPropertyId("");
+                  if (value !== "client") setReportClientId("");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All properties</SelectItem>
+                  <SelectItem value="client">By client</SelectItem>
+                  <SelectItem value="property">Single property</SelectItem>
+                  <SelectItem value="selected">Selected properties</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Date basis (defines the range)</Label>
+              <Select value={reportDateField} onValueChange={(value: any) => setReportDateField(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dropped">Drop-off date</SelectItem>
+                  <SelectItem value="pickup">Pickup date</SelectItem>
+                  <SelectItem value="confirmed">Confirmed date</SelectItem>
+                  <SelectItem value="scheduled">Scheduled date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={reportGroupByProperty}
+                  onChange={(e) => setReportGroupByProperty(e.target.checked)}
+                />
+                Group by property with subtotals
+              </label>
+            </div>
+          </div>
+
+          {reportScope === "client" && (
+            <div className="max-w-md space-y-1.5">
+              <Label>Client</Label>
+              <Select value={reportClientId} onValueChange={setReportClientId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a client" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {reportScope === "property" && (
+            <div className="max-w-md space-y-1.5">
+              <Label>Property</Label>
+              <Select value={reportPropertyId} onValueChange={setReportPropertyId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a property" />
+                </SelectTrigger>
+                <SelectContent>
+                  {properties.map((property) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.name} · {property.suburb}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {reportScope === "selected" && (
+            <div className="space-y-1.5">
+              <Label>Properties ({reportPropertyIds.length} selected)</Label>
+              <div className="flex flex-wrap gap-1.5 rounded-md border p-2">
+                {properties.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">No properties available.</span>
+                ) : (
+                  properties.map((property) => {
+                    const selected = reportPropertyIds.includes(property.id);
+                    return (
+                      <button
+                        key={property.id}
+                        type="button"
+                        onClick={() =>
+                          setReportPropertyIds((prev) =>
+                            prev.includes(property.id)
+                              ? prev.filter((id) => id !== property.id)
+                              : [...prev, property.id]
+                          )
+                        }
+                        className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-input bg-background hover:bg-muted"
+                        }`}
+                      >
+                        {property.name}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label>Include statuses</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["DROPPED", "Dropped off"],
+                  ["PICKED_UP", "Picked up"],
+                  ["CONFIRMED", "Confirmed"],
+                  ["PENDING", "Pending"],
+                  ["FLAGGED", "Flagged"],
+                  ["SKIPPED_PICKUP", "Skipped"],
+                ] as const
+              ).map(([value, label]) => {
+                const selected = reportStatuses.includes(value);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() =>
+                      setReportStatuses((prev) =>
+                        prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value]
+                      )
+                    }
+                    className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                      selected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input bg-background hover:bg-muted"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {reportStatuses.length === 0
+                ? "No status filter — all statuses that fall in the date range are included."
+                : `Only these statuses will be counted.`}
+            </p>
+          </div>
+
           {reportRecipientMode === "CUSTOM" && (
             <div className="max-w-md space-y-1.5">
               <Label>Custom email</Label>
@@ -1576,7 +1815,7 @@ export default function LaundryPage() {
       </Card>
 
       <Dialog open={Boolean(editTask)} onOpenChange={(open) => !open && setEditTask(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit laundry task</DialogTitle>
           </DialogHeader>
@@ -1658,6 +1897,49 @@ export default function LaundryPage() {
                 </div>
               </>
             ) : null}
+
+            <div className="space-y-1.5">
+              <Label>Drop-off price (AUD)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={editForm.totalPrice}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, totalPrice: e.target.value }))}
+                placeholder="e.g. 45.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Sets the amount billed for this laundry job (used in reports). Leave blank to keep unchanged.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Evidence photos</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => setEditEvidenceFiles(Array.from(e.target.files ?? []))}
+              />
+              {editEvidenceFiles.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {editEvidenceFiles.length} photo{editEvidenceFiles.length === 1 ? "" : "s"} ready to attach.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Attach drop-off / receipt / pickup evidence for this status change. Recorded against the booking timeline.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Evidence note</Label>
+              <Textarea
+                value={editForm.evidenceNote}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, evidenceNote: e.target.value }))}
+                placeholder="Optional note explaining this manual status change"
+              />
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditTask(null)} disabled={savingTask}>
                 Cancel

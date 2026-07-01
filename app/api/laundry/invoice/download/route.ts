@@ -13,6 +13,7 @@ import {
 } from "@/lib/laundry/invoice";
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
+import { normalizeReportFilters, reportFilterBodyShape } from "@/lib/laundry/report-filters";
 
 const bodySchema = z.object({
   period: z.enum(["daily", "weekly", "monthly", "annual", "custom"]).optional(),
@@ -22,6 +23,7 @@ const bodySchema = z.object({
   propertyId: z.string().trim().min(1).optional(),
   taskId: z.string().trim().min(1).optional(),
   includePending: z.boolean().optional(),
+  ...reportFilterBodyShape,
   template: z
     .object({
       companyName: z.string().trim().min(1).max(200).optional(),
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
       propertyId: body.propertyId,
       taskId: body.taskId,
       includePending: body.includePending,
+      ...normalizeReportFilters(body),
     });
 
     const html = buildLaundryInvoiceHtml({ data, template });

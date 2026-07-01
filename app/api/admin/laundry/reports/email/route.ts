@@ -14,6 +14,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
+import { normalizeReportFilters, reportFilterBodyShape } from "@/lib/laundry/report-filters";
 
 const bodySchema = z.object({
   to: z.string().trim().email(),
@@ -24,6 +25,7 @@ const bodySchema = z.object({
   propertyId: z.string().trim().min(1).optional(),
   taskId: z.string().trim().min(1).optional(),
   includePending: z.boolean().optional(),
+  ...reportFilterBodyShape,
   template: z
     .object({
       companyName: z.string().trim().min(1).max(200).optional(),
@@ -51,6 +53,7 @@ export async function POST(req: NextRequest) {
       propertyId: body.propertyId,
       taskId: body.taskId,
       includePending: body.includePending,
+      ...normalizeReportFilters(body),
     });
 
     const html = buildLaundryInvoiceHtml({ data, template });

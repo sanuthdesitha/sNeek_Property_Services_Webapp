@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { getLaundryInvoiceData, getLaundryInvoiceTemplate, LaundryInvoicePeriod } from "@/lib/laundry/invoice";
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
+import { parseReportFiltersFromSearch } from "@/lib/laundry/report-filters";
 
 const querySchema = z.object({
   period: z.enum(["daily", "weekly", "monthly", "annual", "custom"]).optional(),
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
       taskId: searchParams.get("taskId") ?? undefined,
       includePending: searchParams.get("includePending") ?? undefined,
     });
+    const filters = parseReportFiltersFromSearch(searchParams);
 
     const [data, template] = await Promise.all([
       getLaundryInvoiceData({
@@ -46,6 +48,7 @@ export async function GET(req: NextRequest) {
         propertyId: params.propertyId,
         taskId: params.taskId,
         includePending: params.includePending,
+        ...filters,
       }),
       getLaundryInvoiceTemplate(session.user.id),
     ]);
