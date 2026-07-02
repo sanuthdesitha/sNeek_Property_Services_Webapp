@@ -1,4 +1,5 @@
 import { JobStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import type { CaseSeverityLevel } from "@/lib/settings";
@@ -34,21 +35,22 @@ function severityForOverdue(minsOverdue: number, escalationMinutes: number): Cas
   return "LOW";
 }
 
+const SLA_TZ = "Australia/Sydney";
+
 function parseDueDateTime(scheduledDate: Date, dueTime: string | null | undefined) {
   if (!dueTime || !/^\d{2}:\d{2}$/.test(dueTime)) return null;
   const [h, m] = dueTime.split(":").map((value) => Number(value));
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return new Date(
-    Date.UTC(
-      scheduledDate.getUTCFullYear(),
-      scheduledDate.getUTCMonth(),
-      scheduledDate.getUTCDate(),
-      h,
-      m,
-      0,
-      0
-    )
-  );
+  // `dueTime` ("HH:MM") is a Sydney wall-clock time; `scheduledDate` is stored
+  // as UTC-midnight of the Sydney calendar date. Build the due instant in the
+  // Sydney zone — using Date.UTC treated "09:00" as 09:00 UTC (= 19:00-20:00
+  // Sydney), so every SLA warning/escalation fired ~10-11h late.
+  const y = scheduledDate.getUTCFullYear();
+  const mo = String(scheduledDate.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(scheduledDate.getUTCDate()).padStart(2, "0");
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  return fromZonedTime(`${y}-${mo}-${d}T${hh}:${mm}:00`, SLA_TZ);
 }
 
 export async function runSlaEscalation(now = new Date()) {

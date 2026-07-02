@@ -153,6 +153,11 @@ export async function dispatchScheduledEmailCampaigns(now = new Date()) {
     where: {
       status: "scheduled",
       scheduledAt: { lte: now },
+      // The newer marketing engine (dispatchDueCampaigns) claims on the
+      // `campaignStatus` dimension of THIS SAME row. If it owns the row, defer
+      // to it — otherwise a row that is both legacy-"scheduled" and
+      // new-engine-SCHEDULED would be sent twice (once per dispatcher).
+      campaignStatus: { notIn: ["SCHEDULED", "SENDING", "SENT"] },
     },
     orderBy: [{ scheduledAt: "asc" }],
     take: 20,
@@ -167,7 +172,11 @@ export async function dispatchScheduledEmailCampaigns(now = new Date()) {
     // sets status -> "sent" on success; a failure leaves it "sending" (not
     // re-picked by this query), preventing an accidental resend.
     const claim = await db.emailCampaign.updateMany({
-      where: { id: campaign.id, status: "scheduled" },
+      where: {
+        id: campaign.id,
+        status: "scheduled",
+        campaignStatus: { notIn: ["SCHEDULED", "SENDING", "SENT"] },
+      },
       data: { status: "sending" },
     });
     if (claim.count !== 1) continue;

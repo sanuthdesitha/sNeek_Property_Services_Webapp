@@ -85,8 +85,14 @@ export function computeQaScore(template: FormSchema, answers: Record<string, unk
       } else if (field.type === "checkbox") {
         fieldPoints = value ? field.scoring.max * weight : 0;
       } else if (field.type === "yesno") {
-        // Only an explicit "Yes" (true) scores; "No" and "N/A" score zero.
-        fieldPoints = value === true ? field.scoring.max * weight : 0;
+        // Only an explicit "Yes" scores; "No" and "N/A" score zero. Accept the
+        // string "true"/"yes" as well as boolean true — some submit paths
+        // stringify yes/no values (see fmtBoolean in lib/forms/field-types.ts),
+        // and those were previously scoring zero despite being a "Yes".
+        const isYes =
+          value === true ||
+          (typeof value === "string" && ["true", "yes"].includes(value.trim().toLowerCase()));
+        fieldPoints = isYes ? field.scoring.max * weight : 0;
       }
 
       sectionPoints += fieldPoints;

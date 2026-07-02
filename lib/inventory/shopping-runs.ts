@@ -1612,6 +1612,9 @@ export async function saveShoppingRunForOwner(input: {
         compat.shoppingTimeStatus === "INVOICED" ||
         compat.shoppingTimeStatus === "PAID",
       includedInClientInvoiceId: existing?.settlements?.[0]?.includedInClientInvoiceId ?? null,
+      // Preserve the payroll stamp across a delete+recreate — otherwise editing a
+      // reimbursed run reset it to null and payroll paid the cleaner AGAIN.
+      includedInPayrollRunId: existing?.settlements?.[0]?.includedInPayrollRunId ?? null,
       includedInCleanerInvoiceReference:
         compat.cleanerReimbursementStatus === "INVOICED" ||
         compat.cleanerReimbursementStatus === "REIMBURSED" ||
@@ -1875,6 +1878,9 @@ export async function updateShoppingRunByAdmin(input: {
               compat.shoppingTimeStatus === "INVOICED" ||
               compat.shoppingTimeStatus === "PAID",
             includedInClientInvoiceId: existing.settlements?.[0]?.includedInClientInvoiceId ?? null,
+            // Preserve the payroll stamp across a delete+recreate — otherwise editing
+            // a reimbursed run reset it to null and payroll paid the cleaner AGAIN.
+            includedInPayrollRunId: existing.settlements?.[0]?.includedInPayrollRunId ?? null,
             includedInCleanerInvoiceReference:
               compat.cleanerReimbursementStatus === "INVOICED" ||
               compat.cleanerReimbursementStatus === "REIMBURSED" ||
@@ -1954,6 +1960,9 @@ export async function markCleanerShoppingRunsInvoiced(input: {
               adminApprovedForCleanerReimbursement: shouldInvoiceReimbursement,
               includeInCleanerInvoice: shouldInvoiceReimbursement || shouldInvoiceTime,
               includedInClientInvoiceId: run.settlements?.[0]?.includedInClientInvoiceId ?? null,
+              // Preserve the payroll stamp across a delete+recreate — otherwise editing
+              // a reimbursed run reset it to null and payroll paid the cleaner AGAIN.
+              includedInPayrollRunId: run.settlements?.[0]?.includedInPayrollRunId ?? null,
               includedInCleanerInvoiceReference:
                 shouldInvoiceReimbursement || shouldInvoiceTime
                   ? run.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${run.id}`

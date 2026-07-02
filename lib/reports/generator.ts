@@ -5,6 +5,11 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
+import {
+  isTemplateConditionalMet,
+  flattenFieldsOneLevel,
+  isFlattenedFieldVisible,
+} from "@/lib/forms/visibility";
 import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
 import { publicUrl } from "@/lib/s3";
 
@@ -92,14 +97,6 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-function valuesEqual(left: unknown, right: unknown) {
-  if (typeof left === "boolean") return left === (right === true || right === "true");
-  if (typeof left === "number") return left === Number(right);
-  if (typeof right === "boolean") return (left === true || left === "true") === right;
-  if (typeof right === "number") return Number(left) === right;
-  return String(left ?? "") === String(right ?? "");
-}
-
 function isBalconyLikeField(field: any) {
   const text = `${String(field?.id ?? "")} ${String(field?.label ?? "")}`.toLowerCase();
   return text.includes("balcony");
@@ -110,17 +107,11 @@ function isConditionMet(
   answers: Record<string, unknown>,
   property: Record<string, unknown>
 ) {
-  if (!conditional || typeof conditional !== "object") return true;
-
-  if (conditional.propertyField) {
-    return valuesEqual(property[conditional.propertyField], conditional.value);
-  }
-
-  if (conditional.fieldId) {
-    return valuesEqual(answers[conditional.fieldId], conditional.value);
-  }
-
-  return true;
+  // Delegate to the shared form-visibility engine so the report honours the
+  // full operator set (notEquals/answered/oneOf/gt/lt/…) exactly as the cleaner
+  // form and required-field enforcement do. Previously this only did equality,
+  // so any non-`equals` conditional rendered the wrong fields in the client PDF.
+  return isTemplateConditionalMet(conditional, answers, property);
 }
 
 function isFieldVisibleInReport(
@@ -370,8 +361,17 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
   const html = sections
     .filter((section: any) => isFieldVisibleInReport(section, section?.conditional, answers, job.property ?? {}))
     .map((section: any) => {
-      const fields = (Array.isArray(section?.fields) ? section.fields : []).filter((field: any) =>
-        isFieldVisibleInReport(field, field?.conditional, answers, job.property ?? {})
+      // Flatten one level of `children` so sub-field answers/evidence appear in
+      // the client report (they were previously dropped). Each flattened child
+      // is visibility-gated on both its own and its parent's condition.
+      const fields = flattenFieldsOneLevel(
+        Array.isArray(section?.fields) ? section.fields : []
+      ).filter(
+        (field: any) =>
+          // Own condition + balcony gate (isFieldVisibleInReport) AND the
+          // parent's condition for flattened children (isFlattenedFieldVisible).
+          isFieldVisibleInReport(field, field?.conditional, answers, job.property ?? {}) &&
+          isFlattenedFieldVisible(field, answers, job.property ?? {})
       );
       if (fields.length === 0) return "";
 

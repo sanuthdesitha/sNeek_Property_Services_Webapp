@@ -2,6 +2,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { type NotificationCategory } from "@/lib/settings";
+import { type EmailAutoKind } from "@/lib/notifications/email-kinds";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
@@ -36,6 +37,27 @@ type DeliveryInput = {
   url?: string | null;
   email?: EmailPayload | ((recipient: Recipient) => EmailPayload | null | undefined) | null;
   sms?: string | ((recipient: Recipient) => string | null | undefined) | null;
+  /**
+   * Which email-automation switch gates this send. If omitted we derive a
+   * sensible kind from the category (below) — previously every send was
+   * hardcoded to "report_delivery", so toggling that one switch silenced the
+   * ENTIRE notification pipeline and toggling any other switch did nothing.
+   */
+  kind?: EmailAutoKind;
+};
+
+/** Fallback mapping from notification category → email-automation kind. */
+const CATEGORY_TO_EMAIL_KIND: Record<NotificationCategory, EmailAutoKind> = {
+  account: "admin_alert",
+  jobs: "job_reminder",
+  laundry: "admin_alert",
+  cases: "case_alert",
+  reports: "report_delivery",
+  quotes: "admin_alert",
+  shopping: "inventory_update",
+  billing: "auto_invoice",
+  approvals: "admin_alert",
+  ical: "ical_alert",
 };
 
 function dedupeRecipients(recipients: Recipient[]) {
@@ -128,7 +150,8 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
 }
 
 async function sendEmailNotification(input: DeliveryInput, recipient: Recipient, emailPayload: EmailPayload) {
-  const result = await sendEmailDetailed({ kind: "report_delivery",
+  const result = await sendEmailDetailed({
+    kind: input.kind ?? CATEGORY_TO_EMAIL_KIND[input.category] ?? "admin_alert",
     to: recipient.email!,
     subject: emailPayload.subject,
     html: emailPayload.html,
