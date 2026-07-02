@@ -98,16 +98,22 @@ export async function PUT(req: NextRequest) {
   if (!verified) return NextResponse.json({ error: "That code is incorrect or expired." }, { status: 400 });
 
   const { plain, hashedJson } = generateBackupCodes();
-  await db.user.update({
-    where: { id: session.user.id },
-    data: {
-      twoFactorEnabled: true,
-      twoFactorMethod: method,
-      twoFactorBackupCodes: hashedJson,
-      // Email method doesn't use a TOTP secret.
-      ...(method === "EMAIL" ? { totpSecret: null } : {}),
-    },
-  });
+  await db.$transaction([
+    db.user.update({
+      where: { id: session.user.id },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorMethod: method,
+        twoFactorBackupCodes: hashedJson,
+        // Email method doesn't use a TOTP secret.
+        ...(method === "EMAIL" ? { totpSecret: null } : {}),
+      },
+    }),
+    // Re-configuring 2FA (often because the account may be compromised) must
+    // invalidate any "remember this device" tokens minted under the old setup —
+    // otherwise a previously-trusted device keeps skipping the new second factor.
+    db.trustedDevice.deleteMany({ where: { userId: session.user.id } }),
+  ]);
 
   return NextResponse.json({ ok: true, backupCodes: plain });
 }

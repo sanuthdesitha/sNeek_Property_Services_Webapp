@@ -218,7 +218,15 @@ export async function POST(
 
       await tx.job.update({
         where: { id: params.id },
-        data: { status: JobStatus.IN_PROGRESS },
+        data: {
+          status: JobStatus.IN_PROGRESS,
+          // Clear the "in transit" en-route fields when work actually begins so
+          // the client's live view and the stale-en-route sweep don't treat a
+          // started job as still driving. arrivedAt is left intact as a record.
+          enRouteStartedAt: null,
+          enRouteEtaMinutes: null,
+          enRouteEtaUpdatedAt: null,
+        },
       });
     });
 

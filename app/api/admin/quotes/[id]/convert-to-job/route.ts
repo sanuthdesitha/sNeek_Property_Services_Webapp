@@ -53,6 +53,28 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (quote.status === QuoteStatus.DECLINED) {
+      return NextResponse.json(
+        { error: "A declined quote can't be converted to a job." },
+        { status: 400 }
+      );
+    }
+
+    // The chosen property must belong to the quote's client (if any) — otherwise
+    // the job, and its billing, would attach to the wrong client's property.
+    const property = await db.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, clientId: true },
+    });
+    if (!property) {
+      return NextResponse.json({ error: "Property not found." }, { status: 404 });
+    }
+    if (quote.clientId && property.clientId !== quote.clientId) {
+      return NextResponse.json(
+        { error: "That property belongs to a different client than the quote." },
+        { status: 400 }
+      );
+    }
 
     const jobNumber = await reserveJobNumber(db);
     const additionals = extrasFromQuoteNotes(quote.notes);
