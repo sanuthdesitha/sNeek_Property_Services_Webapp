@@ -1,5 +1,5 @@
-import { addDays } from "date-fns";
 import { PayAdjustmentStatus, Role } from "@prisma/client";
+import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
@@ -13,8 +13,10 @@ export async function getPayrollSummary(input: {
   excludePaidJobs?: boolean;
 }) {
   const settings = await getAppSettings();
-  const start = new Date(`${input.startDate}T00:00:00.000Z`);
-  const endExclusive = addDays(new Date(`${input.endDate}T00:00:00.000Z`), 1);
+  // Bucket by Australia/Sydney calendar days (matches the invoices/reports the
+  // pay is reconciled against). Inclusive end via lte below.
+  const start = sydneyDayStart(input.startDate);
+  const endInclusive = sydneyDayEndInclusive(input.endDate);
 
   const [cleaners, jobs, adjustments, shoppingRuns] = await Promise.all([
     db.user.findMany({
@@ -27,8 +29,8 @@ export async function getPayrollSummary(input: {
         // Bucket by completion date when set (a job finished next-day/custom date
         // counts in that period); fall back to the scheduled date otherwise.
         OR: [
-          { completedAt: { gte: start, lt: endExclusive } },
-          { completedAt: null, scheduledDate: { gte: start, lt: endExclusive } },
+          { completedAt: { gte: start, lte: endInclusive } },
+          { completedAt: null, scheduledDate: { gte: start, lte: endInclusive } },
         ],
         status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
         // Skipped cleans are never paid out.
@@ -57,7 +59,7 @@ export async function getPayrollSummary(input: {
     }),
     db.cleanerPayAdjustment.findMany({
       where: {
-        reviewedAt: { gte: start, lt: endExclusive },
+        reviewedAt: { gte: start, lte: endInclusive },
         status: PayAdjustmentStatus.APPROVED,
         // When building a committable run, never re-include an adjustment already
         // paid by a prior run (idempotency).
@@ -77,7 +79,7 @@ export async function getPayrollSummary(input: {
     // Shopping reimbursements: runs where cleaner paid out of pocket and is owed reimbursement
     db.shoppingRun.findMany({
       where: {
-        updatedAt: { gte: start, lt: endExclusive },
+        updatedAt: { gte: start, lte: endInclusive },
         settlements: {
           some: {
             clientBillable: false,
@@ -91,6 +93,12 @@ export async function getPayrollSummary(input: {
       include: {
         settlements: {
           where: {
+            // A ShoppingRun has exactly ONE settlement (every write does
+            // `settlements: { deleteMany, create: [one] }`), and clientBillable is
+            // therefore a run-level flag. clientBillable:false is included here
+            // defensively so that even a legacy multi-settlement row would only
+            // match the non-billable, reimbursable settlement.
+            clientBillable: false,
             adminApprovedForCleanerReimbursement: true,
             includeInCleanerInvoice: false,
             ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
@@ -107,10 +115,12 @@ export async function getPayrollSummary(input: {
   // Build shopping reimbursement map by cleaner
   const shoppingByCleaner = new Map<string, { id: string; settlementId: string; title: string; amount: number; updatedAt: Date }[]>();
   for (const run of shoppingRuns) {
+    // One settlement per run (invariant enforced at every write), so settlements[0]
+    // is THE settlement and summing all of the run's line costs is the correct
+    // reimbursement — the whole run was paid by this one cleaner.
     const settlement = run.settlements[0];
     if (!settlement) continue;
     if (!settlement.paidByUserId) continue;
-    // Calculate reimbursement from settlements
     const amount = Number(settlement.clientBillable ? 0 : (run.lines.reduce((sum, l) => sum + Number(l.lineCost ?? 0), 0)));
     if (amount <= 0) continue;
     const list = shoppingByCleaner.get(settlement.paidByUserId) || [];

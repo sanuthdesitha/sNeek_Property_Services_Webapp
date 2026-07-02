@@ -1,6 +1,17 @@
 import { LaundryStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import {
+  sydneyDayStart,
+  sydneyDayEndInclusive,
+  sydneyTodayKey,
+  weekMondayKey,
+  monthStartKey,
+  monthEndKey,
+  yearStartKey,
+  yearEndKey,
+  addDaysToKey,
+} from "@/lib/time/sydney-range";
 
 export type LaundryInvoicePeriod = "daily" | "weekly" | "monthly" | "annual" | "custom";
 
@@ -128,20 +139,9 @@ function parseMeta(notes: string | null | undefined): any {
   }
 }
 
-function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
-function endOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-function startOfWeekMonday(d: Date) {
-  const current = startOfDay(d);
-  const day = current.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  current.setDate(current.getDate() + diff);
-  return current;
+/** Valid yyyy-MM-dd? (the routes validate via zod, but be defensive.) */
+function isDateKey(value: string | undefined): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function resolveRange(input: LaundryInvoiceQueryInput): {
@@ -150,39 +150,39 @@ function resolveRange(input: LaundryInvoiceQueryInput): {
   end: Date;
 } {
   const period = input.period ?? "weekly";
-  const anchor = input.anchorDate ? new Date(`${input.anchorDate}T00:00:00`) : new Date();
-  const safeAnchor = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+  // Anchor on a Sydney calendar day so period boundaries line up with the
+  // Sydney-rendered dates and with finance (see lib/time/sydney-range).
+  const anchorKey = isDateKey(input.anchorDate) ? input.anchorDate : sydneyTodayKey();
 
   if (period === "annual") {
-    const start = new Date(safeAnchor.getFullYear(), 0, 1, 0, 0, 0, 0);
-    const end = new Date(safeAnchor.getFullYear(), 11, 31, 23, 59, 59, 999);
-    return { period, start, end };
-  }
-
-  if (period === "custom") {
-    const start = input.startDate ? new Date(`${input.startDate}T00:00:00`) : startOfWeekMonday(new Date());
-    const end = input.endDate ? new Date(`${input.endDate}T23:59:59.999`) : endOfDay(new Date());
     return {
       period,
-      start: Number.isNaN(start.getTime()) ? startOfWeekMonday(new Date()) : start,
-      end: Number.isNaN(end.getTime()) ? endOfDay(new Date()) : end,
+      start: sydneyDayStart(yearStartKey(anchorKey)),
+      end: sydneyDayEndInclusive(yearEndKey(anchorKey)),
     };
   }
 
+  if (period === "custom") {
+    const startKey = isDateKey(input.startDate) ? input.startDate : weekMondayKey(sydneyTodayKey());
+    const endKey = isDateKey(input.endDate) ? input.endDate : sydneyTodayKey();
+    return { period, start: sydneyDayStart(startKey), end: sydneyDayEndInclusive(endKey) };
+  }
+
   if (period === "daily") {
-    return { period, start: startOfDay(safeAnchor), end: endOfDay(safeAnchor) };
+    return { period, start: sydneyDayStart(anchorKey), end: sydneyDayEndInclusive(anchorKey) };
   }
 
   if (period === "monthly") {
-    const start = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth(), 1, 0, 0, 0, 0);
-    const end = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth() + 1, 0, 23, 59, 59, 999);
-    return { period, start, end };
+    return {
+      period,
+      start: sydneyDayStart(monthStartKey(anchorKey)),
+      end: sydneyDayEndInclusive(monthEndKey(anchorKey)),
+    };
   }
 
-  const weekStart = startOfWeekMonday(safeAnchor);
-  const weekEnd = new Date(weekStart.getTime());
-  weekEnd.setDate(weekEnd.getDate() + 6);
-  return { period: "weekly", start: weekStart, end: endOfDay(weekEnd) };
+  const weekStartKey = weekMondayKey(anchorKey);
+  const weekEndKey = addDaysToKey(weekStartKey, 6);
+  return { period: "weekly", start: sydneyDayStart(weekStartKey), end: sydneyDayEndInclusive(weekEndKey) };
 }
 
 function defaultTemplate(companyName: string): LaundryInvoiceTemplate {

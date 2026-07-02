@@ -15,6 +15,7 @@ import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { normalizeReportFilters, reportFilterBodyShape } from "@/lib/laundry/report-filters";
+import { sydneyDateKey } from "@/lib/time/sydney-range";
 
 const bodySchema = z.object({
   to: z.string().trim().email(),
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     const pdf = await renderLaundryInvoicePdf(html);
     const filename = body.taskId
       ? `laundry-job-${body.taskId}.pdf`
-      : `laundry-report-${data.start.toISOString().slice(0, 10)}-to-${data.end.toISOString().slice(0, 10)}.pdf`;
+      : `laundry-report-${sydneyDateKey(data.start)}-to-${sydneyDateKey(data.end)}.pdf`;
     const settings = await getAppSettings();
     const reportLabel = body.taskId
       ? data.propertyName ?? "Laundry job"

@@ -5,6 +5,7 @@ import { getInventoryUnitCosts } from "@/lib/inventory/unit-costs";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { laundryTaskAmount } from "@/lib/laundry/invoice";
+import { sydneyDayStart, sydneyDayEndInclusive, sydneyTodayKey, monthStartKey } from "@/lib/time/sydney-range";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -52,12 +53,12 @@ function parseMaybeJson(raw: string | null | undefined): Record<string, unknown>
 
 function parseRange(input: { startDate?: string; endDate?: string }) {
   const now = new Date();
+  // Bucket by Australia/Sydney calendar days so finance reconciles with the
+  // Sydney-rendered invoices/reports (see lib/time/sydney-range).
   const start = input.startDate
-    ? new Date(`${input.startDate}T00:00:00.000Z`)
-    : new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
-  const end = input.endDate
-    ? new Date(`${input.endDate}T23:59:59.999Z`)
-    : now;
+    ? sydneyDayStart(input.startDate)
+    : sydneyDayStart(monthStartKey(sydneyTodayKey(now)));
+  const end = input.endDate ? sydneyDayEndInclusive(input.endDate) : now;
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new Error("Invalid date range.");
   }

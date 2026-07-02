@@ -14,6 +14,7 @@ import {
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { normalizeReportFilters, reportFilterBodyShape } from "@/lib/laundry/report-filters";
+import { sydneyDateKey } from "@/lib/time/sydney-range";
 
 const bodySchema = z.object({
   period: z.enum(["daily", "weekly", "monthly", "annual", "custom"]).optional(),
@@ -71,9 +72,9 @@ export async function POST(req: NextRequest) {
 
     const filename = body.taskId
       ? `laundry-job-${body.taskId}.pdf`
-      : `laundry-invoice-${data.start.toISOString().slice(0, 10)}-to-${data.end
-          .toISOString()
-          .slice(0, 10)}${data.propertyId ? `-${data.propertyId}` : ""}.pdf`;
+      : `laundry-invoice-${sydneyDateKey(data.start)}-to-${sydneyDateKey(data.end)}${
+          data.propertyId ? `-${data.propertyId}` : ""
+        }.pdf`;
 
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
