@@ -296,17 +296,18 @@ export async function POST(
         { status: 400 }
       );
     }
-    const missingRequiredSignatures = collectRequiredAnswerFields(
+    // Enforce ALL required answerable fields (text, number, select, radio,
+    // yes/no, rating, signature, etc.) — not just signatures. Upload fields are
+    // skipped inside the collector (validated above). Previously only signatures
+    // were enforced, so a required dropdown/number could be left blank.
+    const missingRequiredAnswers = collectRequiredAnswerFields(
       effectiveSchema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
-      {
-        laundryReady: legacyReady,
-        fieldTypes: ["signature"],
-      }
+      { laundryReady: legacyReady }
     );
-    if (missingRequiredSignatures.length > 0) {
-      const missingSignatureSummary = missingRequiredSignatures
+    if (missingRequiredAnswers.length > 0) {
+      const missingAnswerSummary = missingRequiredAnswers
         .map((field) =>
           field.sectionLabel && field.sectionLabel !== field.label
             ? `${field.sectionLabel}: ${field.label}`
@@ -315,8 +316,8 @@ export async function POST(
         .join(", ");
       return NextResponse.json(
         {
-          error: `Missing required signatures: ${missingSignatureSummary}`,
-          missingRequiredFields: missingRequiredSignatures,
+          error: `Please complete the required fields: ${missingAnswerSummary}`,
+          missingRequiredFields: missingRequiredAnswers,
         },
         { status: 400 }
       );

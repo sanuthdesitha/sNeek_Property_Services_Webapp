@@ -203,6 +203,10 @@ export function collectRequiredAnswerFields(
       if (!field?.required || !field?.id) continue;
       if (!isFlattenedFieldVisible(field, answers, property, options?.laundryReady)) continue;
       const fieldType = typeof field.type === "string" ? field.type.trim().toLowerCase() : "";
+      // Upload fields (photo/video/file) are never stored in `answers` — they're
+      // validated separately by collectRequiredUploadFields — so skip them here,
+      // otherwise a no-filter call would wrongly report every required upload.
+      if (isUploadFieldType(fieldType)) continue;
       if (allowedTypes && !allowedTypes.has(fieldType)) continue;
 
       const value = answers[String(field.id)];

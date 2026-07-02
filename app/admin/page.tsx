@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
-import { Role, JobStatus, PayAdjustmentStatus } from "@prisma/client";
+import { Role, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -36,6 +36,7 @@ import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention"
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
+import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 
 function statusToPillVariant(
@@ -289,6 +290,29 @@ export default async function AdminDashboard() {
     }),
   ]);
 
+  // The 4 approval categories the banner previously omitted (clock adjustments,
+  // reschedule requests, QA-rework transfers, skip requests) — so the dashboard
+  // total matches the Approval Centre's 9-category total exactly. Mirrors the
+  // WHERE clauses in app/api/admin/all-approvals/route.ts.
+  const [
+    pendingTimeAdjustments,
+    pendingSkipRequests,
+    pendingRescheduleTasks,
+    pendingQaReworkTransfers,
+  ] = await Promise.all([
+    db.timeLogAdjustmentRequest.count({ where: { status: "PENDING" } }),
+    db.job.count({ where: { cleanSkipStatus: "REQUESTED" } }),
+    db.jobTask.findMany({
+      where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL" },
+      select: { metadata: true },
+    }),
+    listQaReworkTransfers(QaReworkTransferStatus.PENDING),
+  ]);
+  const pendingRescheduleCount = pendingRescheduleTasks.filter((t) => {
+    const meta = t.metadata as Record<string, unknown> | null;
+    return meta?.type === "RESCHEDULE_REQUEST";
+  }).length;
+
   const next48h = new Date(nowForAttention.getTime() + 48 * 60 * 60 * 1000);
   const [
     dispatchRiskJobs,
@@ -353,7 +377,11 @@ export default async function AdminDashboard() {
     pendingTimingRequests.length +
     pendingPayAdj +
     adminClientApprovals.length +
-    pendingFlaggedLaundry;
+    pendingFlaggedLaundry +
+    pendingTimeAdjustments +
+    pendingRescheduleCount +
+    pendingQaReworkTransfers.length +
+    pendingSkipRequests;
   const continuationJobs = continuationJobIds.length
     ? await db.job.findMany({
         where: { id: { in: continuationJobIds } },

@@ -3332,26 +3332,25 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return null;
     }
     if (laundryOutcome && !validateLaundryState()) return null;
-    const missingRequiredSignatures = collectRequiredAnswerFields(
+    // Enforce all required answerable fields (not just signatures) before
+    // submit, matching the server. Uploads are validated separately.
+    const missingRequiredAnswers = collectRequiredAnswerFields(
       template.schema,
       formData,
       (job?.property ?? {}) as Record<string, unknown>,
-      {
-        laundryReady,
-        fieldTypes: ["signature"],
-      }
+      { laundryReady }
     );
-    if (missingRequiredSignatures.length > 0) {
+    if (missingRequiredAnswers.length > 0) {
       const firstMissingField = visibleSections
         .flatMap((section: any) => section.fields ?? [])
-        .find((field: any) => field?.id === missingRequiredSignatures[0]?.id);
+        .find((field: any) => field?.id === missingRequiredAnswers[0]?.id);
       const targetStep = firstMissingField?._resolvedStep;
       if (targetStep === "checklist" || targetStep === "uploads" || targetStep === "laundry" || targetStep === "submit") {
         setStep(targetStep);
       }
       toast({
-        title: "Signature required",
-        description: missingRequiredSignatures
+        title: "Required fields missing",
+        description: missingRequiredAnswers
           .map((field) =>
             field.sectionLabel && field.sectionLabel !== field.label ? `${field.sectionLabel}: ${field.label}` : field.label
           )
