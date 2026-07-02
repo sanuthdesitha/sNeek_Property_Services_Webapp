@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
-import { appBaseUrl } from "@/lib/auth/recovery";
+import { resolveAppUrl } from "@/lib/app-url";
 import { logHiringEvent } from "@/lib/workforce/service";
 import {
   buildScreeningSchemaForStorage,
@@ -568,26 +568,34 @@ export async function assignQuizzesToApplication(input: {
     },
   });
 
-  const link = `${appBaseUrl()}/quiz/${token}`;
+  // Use resolveAppUrl so the link is the real deployment origin, never the
+  // localhost:3000 fallback appBaseUrl() returns when env vars are unset.
+  const link = resolveAppUrl(`/quiz/${token}`);
   const email = buildQuizEmail({
     fullName: application.fullName,
     positionTitle: application.position?.title ?? null,
     topics,
     link,
   });
-  await sendEmail({ to: application.email, subject: email.subject, html: email.html, transactional: true });
+  const emailed = await sendEmail({ to: application.email, subject: email.subject, html: email.html, transactional: true });
 
+  // Record honestly whether the email actually went out — the admin has a
+  // copy-link fallback, so a silent "emailed" (that never arrived) is worse.
   await logHiringEvent({
     applicationId: application.id,
     type: "ASSESSMENT",
     actorId: input.actorId,
-    summary: combined
-      ? `Combined quiz assigned & emailed (${templates.length} parts): ${topics.join(", ")}`
-      : `Quiz assigned & emailed: ${topics[0]}`,
-    data: { quizTemplateIds: ids, assignmentId: assignment.id, combined },
+    summary: emailed
+      ? combined
+        ? `Combined quiz assigned & emailed (${templates.length} parts): ${topics.join(", ")}`
+        : `Quiz assigned & emailed: ${topics[0]}`
+      : combined
+        ? `Combined quiz assigned (${templates.length} parts) — EMAIL FAILED, share the link manually: ${topics.join(", ")}`
+        : `Quiz assigned — EMAIL FAILED, share the link manually: ${topics[0]}`,
+    data: { quizTemplateIds: ids, assignmentId: assignment.id, combined, emailed },
   });
 
-  return assignment;
+  return { ...assignment, emailed };
 }
 
 /** Back-compat single-quiz assign — delegates to the combined assigner. */

@@ -2443,6 +2443,31 @@ export async function updateHiringPosition(input: {
     applicationSchemaUpdate = { ...existingSchema, heroImageUrl: input.heroImageUrl?.trim() || null } as Prisma.InputJsonValue;
   }
 
+  // Preserve the stored screening schema (custom quiz questions/title/intro).
+  // The Details tab only edits requireKnowledgeTest + passThreshold, so MERGE
+  // those two knobs into the existing schema rather than rebuilding from the
+  // default bank (which silently destroyed any custom knowledge test).
+  const existingScreening =
+    current?.screeningSchema && typeof current.screeningSchema === "object" && !Array.isArray(current.screeningSchema)
+      ? (current.screeningSchema as Record<string, unknown>)
+      : null;
+  const nextThreshold =
+    typeof input.passThreshold === "number" && Number.isFinite(input.passThreshold)
+      ? Math.max(0, Math.min(100, Math.round(input.passThreshold)))
+      : Number.isFinite(existingThreshold)
+        ? existingThreshold
+        : null;
+  const screeningSchemaUpdate: Prisma.InputJsonValue = existingScreening
+    ? ({
+        ...existingScreening,
+        requireKnowledgeTest: input.requireKnowledgeTest !== false,
+        passThreshold: nextThreshold ?? (existingScreening.passThreshold ?? null),
+      } as Prisma.InputJsonValue)
+    : (buildScreeningSchemaForStorage({
+        requireKnowledgeTest: input.requireKnowledgeTest !== false,
+        passThreshold: nextThreshold,
+      }) as Prisma.InputJsonValue);
+
   return db.hiringPosition.update({
     where: { id: input.positionId },
     data: {
@@ -2452,10 +2477,7 @@ export async function updateHiringPosition(input: {
       department: input.department?.trim() || null,
       location: input.location?.trim() || null,
       employmentType: input.employmentType?.trim() || null,
-      screeningSchema: buildScreeningSchemaForStorage({
-        requireKnowledgeTest: input.requireKnowledgeTest !== false,
-        passThreshold: input.passThreshold ?? (Number.isFinite(existingThreshold) ? existingThreshold : null),
-      }) as Prisma.InputJsonValue,
+      screeningSchema: screeningSchemaUpdate,
       ...(applicationSchemaUpdate !== undefined ? { applicationSchema: applicationSchemaUpdate } : {}),
       isPublished: input.isPublished !== false,
     },

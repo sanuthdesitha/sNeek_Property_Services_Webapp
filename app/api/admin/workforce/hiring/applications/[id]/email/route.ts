@@ -5,10 +5,25 @@ import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { recordHiringEmailSent } from "@/lib/workforce/service";
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildTemplate(template: string, application: any) {
-  const safeName = application.fullName || "there";
-  const positionTitle = application.position?.title || "the role";
-  const interviewDate = application.interviewDate ? new Date(application.interviewDate).toLocaleString("en-AU", { timeZone: "Australia/Sydney" }) : "to be confirmed";
+  // Candidate-controlled (fullName comes from the public apply form) — escape so
+  // it can't inject markup into the preview or the outbound email.
+  const safeName = escapeHtml(application.fullName || "there");
+  const positionTitle = escapeHtml(application.position?.title || "the role");
+  const interviewDate = escapeHtml(
+    application.interviewDate
+      ? new Date(application.interviewDate).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })
+      : "to be confirmed"
+  );
   if (template === "interview") {
     return {
       subject: `Interview invitation - ${positionTitle}`,

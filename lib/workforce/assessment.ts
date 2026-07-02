@@ -621,7 +621,11 @@ export function buildScreeningSchemaForStorage(input: {
       typeof input.passThreshold === "number" && Number.isFinite(input.passThreshold)
         ? clampPercent(input.passThreshold)
         : base.passThreshold,
-    questions: Array.isArray(input.questions) && input.questions.length > 0 ? input.questions : base.questions,
+    // Respect an explicitly-provided questions array even when empty (an admin
+    // who deleted every question wants an empty test, NOT the default bank
+    // silently resurrected). Fall back to the default bank only when questions
+    // were not provided at all (create/seed/details-merge callers pass nothing).
+    questions: Array.isArray(input.questions) ? input.questions : base.questions,
   };
 }
 

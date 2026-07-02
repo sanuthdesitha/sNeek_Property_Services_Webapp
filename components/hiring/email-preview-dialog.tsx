@@ -139,7 +139,15 @@ export function EmailPreviewDialog({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering…
                 </div>
               ) : (
-                <iframe title="Email preview" srcDoc={html} className="h-48 w-full rounded border-0 bg-white" />
+                <iframe
+                  title="Email preview"
+                  srcDoc={html}
+                  // sandbox="" = maximally restrictive: no scripts, opaque origin.
+                  // The body can contain candidate-controlled HTML (e.g. their
+                  // name), so the preview must never execute it in the admin origin.
+                  sandbox=""
+                  className="h-48 w-full rounded border-0 bg-white"
+                />
               )}
             </div>
           </div>
