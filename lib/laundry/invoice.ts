@@ -36,6 +36,25 @@ export function laundryStatusLabel(status: string): string {
   return STATUS_LABELS[status as LaundryStatus] ?? status;
 }
 
+/**
+ * Canonical laundry billing amount for a task. Prefer the drop-off confirmation
+ * meta price, fall back to the stored dropoffCostAud column. Shared by the
+ * invoice/report module and the finance summary so the two can never disagree
+ * on a task's dollar value (they used to diverge when only the column was set).
+ */
+export function laundryTaskAmount(
+  droppedMeta: any,
+  dropoffCostAud: number | null | undefined
+): number {
+  if (typeof droppedMeta?.totalPrice === "number" && Number.isFinite(droppedMeta.totalPrice)) {
+    return Number(droppedMeta.totalPrice);
+  }
+  if (typeof dropoffCostAud === "number" && Number.isFinite(dropoffCostAud)) {
+    return Number(dropoffCostAud);
+  }
+  return 0;
+}
+
 export interface LaundryInvoiceTemplate {
   companyName: string;
   invoiceTitle: string;
@@ -323,12 +342,7 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
     // Prefer the confirmation-meta price, but fall back to the canonical
     // dropoffCostAud column so previews, downloads and emails never disagree
     // when the meta happens to be missing.
-    const amount =
-      typeof droppedMeta?.totalPrice === "number" && Number.isFinite(droppedMeta.totalPrice)
-        ? Number(droppedMeta.totalPrice)
-        : typeof task.dropoffCostAud === "number" && Number.isFinite(task.dropoffCostAud)
-          ? Number(task.dropoffCostAud)
-          : 0;
+    const amount = laundryTaskAmount(droppedMeta, task.dropoffCostAud);
 
     return {
       taskId: task.id,
@@ -343,7 +357,11 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
       bagCount:
         typeof pickedMeta?.bagCount === "number" && Number.isFinite(pickedMeta.bagCount)
           ? Math.round(pickedMeta.bagCount)
-          : null,
+          : // Admin evidence path stores bagCount on the DROPPED-event meta when a
+            // task never had a separate PICKED_UP confirmation.
+            typeof droppedMeta?.bagCount === "number" && Number.isFinite(droppedMeta.bagCount)
+            ? Math.round(droppedMeta.bagCount)
+            : null,
       dropoffLocation:
         (typeof droppedMeta?.dropoffLocation === "string" && droppedMeta.dropoffLocation.trim()) ||
         droppedConfirmation?.bagLocation ||

@@ -27,7 +27,14 @@ export async function POST(req: NextRequest) {
       for (const job of jobs) {
         await tx.job.update({
           where: { id: job.id },
-          data: { status: body.status },
+          data: {
+            status: body.status,
+            // Mirror the single-job route: payroll/invoicing buckets key off
+            // completedAt, so bulk-completing must stamp it (and clearing it on
+            // a move back to UNASSIGNED avoids a stale completion timestamp).
+            ...(body.status === JobStatus.COMPLETED ? { completedAt: new Date() } : {}),
+            ...(body.status === JobStatus.UNASSIGNED ? { completedAt: null } : {}),
+          },
         });
         // Moving a job back to Unassigned removes its cleaner(s) — mirrors the
         // single-job update route so the cleaner is dropped, not left attached.

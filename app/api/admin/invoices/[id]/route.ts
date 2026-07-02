@@ -133,12 +133,23 @@ export async function PATCH(
       statusData.sentAt = new Date();
     }
 
+    // Merge dueDate + notes into ONE metadata object. Previously each was its
+    // own `metadata: {...existing, X}` spread, so a PATCH sending both fields
+    // had the second spread overwrite the first (dropping dueDate or notes).
+    const metadataChanged = body.dueDate !== undefined || body.notes !== undefined;
+    const mergedMetadata = metadataChanged
+      ? {
+          ...((existing.metadata as object) ?? {}),
+          ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
+          ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        }
+      : undefined;
+
     const updated = await db.clientInvoice.update({
       where: { id: params.id },
       data: {
         ...(body.status ? { status: body.status, ...statusData } : {}),
-        ...(body.dueDate !== undefined ? { metadata: { ...(existing.metadata as object ?? {}), dueDate: body.dueDate } } : {}),
-        ...(body.notes !== undefined ? { metadata: { ...(existing.metadata as object ?? {}), notes: body.notes } } : {}),
+        ...(mergedMetadata !== undefined ? { metadata: mergedMetadata } : {}),
         ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
         subtotal,
         gstAmount,

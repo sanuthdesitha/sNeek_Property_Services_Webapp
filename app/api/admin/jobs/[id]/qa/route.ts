@@ -194,6 +194,11 @@ export async function POST(
                 estimatedHours: job.estimatedHours,
                 notes: "Auto rework job from failed QA.",
                 internalNotes: notes,
+                // Mark as a real rework so the cleaner gets the fix checklist and
+                // laundry pickup is suppressed (both gate on isRework), and so the
+                // QA-inspection dedupe (which keys on reworkOfJobId) sees this job.
+                isRework: true,
+                reworkOfJobId: job.id,
               },
             });
             return reworkJob.id;

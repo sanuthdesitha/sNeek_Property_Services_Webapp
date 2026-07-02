@@ -197,8 +197,11 @@ export async function getExpectedInvoicesForPeriod(opts: {
     });
   }
 
+  // expectedTotal already includes expenses + shopping time (it's the cleaner's
+  // full estimatedPay), so summing those again here double-counted the payday
+  // figure by (expenses + shopping time) per cleaner.
   const grandExpectedTotal = Number(
-    results.reduce((sum, c) => sum + c.expectedTotal + c.expenseTotal + c.shoppingTimeTotal, 0).toFixed(2),
+    results.reduce((sum, c) => sum + c.expectedTotal, 0).toFixed(2),
   );
   const grandPendingAmount = Number(results.reduce((sum, c) => sum + c.pendingAmount, 0).toFixed(2));
 

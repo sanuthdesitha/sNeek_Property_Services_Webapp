@@ -281,6 +281,24 @@ export async function PATCH(
     if (body.receiptImageKey !== undefined) {
       data.receiptImageUrl = body.receiptImageKey ? publicUrl(body.receiptImageKey) : null;
     }
+    // Clear stale forward timestamps/price when an admin moves a task BACKWARDS
+    // (e.g. DROPPED → CONFIRMED). Otherwise droppedAt/dropoffCostAud linger and
+    // the task keeps counting as a completed return in finance + reports even
+    // though it's no longer dropped. Mirrors the cleaner route's revert logic.
+    if (body.status) {
+      const s = body.status;
+      if (s !== LaundryStatus.DROPPED && existingTask.droppedAt) {
+        data.droppedAt = null;
+        // Only wipe the price we didn't just set on this same request.
+        if (body.totalPrice === undefined) data.dropoffCostAud = null;
+      }
+      if ((s === LaundryStatus.PENDING || s === LaundryStatus.CONFIRMED) && existingTask.pickedUpAt) {
+        data.pickedUpAt = null;
+      }
+      if (s === LaundryStatus.PENDING && existingTask.confirmedAt) {
+        data.confirmedAt = null;
+      }
+    }
 
     const task = await db.laundryTask.update({
       where: { id: params.taskId },

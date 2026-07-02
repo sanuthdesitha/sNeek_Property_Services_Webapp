@@ -1,4 +1,5 @@
 import { addDays, format, subHours } from "date-fns";
+import { fromZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
@@ -33,7 +34,9 @@ export async function sendDailyOpsBriefing(now = new Date()) {
     return { sent: 0, skipped: ["Already sent today."] };
   }
 
-  const todayStart = new Date(`${todayKey}T00:00:00.000Z`);
+  // Sydney local midnight, not UTC midnight — otherwise "today's jobs" is
+  // shifted ~10-11h and includes/excludes the wrong evening jobs.
+  const todayStart = fromZonedTime(`${todayKey}T00:00:00`, TZ);
   const todayEnd = addDays(todayStart, 1);
   const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
   const docCutoff = addDays(now, 14);

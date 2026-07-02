@@ -307,6 +307,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const result = scoreQaSubmission(template.schema as any, body.data);
     const tools = body.tools ?? null;
 
+    // If the inspector enabled rework AND flagged areas, a rework job will be
+    // created below — so the ORIGINAL job must NOT be marked COMPLETED just
+    // because the numeric score passed. Otherwise the job is closed (invoice/
+    // loyalty eligible) while an orphaned rework is spawned.
+    const rkPre = tools?.rework;
+    const willCreateRework = Boolean(
+      rkPre?.enabled &&
+        (((rkPre.flaggedAreas ?? []).length > 0) || ((rkPre.areas ?? []).length > 0))
+    );
+    const effectivePassed = result.passed && !willCreateRework;
+
+    // A reassigned ("OTHER" cleaner) rework must name the payee + a pay amount,
+    // else createReworkJobFromFailure silently falls back to the ORIGINAL
+    // cleaner at $0 — a paid reassignment becoming an unpaid one on the wrong
+    // person. Guard server-side (the client validates, but this is a public API).
+    if (willCreateRework && rkPre?.assignee === "OTHER") {
+      if (!rkPre.payeeCleanerId || !(Number(rkPre.payAmount) > 0)) {
+        return NextResponse.json(
+          { error: "Select the cleaner and a pay amount for a reassigned rework." },
+          { status: 400 }
+        );
+      }
+    }
+
     // Derive on-site minutes from the captured window (fall back to provided minutes).
     const onSiteMinutes =
       tools?.onSite
@@ -369,8 +393,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await tx.job.update({
         where: { id: params.id },
         data: {
-          status: result.passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
-          completedAt: result.passed ? new Date() : null,
+          // effectivePassed is false when a rework is being spawned, so the
+          // original job stays in QA_REVIEW rather than closing as COMPLETED.
+          status: effectivePassed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
+          completedAt: effectivePassed ? new Date() : null,
         },
       });
 

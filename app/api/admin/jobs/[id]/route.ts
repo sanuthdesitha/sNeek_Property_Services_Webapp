@@ -434,7 +434,17 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       await tx.formSubmission.deleteMany({ where: { jobId } });
       await tx.timeLog.deleteMany({ where: { jobId } });
       await tx.jobAssignment.deleteMany({ where: { jobId } });
+      // QA + pay tables have non-cascading (Restrict) Job relations, so they
+      // must be cleared before the job or the delete throws a P2003 FK error —
+      // which made every job that was ever submitted (QA assignment auto-created
+      // on submit) impossible to delete. Order matters: form submissions
+      // reference qaAssignment + qAReview, transfers reference qaAssignment.
+      await tx.qaFormSubmission.deleteMany({ where: { jobId } });
+      await tx.qaReworkTransfer.deleteMany({ where: { jobId } });
+      await tx.qaAssignment.deleteMany({ where: { jobId } });
       await tx.qAReview.deleteMany({ where: { jobId } });
+      await tx.mediaOverrideRequest.deleteMany({ where: { jobId } });
+      await tx.cleanerPayAdjustment.deleteMany({ where: { jobId } });
       await tx.issueTicket.deleteMany({ where: { jobId } });
       await tx.report.deleteMany({ where: { jobId } });
       await tx.laundryConfirmation.deleteMany({ where: { laundryTask: { jobId } } });
@@ -526,7 +536,17 @@ export async function POST(
       await tx.formSubmission.deleteMany({ where: { jobId } });
       await tx.timeLog.deleteMany({ where: { jobId } });
       await tx.jobAssignment.deleteMany({ where: { jobId } });
+      // QA + pay tables have non-cascading (Restrict) Job relations, so they
+      // must be cleared before the job or the delete throws a P2003 FK error —
+      // which made every job that was ever submitted (QA assignment auto-created
+      // on submit) impossible to delete. Order matters: form submissions
+      // reference qaAssignment + qAReview, transfers reference qaAssignment.
+      await tx.qaFormSubmission.deleteMany({ where: { jobId } });
+      await tx.qaReworkTransfer.deleteMany({ where: { jobId } });
+      await tx.qaAssignment.deleteMany({ where: { jobId } });
       await tx.qAReview.deleteMany({ where: { jobId } });
+      await tx.mediaOverrideRequest.deleteMany({ where: { jobId } });
+      await tx.cleanerPayAdjustment.deleteMany({ where: { jobId } });
       await tx.issueTicket.deleteMany({ where: { jobId } });
       await tx.report.deleteMany({ where: { jobId } });
       await tx.cleanerPayAdjustment.deleteMany({ where: { jobId } });

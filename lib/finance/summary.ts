@@ -4,6 +4,7 @@ import { getAppSettings } from "@/lib/settings";
 import { getInventoryUnitCosts } from "@/lib/inventory/unit-costs";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
+import { laundryTaskAmount } from "@/lib/laundry/invoice";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -214,10 +215,10 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       .reverse()
       .find((confirmation) => parseMaybeJson(confirmation.notes)?.event === "DROPPED");
     const droppedMeta = parseMaybeJson(dropped?.notes);
-    const taskAmount =
-      typeof droppedMeta?.totalPrice === "number" && Number.isFinite(droppedMeta.totalPrice)
-        ? Number(droppedMeta.totalPrice)
-        : 0;
+    // Use the shared amount helper so finance and the invoice/report module can
+    // never disagree (invoice falls back to dropoffCostAud; finance used to
+    // ignore it and silently count $0 for admin-set / column-only prices).
+    const taskAmount = laundryTaskAmount(droppedMeta, task.dropoffCostAud);
     laundryCost += taskAmount;
     row.laundryCost += taskAmount;
   }
