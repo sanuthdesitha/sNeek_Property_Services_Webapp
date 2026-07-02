@@ -11,6 +11,18 @@ export interface SmsSendResult {
   error?: string;
 }
 
+// Hard cap on outbound SMS length. GSM-7 concatenated messages carry ~153 chars
+// per segment; 459 keeps any single notification to at most ~3 segments so a
+// caller passing an unbounded free-text body can't rack up huge per-message
+// billing or get rejected by the provider for over-length payloads.
+const MAX_SMS_BODY_CHARS = 459;
+
+function clampSmsBody(body: string): string {
+  const text = String(body ?? "");
+  if (text.length <= MAX_SMS_BODY_CHARS) return text;
+  return `${text.slice(0, MAX_SMS_BODY_CHARS - 1).trimEnd()}…`;
+}
+
 function normalizeSmsDestination(to: string) {
   const compact = String(to ?? "").replace(/[\s()-]/g, "").trim();
   if (!compact) return null;
@@ -179,11 +191,13 @@ export async function sendSmsDetailed(to: string, body: string): Promise<SmsSend
     return { ok: false, status: "disabled", provider: "none", error: "SMS delivery is disabled." };
   }
 
+  const clamped = clampSmsBody(body);
+
   if (provider === "cellcast") {
-    return sendViaCellcast(to, body);
+    return sendViaCellcast(to, clamped);
   }
 
-  return sendViaTwilio(to, body);
+  return sendViaTwilio(to, clamped);
 }
 
 export async function sendSms(to: string, body: string): Promise<boolean> {

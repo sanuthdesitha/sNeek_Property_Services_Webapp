@@ -101,7 +101,10 @@ const JOBS: FallbackJob[] = [
   } },
   { name: "document-expiry-check", minIntervalMs: 6 * DAY, hour: 8, dow: 1, run: async () => { await runDocumentExpiryCheck(new Date()); } },
   { name: "recognition-check", minIntervalMs: 6 * DAY, hour: 9, dow: 0, run: async () => { await runRecognitionCheck(new Date()); } },
-  { name: "google-reviews-refresh", minIntervalMs: 6 * DAY, hour: 3, dow: 1, run: async () => { await refreshGoogleReviewsCache(); } },
+  // Cache TTL is 24h (getCachedGoogleReviews), so refresh DAILY — a weekly
+  // refresh left the cache stale (returning null → empty reviews widget) 6 of 7
+  // days. Pinned to 03:00 Sydney.
+  { name: "google-reviews-refresh", minIntervalMs: 20 * HOUR, hour: 3, run: async () => { await refreshGoogleReviewsCache(); } },
 ];
 
 type SchedulerState = {
