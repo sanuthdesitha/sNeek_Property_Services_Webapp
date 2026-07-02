@@ -71,7 +71,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         where: { reworkOfJobId: params.id, isRework: true },
         select: { id: true, status: true },
       });
-      const UNSTARTED = [JobStatus.UNASSIGNED, JobStatus.OFFERED, JobStatus.ASSIGNED];
+      const UNSTARTED: JobStatus[] = [JobStatus.UNASSIGNED, JobStatus.OFFERED, JobStatus.ASSIGNED];
       const unstartedReworks = reworks.filter((r) => UNSTARTED.includes(r.status));
       startedReworksRemaining = reworks.filter((r) => !UNSTARTED.includes(r.status)).length;
 

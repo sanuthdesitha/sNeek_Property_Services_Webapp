@@ -163,12 +163,22 @@ function inferLocationFromText(value: unknown): InventoryLocation | null {
   return null;
 }
 
-function isFieldVisible(field: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
-  return isTemplateNodeVisible(field, formData, property ?? {});
+function isFieldVisible(
+  field: any,
+  formData: Record<string, unknown>,
+  property: Record<string, unknown> | undefined,
+  laundryReady?: boolean
+) {
+  return isTemplateNodeVisible(field, formData, property ?? {}, laundryReady);
 }
 
-function isSectionVisible(section: any, formData: Record<string, unknown>, property: Record<string, unknown> | undefined) {
-  return isTemplateNodeVisible(section, formData, property ?? {});
+function isSectionVisible(
+  section: any,
+  formData: Record<string, unknown>,
+  property: Record<string, unknown> | undefined,
+  laundryReady?: boolean
+) {
+  return isTemplateNodeVisible(section, formData, property ?? {}, laundryReady);
 }
 
 function adminRequestedTaskDoneFieldId(taskId: string) {
@@ -1768,22 +1778,29 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     return baseSections;
   }, [sections, job?.property?.inventoryEnabled, inventoryStock]);
 
+  // Whether the cleaner marked laundry ready. Derived here (from the laundryOutcome
+  // state set near the top of the component) so visibility can use it BEFORE the
+  // main derivation below — the server evaluates visibility with this same flag,
+  // so conditions keyed on a laundry* field with no explicit answer must see it
+  // on the client too (otherwise a field is shown/hidden inconsistently).
+  const laundryReady = laundryOutcome === "READY_FOR_PICKUP";
+
   const visibleSections = useMemo(
     () =>
       sectionsWithAutoInventory
-        .filter((section) => isSectionVisible(section, formData, property))
+        .filter((section) => isSectionVisible(section, formData, property, laundryReady))
         .map((section) => ({
           ...section,
           // Sub-fields (children) are flattened inline after their parent;
           // a child is visible only when the parent is visible too.
           fields: flattenFieldsOneLevel(section.fields ?? [])
-            .filter((field: any) => isFlattenedFieldVisible(field, formData, property))
+            .filter((field: any) => isFlattenedFieldVisible(field, formData, property, laundryReady))
             .map((field: any) => ({
               ...field,
               _resolvedStep: resolveFieldStep(field, section),
             })),
         })),
-    [sectionsWithAutoInventory, formData, property]
+    [sectionsWithAutoInventory, formData, property, laundryReady]
   );
 
   const checklistSections = useMemo(
@@ -1944,7 +1961,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const laundryPhotoKey =
     uploads.laundry_photo?.[0] ??
     (laundryUploadField?.id ? uploads[laundryUploadField.id]?.[0] : undefined);
-  const laundryReady = laundryOutcome === "READY_FOR_PICKUP";
   const laundryOutcomeLabel = laundryOutcome ? formatLaundryOutcomeLabelValue(laundryOutcome) : "No update selected";
   const savedLaundryUpdateSummary = buildLaundryUpdateSummary(savedLaundryUpdate);
   const timeReview = useMemo(() => {
