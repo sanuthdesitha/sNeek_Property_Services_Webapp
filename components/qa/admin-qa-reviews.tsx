@@ -115,12 +115,18 @@ export function AdminQaReviews({ jobId }: { jobId: string }) {
       const res = await fetch(`/api/admin/jobs/${jobId}/qa-reset`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not reset QA.");
+      const parts: string[] = [];
+      if (body.deletedReviews > 0) parts.push(`cleared ${body.deletedReviews} score(s)`);
+      if (body.cancelledReworks > 0) parts.push(`cancelled ${body.cancelledReworks} un-started rework(s)`);
+      if (body.reversedDeductions > 0) parts.push(`reversed ${body.reversedDeductions} unpaid deduction(s)`);
       toast({
-        title: "QA reset — re-requested",
+        title: body.warning ? "QA reset — needs manual follow-up" : "QA reset — re-requested",
         description:
-          body.deletedReviews > 0
-            ? `Cleared ${body.deletedReviews} score(s). The job is back in the QA queue.`
-            : "The job is back in the QA queue for inspection.",
+          body.warning ??
+          (parts.length
+            ? `${parts.join(", ")}. The job is back in the QA queue.`
+            : "The job is back in the QA queue for inspection."),
+        variant: body.warning ? "destructive" : undefined,
       });
       await refresh();
       router.refresh();
