@@ -450,10 +450,16 @@ export async function PATCH(
       where: { id: params.taskId },
       include: {
         confirmations: { orderBy: { createdAt: "asc" } },
+        property: { select: { accessInfo: true, laundryEnabled: true } },
       },
     });
     if (!task) {
       return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    }
+    // Team scoping — mirror the POST handler so a laundry user can't edit a task
+    // belonging to another team (was missing on this edit path).
+    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(task.property, session.user.id)) {
+      return NextResponse.json({ error: "You don't have access to that property." }, { status: 403 });
     }
     if (task.status !== "DROPPED") {
       return NextResponse.json({ error: "Only returned laundry tasks can be edited." }, { status: 409 });

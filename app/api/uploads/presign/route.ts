@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session";
 import { getPresignedUploadUrl } from "@/lib/s3";
+import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 
@@ -15,8 +16,16 @@ export async function POST(req: NextRequest) {
     const session = await requireSession();
     const body = schema.parse(await req.json());
 
+    const folder = sanitizeUploadFolder(body.folder);
+    if (folder === null) {
+      return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
+    }
+    if (!isAllowedUploadContentType(body.contentType, body.filename)) {
+      return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });
+    }
+
     const ext = body.filename.split(".").pop() ?? "bin";
-    const key = `${body.folder}/${session.user.id}/${randomUUID()}.${ext}`;
+    const key = `${folder}/${session.user.id}/${randomUUID()}.${ext}`;
 
     const uploadUrl = await getPresignedUploadUrl(key, body.contentType);
 

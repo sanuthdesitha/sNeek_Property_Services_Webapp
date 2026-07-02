@@ -42,3 +42,50 @@ export async function getAssignedLaundryUsersForProperty(propertyId: string) {
     orderBy: { name: "asc" },
   });
 }
+
+/**
+ * All property IDs a laundry user is allowed to see (laundry-enabled AND either
+ * on the property's team or the property has no team). Used to scope laundry
+ * invoice/report exports so a laundry user can't pull another team's financials.
+ */
+export async function getVisibleLaundryPropertyIds(userId: string): Promise<string[]> {
+  const properties = await db.property.findMany({
+    where: { NOT: { laundryEnabled: false } },
+    select: { id: true, accessInfo: true, laundryEnabled: true },
+  });
+  return properties.filter((p) => propertyIsVisibleToLaundry(p, userId)).map((p) => p.id);
+}
+
+/**
+ * Enforce laundry-team scoping on an invoice/report request. ADMIN/OPS are
+ * unrestricted. For a LAUNDRY user: a specific task/property must be visible to
+ * them (else ok:false → 403), and an unscoped/multi-property request is narrowed
+ * to only the properties they can see. Returns a propertyIds override to apply
+ * to the query when narrowing is needed.
+ */
+export async function resolveLaundryInvoiceScope(
+  role: Role,
+  userId: string,
+  scope: { taskId?: string; propertyId?: string; propertyIds?: string[] }
+): Promise<{ ok: true; propertyIds?: string[] } | { ok: false }> {
+  if (role !== Role.LAUNDRY) return { ok: true };
+  const visible = new Set(await getVisibleLaundryPropertyIds(userId));
+
+  if (scope.taskId) {
+    const task = await db.laundryTask.findUnique({
+      where: { id: scope.taskId },
+      select: { propertyId: true },
+    });
+    if (!task || !visible.has(task.propertyId)) return { ok: false };
+    return { ok: true };
+  }
+  if (scope.propertyId) {
+    return visible.has(scope.propertyId) ? { ok: true } : { ok: false };
+  }
+  // Unscoped or multi-property: force the query to the visible set (intersecting
+  // with any explicitly requested propertyIds).
+  const requested = scope.propertyIds?.length
+    ? scope.propertyIds.filter((id) => visible.has(id))
+    : Array.from(visible);
+  return { ok: true, propertyIds: requested };
+}

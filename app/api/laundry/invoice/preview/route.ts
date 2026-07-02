@@ -7,6 +7,7 @@ import { getLaundryInvoiceData, getLaundryInvoiceTemplate, LaundryInvoicePeriod 
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { parseReportFiltersFromSearch } from "@/lib/laundry/report-filters";
+import { resolveLaundryInvoiceScope } from "@/lib/laundry/teams";
 
 const querySchema = z.object({
   period: z.enum(["daily", "weekly", "monthly", "annual", "custom"]).optional(),
@@ -39,6 +40,16 @@ export async function GET(req: NextRequest) {
     });
     const filters = parseReportFiltersFromSearch(searchParams);
 
+    // Laundry users may only export data for properties on their team.
+    const scope = await resolveLaundryInvoiceScope(session.user.role, session.user.id, {
+      taskId: params.taskId,
+      propertyId: params.propertyId,
+      propertyIds: filters.propertyIds,
+    });
+    if (!scope.ok) {
+      return NextResponse.json({ error: "You don't have access to that property." }, { status: 403 });
+    }
+
     const [data, template] = await Promise.all([
       getLaundryInvoiceData({
         period: params.period as LaundryInvoicePeriod | undefined,
@@ -49,6 +60,7 @@ export async function GET(req: NextRequest) {
         taskId: params.taskId,
         includePending: params.includePending,
         ...filters,
+        ...(scope.propertyIds ? { propertyIds: scope.propertyIds } : {}),
       }),
       getLaundryInvoiceTemplate(session.user.id),
     ]);

@@ -8,6 +8,7 @@ import { tmpdir } from "os";
 import { requireSession } from "@/lib/auth/session";
 import { publicUrl, s3 } from "@/lib/s3";
 import { compressVideoToMp4 } from "@/lib/media/video-compression";
+import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
 
 export const runtime = "nodejs";
 
@@ -46,14 +47,19 @@ export async function POST(req: NextRequest) {
     const form = (await req.formData()) as globalThis.FormData;
 
     const file = form.get("file");
-    const folderRaw = form.get("folder");
-    const folder = typeof folderRaw === "string" && folderRaw.trim() ? folderRaw.trim() : "uploads";
+    const folder = sanitizeUploadFolder(form.get("folder"));
 
+    if (folder === null) {
+      return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
+    }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Missing file" }, { status: 400 });
     }
     if (!file.size) {
       return NextResponse.json({ error: "Empty file" }, { status: 400 });
+    }
+    if (!isAllowedUploadContentType(file.type, file.name)) {
+      return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });
     }
 
     const isVideo = isVideoUpload(file);

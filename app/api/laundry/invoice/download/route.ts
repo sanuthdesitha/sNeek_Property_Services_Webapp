@@ -15,6 +15,7 @@ import { isLaundryModuleEnabled } from "@/lib/portal-access";
 import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { normalizeReportFilters, reportFilterBodyShape } from "@/lib/laundry/report-filters";
 import { sydneyDateKey } from "@/lib/time/sydney-range";
+import { resolveLaundryInvoiceScope } from "@/lib/laundry/teams";
 
 const bodySchema = z.object({
   period: z.enum(["daily", "weekly", "monthly", "annual", "custom"]).optional(),
@@ -44,6 +45,17 @@ export async function POST(req: NextRequest) {
       }
     }
     const body = bodySchema.parse(await req.json().catch(() => ({})));
+    const filters = normalizeReportFilters(body);
+
+    // Laundry users may only export data for properties on their team.
+    const scope = await resolveLaundryInvoiceScope(session.user.role, session.user.id, {
+      taskId: body.taskId,
+      propertyId: body.propertyId,
+      propertyIds: filters.propertyIds,
+    });
+    if (!scope.ok) {
+      return NextResponse.json({ error: "You don't have access to that property." }, { status: 403 });
+    }
 
     let template = await getLaundryInvoiceTemplate(session.user.id);
     if (body.template && Object.keys(body.template).length > 0) {
@@ -58,7 +70,8 @@ export async function POST(req: NextRequest) {
       propertyId: body.propertyId,
       taskId: body.taskId,
       includePending: body.includePending,
-      ...normalizeReportFilters(body),
+      ...filters,
+      ...(scope.propertyIds ? { propertyIds: scope.propertyIds } : {}),
     });
 
     const html = buildLaundryInvoiceHtml({ data, template });

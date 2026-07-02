@@ -21,12 +21,23 @@ export async function GET() {
 
     const reports = await db.report.findMany({
       where: {
+        // Only reports an admin explicitly published to the client. Without this
+        // a client could pull reports marked clientVisible=false (incl. their
+        // embedded QA/notes HTML).
+        clientVisible: true,
         job: {
           property: { clientId: user.clientId },
           status: { in: ["COMPLETED", "INVOICED"] },
         },
       },
-      include: {
+      // Return only client-safe fields (no internal columns).
+      select: {
+        id: true,
+        jobId: true,
+        pdfUrl: true,
+        htmlContent: true,
+        clientVisible: true,
+        createdAt: true,
         job: {
           select: {
             scheduledDate: true,

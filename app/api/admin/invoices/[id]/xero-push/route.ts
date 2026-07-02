@@ -12,6 +12,7 @@ function isoDate(d: Date) {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const reqBody = await req.json().catch(() => ({}));
 
     const [invoice, integrations] = await Promise.all([
       db.clientInvoice.findUnique({
@@ -35,6 +36,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ]);
 
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+
+    // Idempotency: pushClientInvoiceToXero CREATES a new Xero invoice, so a
+    // second push (double-click, retry) would duplicate it. Refuse to re-push an
+    // already-exported invoice unless the caller explicitly forces it.
+    if (invoice.xeroInvoiceId && reqBody?.force !== true) {
+      return NextResponse.json({
+        ok: true,
+        alreadyPushed: true,
+        xeroInvoiceId: invoice.xeroInvoiceId,
+        message: "This invoice was already pushed to Xero.",
+      });
+    }
 
     const accountCode = integrations.xero.defaultAccountCode || "200";
     const defaultItemCode = integrations.xero.defaultItemCode?.trim() || "";

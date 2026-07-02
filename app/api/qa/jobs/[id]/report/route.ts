@@ -5,7 +5,10 @@ import { db } from "@/lib/db";
 import { buildQaReportHtml } from "@/lib/reports/qa-report";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 
-const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN, Role.CLIENT, Role.CLEANER] as const;
+// INTERNAL QA report — embeds ops-only data (cleaner pay clawbacks, damage cost
+// estimates, inspector notes/names). Clients must NOT see it; they view their
+// own report via /api/reports/[jobId]/download, which is gated on clientVisible.
+const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN, Role.CLEANER] as const;
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -13,18 +16,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const wantHtml = searchParams.get("format") === "html";
     const session = await requireRole([...QA_ROLES]);
 
-    // Access control. QA/ops/admin always allowed. The assigned cleaner and the
-    // owning client may view their own job's QA report.
+    // Access control. QA/ops/admin always allowed. The assigned cleaner may view
+    // their own job's QA report (their rework feedback).
     const role = session.user.role as Role;
-    if (role === Role.CLIENT) {
-      const [user, job] = await Promise.all([
-        db.user.findUnique({ where: { id: session.user.id }, select: { clientId: true } }),
-        db.job.findUnique({ where: { id: params.id }, select: { property: { select: { clientId: true } } } }),
-      ]);
-      if (!job || !user?.clientId || job.property?.clientId !== user.clientId) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-    } else if (role === Role.CLEANER) {
+    if (role === Role.CLEANER) {
       const assignment = await db.jobAssignment.findFirst({
         where: { jobId: params.id, userId: session.user.id, removedAt: null },
         select: { id: true },
