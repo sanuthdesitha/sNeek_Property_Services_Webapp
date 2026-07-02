@@ -59,6 +59,9 @@ export async function getPayrollSummary(input: {
       where: {
         reviewedAt: { gte: start, lt: endExclusive },
         status: PayAdjustmentStatus.APPROVED,
+        // When building a committable run, never re-include an adjustment already
+        // paid by a prior run (idempotency).
+        ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
       },
       select: {
         id: true,

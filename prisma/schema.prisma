@@ -1114,6 +1114,10 @@ model CleanerPayAdjustment {
   requestedAt     DateTime            @default(now())
   reviewedById    String?
   reviewedAt      DateTime?
+  // Stamped with the payroll run that paid this approved adjustment so it can
+  // never be included in a second run (idempotency — mirrors Job.payrollRunId
+  // and ShoppingSettlement.includedInPayrollRunId).
+  includedInPayrollRunId String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
@@ -1125,6 +1129,7 @@ model CleanerPayAdjustment {
   @@index([cleanerId, status])
   @@index([jobId, status])
   @@index([propertyId, status])
+  @@index([includedInPayrollRunId])
 }
 
 model JobAssignment {

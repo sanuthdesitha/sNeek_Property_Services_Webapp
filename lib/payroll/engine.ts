@@ -88,6 +88,11 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   const includedSettlementIds = Array.from(
     new Set(payableCleaners.flatMap((c) => c.shoppingReimbursements.map((s) => s.settlementId)))
   );
+  // Approved-adjustment IDs captured by this run — stamped so an adjustment
+  // can't be paid again in a later/overlapping run.
+  const includedAdjustmentIds = Array.from(
+    new Set(payableCleaners.flatMap((c) => c.adjustments.map((a) => a.id)))
+  );
 
   const grandTotal = payableCleaners.reduce((sum, c) => sum + c.totals.grossPay, 0);
   const totalShopping = payableCleaners.reduce((sum, c) => sum + c.totals.shoppingReimbursements, 0);
@@ -158,6 +163,14 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       await tx.job.updateMany({
         where: { id: { in: includedJobIds }, payrollRunId: null },
         data: { payrollRunId: createdRun.id },
+      });
+    }
+
+    if (includedAdjustmentIds.length > 0) {
+      // Same idempotency guard for approved pay adjustments.
+      await tx.cleanerPayAdjustment.updateMany({
+        where: { id: { in: includedAdjustmentIds }, includedInPayrollRunId: null },
+        data: { includedInPayrollRunId: createdRun.id },
       });
     }
 
