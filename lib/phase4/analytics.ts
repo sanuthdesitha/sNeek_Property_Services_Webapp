@@ -152,6 +152,8 @@ export async function buildBranchScorecards(input?: {
       estimatedHours: true,
       internalNotes: true,
       jobType: true,
+      isRework: true,
+      reworkPayAmount: true,
       assignments: {
         where: { removedAt: null },
         select: { userId: true, payRate: true, user: { select: { hourlyRate: true } } },
@@ -203,6 +205,12 @@ export async function buildBranchScorecards(input?: {
       const split = Math.max(1, job.assignments.length);
       if (job.assignments.length === 0) return sum;
       const jobMeta = parseJobInternalNotes(job.internalNotes);
+      // Rework cost = QA-decided pay only (unpaid rework costs $0), never hours×rate.
+      const reworkCustomPayout = job.isRework
+        ? typeof job.reworkPayAmount === "number" && Number.isFinite(job.reworkPayAmount)
+          ? job.reworkPayAmount
+          : 0
+        : undefined;
       // Canonical cleaner-pay math, so branch scorecards match payroll/invoices.
       let jobCost = 0;
       for (const assignment of job.assignments) {
@@ -213,7 +221,8 @@ export async function buildBranchScorecards(input?: {
           {
             cleanerId: assignment.userId,
             activeAssignmentCount: split,
-            customPayout: jobMeta.cleanerPayouts?.[assignment.userId],
+            customPayout:
+              reworkCustomPayout !== undefined ? reworkCustomPayout : jobMeta.cleanerPayouts?.[assignment.userId],
             transportAllowance: jobMeta.transportAllowances?.[assignment.userId],
           }
         );

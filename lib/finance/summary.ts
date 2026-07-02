@@ -180,6 +180,13 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       .filter(([cleanerId]) => !assignedIds.has(cleanerId))
       .reduce((sum, [, amount]) => sum + amount, 0);
 
+    // Rework cost = QA-decided pay only (unpaid rework costs $0), never hours×rate.
+    const reworkCustomPayout = job.isRework
+      ? typeof job.reworkPayAmount === "number" && Number.isFinite(job.reworkPayAmount)
+        ? job.reworkPayAmount
+        : 0
+      : undefined;
+
     let jobCleanerCost = orphanAdjustmentTotal;
     for (const assignment of assignments) {
       const timerHoursForCleaner = job.timeLogs
@@ -193,7 +200,8 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
           cleanerId: assignment.userId,
           activeAssignmentCount: splitCount,
           timerHours: timerHoursForCleaner,
-          customPayout: jobMeta.cleanerPayouts?.[assignment.userId],
+          customPayout:
+            reworkCustomPayout !== undefined ? reworkCustomPayout : jobMeta.cleanerPayouts?.[assignment.userId],
           transportAllowance: jobMeta.transportAllowances?.[assignment.userId],
           approvedAdjustments: adjustmentsByCleaner.get(assignment.userId) ?? 0,
         }

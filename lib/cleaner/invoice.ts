@@ -325,6 +325,19 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       const approvedExtraAmount = extrasByJob.get(job.id) ?? 0;
       const comment = options.jobComments?.[job.id]?.trim() || "";
 
+      // Rework pay is governed ENTIRELY by the QA decision, never hours×rate.
+      // reworkPayAmount is the amount QA set (null when unpaid), so an unpaid
+      // rework contributes $0 and a paid one contributes exactly QA's amount.
+      // This overrides the cleanerPayouts meta so a missing/legacy meta entry
+      // can't leak an unpaid rework back into pay at the hourly rate.
+      const reworkCustomPayout = job.isRework
+        ? typeof job.reworkPayAmount === "number" && Number.isFinite(job.reworkPayAmount)
+          ? job.reworkPayAmount
+          : 0
+        : undefined;
+      const effectiveCustomPayout =
+        reworkCustomPayout !== undefined ? reworkCustomPayout : jobMeta.cleanerPayouts?.[options.userId];
+
       // Canonical cleaner-pay math (single source of truth) — the cleaner invoice
       // and the payroll run / finance summary never disagree on what a job pays.
       // We compute the un-overridden pay first to report originalHours, then the
@@ -337,7 +350,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
           cleanerId: options.userId,
           activeAssignmentCount: splitCount,
           timerHours,
-          customPayout: jobMeta.cleanerPayouts?.[options.userId],
+          customPayout: effectiveCustomPayout,
           transportAllowance: jobMeta.transportAllowances?.[options.userId],
           approvedAdjustments: approvedExtraAmount,
         }

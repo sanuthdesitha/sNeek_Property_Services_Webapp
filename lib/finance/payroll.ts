@@ -45,6 +45,8 @@ export async function getPayrollSummary(input: {
         completedAt: true,
         estimatedHours: true,
         internalNotes: true,
+        isRework: true,
+        reworkPayAmount: true,
         property: { select: { name: true, suburb: true } },
         assignments: {
           where: { removedAt: null },
@@ -144,6 +146,18 @@ export async function getPayrollSummary(input: {
       // Job meta carries per-cleaner overrides (transport allowance + custom payout).
       const notes = parseJobInternalNotes(job.internalNotes as string | null);
 
+      // Rework pay is governed ENTIRELY by the QA decision (reworkPayAmount), never
+      // hours×rate — an unpaid rework (reworkPayAmount null) pays $0, a paid one
+      // pays exactly what QA set. This can't leak back to the hourly rate even if
+      // the cleanerPayouts meta is missing on a legacy/admin-created rework.
+      const reworkCustomPayout = job.isRework
+        ? typeof job.reworkPayAmount === "number" && Number.isFinite(job.reworkPayAmount)
+          ? job.reworkPayAmount
+          : 0
+        : undefined;
+      const effectiveCustomPayout =
+        reworkCustomPayout !== undefined ? reworkCustomPayout : notes.cleanerPayouts?.[cleaner.id];
+
       // Canonical cleaner-pay math (single source of truth). Approved adjustments
       // are listed separately as adjustment rows below, so they are NOT passed
       // here (would otherwise be double-counted in grossPay).
@@ -155,7 +169,7 @@ export async function getPayrollSummary(input: {
           cleanerId: cleaner.id,
           activeAssignmentCount: splitCount,
           timerHours,
-          customPayout: notes.cleanerPayouts?.[cleaner.id],
+          customPayout: effectiveCustomPayout,
           transportAllowance: notes.transportAllowances?.[cleaner.id],
           approvedAdjustments: 0,
         }
