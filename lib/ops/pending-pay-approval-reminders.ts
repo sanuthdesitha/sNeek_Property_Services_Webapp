@@ -1,9 +1,9 @@
 import { PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
+import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 
 const STATE_KEY = "pending_pay_approval_reminder_v1";
 /** Only remind about requests that have been waiting at least this long. */
@@ -115,20 +115,21 @@ export async function sendPendingPayApprovalReminders(
 
   const admins = await db.user.findMany({
     where: { role: { in: ["ADMIN", "OPS_MANAGER"] }, isActive: true },
-    select: { email: true },
+    select: { id: true, role: true, email: true, phone: true, name: true },
   });
 
-  let sent = 0;
-  for (const admin of admins) {
-    if (!admin.email) continue;
-    const result = await sendEmailDetailed({
-      kind: "admin_summary",
-      to: admin.email,
-      subject,
-      html,
-    });
-    if (result.ok) sent += 1;
-  }
+  // Route through the notification system so per-admin channel preferences are
+  // honoured, Notification rows are written (visible in the feed + the
+  // "failed notifications" health tile), rather than a raw email bypass.
+  const summaryLine = `${pending.length} extra-pay request${pending.length === 1 ? "" : "s"} awaiting approval — ${money(totalAmount)} total.`;
+  await deliverNotificationToRecipients({
+    recipients: admins.map((a) => ({ id: a.id, role: a.role, email: a.email, phone: a.phone, name: a.name })),
+    category: "approvals",
+    url: actionUrl,
+    web: { subject, body: summaryLine },
+    email: { subject, html },
+  });
+  const sent = admins.filter((a) => a.email).length;
 
   if (!options.ignoreWindow) await markSentToday(dateKey);
   logger.info({ pending: pending.length, sent, totalAmount }, "Pending pay-approval reminders dispatched");
