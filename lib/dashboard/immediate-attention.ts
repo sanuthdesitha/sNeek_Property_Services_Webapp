@@ -1,7 +1,9 @@
-import { JobStatus, PayAdjustmentStatus, Prisma } from "@prisma/client";
+import { JobStatus, PayAdjustmentStatus, Prisma, QaReworkTransferStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
+import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { summarizePendingLaundrySyncDraft, getPendingLaundrySyncDraft } from "@/lib/laundry/sync-draft";
 import { listDisputes } from "@/lib/phase4/disputes";
 import { parseCaseDescription } from "@/lib/issues/case-utils";
@@ -117,6 +119,14 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
       }),
     ]);
 
+  // Approval categories the attention count previously omitted — so it doesn't
+  // read "nothing needs attention" while timing / QA-rework / skip requests wait.
+  const [pendingTimingRequests, pendingQaReworkTransfers, pendingSkipRequests] = await Promise.all([
+    listEarlyCheckoutRequests({ status: "PENDING" }).then((rows) => rows.length),
+    listQaReworkTransfers(QaReworkTransferStatus.PENDING).then((rows) => rows.length),
+    safeCount(db.job.count({ where: { cleanSkipStatus: "REQUESTED" } }), 0),
+  ]);
+
   const now = Date.now();
   const overdueCases = openCases.filter((item) => {
     const dueAtRaw = parseCaseDescription(item.description).metadata.dueAt;
@@ -135,7 +145,10 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
     unassignedJobs +
     openCases.length +
     pendingContinuations +
-    pendingClientApprovals;
+    pendingClientApprovals +
+    pendingTimingRequests +
+    pendingQaReworkTransfers +
+    pendingSkipRequests;
 
   return {
     pendingPayRequests,

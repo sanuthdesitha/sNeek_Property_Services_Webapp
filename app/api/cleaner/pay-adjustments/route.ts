@@ -21,6 +21,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { publicUrl } from "@/lib/s3";
+import { roundCents } from "@/lib/finance/job-money";
 
 const createSchema = z
   .object({
@@ -247,9 +248,9 @@ export async function POST(req: NextRequest) {
       if (!requestedRate || !Number.isFinite(requestedRate) || requestedRate <= 0) {
         return NextResponse.json({ error: "Requested rate is required for hourly requests." }, { status: 400 });
       }
-      requestedAmount = requestedHours * requestedRate;
+      requestedAmount = roundCents(requestedHours * requestedRate);
     } else {
-      requestedAmount = Number(body.requestedAmount ?? 0);
+      requestedAmount = roundCents(Number(body.requestedAmount ?? 0));
       if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
         return NextResponse.json({ error: "Requested amount must be greater than 0 for fixed requests." }, { status: 400 });
       }

@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { listClientApprovals, deleteClientApprovalById } from "@/lib/commercial/client-approvals";
+import { roundCents } from "@/lib/finance/job-money";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -110,7 +111,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           Number.isFinite(resolvedHours) &&
           Number.isFinite(resolvedRate)
         ) {
-          editedRequestedAmount = Number(resolvedHours) * Number(resolvedRate);
+          editedRequestedAmount = roundCents(Number(resolvedHours) * Number(resolvedRate));
         }
       } else if (body.requestedAmount !== undefined) {
         editedRequestedAmount = body.requestedAmount;
@@ -123,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
     // Reversing to PENDING clears the prior decision; an approve/reject sets it.
-    const approvedAmount = isReverseToPending
+    const approvedAmountRaw = isReverseToPending
       ? null
       : body.status === PayAdjustmentStatus.APPROVED
       ? body.approvedAmount ?? existing.requestedAmount
@@ -132,6 +133,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       : body.status === PayAdjustmentStatus.REJECTED
       ? null
       : existing.approvedAmount;
+    // Round to whole cents so the stored amount can't carry >2 decimals (which
+    // drift 1c against payroll/invoice totals that round on display).
+    const approvedAmount =
+      approvedAmountRaw == null || !Number.isFinite(Number(approvedAmountRaw))
+        ? approvedAmountRaw
+        : roundCents(Number(approvedAmountRaw));
 
     if (body.status === PayAdjustmentStatus.APPROVED) {
       const linkedApprovals = (await listClientApprovals()).filter((approval) => {
