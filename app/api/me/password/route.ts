@@ -36,6 +36,11 @@ export async function POST(req: NextRequest) {
     });
     await upsertAuthUserState(user.id, { requiresPasswordReset: false });
 
+    // Revoke all "remember this device" 2FA tokens so a device the user is
+    // trying to lock out can no longer skip 2FA. (Passkeys are a deliberate
+    // second factor the user set up, so they're intentionally left in place.)
+    await db.trustedDevice.deleteMany({ where: { userId: user.id } });
+
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : 400;

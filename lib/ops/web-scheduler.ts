@@ -19,6 +19,7 @@ import { sendDailyOpsBriefing } from "@/lib/ops/daily-briefing";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
+import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
 
 const TZ = "Australia/Sydney";
 const WEB_SCHEDULER_MIN_INTERVAL_MS = 5 * 60_000;
@@ -65,6 +66,9 @@ const JOBS: FallbackJob[] = [
   } },
   { name: "sla-escalation", minIntervalMs: HOUR, run: async () => { await runSlaEscalation(new Date()); } },
   { name: "safety-checkin-alerts", minIntervalMs: 30 * MIN, run: async () => { await runSafetyCheckinAlerts(new Date()); } },
+  // Revert jobs abandoned in EN_ROUTE (no arrival within 6h) back to ASSIGNED so
+  // they don't sit "on the way" forever.
+  { name: "stale-en-route-sweep", minIntervalMs: 30 * MIN, run: async () => { await sweepStaleEnRouteJobs(new Date()); } },
   // Time-pinned daily jobs (Sydney). minInterval > 1h so they only fire once
   // per window across multiple 5-min ticks.
   { name: "daily-ops-briefing", minIntervalMs: 20 * HOUR, hour: 7, run: async () => { await sendDailyOpsBriefing(new Date()); } },

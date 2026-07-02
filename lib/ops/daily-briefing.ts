@@ -50,7 +50,11 @@ export async function sendDailyOpsBriefing(now = new Date()) {
     db.laundryTask.count({ where: { pickupDate: { gte: todayStart, lt: todayEnd } } }),
     db.issueTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] }, createdAt: { lte: fortyEightHoursAgo } } }),
     db.quoteLead.count({ where: { createdAt: { gte: subHours(now, 24) } } }),
-    db.staffDocument.count({ where: { expiresAt: { gte: now, lte: docCutoff } } }),
+    // Include ALREADY-EXPIRED docs, not just upcoming ones — a lapsed police
+    // check / visa is the most urgent case and was previously hidden by the
+    // `gte: now` lower bound. (Null expiresAt never matches lte, so "no expiry"
+    // docs stay excluded.)
+    db.staffDocument.count({ where: { expiresAt: { lte: docCutoff } } }),
     db.user.findMany({ where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true }, select: { email: true, name: true } }),
   ]);
 
@@ -68,7 +72,7 @@ export async function sendDailyOpsBriefing(now = new Date()) {
       <li><strong>${laundryPickups}</strong> laundry pickups today</li>
       <li><strong>${openCases}</strong> cases open for more than 48 hours</li>
       <li><strong>${newLeads}</strong> new leads in the last 24 hours</li>
-      <li><strong>${expiringDocs}</strong> staff documents expiring within 14 days</li>
+      <li><strong>${expiringDocs}</strong> staff documents expired or expiring within 14 days</li>
     </ul>
     <p>Status mix: ${Object.entries(byStatus).map(([status, count]) => `${status.replace(/_/g, " ")}: ${count}`).join(" | ") || "No jobs"}</p>
   `;

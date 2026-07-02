@@ -33,6 +33,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         data: { passwordHash },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
+      // Also drop any "remember this device" 2FA tokens so a reset (often done
+      // for a compromised account) can't be bypassed by a still-trusted device.
+      await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
     });
     await upsertAuthUserState(user.id, { requiresPasswordReset: true });
 
