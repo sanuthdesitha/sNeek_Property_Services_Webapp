@@ -144,7 +144,16 @@ export function QuotePreviewPage() {
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(DRAFT_KEY);
       }
-      toast({ title: "Quote created" });
+      // The quote saved regardless; if it priced below the margin floor the API
+      // returns a soft warning (warn-but-allow) — show it so the admin knows.
+      if (body?.marginWarning) {
+        toast({
+          title: "Quote created — below margin floor",
+          description: String(body.marginWarning),
+        });
+      } else {
+        toast({ title: "Quote created" });
+      }
       router.push("/admin/quotes");
       router.refresh();
     } catch (err: any) {

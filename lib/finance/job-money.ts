@@ -138,13 +138,17 @@ export function computeCleanerPay(
     overrideRaw != null && Number.isFinite(Number(overrideRaw)) && Number(overrideRaw) >= 0;
   const paidHours = hasOverride ? Number(overrideRaw) : baseHours;
 
-  // Resolve the job-type rate from the most specific source available. This is
-  // the SAME precedence the whole app shares so the screens never disagree:
-  // per-assignment snapshot → cleaner default → per-cleaner per-job-type setting.
+  // Resolve the hourly rate. Owner spec: the per-job-type rate OVERRIDES the
+  // cleaner's personal default rate. Precedence (shared app-wide so screens
+  // never disagree):
+  //   1. assignment.payRate                       — explicit per-assignment
+  //      snapshot (itself captured from the job-type rate at dispatch time)
+  //   2. cleanerJobHourlyRates[cleaner][jobType]  — live per-cleaner job-type rate
+  //   3. userHourlyRate (User.hourlyRate)         — cleaner's personal default
   const configuredRateRaw =
     assignment.payRate ??
-    assignment.userHourlyRate ??
     settings.cleanerJobHourlyRates?.[context.cleanerId]?.[job.jobType] ??
+    assignment.userHourlyRate ??
     null;
   const configuredRate =
     configuredRateRaw != null && Number.isFinite(Number(configuredRateRaw)) && Number(configuredRateRaw) > 0

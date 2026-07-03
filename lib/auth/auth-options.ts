@@ -20,6 +20,12 @@ import {
   readCookieFromHeader,
   verifyTwoFaOk,
 } from "@/lib/auth/twofactor";
+import {
+  loginKey,
+  ensureNotLockedOut,
+  recordFailedAttempt,
+  clearFailedAttempts,
+} from "@/lib/auth/login-lockout";
 
 function getConfiguredAuthBaseUrl() {
   const raw =
@@ -130,9 +136,13 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
         async authorize(credentials, req) {
           if (!credentials?.email || !credentials?.password) return null;
           const email = credentials.email.toLowerCase();
+          // Brute-force lockout (survives serverless restarts via appSetting).
+          const lock = await ensureNotLockedOut(loginKey(email));
+          if (!lock.ok) throw new Error(lock.message);
           const bootstrapAdmin = getBootstrapAdminConfig();
 
           if (bootstrapAdmin && email === bootstrapAdmin.email && credentials.password === bootstrapAdmin.password) {
+            await clearFailedAttempts(loginKey(email));
             const passwordHash = await bcrypt.hash(bootstrapAdmin.password, 10);
             const user = await db.user.upsert({
               where: { email },
@@ -166,10 +176,19 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             where: { email },
           });
 
-          if (!user || !user.passwordHash || !user.isActive) return null;
+          if (!user || !user.passwordHash || !user.isActive) {
+            await recordFailedAttempt(loginKey(email));
+            return null;
+          }
 
           const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-          if (!valid) return null;
+          if (!valid) {
+            await recordFailedAttempt(loginKey(email));
+            return null;
+          }
+          // Password correct — clear the counter. (A subsequent 2FA failure is
+          // tracked separately under the 2FA lockout namespace.)
+          await clearFailedAttempts(loginKey(email));
 
           // Optional 2FA gate. The login UI runs the second-factor check first
           // (via /api/auth/2fa/*) and sets a short-lived proof cookie, or the

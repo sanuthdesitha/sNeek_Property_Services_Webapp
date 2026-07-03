@@ -13,6 +13,12 @@ import {
   verifyEmailTwoFaCode,
   verifyTotp,
 } from "@/lib/auth/twofactor";
+import {
+  twoFaKey,
+  ensureNotLockedOut,
+  recordFailedAttempt,
+  clearFailedAttempts,
+} from "@/lib/auth/login-lockout";
 
 /**
  * Step 2 of sign-in: verify the second factor (TOTP / email code / backup code)
@@ -31,10 +37,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing details." }, { status: 400 });
     }
 
+    // Brute-force lockout on the 2FA code (a 6-digit email code / backup code is
+    // otherwise unthrottled). Tracked separately from the password lockout.
+    const lock = await ensureNotLockedOut(twoFaKey(email));
+    if (!lock.ok) {
+      return NextResponse.json({ error: lock.message }, { status: 429 });
+    }
+
     const user = await db.user.findUnique({ where: { email } });
     const passwordOk =
       !!user?.passwordHash && user.isActive && (await bcrypt.compare(password, user.passwordHash));
     if (!user || !passwordOk) {
+      await recordFailedAttempt(twoFaKey(email));
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
     }
     if (!user.twoFactorEnabled) {
@@ -62,8 +76,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (!verified) {
+      await recordFailedAttempt(twoFaKey(email));
       return NextResponse.json({ error: "Invalid or expired code." }, { status: 401 });
     }
+    // Second factor passed — clear the counter.
+    await clearFailedAttempts(twoFaKey(email));
 
     const res = NextResponse.json({ ok: true });
     res.cookies.set(TWO_FA_OK_COOKIE, signTwoFaOk(email), twoFaOkCookieOptions());
