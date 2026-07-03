@@ -496,9 +496,28 @@ export async function setReworkPayDecision(params: {
 }): Promise<void> {
   const rework = await db.job.findUnique({
     where: { id: params.reworkJobId },
-    select: { id: true, isRework: true, reworkOfJobId: true, internalNotes: true, reworkDeductionApplied: true },
+    select: {
+      id: true,
+      isRework: true,
+      reworkOfJobId: true,
+      internalNotes: true,
+      reworkDeductionApplied: true,
+      // Needed to reconcile a CHANGED deduction on a re-decide (below).
+      reworkPayAmount: true,
+      reworkDeductFromCleanerId: true,
+      propertyId: true,
+      property: { select: { name: true } },
+    },
   });
   if (!rework || !rework.isRework) throw new Error("Not a rework job.");
+
+  // Capture the previously-applied deduction BEFORE the update overwrites it, so
+  // a re-decide can post a compensating adjustment for the delta (see below).
+  const deductionWasApplied = rework.reworkDeductionApplied;
+  const previousDeduction = deductionWasApplied
+    ? roundCents(Math.max(0, Number(rework.reworkPayAmount ?? 0)))
+    : 0;
+  const previousDeductCleanerId = rework.reworkDeductFromCleanerId;
 
   const originalCleanerId = rework.reworkOfJobId
     ? await getOriginalPrimaryCleanerId(rework.reworkOfJobId)
@@ -542,7 +561,43 @@ export async function setReworkPayDecision(params: {
     });
   });
 
-  if (isDifferent && amount > 0) {
-    await applyReworkDeduction({ reworkJobId: rework.id, reviewerUserId: params.reviewerUserId });
+  const newDeduction = isDifferent ? amount : 0;
+
+  if (!deductionWasApplied) {
+    // First decision — apply the deduction once (unchanged behaviour).
+    if (newDeduction > 0) {
+      await applyReworkDeduction({ reworkJobId: rework.id, reviewerUserId: params.reviewerUserId });
+    }
+  } else if (newDeduction !== previousDeduction && previousDeductCleanerId && rework.reworkOfJobId) {
+    // RE-DECISION with a changed amount/payee: the original cleaner already has
+    // a −previousDeduction adjustment. Post a compensating adjustment for the
+    // delta so their net deduction becomes −newDeduction (previously this path
+    // updated the payee's payout but never corrected the deduction, so lowering
+    // the amount over-deducted and raising it left money unrecovered).
+    const delta = roundCents(previousDeduction - newDeduction); // added to the original cleaner
+    if (delta !== 0) {
+      await db.cleanerPayAdjustment.create({
+        data: {
+          jobId: rework.reworkOfJobId,
+          propertyId: rework.propertyId,
+          cleanerId: previousDeductCleanerId,
+          scope: PayAdjustmentScope.JOB,
+          title: `Rework pay adjusted — ${rework.property?.name ?? "property"}`,
+          type: PayAdjustmentType.FIXED,
+          requestedAmount: delta,
+          approvedAmount: delta,
+          status: PayAdjustmentStatus.APPROVED,
+          cleanerNote:
+            "Rework pay decision changed; this corrects the earlier deduction to the new amount.",
+          reviewedById: params.reviewerUserId,
+          reviewedAt: new Date(),
+        },
+      });
+    }
+    // Keep the flag consistent: a net-zero deduction is no longer "applied".
+    await db.job.update({
+      where: { id: rework.id },
+      data: { reworkDeductionApplied: newDeduction > 0 },
+    });
   }
 }
