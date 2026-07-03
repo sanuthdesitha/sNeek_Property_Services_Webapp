@@ -128,6 +128,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // When we atomically claim the SUBMITTED transition (below), remember the
+  // status to roll back to if anything downstream throws, so a failed submit
+  // never strands the job as SUBMITTED with no form. null = nothing to revert.
+  let claimedFromStatus: JobStatus | null = null;
   try {
     const session = await requireRole([Role.CLEANER]);
     const body = submitJobSchema.parse(await req.json());
@@ -405,6 +409,26 @@ export async function POST(
 
     // Carry-forward tasks are advisory in this workflow and must not block submission.
 
+    // ATOMIC CLAIM — the idempotency point for the whole submission. All
+    // validation above only reads/returns; everything below writes (form
+    // submission, media, stock deduction, tasks, status). Transition the job to
+    // SUBMITTED here, conditionally on it not already being in a locked state, so
+    // two concurrent submits (double-tap / retry) can't both proceed — only the
+    // one that actually flips the row (count === 1) continues; the loser gets a
+    // 409 and does NO side effects (no duplicate submission, no double stock
+    // deduction). If anything below throws, the outer catch reverts this claim.
+    const claim = await db.job.updateMany({
+      where: { id: params.id, status: { notIn: lockedStatuses } },
+      data: { status: JobStatus.SUBMITTED },
+    });
+    if (claim.count !== 1) {
+      return NextResponse.json(
+        { error: "This job was just submitted. Refresh to see the latest status." },
+        { status: 409 }
+      );
+    }
+    claimedFromStatus = job.status;
+
     const submission = await db.formSubmission.create({
       data: {
         jobId: params.id,
@@ -593,6 +617,10 @@ export async function POST(
       // Clear the "form pending after early clock-out" park flag now the form is in.
       data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
     });
+    // The submission + stock deduction + status are now durably committed. From
+    // here on the work is QA scaffolding / notifications / cleanup — a failure in
+    // those must NOT revert the claim (the job really is submitted).
+    claimedFromStatus = null;
 
     // QA: as soon as the cleaner submits, open a QA assignment so an
     // inspector / ops / admin can claim it from the queue. Idempotent +
@@ -711,6 +739,17 @@ export async function POST(
 
     return NextResponse.json({ ok: true, submissionId: submission.id });
   } catch (err: any) {
+    // Roll back an in-flight SUBMITTED claim (only if the job is still SUBMITTED,
+    // so a concurrent advance isn't clobbered) so a failed submit doesn't leave
+    // the job stranded and un-retryable. Best-effort; never mask the real error.
+    if (claimedFromStatus !== null) {
+      await db.job
+        .updateMany({
+          where: { id: params.id, status: JobStatus.SUBMITTED },
+          data: { status: claimedFromStatus },
+        })
+        .catch(() => {});
+    }
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
