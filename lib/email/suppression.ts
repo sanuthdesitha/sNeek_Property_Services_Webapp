@@ -19,6 +19,16 @@ const NON_TRANSACTIONAL_BLOCKED = new Set<SuppressionReason>([
  */
 export async function isSuppressed(email: string): Promise<boolean> {
   if (!email) return false;
+  const normalized = email.toLowerCase();
+  // Channel-independent suppression list first — covers CLIENT emails that have
+  // no User row (the old User.emailStatus check missed those entirely).
+  const listed = await db.emailSuppression.findUnique({
+    where: { email: normalized },
+    select: { reason: true },
+  });
+  if (listed && NON_TRANSACTIONAL_BLOCKED.has(listed.reason as SuppressionReason)) {
+    return true;
+  }
   const user = await db.user.findFirst({
     where: { email },
     select: { emailStatus: true },
@@ -28,9 +38,17 @@ export async function isSuppressed(email: string): Promise<boolean> {
 }
 
 /**
- * Mark an address as suppressed. Idempotent.
+ * Mark an address as suppressed. Idempotent. Writes BOTH the address-keyed
+ * suppression list (so bare client emails are covered) and User.emailStatus
+ * (kept in sync for any matching user rows).
  */
 export async function suppress(email: string, reason: SuppressionReason): Promise<void> {
+  const normalized = email.toLowerCase();
+  await db.emailSuppression.upsert({
+    where: { email: normalized },
+    create: { email: normalized, reason },
+    update: { reason },
+  });
   await db.user.updateMany({
     where: { email },
     data: { emailStatus: reason },
@@ -38,9 +56,12 @@ export async function suppress(email: string, reason: SuppressionReason): Promis
 }
 
 /**
- * Restore an address to OK status.
+ * Restore an address to OK status. Clears both the suppression list and any
+ * matching User rows.
  */
 export async function unsuppress(email: string): Promise<void> {
+  const normalized = email.toLowerCase();
+  await db.emailSuppression.deleteMany({ where: { email: normalized } });
   await db.user.updateMany({
     where: { email },
     data: { emailStatus: "OK" },

@@ -148,7 +148,29 @@ export async function deliverHeldStock(input: {
       throw new Error("This stock is not on hand with you.");
     }
     if (held.status !== HeldStockStatus.HELD) throw new Error("This stock has already been cleared.");
-    if (held.quantity < qty) throw new Error("Not enough on-hand quantity to deliver.");
+
+    // Atomic conditional decrement: the WHERE guards on status + sufficient
+    // quantity, so two concurrent deliveries can't both pass a stale read-check
+    // and over-deliver / drive the holding negative. Only the caller whose
+    // update actually matched (count === 1) proceeds; the loser is rejected.
+    const claimed = await tx.heldStock.updateMany({
+      where: { id: held.id, status: HeldStockStatus.HELD, quantity: { gte: qty } },
+      data: { quantity: { decrement: qty } },
+    });
+    if (claimed.count !== 1) {
+      throw new Error("Not enough on-hand quantity to deliver.");
+    }
+    // Re-read the post-decrement quantity to flip status when it hits zero.
+    const afterDecrement = await tx.heldStock.findUnique({
+      where: { id: held.id },
+      select: { quantity: true },
+    });
+    if ((afterDecrement?.quantity ?? 0) <= 0) {
+      await tx.heldStock.update({
+        where: { id: held.id },
+        data: { status: HeldStockStatus.DELIVERED },
+      });
+    }
 
     const stock = await tx.propertyStock.upsert({
       where: { propertyId_itemId: { propertyId: input.propertyId, itemId: held.itemId } },
@@ -163,12 +185,6 @@ export async function deliverHeldStock(input: {
         quantity: qty,
         notes: `Delivered from on-hand stock${input.note ? ` — ${input.note}` : ""}`,
       },
-    });
-
-    const remaining = Number((held.quantity - qty).toFixed(4));
-    await tx.heldStock.update({
-      where: { id: held.id },
-      data: { quantity: remaining, status: remaining <= 0 ? HeldStockStatus.DELIVERED : held.status },
     });
 
     return tx.heldStockDelivery.create({

@@ -1165,6 +1165,13 @@ model TimeLog {
   job                Job                        @relation(fields: [jobId], references: [id])
   user               User                       @relation(fields: [userId], references: [id])
   adjustmentRequests TimeLogAdjustmentRequest[]
+
+  // NOTE: a PARTIAL unique index enforces at most one OPEN log per (jobId,
+  // userId): `CREATE UNIQUE INDEX "TimeLog_job_user_open_unique" ON "TimeLog"
+  // ("jobId","userId") WHERE "stoppedAt" IS NULL;` — see migration
+  // 20260703120000_timelog_open_unique. Prisma can't express a partial unique
+  // index here, so it lives in raw SQL only. Do NOT add an @@unique for these
+  // columns (it would be a FULL unique index and break re-clock-in after stop).
 }
 
 model TimeLogAdjustmentRequest {
@@ -2237,8 +2244,41 @@ model EmailCampaign {
   template       MessageTemplate? @relation("MessageTemplateCampaigns", fields: [templateId], references: [id], onDelete: SetNull)
 
   createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  sends     CampaignSend[]
 
   @@index([campaignStatus, scheduledFor])
+}
+
+/// Per-recipient send ledger for email campaigns. A unique (campaignId, email)
+/// row is written the first time a recipient is contacted, so a dispatch that
+/// crashes/retries never re-emails someone already sent to. Also lets a stuck
+/// campaign be safely resumed (skip rows already present).
+model CampaignSend {
+  id         String   @id @default(cuid())
+  campaignId String
+  email      String
+  status     String   @default("SENT") // SENT | FAILED
+  error      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, email])
+  @@index([campaignId])
+}
+
+/// Channel-independent email suppression list, keyed on the address itself so
+/// unsubscribes/complaints for CLIENT emails with no User row are still honoured
+/// (User.emailStatus only covered addresses that had a User). Non-transactional
+/// sends check this in addition to User.emailStatus.
+model EmailSuppression {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  reason    String // HARD_BOUNCE | SOFT_BOUNCE | COMPLAINT | UNSUBSCRIBED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
 }
 
 enum CampaignChannel {

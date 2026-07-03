@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const findFirstMock = vi.fn();
 const updateManyMock = vi.fn();
 const findManyMock = vi.fn();
+const supFindUniqueMock = vi.fn();
+const supUpsertMock = vi.fn();
+const supDeleteManyMock = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   db: {
@@ -11,6 +14,11 @@ vi.mock("@/lib/db", () => ({
       findFirst: (...args: any[]) => findFirstMock(...args),
       updateMany: (...args: any[]) => updateManyMock(...args),
       findMany: (...args: any[]) => findManyMock(...args),
+    },
+    emailSuppression: {
+      findUnique: (...args: any[]) => supFindUniqueMock(...args),
+      upsert: (...args: any[]) => supUpsertMock(...args),
+      deleteMany: (...args: any[]) => supDeleteManyMock(...args),
     },
   },
 }));
@@ -27,6 +35,14 @@ describe("email suppression", () => {
     findFirstMock.mockReset();
     updateManyMock.mockReset();
     findManyMock.mockReset();
+    supFindUniqueMock.mockReset();
+    supUpsertMock.mockReset();
+    supDeleteManyMock.mockReset();
+    // Default: nothing on the address-keyed suppression list, so isSuppressed
+    // falls through to the User.emailStatus check the existing cases assert on.
+    supFindUniqueMock.mockResolvedValue(null);
+    supUpsertMock.mockResolvedValue({});
+    supDeleteManyMock.mockResolvedValue({ count: 0 });
   });
 
   describe("isSuppressed", () => {

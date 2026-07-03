@@ -127,13 +127,35 @@ export async function dispatchEmailCampaignById(campaignId: string) {
   const settings = await getAppSettings();
   let sent = 0;
   for (const recipient of recipients) {
+    const ledgerEmail = recipient.email.toLowerCase();
+    // Claim via the unique (campaignId,email) ledger so a crashed/retried
+    // dispatch never re-emails someone already contacted (audit: partial-send
+    // resume double-email). Skip if a claim already exists.
+    let alreadyContacted = false;
+    try {
+      await (db as any).campaignSend.create({
+        data: { campaignId: campaign.id, email: ledgerEmail, status: "SENT" },
+      });
+    } catch (err: any) {
+      if (err?.code === "P2002") alreadyContacted = true;
+      else throw err;
+    }
+    if (alreadyContacted) continue;
+
     const result = await sendEmailDetailed({
       to: recipient.email,
       subject: campaign.subject,
       html: campaign.htmlBody,
       replyTo: settings.accountsEmail || undefined,
     });
-    if (result.ok) sent += 1;
+    if (result.ok) {
+      sent += 1;
+    } else {
+      // Drop the claim so a later run can retry this recipient.
+      await (db as any).campaignSend.deleteMany({
+        where: { campaignId: campaign.id, email: ledgerEmail },
+      });
+    }
   }
 
   await db.emailCampaign.update({

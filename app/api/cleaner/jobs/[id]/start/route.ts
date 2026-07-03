@@ -199,9 +199,17 @@ export async function POST(
     });
 
     if (!openLog) {
-      await db.timeLog.create({
-        data: { jobId: params.id, userId: session.user.id, startedAt: new Date() },
-      });
+      try {
+        await db.timeLog.create({
+          data: { jobId: params.id, userId: session.user.id, startedAt: new Date() },
+        });
+      } catch (err: any) {
+        // A concurrent "start" (double-tap / retry) may have created the open
+        // log first — the partial unique index (TimeLog_job_user_open_unique)
+        // rejects the duplicate with P2002. That's the desired outcome: one open
+        // log exists, so treat this as already-running rather than erroring.
+        if (err?.code !== "P2002") throw err;
+      }
     }
 
     await db.$transaction(async (tx) => {

@@ -124,7 +124,17 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
     data: { campaignStatus: "SENDING" },
   });
 
-  const recipients = await loadRecipients(campaign.audience);
+  let recipients: Awaited<ReturnType<typeof loadRecipients>>;
+  try {
+    recipients = await loadRecipients(campaign.audience);
+  } catch (err) {
+    // Never leave the row stuck in SENDING (it would never be re-dispatched).
+    await (db as any).emailCampaign.update({
+      where: { id: campaignId },
+      data: { campaignStatus: "FAILED" },
+    });
+    throw err;
+  }
 
   let sent = 0;
   let suppressed = 0;
@@ -133,6 +143,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
   const bodySource = campaign.template?.body || campaign.htmlBody || "";
   const subjectSource = campaign.template?.subject || campaign.subject || "(no subject)";
 
+  try {
   for (const r of recipients) {
     try {
       const ctx = { client: { id: r.clientId } };
@@ -140,16 +151,45 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
       const subject = subjectSource ? await resolveTemplate(subjectSource, ctx) : "(no subject)";
 
       if ((channel === "EMAIL" || channel === "BOTH") && r.email) {
-        if (await isSuppressed(r.email)) {
+        const ledgerEmail = r.email.toLowerCase();
+        // Claim this recipient atomically via the unique (campaignId,email)
+        // ledger row. If the row already exists (P2002) this recipient was
+        // contacted by a prior (possibly crashed) run — skip so a resume never
+        // re-emails someone already sent to.
+        let alreadyContacted = false;
+        try {
+          await (db as any).campaignSend.create({
+            data: { campaignId, email: ledgerEmail, status: "SENT" },
+          });
+        } catch (err: any) {
+          if (err?.code === "P2002") alreadyContacted = true;
+          else throw err;
+        }
+
+        if (alreadyContacted) {
+          // no-op: already sent in an earlier run
+        } else if (await isSuppressed(r.email)) {
           suppressed++;
+          // Not actually sent — drop the claim so it isn't counted as contacted.
+          await (db as any).campaignSend.deleteMany({
+            where: { campaignId, email: ledgerEmail },
+          });
         } else {
           const res = await sendEmailDetailed({
             to: r.email,
             subject,
             html: body.includes("<") ? body : body.replace(/\n/g, "<br/>"),
           });
-          if (res.ok) sent++;
-          else failed++;
+          if (res.ok) {
+            sent++;
+          } else {
+            failed++;
+            // Drop the claim on hard failure so a later run retries this one
+            // (only successful sends stay recorded / are skipped on resume).
+            await (db as any).campaignSend.deleteMany({
+              where: { campaignId, email: ledgerEmail },
+            });
+          }
         }
       }
 
@@ -176,6 +216,16 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
   });
 
   return { campaignId, attempted: recipients.length, sent, suppressed, failed, channel };
+  } catch (err) {
+    // An unexpected throw mid-dispatch must not strand the row in SENDING (it
+    // would never be re-dispatched). Mark FAILED and rethrow; the per-recipient
+    // ledger means a manual resend won't re-email anyone already contacted.
+    await (db as any).emailCampaign.update({
+      where: { id: campaignId },
+      data: { campaignStatus: "FAILED" },
+    });
+    throw err;
+  }
 }
 
 /**
