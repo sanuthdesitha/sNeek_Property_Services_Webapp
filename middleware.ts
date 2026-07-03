@@ -13,16 +13,11 @@ export default withAuth(
     }
 
     let role = token?.role as Role | undefined;
-    // True when we could NOT confirm the session (the internal validate-session
-    // call errored). We fail CLOSED for /admin below rather than trusting the
-    // possibly-stale JWT role.
-    let sessionIndeterminate = false;
     if (token) {
       const validation = await validateActiveSession(req);
       if (validation.valid === false) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/api/auth/local-signout", req.url)));
       }
-      sessionIndeterminate = validation.valid === "indeterminate";
       role = validation.role ?? role;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
@@ -44,21 +39,13 @@ export default withAuth(
       }
     }
 
-    // Redirect logged-in users away from auth pages. Skip this while the session
-    // is indeterminate so a fail-closed /admin → /login redirect (below) can't
-    // bounce straight back to /admin and loop during a validate-session outage.
-    if ((pathname === "/login" || pathname === "/register") && token && !sessionIndeterminate) {
+    // Redirect logged-in users away from auth pages
+    if ((pathname === "/login" || pathname === "/register") && token) {
       return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
     }
 
     // Admin routes
     if (pathname.startsWith("/admin")) {
-      // Fail closed: if we couldn't confirm the session (validate-session
-      // errored), don't grant admin access off a possibly-stale JWT role — send
-      // to login to re-authenticate rather than rendering privileged pages.
-      if (sessionIndeterminate) {
-        return applySecurityHeaders(NextResponse.redirect(new URL("/login", req.url)));
-      }
       if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
       }
