@@ -20,6 +20,7 @@ import {
 } from "@/components/admin/property-access-fields";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { AccessInstructionsEditor, type AccessSection } from "@/components/admin/access-instructions-editor";
+import { PropertyChecklistBuilder } from "@/components/admin/property-checklist-builder";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle, Clock, Trash2, Save, Copy, MapPinned, Plus, ClipboardList, Camera, FileText, X } from "lucide-react";
@@ -717,7 +718,17 @@ export default function PropertyDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs
+        defaultValue={
+          // Deep-link support (e.g. the checklist coverage page links to ?tab=forms).
+          typeof window !== "undefined" &&
+          ["overview", "jobs", "edit", "forms", "integration", "stock", "checklist"].includes(
+            new URLSearchParams(window.location.search).get("tab") ?? ""
+          )
+            ? (new URLSearchParams(window.location.search).get("tab") as string)
+            : "overview"
+        }
+      >
         <TabsList className="flex w-full max-w-full justify-start gap-1 overflow-x-auto">
 
           <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -1091,7 +1102,10 @@ export default function PropertyDetailPage() {
           <PropertyClientRateEditor propertyId={String(params.id)} />
         </TabsContent>
 
-        <TabsContent value="forms">
+        <TabsContent value="forms" className="space-y-4">
+          {/* Per-property dynamic checklist: amenities → toggled sections/items →
+              live preview → approve generates this property's own form. */}
+          <PropertyChecklistBuilder propertyId={String(params.id)} />
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <div>

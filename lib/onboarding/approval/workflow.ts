@@ -4,6 +4,15 @@ import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { geocodeAddress } from "@/lib/jobs/eta";
 import { encryptSecret } from "@/lib/security/encryption";
 import { readFormMeta, readAdminOverrides, type OnboardingFormMeta } from "@/lib/onboarding/form-meta";
+import { getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
+import {
+  buildDefaultSelections,
+  generatePropertyTemplates,
+  mergeSelections,
+  sanitizeSelections,
+} from "@/lib/checklists/compose";
+import { featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/features";
+import { logger } from "@/lib/logger";
 
 interface ApproveInput {
   surveyId: string;
@@ -263,6 +272,75 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
       };
     }
     throw err;
+  }
+
+  // ── Post-step: per-property checklist (best-effort, never blocks approval) ──
+  // Copies the amenity features onto the property, saves the checklist profile
+  // (from the wizard's Checklist step if reviewed, else library defaults), and
+  // generates the property-specific form templates for the selected job types.
+  try {
+    const checklistOverride =
+      overrides.checklist && typeof overrides.checklist === "object"
+        ? (overrides.checklist as Record<string, unknown>)
+        : null;
+    const features = {
+      ...featuresFromAppliances(survey.appliances ?? []),
+      ...sanitizeFeatures(checklistOverride?.features),
+    };
+    await db.property.update({
+      where: { id: result.propertyId },
+      data: { features: features as Prisma.InputJsonValue },
+    });
+
+    let library = await getChecklistLibrary();
+    if (library.length === 0) {
+      await seedChecklistLibraryFromCatalog();
+      library = await getChecklistLibrary();
+    }
+    const propertyForRules = await db.property.findUnique({
+      where: { id: result.propertyId },
+      select: {
+        hasBalcony: true,
+        bedrooms: true,
+        bathrooms: true,
+        laundryEnabled: true,
+        inventoryEnabled: true,
+        features: true,
+      },
+    });
+    if (propertyForRules) {
+      const defaults = buildDefaultSelections(library, propertyForRules);
+      const saved = checklistOverride?.selections
+        ? sanitizeSelections(checklistOverride.selections)
+        : null;
+      const selections = saved ? mergeSelections(defaults, saved) : defaults;
+      await db.propertyChecklistProfile.upsert({
+        where: { propertyId: result.propertyId },
+        create: {
+          propertyId: result.propertyId,
+          selections: selections as unknown as Prisma.InputJsonValue,
+          status: "DRAFT",
+        },
+        update: {
+          selections: selections as unknown as Prisma.InputJsonValue,
+        },
+      });
+      const templateJobTypes = requestedJobTypes.filter((jobType): jobType is JobType =>
+        Object.values(JobType).includes(jobType as JobType)
+      );
+      if (templateJobTypes.length > 0) {
+        await generatePropertyTemplates({
+          propertyId: result.propertyId,
+          jobTypes: templateJobTypes,
+          actorUserId: input.adminReviewerId,
+        });
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, surveyId: survey.id, propertyId: result.propertyId },
+      "Onboarding checklist materialisation failed (non-fatal — set it up from the property's Forms tab)"
+    );
   }
 
   return { ok: true, alreadyApproved: false, ...result };

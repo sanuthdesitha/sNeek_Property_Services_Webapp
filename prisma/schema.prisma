@@ -728,6 +728,7 @@ model User {
   sentClientMessages           ClientMessage[]             @relation("ClientMessageSender")
   cleanerAvailabilityEntries   CleanerAvailability[]       @relation("CleanerAvailabilityUser")
   preferredForProperties       Property[]                  @relation("PropertyPreferredCleaner")
+  checklistProfilesApproved    PropertyChecklistProfile[]  @relation("ChecklistProfileApprovedBy")
   createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
   marketingAssets              MarketingAsset[]            @relation("MarketingAssetUploadedBy")
   socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
@@ -861,6 +862,11 @@ model Property {
   showCleanerContactToClient Boolean  @default(false)
   laundryEnabled             Boolean  @default(true) // false = no laundry service for this property
   isActive                   Boolean  @default(true)
+  /// Amenity/feature flags driving the per-property checklist composition —
+  /// { dishwasher, oven, microwave, fridge, washer, dryer, rangehood, bbq,
+  ///   pool, spa, garage, garden, petFriendly, fireplace, ... }: boolean.
+  /// Copied from the onboarding survey on approval; editable on the property.
+  features                   Json?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
@@ -883,9 +889,103 @@ model Property {
   qaFormTemplates  QaFormTemplate[]
   maintenanceItems PropertyMaintenanceItem[]
   heldStockDeliveries HeldStockDelivery[]
+  checklistProfile PropertyChecklistProfile?
 
   @@index([placeId])
   @@index([suburb])
+}
+
+// ─────────────────────────────────────────────
+// Checklist library — the database of checklist content, organised into
+// modules (rooms / appliances / outdoor areas / extras) that compose into a
+// per-property cleaner form. Modules auto-apply via `appliesWhen` rules
+// against the property's attributes/features and can be toggled per property.
+// ─────────────────────────────────────────────
+
+model ChecklistModule {
+  id          String  @id @default(cuid())
+  /// Stable key, e.g. "kitchen", "balcony", "dishwasher".
+  key         String  @unique
+  title       String
+  /// ROOM | APPLIANCE | OUTDOOR | SAFETY | EXTRA
+  category    String  @default("ROOM")
+  description String? @db.Text
+  /// Auto-apply rule evaluated against the property:
+  ///   { feature: "dishwasher" }                     → features.dishwasher === true
+  ///   { propertyField: "hasBalcony", equals: true } → property column match
+  ///   null                                          → always applies
+  appliesWhen Json?
+  /// Repeat this module's section per counted attribute: "bedrooms" | "bathrooms".
+  repeatBy    String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  items ChecklistModuleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+}
+
+model ChecklistModuleItem {
+  id           String  @id @default(cuid())
+  moduleId     String
+  /// Stable key doubling as the generated form-field id, e.g. "kitchen.benchtops".
+  key          String
+  label        String
+  instructions String? @db.Text
+  imageUrl     String? @db.Text
+  videoUrl     String? @db.Text
+  /// checkbox (default) | yesno | photo | video — maps to the form field type.
+  fieldType    String  @default("checkbox")
+  required     Boolean @default(false)
+  minPhotos    Int?
+  /// Evidence stamp tag for photo/video items: before | after | damage.
+  stampTag     String?
+  /// Ticked by default when the module applies (admin can still turn off).
+  defaultOn    Boolean @default(true)
+  /// Which job types include this item (empty = all job types).
+  jobTypes     JobType[]
+  /// Optional per-item auto-apply rule (same shape as the module rule) for
+  /// items inside a broader module, e.g. the dishwasher line in "Kitchen".
+  appliesWhen  Json?
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+
+  module ChecklistModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([moduleId, key])
+  @@index([moduleId, sortOrder])
+}
+
+/// One checklist profile per property: which modules/items are on or off (with
+/// per-job-type item flags), custom items, and the approval + generated
+/// FormTemplate linkage. Approving materialises FormTemplate(s) and registers
+/// them in AppSettings.propertyFormTemplateOverrides for this property only.
+model PropertyChecklistProfile {
+  id         String @id @default(cuid())
+  propertyId String @unique
+  /// {
+  ///   modules: { [moduleKey]: { enabled: bool, items: { [itemKey]: { enabled: bool, jobTypes?: JobType[] } } } },
+  ///   customItems: [{ id, moduleKey?, label, instructions?, fieldType?, jobTypes?: JobType[] }]
+  /// }
+  selections Json
+  /// DRAFT | APPROVED | STALE (STALE = features/library changed since approval).
+  status     String @default("DRAFT")
+  approvedById String?
+  approvedAt   DateTime?
+  /// { [jobType]: generatedFormTemplateId } — the materialised per-property forms.
+  generatedTemplateIds Json?
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  approvedBy User?    @relation("ChecklistProfileApprovedBy", fields: [approvedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Integration {

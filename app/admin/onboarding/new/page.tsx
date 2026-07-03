@@ -14,6 +14,7 @@ import { StepStaffing } from "@/components/onboarding/step-staffing";
 import { StepIcal } from "@/components/onboarding/step-ical";
 import { StepJobTypeQuestions } from "@/components/onboarding/step-job-type-questions";
 import { StepScenarios } from "@/components/onboarding/step-scenarios";
+import { StepChecklist } from "@/components/onboarding/step-checklist";
 import { StepReview } from "@/components/onboarding/step-review";
 import { toast } from "@/hooks/use-toast";
 
@@ -29,6 +30,7 @@ const STEPS = [
   { id: "notes", label: "Notes" },
   { id: "staffing", label: "Staffing & Estimate" },
   { id: "ical", label: "Schedule / iCal" },
+  { id: "checklist", label: "Checklist Preview" },
   { id: "review", label: "Review" },
 ];
 
@@ -153,6 +155,7 @@ export default function NewOnboardingPage() {
     staffing: <StepStaffing data={formData} onChange={setFormData} />,
     ical: <StepIcal data={formData} onChange={setFormData} />,
     jobtypes: <StepJobTypeQuestions data={formData} onChange={setFormData} />,
+    checklist: <StepChecklist surveyId={surveyId} />,
     review: <StepReview surveyId={surveyId} data={formData} onComplete={() => setCompletedSteps((prev) => [...prev, "review"])} />,
   };
 
