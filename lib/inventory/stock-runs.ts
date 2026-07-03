@@ -220,8 +220,11 @@ export async function updateStockRun(
   if (Array.isArray(input.lines) && input.lines.length > 0) {
     await db.$transaction(
       input.lines.map((line) =>
-        db.stockRunLine.update({
-          where: { id: line.id },
+        // Scope every line write to THIS run (which the caller passed
+        // assertRunAccess for). Updating by raw line.id alone let a client edit
+        // another client's stock-run lines by supplying foreign ids (IDOR).
+        db.stockRunLine.updateMany({
+          where: { id: line.id, stockRunId: runId },
           data: {
             countedOnHand:
               line.countedOnHand == null ? undefined : Math.max(0, Number(line.countedOnHand)),

@@ -23,6 +23,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "One or more jobs were not found." }, { status: 404 });
     }
 
+    // INVOICED is a locked terminal state everywhere else (single-job route, QA
+    // authority, qa-reset). A bulk write must not silently reopen it or re-stamp
+    // completedAt on an already-invoiced job (which would re-bucket payroll).
+    const invoiced = jobs.filter((j) => j.status === JobStatus.INVOICED);
+    if (invoiced.length > 0) {
+      return NextResponse.json(
+        {
+          error: `${invoiced.length} of the selected jobs are invoiced and locked. Deselect them and try again.`,
+        },
+        { status: 409 }
+      );
+    }
+
     await db.$transaction(async (tx) => {
       for (const job of jobs) {
         await tx.job.update({

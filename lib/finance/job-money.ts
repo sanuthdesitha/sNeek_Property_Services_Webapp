@@ -246,7 +246,12 @@ export function computeClientCharge(
   _settings?: unknown
 ): ClientChargeResult {
   const fixed = job.fixedPrice;
-  if (fixed != null && Number.isFinite(Number(fixed))) {
+  // Require a POSITIVE fixed price. A stored 0 (or negative) is not a real
+  // agreed price — treating it as FIXED_JOB billed the client $0 with
+  // rateMissing:false, silently masking a missing rate. Fall through to the
+  // property rate / price book instead (matches the price-book branch below,
+  // which also requires > 0).
+  if (fixed != null && Number.isFinite(Number(fixed)) && Number(fixed) > 0) {
     return {
       amount: roundCents(Number(fixed)),
       source: "FIXED_JOB",

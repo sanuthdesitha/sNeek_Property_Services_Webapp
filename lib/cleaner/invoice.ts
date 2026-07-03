@@ -7,6 +7,7 @@ import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
 } from "@/lib/inventory/shopping-runs";
+import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 
 interface InvoiceOptions {
   userId: string;
@@ -124,10 +125,15 @@ export interface CleanerInvoiceData {
 
 function resolveDateRange(startDate?: string, endDate?: string) {
   const now = new Date();
+  // Use Sydney calendar boundaries so the cleaner-invoice / expected-invoice
+  // window matches the payroll engine + finance summary (which use
+  // sydneyDayStart/sydneyDayEndInclusive). Hardcoded UTC `Z` boundaries shifted
+  // the window ~10-14h, bucketing edge-of-period jobs differently between the
+  // invoice and what payroll actually paid.
   const start = startDate
-    ? new Date(`${startDate}T00:00:00.000Z`)
+    ? sydneyDayStart(startDate)
     : new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = endDate ? new Date(`${endDate}T23:59:59.999Z`) : now;
+  const end = endDate ? sydneyDayEndInclusive(endDate) : now;
   return { start, end };
 }
 

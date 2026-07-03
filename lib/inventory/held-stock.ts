@@ -90,9 +90,6 @@ export async function depositShoppingRunToOnHand(runId: string) {
   });
   if (!run) throw new Error("Shopping run not found.");
 
-  const already = await db.heldStock.count({ where: { shoppingRunId: runId } });
-  if (already > 0) throw new Error("This run's purchases are already on hand.");
-
   const byItem = new Map<string, { qty: number; costSum: number; costQty: number }>();
   for (const line of run.lines) {
     if (!line.itemId) continue;
@@ -106,9 +103,18 @@ export async function depositShoppingRunToOnHand(runId: string) {
   }
   if (byItem.size === 0) throw new Error("No purchased items linked to the catalog to deposit.");
 
-  const created = await db.$transaction(
-    Array.from(byItem.entries()).map(([itemId, agg]) =>
-      db.heldStock.create({
+  // A run deposits MANY HeldStock rows (one per item), so a unique constraint on
+  // shoppingRunId can't enforce "deposit once". Instead serialize concurrent
+  // deposits of the SAME run with a transaction-scoped advisory lock, so the
+  // already-deposited check below is reliable (two double-clicks / two admins
+  // can't both pass a stale count and double the on-hand quantity).
+  const created = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`heldstock-deposit:${runId}`}))`;
+    const already = await tx.heldStock.count({ where: { shoppingRunId: runId } });
+    if (already > 0) throw new Error("This run's purchases are already on hand.");
+    const rows: Array<{ id: string }> = [];
+    for (const [itemId, agg] of Array.from(byItem.entries())) {
+      const row = await tx.heldStock.create({
         data: {
           itemId,
           holderUserId: run.ownerUserId,
@@ -118,9 +124,12 @@ export async function depositShoppingRunToOnHand(runId: string) {
           shoppingRunId: runId,
           sourceNote: "From shopping run",
         },
-      })
-    )
-  );
+        select: { id: true },
+      });
+      rows.push(row);
+    }
+    return rows;
+  });
   return { count: created.length };
 }
 

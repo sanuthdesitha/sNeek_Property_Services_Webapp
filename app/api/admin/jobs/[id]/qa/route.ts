@@ -49,6 +49,24 @@ export async function POST(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
+    // A QA review only applies to a job that has been submitted (SUBMITTED /
+    // QA_REVIEW) or is being re-reviewed (COMPLETED). Scoring any other status
+    // would fabricate a completion — e.g. flip an UNASSIGNED/IN_PROGRESS job to
+    // COMPLETED with no cleaner work, or REOPEN a locked INVOICED job.
+    const QA_REVIEWABLE: JobStatus[] = [
+      JobStatus.SUBMITTED,
+      JobStatus.QA_REVIEW,
+      JobStatus.COMPLETED,
+    ];
+    if (!QA_REVIEWABLE.includes(job.status)) {
+      return NextResponse.json(
+        {
+          error: `This job is ${job.status.replace(/_/g, " ").toLowerCase()} and can't be QA-scored. It must be submitted first.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const passed = body.score >= settings.qaAutomation.failureThreshold;
 
     // CORE: the QA review + job status must always commit. A new review is

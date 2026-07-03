@@ -300,9 +300,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const job = await db.job.findUnique({
       where: { id: params.id },
-      select: { id: true, propertyId: true, internalNotes: true, property: { select: { id: true, name: true, accessInfo: true } } },
+      select: { id: true, status: true, propertyId: true, internalNotes: true, property: { select: { id: true, name: true, accessInfo: true } } },
     });
     if (!job) return NextResponse.json({ error: "QA job not found." }, { status: 404 });
+
+    // Only inspect a job that has actually been submitted (SUBMITTED / QA_REVIEW)
+    // or is being re-inspected (COMPLETED). Otherwise a QA submit could flip an
+    // un-started job straight to COMPLETED, or reopen a locked INVOICED job.
+    const QA_INSPECTABLE: JobStatus[] = [
+      JobStatus.SUBMITTED,
+      JobStatus.QA_REVIEW,
+      JobStatus.COMPLETED,
+    ];
+    if (!QA_INSPECTABLE.includes(job.status)) {
+      return NextResponse.json(
+        { error: `This job is ${job.status.replace(/_/g, " ").toLowerCase()} and isn't ready for QA inspection.` },
+        { status: 409 }
+      );
+    }
 
     const result = scoreQaSubmission(template.schema as any, body.data);
     const tools = body.tools ?? null;
@@ -375,8 +390,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
 
       if (body.assignmentId) {
-        await tx.qaAssignment.update({
-          where: { id: body.assignmentId },
+        // Scope the assignment write to THIS job and to an assignment this
+        // inspector may act on (unassigned, assigned to them, or picked up by
+        // them). Without this, any inspector could force-complete another
+        // inspector's assignment on another job by passing its id (IDOR).
+        const scoped = await tx.qaAssignment.updateMany({
+          where: {
+            id: body.assignmentId,
+            jobId: params.id,
+            OR: [
+              { assignedToId: null },
+              { assignedToId: session.user.id },
+              { pickedUpById: session.user.id },
+            ],
+          },
           data: {
             status: QaAssignmentStatus.COMPLETED,
             completedAt: new Date(),
@@ -388,6 +415,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             onSiteMinutes: onSiteMinutes ?? undefined,
           },
         });
+        if (scoped.count !== 1) {
+          throw new Error("FORBIDDEN");
+        }
       }
 
       await tx.job.update({

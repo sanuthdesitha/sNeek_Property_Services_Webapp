@@ -21,22 +21,50 @@ export async function deductStockFromSubmission(
       continue;
     }
 
-    const newOnHand = Math.max(0, stock.onHand - qty);
-
-    await db.propertyStock.update({
-      where: { id: stock.id },
-      data: { onHand: newOnHand, updatedAt: new Date() },
+    // Atomic decrement + reconciled ledger. Two concurrent submissions must not
+    // both read the same onHand and lose an update (last-write-wins). Try the
+    // full decrement conditionally; if there isn't enough on hand, fall back to
+    // draining to zero. Either way the StockTx logs the quantity ACTUALLY
+    // removed so onHand and the ledger stay reconciled.
+    const { newOnHand, removed } = await db.$transaction(async (tx) => {
+      const full = await tx.propertyStock.updateMany({
+        where: { id: stock.id, onHand: { gte: qty } },
+        data: { onHand: { decrement: qty } },
+      });
+      let removed = qty;
+      if (full.count !== 1) {
+        // Not enough on hand (or a concurrent writer moved it) — re-read and
+        // drain whatever remains to zero rather than writing a stale value.
+        const current = await tx.propertyStock.findUnique({
+          where: { id: stock.id },
+          select: { onHand: true },
+        });
+        removed = Math.max(0, current?.onHand ?? 0);
+        if (removed > 0) {
+          await tx.propertyStock.update({
+            where: { id: stock.id },
+            data: { onHand: 0 },
+          });
+        }
+      }
+      if (removed > 0) {
+        await tx.stockTx.create({
+          data: {
+            propertyStockId: stock.id,
+            submissionId,
+            txType: StockTxType.USED,
+            quantity: -removed,
+            notes: `Used in submission ${submissionId}`,
+          },
+        });
+      }
+      const after = await tx.propertyStock.findUnique({
+        where: { id: stock.id },
+        select: { onHand: true },
+      });
+      return { newOnHand: after?.onHand ?? 0, removed };
     });
-
-    await db.stockTx.create({
-      data: {
-        propertyStockId: stock.id,
-        submissionId,
-        txType: StockTxType.USED,
-        quantity: -qty,
-        notes: `Used in submission ${submissionId}`,
-      },
-    });
+    void removed;
 
     // Alert if below reorder threshold
     if (newOnHand <= stock.reorderThreshold) {
@@ -76,8 +104,13 @@ export async function applyRestock(
     if (!(addQty > 0)) continue;
     const stock = await db.propertyStock.findUnique({ where: { id: propertyStockId } });
     if (!stock) continue;
-    const onHand = stock.onHand + addQty;
-    await db.propertyStock.update({ where: { id: stock.id }, data: { onHand, updatedAt: new Date() } });
+    // Atomic increment (no prior-read dependency) so two concurrent restocks of
+    // the same row can't lose one of the additions.
+    const updated = await db.propertyStock.update({
+      where: { id: stock.id },
+      data: { onHand: { increment: addQty }, updatedAt: new Date() },
+      select: { onHand: true },
+    });
     await db.stockTx.create({
       data: {
         propertyStockId: stock.id,
@@ -86,7 +119,7 @@ export async function applyRestock(
         notes: byLabel ? `Restocked by ${byLabel}` : "Restocked",
       },
     });
-    results.push({ propertyStockId, onHand });
+    results.push({ propertyStockId, onHand: updated.onHand });
   }
   return results;
 }

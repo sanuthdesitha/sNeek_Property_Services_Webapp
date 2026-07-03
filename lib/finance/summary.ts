@@ -203,10 +203,16 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
           customPayout:
             reworkCustomPayout !== undefined ? reworkCustomPayout : jobMeta.cleanerPayouts?.[assignment.userId],
           transportAllowance: jobMeta.transportAllowances?.[assignment.userId],
-          approvedAdjustments: adjustmentsByCleaner.get(assignment.userId) ?? 0,
+          // Adjustments are added SEPARATELY below (not here) because
+          // computeCleanerPay clamps this input to >= 0, which would silently
+          // drop negative rework deductions (cross-cleaner clawbacks). Payroll
+          // does the same — pass 0 here and add the raw signed amount after.
+          approvedAdjustments: 0,
         }
       );
       jobCleanerCost += pay.total;
+      // Raw per-cleaner adjustment total (may be negative for rework deductions).
+      jobCleanerCost += adjustmentsByCleaner.get(assignment.userId) ?? 0;
     }
 
     cleanerCost += jobCleanerCost;

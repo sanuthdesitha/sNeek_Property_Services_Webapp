@@ -379,8 +379,11 @@ export async function decideContinuationRequest(input: {
   const now = new Date().toISOString();
 
   if (input.decision === "REJECT") {
-    await db.job.update({
-      where: { id: current.jobId },
+    // Only pause the job if it's still waiting on this decision. If it already
+    // advanced by another path (submitted, QA, completed, invoiced), don't drag
+    // it back to PAUSED — mirrors the guard the APPROVE branch already applies.
+    await db.job.updateMany({
+      where: { id: current.jobId, status: JobStatus.WAITING_CONTINUATION_APPROVAL },
       data: {
         status: JobStatus.PAUSED,
       },
