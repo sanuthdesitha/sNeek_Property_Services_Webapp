@@ -197,6 +197,36 @@ export async function POST(
     const openLog = await db.timeLog.findFirst({
       where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
     });
+
+    // Guard against submitting a job that was never actually started. Scoped
+    // tightly so it can ONLY reject the genuinely-broken case and never touches
+    // the normal (IN_PROGRESS / PAUSED) or clock-out-without-form (PAUSED +
+    // formPendingAfterClockOut) flows: reject only when the job is still in a
+    // pre-start status AND there is no open log, no prior TimeLog at all, and it
+    // isn't parked as form-pending. Otherwise an OFFERED/ASSIGNED/EN_ROUTE job
+    // could jump straight to SUBMITTED with zero recorded work time.
+    const preStartStatuses: JobStatus[] = [
+      JobStatus.UNASSIGNED,
+      JobStatus.OFFERED,
+      JobStatus.ASSIGNED,
+      JobStatus.EN_ROUTE,
+    ];
+    if (
+      preStartStatuses.includes(job.status) &&
+      !openLog &&
+      job.formPendingAfterClockOut !== true
+    ) {
+      const anyTimeLog = await db.timeLog.count({
+        where: { jobId: params.id, userId: session.user.id },
+      });
+      if (anyTimeLog === 0) {
+        return NextResponse.json(
+          { error: "Start the job before submitting the form." },
+          { status: 409 }
+        );
+      }
+    }
+
     const priorTimeLogs = openLog
       ? await db.timeLog.findMany({
           where: {
