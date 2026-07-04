@@ -3477,6 +3477,9 @@ model TemplateVersion {
   label        String?
   createdById  String?
   createdAt    DateTime              @default(now())
+  // Optimistic-concurrency token for editor draft PATCHes (client sends the
+  // last updatedAt it saw; mismatch → 409).
+  updatedAt    DateTime              @updatedAt
   publishedAt  DateTime?
 
   definition  TemplateDefinition  @relation("TemplateDefinitionVersions", fields: [definitionId], references: [id], onDelete: Cascade)

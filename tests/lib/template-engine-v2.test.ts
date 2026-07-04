@@ -11,6 +11,7 @@ import {
 import { renderEmail } from "@/lib/templates/render/email";
 import { renderDocumentHtml } from "@/lib/templates/render/document";
 import { renderText, estimateSmsSegments } from "@/lib/templates/render/text";
+import { lintTemplateDoc } from "@/lib/templates/lint";
 
 const brand = DEFAULT_BRAND_TOKENS;
 const TZ = { timezone: "Australia/Sydney" };
@@ -115,6 +116,57 @@ describe("text renderer (pilot: sms.jobReminder)", () => {
     expect(estimateSmsSegments("a".repeat(160)).segments).toBe(1);
     expect(estimateSmsSegments("a".repeat(161)).segments).toBe(2);
     expect(estimateSmsSegments("emoji 😀").encoding).toBe("ucs2");
+  });
+});
+
+describe("publish lint", () => {
+  it("passes the default pilot docs", () => {
+    const email = { ...emptyDoc("email.clientInvoiceIssued"), blocks: defaultClientInvoiceIssuedEmail() };
+    const pdf = { ...emptyDoc("doc.clientInvoice"), blocks: defaultClientInvoiceDoc() };
+    const sms = { ...emptyDoc("sms.jobReminder"), blocks: defaultJobReminderSms() };
+    expect(lintTemplateDoc(email, brand).ok).toBe(true);
+    expect(lintTemplateDoc(pdf, brand).ok).toBe(true);
+    expect(lintTemplateDoc(sms, brand).ok).toBe(true);
+  });
+
+  it("blocks publish on missing required blocks", () => {
+    const doc = { ...emptyDoc("doc.clientInvoice"), blocks: defaultClientInvoiceDoc().filter((b) => b.type !== "totals") };
+    const result = lintTemplateDoc(doc, brand);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes("totals"))).toBe(true);
+  });
+
+  it("blocks publish on unknown variables", () => {
+    const doc = {
+      ...emptyDoc("sms.jobReminder"),
+      blocks: [{ id: "x", type: "textBlock" as const, props: { text: "Hello {{not.a.real.path}}" } }],
+    };
+    const result = lintTemplateDoc(doc, brand);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes("not.a.real.path"))).toBe(true);
+  });
+
+  it("rejects blocks not allowed for the kind", () => {
+    const doc = {
+      ...emptyDoc("sms.jobReminder"),
+      blocks: [
+        { id: "a", type: "textBlock" as const, props: { text: "Hi {{companyName}}" } },
+        { id: "b", type: "hero" as const, props: { headline: "Nope" } },
+      ],
+    };
+    const result = lintTemplateDoc(doc, brand);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes('"hero"'))).toBe(true);
+  });
+
+  it("warns (not errors) on long SMS", () => {
+    const doc = {
+      ...emptyDoc("sms.jobReminder"),
+      blocks: [{ id: "x", type: "textBlock" as const, props: { text: "{{companyName}} " + "x".repeat(400) } }],
+    };
+    const result = lintTemplateDoc(doc, brand);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.length).toBeGreaterThan(0);
   });
 });
 

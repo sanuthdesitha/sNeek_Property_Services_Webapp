@@ -24,6 +24,7 @@ CREATE TABLE "TemplateVersion" (
     "label" TEXT,
     "createdById" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
     "publishedAt" TIMESTAMP(3),
 
     CONSTRAINT "TemplateVersion_pkey" PRIMARY KEY ("id")
