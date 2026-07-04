@@ -7,11 +7,8 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { renderEmailTemplate } from "@/lib/email-templates";
-import {
-  buildCleanerInvoiceHtml,
-  getCleanerInvoiceData,
-  renderCleanerInvoicePdf,
-} from "@/lib/cleaner/invoice";
+import { getCleanerInvoiceData, renderCleanerInvoicePdf } from "@/lib/cleaner/invoice";
+import { resolveCleanerInvoiceHtml } from "@/lib/templates/resolve/cleaner-invoice";
 import { markCleanerShoppingRunsInvoiced } from "@/lib/inventory/shopping-runs";
 import { cleanerInvoiceMissingFields } from "@/lib/profile/completeness";
 
@@ -84,7 +81,7 @@ export async function POST(req: NextRequest) {
     if (!accountsEmail) {
       return NextResponse.json({ error: "Accounts email is not configured." }, { status: 400 });
     }
-    const html = buildCleanerInvoiceHtml(data);
+    const { html } = await resolveCleanerInvoiceHtml(data, { snapshot: true, entityId: session.user.id });
     const pdf = await renderCleanerInvoicePdf(html);
     const fileName = `cleaner-invoice-${session.user.id}-${data.start.toISOString().slice(0, 10)}-to-${data.end
       .toISOString()

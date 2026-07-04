@@ -286,6 +286,79 @@ const SAMPLE_QA_REPORT = {
   actionUrl: "",
 };
 
+const cleanerLine = z.object({
+  date: z.string(),
+  description: z.string(),
+  property: z.string().optional(),
+  amount: z.number(),
+});
+
+/** Normalized by lib/templates/adapters/cleaner-invoice.ts. */
+const cleanerInvoiceContract = z.object({
+  cleaner: z.object({
+    name: z.string(),
+    abn: z.string(),
+    email: z.string(),
+    phone: z.string(),
+    address: z.string(),
+    bankName: z.string(),
+    bsb: z.string(),
+    accountNumber: z.string(),
+    accountName: z.string(),
+  }),
+  invoice: z.object({
+    number: z.string(),
+    periodStart: z.union([z.string(), z.date()]),
+    periodEnd: z.union([z.string(), z.date()]),
+  }),
+  summary: z.object({ jobs: z.number(), hours: z.number(), gross: z.number() }),
+  lines: z.array(cleanerLine),
+  expenses: z.array(cleanerLine),
+  shoppingTime: z.array(cleanerLine),
+  extras: z.array(cleanerLine),
+  totals: z.object({
+    estimatedPay: z.number(),
+    expenses: z.number(),
+    shoppingTime: z.number(),
+    extras: z.number(),
+    grandTotal: z.number(),
+  }),
+  hasExpenses: z.boolean(),
+  hasShoppingTime: z.boolean(),
+  hasExtras: z.boolean(),
+  pending: z.object({ count: z.number(), amount: z.number(), hasPending: z.boolean() }),
+  actionUrl: z.string(),
+});
+
+const SAMPLE_CLEANER_INVOICE = {
+  cleaner: {
+    name: "Ana Rodriguez",
+    abn: "12 345 678 901",
+    email: "ana@example.com",
+    phone: "0400 000 000",
+    address: "5 Sample St, Sydney NSW",
+    bankName: "CBA",
+    bsb: "062-000",
+    accountNumber: "1234 5678",
+    accountName: "Ana Rodriguez",
+  },
+  invoice: { number: "INV-20260601-20260630", periodStart: "2026-06-01T00:00:00.000Z", periodEnd: "2026-06-30T00:00:00.000Z" },
+  summary: { jobs: 3, hours: 9.5, gross: 690 },
+  lines: [
+    { date: "10 Jun", description: "Turnover · 12 Marine Parade", property: "12 Marine Parade", amount: 240 },
+    { date: "18 Jun", description: "Deep clean · 88 Ocean View Rd", property: "88 Ocean View Rd", amount: 320 },
+  ],
+  expenses: [{ date: "12 Jun", description: "Shopping run · Coogee", amount: 48 }],
+  shoppingTime: [{ date: "12 Jun", description: "Shopping time · Coogee", amount: 22 }],
+  extras: [{ date: "20 Jun", description: "One-off bonus", amount: 60 }],
+  totals: { estimatedPay: 560, expenses: 48, shoppingTime: 22, extras: 60, grandTotal: 690 },
+  hasExpenses: true,
+  hasShoppingTime: true,
+  hasExtras: true,
+  pending: { count: 1, amount: 40, hasPending: true },
+  actionUrl: "",
+};
+
 // ---------------------------------------------------------------------------
 // Pilot kinds
 // ---------------------------------------------------------------------------
@@ -355,6 +428,17 @@ export const TEMPLATE_KINDS: Record<string, TemplateKindConfig> = {
     sampleData: () => SAMPLE_QA_REPORT,
     allowedBlocks: DOC_BLOCKS,
     requiredBlocks: ["qaScoreCard"],
+    channels: ["pdf", "web"],
+  },
+  "doc.cleanerInvoice": {
+    kind: "doc.cleanerInvoice",
+    family: "document",
+    label: "Cleaner invoice / RCTI (PDF)",
+    chrome: "a4Page",
+    dataContract: cleanerInvoiceContract,
+    sampleData: () => SAMPLE_CLEANER_INVOICE,
+    allowedBlocks: DOC_BLOCKS,
+    requiredBlocks: ["lineItems", "totals"],
     channels: ["pdf", "web"],
   },
   "sms.jobReminder": {
@@ -501,6 +585,61 @@ export function defaultQaReportDoc(): Block[] {
     block("checklistSection", "fs", { bind: "report.findings", showMedia: true }, "report.hasFindings"),
     block("heading", "ph", { text: "Inspector photos", level: 2 }),
     block("photoGrid", "pg", { bind: "report.photos", columns: 3, showCaption: false }),
+    block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
+  ];
+}
+
+/** A4 cleaner invoice / RCTI (§4.2). */
+export function defaultCleanerInvoiceDoc(): Block[] {
+  const lineCols = [
+    { label: "Date", path: "date", format: "text", align: "left" },
+    { label: "Description", path: "description", format: "text", align: "left" },
+    { label: "Amount", path: "amount", format: "money", align: "right" },
+  ];
+  return [
+    block("header", "hd", { variant: "document", eyebrow: "RECIPIENT-CREATED TAX INVOICE", docNumber: "{{invoice.number}}", docDate: "{{invoice.periodStart | date}} – {{invoice.periodEnd | date}}", showLogo: true }),
+    block("infoCard", "who", {
+      title: "CONTRACTOR",
+      rows: [
+        { label: "Name", value: "{{cleaner.name}}" },
+        { label: "ABN", value: "{{cleaner.abn}}" },
+        { label: "Email", value: "{{cleaner.email}}" },
+      ],
+    }),
+    block("statRow", "st", {
+      items: [
+        { label: "Jobs", value: "{{summary.jobs}}", delta: "" },
+        { label: "Paid hours", value: "{{summary.hours}}", delta: "" },
+        { label: "Total", value: "{{totals.grandTotal | money}}", delta: "" },
+      ],
+    }),
+    block("heading", "jh", { text: "Jobs", level: 2 }),
+    block("lineItems", "jl", { bind: "lines", columns: lineCols, emptyText: "No jobs this period." }),
+    block("heading", "eh", { text: "Shopping reimbursements", level: 2 }, "hasExpenses"),
+    block("lineItems", "el", { bind: "expenses", columns: lineCols, emptyText: "None." }, "hasExpenses"),
+    block("heading", "sh", { text: "Shopping time", level: 2 }, "hasShoppingTime"),
+    block("lineItems", "sl", { bind: "shoppingTime", columns: lineCols, emptyText: "None." }, "hasShoppingTime"),
+    block("heading", "xh", { text: "Extras", level: 2 }, "hasExtras"),
+    block("lineItems", "xl", { bind: "extras", columns: lineCols, emptyText: "None." }, "hasExtras"),
+    block("totals", "tt", {
+      rows: [
+        { label: "Job pay", value: "{{totals.estimatedPay | money}}", emphasis: false, when: "" },
+        { label: "Shopping reimbursements", value: "{{totals.expenses | money}}", emphasis: false, when: "hasExpenses" },
+        { label: "Shopping time", value: "{{totals.shoppingTime | money}}", emphasis: false, when: "hasShoppingTime" },
+        { label: "Extras", value: "{{totals.extras | money}}", emphasis: false, when: "hasExtras" },
+        { label: "Total payable", value: "{{totals.grandTotal | money}}", emphasis: true, when: "" },
+      ],
+    }),
+    block("callout", "pend", { tone: "warning", title: "Pending adjustments", text: "{{pending.count}} adjustment(s) awaiting approval ({{pending.amount | money}}) — not included above." }, "pending.hasPending"),
+    block("infoCard", "bank", {
+      title: "PAYMENT",
+      rows: [
+        { label: "Bank", value: "{{cleaner.bankName}}" },
+        { label: "BSB", value: "{{cleaner.bsb}}" },
+        { label: "Account", value: "{{cleaner.accountNumber}}" },
+        { label: "Name", value: "{{cleaner.accountName}}" },
+      ],
+    }),
     block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
   ];
 }

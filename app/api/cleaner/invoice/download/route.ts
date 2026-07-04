@@ -4,11 +4,8 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
-import {
-  buildCleanerInvoiceHtml,
-  getCleanerInvoiceData,
-  renderCleanerInvoicePdf,
-} from "@/lib/cleaner/invoice";
+import { getCleanerInvoiceData, renderCleanerInvoicePdf } from "@/lib/cleaner/invoice";
+import { resolveCleanerInvoiceHtml } from "@/lib/templates/resolve/cleaner-invoice";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -31,7 +28,7 @@ async function buildInvoicePdfResponse(input: {
   excludedRunIds?: string[];
 }) {
   const data = await getCleanerInvoiceData({ ...input, excludeInvoicedJobs: true });
-  const html = buildCleanerInvoiceHtml(data);
+  const { html } = await resolveCleanerInvoiceHtml(data, { snapshot: true, entityId: input.userId });
   const pdf = await renderCleanerInvoicePdf(html);
   const fileName = `cleaner-invoice-${data.start.toISOString().slice(0, 10)}-to-${data.end
     .toISOString()
