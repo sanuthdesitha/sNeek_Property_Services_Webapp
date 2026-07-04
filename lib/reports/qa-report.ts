@@ -112,6 +112,20 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
   const cleaners = job.assignments.map((a) => a.user?.name || a.user?.email).filter(Boolean).join(", ") || "N/A";
   const sectionPhotos: Record<string, string[]> = tools?.sectionPhotos ?? {};
 
+  // Template engine v2 branch (rebrand doc 03 §5.3), gated per-kind and OFF by
+  // default → byte-identical legacy report until doc.qaReport is flipped. Lazy
+  // import avoids a load-time cycle (the resolver imports this module's siblings).
+  try {
+    const { resolveQaReportHtml } = await import("@/lib/templates/resolve/qa-report");
+    const v2 = await resolveQaReportHtml(
+      { job, submission, qa, tools, localDate, inspector, cleaners, onSiteMinutes, jobId },
+      keyUrl,
+    );
+    if (v2) return { html: v2.html, jobNumber: job.jobNumber ?? job.id };
+  } catch {
+    // fall through to the legacy renderer
+  }
+
   // ── Per-section checklist results ─────────────────────────────────────────
   const sectionsHtml = (Array.isArray(templateSchema?.sections) ? templateSchema.sections : [])
     .map((section: any) => {

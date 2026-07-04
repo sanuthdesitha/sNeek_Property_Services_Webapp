@@ -217,6 +217,75 @@ const SAMPLE_CLIENT_REPORT = {
   actionUrl: "https://example.com/portal/reports/abc",
 };
 
+const qaChecklistSection = z.object({
+  title: z.string(),
+  items: z.array(
+    z.object({
+      label: z.string(),
+      checked: z.boolean().optional(),
+      value: z.string().optional(),
+      note: z.string().optional(),
+      media: z.array(reportMedia).optional(),
+    }),
+  ),
+});
+
+/** Normalized by lib/reports/qa-report-data.ts extractQaReportData. */
+const qaReportContract = z.object({
+  report: z.object({
+    property: z.object({ name: z.string(), suburb: z.string(), jobType: z.string(), date: z.string() }),
+    meta: z.object({ cleaner: z.string(), inspector: z.string(), onSiteMinutes: z.string() }),
+    qa: z
+      .object({
+        score: z.number().nullable(),
+        passed: z.boolean().nullable(),
+        categories: z.array(z.object({ label: z.string(), score: z.number() })),
+        rework: z
+          .object({ required: z.boolean(), severity: z.string(), areas: z.array(z.string()), note: z.string() })
+          .nullable(),
+      })
+      .nullable(),
+    hasQa: z.boolean(),
+    notes: z.string(),
+    sections: z.array(qaChecklistSection),
+    findings: z.array(qaChecklistSection),
+    hasFindings: z.boolean(),
+    photos: z.array(reportMedia),
+  }),
+  actionUrl: z.string(),
+});
+
+const SAMPLE_QA_REPORT = {
+  report: {
+    property: { name: "12 Marine Parade", suburb: "Coogee", jobType: "Airbnb Turnover", date: "2 July 2026" },
+    meta: { cleaner: "Ana R.", inspector: "Marco P.", onSiteMinutes: "18 min" },
+    qa: {
+      score: 88,
+      passed: true,
+      categories: [{ label: "Kitchen", score: 92 }, { label: "Bathroom", score: 84 }],
+      rework: { required: true, severity: "MINOR", areas: ["Shower glass"], note: "Water spots on the shower screen." },
+    },
+    hasQa: true,
+    notes: "Overall a strong clean; minor touch-up on the shower screen.",
+    sections: [
+      { title: "Kitchen", items: [{ label: "Benchtops", checked: true }, { label: "Oven", checked: true }, { label: "Rating", value: "4 / 5" }] },
+      { title: "Bathroom", items: [{ label: "Shower glass", checked: false }, { label: "Toilet", checked: true }] },
+    ],
+    findings: [
+      {
+        title: "Damage findings",
+        items: [{ label: "Master bathroom", checked: false, value: "MEDIUM", note: "Chip on the vanity edge.", media: [{ url: "https://x/d1.jpg", type: "PHOTO" }] }],
+      },
+    ],
+    hasFindings: true,
+    photos: [
+      { url: "https://x/qa1.jpg", type: "PHOTO" },
+      { url: "https://x/qa2.jpg", type: "PHOTO" },
+    ],
+  },
+  actionUrl: "",
+};
+
 // ---------------------------------------------------------------------------
 // Pilot kinds
 // ---------------------------------------------------------------------------
@@ -275,6 +344,17 @@ export const TEMPLATE_KINDS: Record<string, TemplateKindConfig> = {
     sampleData: () => SAMPLE_CLIENT_REPORT,
     allowedBlocks: DOC_BLOCKS,
     requiredBlocks: ["checklistSection"],
+    channels: ["pdf", "web"],
+  },
+  "doc.qaReport": {
+    kind: "doc.qaReport",
+    family: "document",
+    label: "QA inspection report (PDF)",
+    chrome: "a4Page",
+    dataContract: qaReportContract,
+    sampleData: () => SAMPLE_QA_REPORT,
+    allowedBlocks: DOC_BLOCKS,
+    requiredBlocks: ["qaScoreCard"],
     channels: ["pdf", "web"],
   },
   "sms.jobReminder": {
@@ -396,6 +476,31 @@ export function defaultClientReportDoc(): Block[] {
     block("checklistSection", "cs", { bind: "report.sections", showMedia: true }),
     block("heading", "ph", { text: "Photo evidence", level: 2 }),
     block("photoGrid", "pg", { bind: "report.photos", columns: 3, showCaption: true }),
+    block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
+  ];
+}
+
+/** A4 QA inspection report (§4.2) — verdict, checklist, findings, evidence. */
+export function defaultQaReportDoc(): Block[] {
+  return [
+    block("header", "hd", { variant: "document", eyebrow: "QA INSPECTION", docDate: "{{report.property.date}}", showLogo: true }),
+    block("hero", "hr", { eyebrow: "{{report.property.jobType}}", headline: "{{report.property.name}}", subline: "{{report.property.suburb}}" }),
+    block("infoCard", "meta", {
+      title: "INSPECTION",
+      rows: [
+        { label: "Cleaner", value: "{{report.meta.cleaner}}" },
+        { label: "Inspector", value: "{{report.meta.inspector}}" },
+        { label: "On site", value: "{{report.meta.onSiteMinutes}}" },
+      ],
+    }),
+    block("qaScoreCard", "qa", { bind: "report.qa" }),
+    block("callout", "nt", { tone: "info", title: "Inspector notes", text: "{{report.notes}}" }, "report.notes"),
+    block("heading", "sh", { text: "Section results", level: 2 }),
+    block("checklistSection", "cs", { bind: "report.sections", showMedia: false }),
+    block("heading", "fh", { text: "Findings", level: 2 }, "report.hasFindings"),
+    block("checklistSection", "fs", { bind: "report.findings", showMedia: true }, "report.hasFindings"),
+    block("heading", "ph", { text: "Inspector photos", level: 2 }),
+    block("photoGrid", "pg", { bind: "report.photos", columns: 3, showCaption: false }),
     block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
   ];
 }
