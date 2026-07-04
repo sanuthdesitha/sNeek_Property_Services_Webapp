@@ -1,35 +1,96 @@
-import { EBadge, ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { ChevronRight } from "lucide-react";
+import { QaAssignmentStatus, Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
+import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Reviews · Estate QA" };
+export const dynamic = "force-dynamic";
 
-const REVIEWS = [
-  { property: "12 Marine Parade", cleaner: "Ana R.", score: "—", tone: "warning" as const, status: "Pending" },
-  { property: "5/44 Beach St", cleaner: "Marco P.", score: "96%", tone: "success" as const, status: "Passed" },
-  { property: "88 Ocean View Rd", cleaner: "Lena K.", score: "88%", tone: "info" as const, status: "Passed" },
-  { property: "9 Palm Ave", cleaner: "Sam T.", score: "72%", tone: "danger" as const, status: "Rework" },
-];
+type Tone = "neutral" | "primary" | "info" | "success" | "warning" | "danger";
 
-export default function QaReviewsPage() {
+function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function statusTone(status: QaAssignmentStatus): Tone {
+  switch (status) {
+    case QaAssignmentStatus.COMPLETED:
+      return "success";
+    case QaAssignmentStatus.IN_PROGRESS:
+      return "info";
+    case QaAssignmentStatus.CANCELLED:
+      return "neutral";
+    case QaAssignmentStatus.OPEN:
+      return "warning";
+    default:
+      return "primary";
+  }
+}
+
+type ReviewRow = {
+  id: string;
+  status: QaAssignmentStatus;
+  onSiteMinutes: number | null;
+  job: {
+    property: { name: string | null; suburb: string | null } | null;
+    assignments: { user: { name: string | null } | null }[];
+  } | null;
+};
+
+async function getReviews(): Promise<ReviewRow[]> {
+  return db.qaAssignment
+    .findMany({
+      orderBy: [{ updatedAt: "desc" }],
+      take: 30,
+      select: {
+        id: true,
+        status: true,
+        onSiteMinutes: true,
+        job: {
+          select: {
+            property: { select: { name: true, suburb: true } },
+            assignments: { select: { user: { select: { name: true } } }, take: 1 },
+          },
+        },
+      },
+    })
+    .catch(() => [] as ReviewRow[]);
+}
+
+export default async function QaReviewsPage() {
+  await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
+  const reviews = await getReviews();
+
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="History" title="Reviews" description="Completed and pending inspections." />
-      <div className="space-y-3">
-        {REVIEWS.map((r, i) => (
-          <ECard key={i}>
-            <ECardBody className="flex items-center gap-3 pt-6">
-              <div className="min-w-0 flex-1">
-                <p className="text-[0.875rem] font-medium">{r.property}</p>
-                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{r.cleaner}</p>
-              </div>
-              <span className="e-numeral text-[0.9375rem]">{r.score}</span>
-              <EBadge tone={r.tone} soft>{r.status}</EBadge>
-              <ChevronRight className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
-            </ECardBody>
-          </ECard>
-        ))}
-      </div>
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · representative data.</p>
+      {reviews.length === 0 ? (
+        <EEmptyState eyebrow="Quiet" title="No reviews yet" description="Inspections will appear here as jobs are submitted." />
+      ) : (
+        <div className="space-y-3">
+          {reviews.map((r) => {
+            const propName = r.job?.property?.name ?? "Property";
+            const suburb = r.job?.property?.suburb ?? "";
+            const cleaner = r.job?.assignments[0]?.user?.name ?? "Unassigned";
+            return (
+              <ECard key={r.id}>
+                <ECardBody className="flex items-center gap-3 pt-6">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[0.875rem] font-medium">{propName}{suburb ? `, ${suburb}` : ""}</p>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{cleaner}</p>
+                  </div>
+                  {r.onSiteMinutes ? <span className="e-numeral text-[0.9375rem]">{r.onSiteMinutes}m</span> : null}
+                  <EBadge tone={statusTone(r.status)} soft>{titleCase(r.status)}</EBadge>
+                </ECardBody>
+              </ECard>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

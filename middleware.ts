@@ -44,10 +44,22 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
     }
 
-    // v2 rebrand preview — admin/ops only, invisible to clients/cleaners.
+    // v2 (Estate) portals. Admin/ops preview everything under /v2; every other
+    // role may reach ONLY its own portal. Logins are NOT redirected here yet —
+    // the default per-role experience stays on the legacy portals until the
+    // owner-approved cutover. This just makes /v2/<portal> reachable per role.
     if (pathname.startsWith("/v2")) {
-      if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) {
-        return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      const isAdminOps = role === Role.ADMIN || role === Role.OPS_MANAGER;
+      if (!isAdminOps) {
+        const ownsPortal =
+          (pathname.startsWith("/v2/client") && role === Role.CLIENT) ||
+          (pathname.startsWith("/v2/cleaner") && role === Role.CLEANER) ||
+          (pathname.startsWith("/v2/laundry") && role === Role.LAUNDRY) ||
+          (pathname.startsWith("/v2/qa") && role === Role.QA_INSPECTOR) ||
+          (pathname.startsWith("/v2/maintenance") && role === Role.MAINTENANCE);
+        if (!ownsPortal) {
+          return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+        }
       }
     }
 

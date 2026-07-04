@@ -1,49 +1,89 @@
-import { EBadge, EButton, ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { PackagePlus } from "lucide-react";
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { listHeldStock } from "@/lib/inventory/held-stock";
+import {
+  EBadge,
+  ECard,
+  ECardBody,
+  EPageHeader,
+  EEmptyState,
+} from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Supplies · Estate cleaner" };
+export const dynamic = "force-dynamic";
 
-const TABS = ["Restock", "Stock counts", "Shopping"];
-const ONHAND = [
-  { item: "Microfibre cloths", qty: "12 on hand", tone: "success" as const },
-  { item: "All-purpose spray", qty: "2 left", tone: "warning" as const },
-  { item: "Bin liners", qty: "Out", tone: "danger" as const },
-];
+type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
-export default function CleanerSuppliesPage() {
+function qtyTone(qty: number): Tone {
+  if (qty <= 0) return "danger";
+  if (qty <= 2) return "warning";
+  return "success";
+}
+
+/**
+ * Stock this cleaner is currently holding (bought/shopped but not yet dropped at
+ * a unit) — the same on-hand ledger the live cleaner shopping page shows, scoped
+ * to the session user via holderUserId.
+ */
+async function getMyOnHand(userId: string) {
+  return listHeldStock({ holderUserId: userId }).catch(() => []);
+}
+
+export default async function CleanerSuppliesPage() {
+  const session = await requireRole([Role.CLEANER]);
+  const holdings = await getMyOnHand(session.user.id);
+
+  // Aggregate per catalog item (a cleaner can hold the same item across several
+  // shopping runs) so the list reads as one line per product.
+  const byItem = new Map<string, { name: string; unit: string | null; quantity: number }>();
+  for (const row of holdings) {
+    const key = row.item.id;
+    const existing = byItem.get(key);
+    if (existing) {
+      existing.quantity += row.quantity;
+    } else {
+      byItem.set(key, { name: row.item.name, unit: row.item.unit, quantity: row.quantity });
+    }
+  }
+  const items = Array.from(byItem.values()).sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <div className="space-y-6">
       <EPageHeader
         eyebrow="Inventory"
         title="Supplies"
-        description="Restock, count, and shop — one place."
-        actions={<EButton variant="gold" size="sm"><PackagePlus className="h-3.5 w-3.5" /> Request restock</EButton>}
+        description="Stock you're holding that hasn't been dropped at a unit yet."
       />
-      <div className="inline-flex rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-0.5">
-        {TABS.map((t, i) => (
-          <button
-            key={t}
-            className={
-              "rounded-[var(--e-radius-sm)] px-3 py-1.5 text-[0.8125rem] font-medium " +
-              (i === 0 ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]" : "text-[hsl(var(--e-muted-foreground))]")
-            }
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <ECard>
-        <ECardBody className="pt-6">
-          <div className="divide-y divide-[hsl(var(--e-border))]">
-            {ONHAND.map((s) => (
-              <div key={s.item} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <p className="text-[0.875rem] font-medium">{s.item}</p>
-                <EBadge tone={s.tone} soft>{s.qty}</EBadge>
-              </div>
-            ))}
-          </div>
-        </ECardBody>
-      </ECard>
+
+      {items.length === 0 ? (
+        <EEmptyState
+          eyebrow="Empty hands"
+          title="No stock on hand"
+          description="Items you buy on a shopping run appear here until you deliver them to a unit."
+        />
+      ) : (
+        <ECard>
+          <ECardBody className="pt-6">
+            <div className="divide-y divide-[hsl(var(--e-border))]">
+              {items.map((s) => {
+                const unit = s.unit ? ` ${s.unit}` : "";
+                const label = s.quantity <= 0 ? "Out" : `${s.quantity}${unit} on hand`;
+                return (
+                  <div
+                    key={s.name}
+                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  >
+                    <p className="text-[0.875rem] font-medium">{s.name}</p>
+                    <EBadge tone={qtyTone(s.quantity)} soft>
+                      {label}
+                    </EBadge>
+                  </div>
+                );
+              })}
+            </div>
+          </ECardBody>
+        </ECard>
+      )}
     </div>
   );
 }

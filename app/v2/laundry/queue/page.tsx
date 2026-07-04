@@ -1,38 +1,88 @@
-import { EBadge, ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
+import { LaundryStatus, Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
+import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Queue · Estate laundry" };
+export const dynamic = "force-dynamic";
 
-const STAGES = [
-  { name: "Intake", items: ["12 Marine Parade · 3 sets", "5/44 Beach St · 2 sets"], tone: "neutral" as const },
-  { name: "Washing", items: ["88 Ocean View Rd · 2 sets"], tone: "info" as const },
-  { name: "Drying", items: ["7 Curlewis St · 4 sets"], tone: "warning" as const },
-  { name: "Ready", items: ["3 Sunny Ln · 2 sets", "9 Palm Ave · 1 set"], tone: "success" as const },
+type Tone = "neutral" | "primary" | "info" | "success" | "warning" | "danger";
+
+const STAGES: { name: string; status: LaundryStatus; tone: Tone }[] = [
+  { name: "Pending", status: LaundryStatus.PENDING, tone: "neutral" },
+  { name: "Confirmed", status: LaundryStatus.CONFIRMED, tone: "primary" },
+  { name: "Picked up", status: LaundryStatus.PICKED_UP, tone: "info" },
+  { name: "Delivered", status: LaundryStatus.DROPPED, tone: "success" },
 ];
 
-export default function LaundryQueuePage() {
+type QueueTask = {
+  id: string;
+  status: LaundryStatus;
+  bagWeightKg: number | null;
+  property: { name: string | null; suburb: string | null } | null;
+};
+
+async function getQueue(): Promise<QueueTask[]> {
+  return db.laundryTask
+    .findMany({
+      where: {
+        noPickupRequired: false,
+        status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.PICKED_UP, LaundryStatus.DROPPED] },
+      },
+      orderBy: [{ pickupDate: "asc" }],
+      take: 60,
+      select: {
+        id: true,
+        status: true,
+        bagWeightKg: true,
+        property: { select: { name: true, suburb: true } },
+      },
+    })
+    .catch(() => [] as QueueTask[]);
+}
+
+export default async function LaundryQueuePage() {
+  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const tasks = await getQueue();
+
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="Board" title="Queue" description="Every set, by stage." />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {STAGES.map((s) => (
-          <ECard key={s.name}>
-            <ECardBody className="space-y-3 pt-6">
-              <div className="flex items-center justify-between">
-                <p className="text-[0.8125rem] font-semibold uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">{s.name}</p>
-                <EBadge tone={s.tone} soft>{s.items.length}</EBadge>
-              </div>
-              <div className="space-y-2">
-                {s.items.map((it) => (
-                  <div key={it} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
-                    {it}
+      {tasks.length === 0 ? (
+        <EEmptyState eyebrow="Quiet" title="Nothing in the queue" description="No active laundry sets right now." />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {STAGES.map((s) => {
+            const items = tasks.filter((t) => t.status === s.status);
+            return (
+              <ECard key={s.name}>
+                <ECardBody className="space-y-3 pt-6">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[0.8125rem] font-semibold uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">{s.name}</p>
+                    <EBadge tone={s.tone} soft>{items.length}</EBadge>
                   </div>
-                ))}
-              </div>
-            </ECardBody>
-          </ECard>
-        ))}
-      </div>
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · representative data.</p>
+                  <div className="space-y-2">
+                    {items.length === 0 ? (
+                      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">None</p>
+                    ) : (
+                      items.map((it) => {
+                        const name = it.property?.name ?? "Property";
+                        const suburb = it.property?.suburb ?? "";
+                        const weight = it.bagWeightKg ? ` · ${it.bagWeightKg} kg` : "";
+                        return (
+                          <div key={it.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
+                            {name}{suburb ? `, ${suburb}` : ""}{weight}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </ECardBody>
+              </ECard>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

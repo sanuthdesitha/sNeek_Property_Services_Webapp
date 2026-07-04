@@ -1,10 +1,14 @@
+import { toZonedTime } from "date-fns-tz";
+import { QaAssignmentStatus, Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import {
   EBadge,
-  EButton,
   ECard,
   ECardBody,
   ECardHeader,
   ECardTitle,
+  EEmptyState,
   EEyebrow,
   EStatCard,
   EThread,
@@ -12,63 +16,102 @@ import {
 import { AlertTriangle, ClipboardCheck, Star, Timer } from "lucide-react";
 
 export const metadata = { title: "Today · Estate QA" };
+export const dynamic = "force-dynamic";
 
-const PENDING = [
-  { property: "12 Marine Parade", cleaner: "Ana R.", submitted: "10 min ago", tone: "warning" as const },
-  { property: "88 Ocean View Rd", cleaner: "Marco P.", submitted: "40 min ago", tone: "info" as const },
-  { property: "7 Curlewis St", cleaner: "Lena K.", submitted: "1 h ago", tone: "info" as const },
-];
+const TZ = "Australia/Sydney";
+const OPEN_STATUSES = [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED, QaAssignmentStatus.IN_PROGRESS];
 
-export default function QaTodayPage() {
+function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Mirrors app/v2/admin/quality/page.tsx getQuality().
+async function getQuality() {
+  const nowSyd = toZonedTime(new Date(), TZ);
+  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
+  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+
+  const [queue, awaiting, inProgress, completedToday, reworkToday] = await Promise.all([
+    db.qaAssignment
+      .findMany({
+        where: { status: { in: OPEN_STATUSES } },
+        orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
+        take: 12,
+        select: {
+          id: true,
+          status: true,
+          dueAt: true,
+          job: {
+            select: {
+              jobType: true,
+              property: { select: { name: true, suburb: true } },
+              assignments: { select: { user: { select: { name: true } } }, take: 1 },
+            },
+          },
+        },
+      })
+      .catch(() => []),
+    db.qaAssignment.count({ where: { status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } } }).catch(() => 0),
+    db.qaAssignment.count({ where: { status: QaAssignmentStatus.IN_PROGRESS } }).catch(() => 0),
+    db.qaAssignment
+      .count({ where: { status: QaAssignmentStatus.COMPLETED, completedAt: { gte: todayStart, lt: todayEnd } } })
+      .catch(() => 0),
+    db.qaReworkTransfer.count({ where: { createdAt: { gte: todayStart, lt: todayEnd } } }).catch(() => 0),
+  ]);
+
+  return { queue, awaiting, inProgress, completedToday, reworkToday };
+}
+
+export default async function QaTodayPage() {
+  await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
+  const { queue, awaiting, inProgress, completedToday, reworkToday } = await getQuality();
+
   return (
     <div className="space-y-8">
       <header className="e-rise">
         <EEyebrow>QUALITY ASSURANCE · SYDNEY</EEyebrow>
-        <h1 className="e-display-lg mt-2">Today's reviews.</h1>
+        <h1 className="e-display-lg mt-2">Today&apos;s reviews.</h1>
         <div className="e-signature-rule mt-4" />
       </header>
 
       <section className="grid gap-4 sm:grid-cols-4">
-        <EStatCard label="Awaiting review" value="3" delta="oldest 1 h" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
-        <EStatCard label="Reviewed today" value="11" delta="+3 vs avg" icon={<Star className="h-4 w-4" />} />
-        <EStatCard label="Rework flagged" value="1" delta="this shift" deltaTone="neutral" icon={<AlertTriangle className="h-4 w-4" />} />
-        <EStatCard label="Avg review time" value="6m" delta="-1m" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Awaiting review" value={String(awaiting)} delta="unpicked" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
+        <EStatCard label="In progress" value={String(inProgress)} delta="being inspected" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Reviewed today" value={String(completedToday)} delta="closed" icon={<Star className="h-4 w-4" />} />
+        <EStatCard label="Rework flagged" value={String(reworkToday)} delta="today" deltaTone="neutral" icon={<AlertTriangle className="h-4 w-4" />} />
       </section>
 
-      <ECard variant="ceremony">
-        <ECardBody className="space-y-3 pt-6">
-          <div className="flex items-center justify-between">
-            <EEyebrow>NEXT REVIEW</EEyebrow>
-            <EBadge tone="warning" soft><Timer className="h-3 w-3" /> 10 min ago</EBadge>
-          </div>
-          <p className="e-display-sm">12 Marine Parade</p>
-          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">Ana R. · Airbnb turnover · 24 photos · 8 checklist areas</p>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <EButton variant="gold" size="sm">Start review</EButton>
-            <EButton variant="outline" size="sm">View submission</EButton>
-          </div>
-        </ECardBody>
-      </ECard>
-
       <ECard>
-        <ECardHeader><ECardTitle>Pending queue</ECardTitle></ECardHeader>
+        <ECardHeader><ECardTitle>Inspection queue</ECardTitle></ECardHeader>
         <ECardBody className="space-y-1">
-          {PENDING.map((p, i) => (
-            <div key={i}>
-              {i > 0 ? <EThread className="my-1" /> : null}
-              <div className="flex items-center justify-between gap-2 py-1.5">
-                <div>
-                  <p className="text-[0.875rem] font-medium">{p.property}</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{p.cleaner}</p>
+          {queue.length === 0 ? (
+            <EEmptyState eyebrow="All clear" title="No inspections waiting" description="Every submitted job has been reviewed." />
+          ) : (
+            queue.map((q, i) => {
+              const propName = q.job?.property?.name ?? "Property";
+              const suburb = q.job?.property?.suburb ?? "";
+              const cleaner = q.job?.assignments[0]?.user?.name ?? "Unassigned";
+              const jobType = q.job?.jobType ? titleCase(q.job.jobType) : "Clean";
+              return (
+                <div key={q.id}>
+                  {i > 0 ? <EThread className="my-1" /> : null}
+                  <div className="flex items-center justify-between gap-2 py-1.5">
+                    <div className="min-w-0">
+                      <p className="text-[0.875rem] font-medium">{propName}{suburb ? `, ${suburb}` : ""}</p>
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{jobType} · {cleaner}</p>
+                    </div>
+                    <EBadge tone={q.status === QaAssignmentStatus.IN_PROGRESS ? "info" : "primary"} soft>{titleCase(q.status)}</EBadge>
+                  </div>
                 </div>
-                <EBadge tone={p.tone} soft>{p.submitted}</EBadge>
-              </div>
-            </div>
-          ))}
+              );
+            })
+          )}
         </ECardBody>
       </ECard>
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · representative data.</p>
     </div>
   );
 }
