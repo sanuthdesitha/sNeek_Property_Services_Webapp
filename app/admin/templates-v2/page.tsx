@@ -3,6 +3,8 @@ import { Role, TemplateVersionStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { TEMPLATE_KINDS } from "@/lib/templates/kinds";
+import { getTemplateEngineFlags } from "@/lib/templates/flags";
+import { FlagToggle } from "@/components/admin/templates-v2/flag-toggle";
 
 export const metadata = { title: "Template studio (v2)" };
 export const dynamic = "force-dynamic";
@@ -29,6 +31,7 @@ export default async function TemplatesV2Page() {
     },
   });
   const byKind = new Map(definitions.map((definition) => [definition.kind, definition]));
+  const flags = await getTemplateEngineFlags();
 
   const families: Record<string, string> = {
     email: "Email",
@@ -54,28 +57,40 @@ export default async function TemplatesV2Page() {
           const definition = byKind.get(config.kind);
           const published = definition?.publishedVersion;
           return (
-            <Link
+            <div
               key={config.kind}
-              href={`/admin/templates-v2/${encodeURIComponent(config.kind)}`}
-              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-emerald-600"
+              className="relative flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-emerald-600"
             >
+              {/* Stretched link: the whole row navigates, except the toggle (z-10). */}
+              <Link
+                href={`/admin/templates-v2/${encodeURIComponent(config.kind)}`}
+                className="absolute inset-0 rounded-lg"
+                aria-label={`Edit ${config.label}`}
+              />
               <div>
                 <p className="text-[15px] font-medium text-slate-900">{config.label}</p>
                 <p className="text-[12px] text-slate-500">
                   {families[config.family]} · {config.kind}
                 </p>
               </div>
-              <div className="text-right text-[12px]">
-                {published ? (
-                  <span className="font-medium text-emerald-700">v{published.version} published</span>
-                ) : (
-                  <span className="text-slate-400">Not published</span>
-                )}
-                {(definition?.versions.length ?? 0) > 0 ? (
-                  <p className="text-amber-600">draft in progress</p>
-                ) : null}
+              <div className="relative z-10 flex items-center gap-3">
+                <div className="text-right text-[12px]">
+                  {published ? (
+                    <span className="font-medium text-emerald-700">v{published.version} published</span>
+                  ) : (
+                    <span className="text-slate-400">Not published</span>
+                  )}
+                  {(definition?.versions.length ?? 0) > 0 ? (
+                    <p className="text-amber-600">draft in progress</p>
+                  ) : null}
+                </div>
+                <FlagToggle
+                  kind={config.kind}
+                  initialEnabled={flags.kinds[config.kind] === true}
+                  disabled={!published}
+                />
               </div>
-            </Link>
+            </div>
           );
         })}
       </div>

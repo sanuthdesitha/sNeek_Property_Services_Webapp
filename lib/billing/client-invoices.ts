@@ -568,7 +568,17 @@ export async function renderClientInvoicePdf(
   logoUrl?: string | null,
   invoicingSettings?: Parameters<typeof buildClientInvoiceHtml>[3]
 ) {
-  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings), "client invoice PDF generation");
+  // Template engine v2 branch (rebrand doc 03 §5.3), gated per-kind and
+  // OFF by default → byte-identical legacy HTML until the flag is flipped.
+  // Import lazily to avoid a load-time cycle (resolver imports this module).
+  const { resolveClientInvoiceHtml } = await import("@/lib/templates/resolve/client-invoice");
+  const { html } = await resolveClientInvoiceHtml(invoice, {
+    companyName,
+    logoUrl,
+    invoicingSettings,
+    snapshot: true,
+  });
+  return renderPdfFromHtml(html, "client invoice PDF generation");
 }
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {

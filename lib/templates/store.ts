@@ -165,6 +165,53 @@ export async function publishDraft(definitionId: string, draftId: string, userId
   });
 }
 
+/**
+ * The currently-published doc for a kind (SYSTEM scope), or null if the kind
+ * has no published version. Render paths call this behind the per-kind flag.
+ */
+export async function getPublishedDoc(kind: string): Promise<{ doc: TemplateDoc; versionId: string } | null> {
+  const definition = await db.templateDefinition.findUnique({
+    where: { kind_scope: { kind, scope: SYSTEM_SCOPE } },
+    include: { publishedVersion: true },
+  });
+  if (!definition?.publishedVersion) return null;
+  const doc = parseTemplateDoc(definition.publishedVersion.doc);
+  return { doc, versionId: definition.publishedVersion.id };
+}
+
+/**
+ * Freeze an issued artifact (rebrand doc 03 §1.6 rule 2). Re-viewing renders
+ * from this snapshot, never the live template — so template edits never change
+ * issued paper. Best-effort: a snapshot failure must not block the artifact.
+ */
+export async function snapshotRenderedDocument(params: {
+  kind: string;
+  entityType: string;
+  entityId: string;
+  templateVersionId: string | null;
+  doc: TemplateDoc;
+  data: unknown;
+  htmlKey?: string;
+  pdfKey?: string;
+}): Promise<void> {
+  try {
+    await db.renderedDocument.create({
+      data: {
+        kind: params.kind,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        templateVersionId: params.templateVersionId,
+        docSnapshot: params.doc as unknown as Prisma.InputJsonValue,
+        dataSnapshot: params.data as unknown as Prisma.InputJsonValue,
+        htmlKey: params.htmlKey,
+        pdfKey: params.pdfKey,
+      },
+    });
+  } catch {
+    // Snapshot is a durability nicety, not a correctness gate for the send.
+  }
+}
+
 export async function listVersions(definitionId: string) {
   return db.templateVersion.findMany({
     where: { definitionId },
