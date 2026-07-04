@@ -92,6 +92,10 @@ export const BLOCK_TYPES = [
   "pageBreak",
   "footer",
   "textBlock",
+  // Report-wave blocks (rebrand doc 03 §1.3) — registered in blocks/defs/.
+  "checklistSection",
+  "photoGrid",
+  "qaScoreCard",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];

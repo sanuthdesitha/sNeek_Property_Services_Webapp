@@ -93,6 +93,51 @@ export function renderDocumentHtml(
   .tpl-page-break { break-after: page; page-break-after: always; }
   .tpl-footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--tpl-color-rule); font-size: 9px; color: var(--tpl-color-muted); }
   .tpl-footer p { margin: 0 0 2px; }
+
+  /* Report-wave blocks (checklistSection / photoGrid / qaScoreCard) */
+  .tpl-checklist { margin: 10px 0; }
+  .tpl-checklist-section { margin: 0 0 12px; break-inside: avoid; }
+  .tpl-checklist-title { margin: 0 0 5px; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--tpl-accent); font-weight: 600; }
+  .tpl-checklist-item { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; flex-wrap: wrap; }
+  .tpl-check { flex: 0 0 auto; width: 14px; font-weight: 700; text-align: center; }
+  .tpl-check-pass { color: var(--tpl-color-success); }
+  .tpl-check-fail { color: var(--tpl-color-danger); }
+  .tpl-check-na { color: var(--tpl-color-muted); }
+  .tpl-item-label { flex: 1 1 auto; }
+  .tpl-item-value { color: var(--tpl-color-muted); }
+  .tpl-item-note { flex: 1 1 100%; margin: 2px 0 0 20px; font-size: 10px; color: var(--tpl-color-muted); }
+  .tpl-item-excluded { opacity: 0.5; }
+  .tpl-item-media { flex: 1 1 100%; display: flex; gap: 6px; margin: 4px 0 0 20px; flex-wrap: wrap; }
+  .tpl-item-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--tpl-color-rule); }
+  .tpl-item-video { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: var(--tpl-color-muted); background: var(--tpl-color-surface); }
+
+  .tpl-photo-grid { display: grid; gap: 8px; margin: 10px 0; break-inside: avoid; }
+  .tpl-photo-grid[data-cols="2"] { grid-template-columns: repeat(2, 1fr); }
+  .tpl-photo-grid[data-cols="3"] { grid-template-columns: repeat(3, 1fr); }
+  .tpl-photo-grid[data-cols="4"] { grid-template-columns: repeat(4, 1fr); }
+  .tpl-photo { position: relative; margin: 0; break-inside: avoid; }
+  .tpl-photo-img { width: 100%; border-radius: 6px; border: 1px solid var(--tpl-color-rule); display: block; }
+  .tpl-photo-video { display: flex; align-items: center; justify-content: center; min-height: 90px; border-radius: 6px; border: 1px solid var(--tpl-color-rule); background: var(--tpl-color-surface); font-size: 11px; color: var(--tpl-color-muted); }
+  .tpl-photo-cap { margin: 3px 0 0; font-size: 9px; color: var(--tpl-color-muted); }
+  .tpl-photo-stamp { color: var(--tpl-color-ink); }
+  .tpl-photo-badge { position: absolute; top: 5px; left: 5px; padding: 1px 6px; border-radius: 999px; background: var(--tpl-color-primary); color: #fff; font-size: 8px; letter-spacing: 0.5px; }
+  .tpl-photo-more { margin: 4px 0 0; font-size: 9px; color: var(--tpl-color-muted); }
+
+  .tpl-qa-card { border: 1px solid var(--tpl-color-rule); border-radius: 10px; padding: 14px 16px; margin: 12px 0; break-inside: avoid; }
+  .tpl-qa-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .tpl-qa-verdict { padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; background: var(--tpl-color-surface); color: var(--tpl-color-muted); }
+  .tpl-qa-pass { background: #EAF3EE; color: var(--tpl-color-success); }
+  .tpl-qa-fail { background: #F6E9E8; color: var(--tpl-color-danger); }
+  .tpl-qa-score { font-family: var(--tpl-font-display); font-size: 26px; color: var(--tpl-color-ink); }
+  .tpl-qa-cats { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .tpl-qa-cat { display: flex; align-items: center; gap: 8px; }
+  .tpl-qa-cat-label { flex: 0 0 30%; font-size: 10px; color: var(--tpl-color-ink); }
+  .tpl-qa-bar { flex: 1 1 auto; height: 6px; border-radius: 999px; background: var(--tpl-color-rule); overflow: hidden; }
+  .tpl-qa-bar-fill { display: block; height: 100%; background: var(--tpl-accent); }
+  .tpl-qa-cat-score { flex: 0 0 auto; font-size: 10px; color: var(--tpl-color-muted); width: 34px; text-align: right; }
+  .tpl-qa-rework { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--tpl-color-rule); }
+  .tpl-qa-rework p { margin: 3px 0 0; font-size: 10px; color: var(--tpl-color-ink); }
+  .tpl-qa-sev { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #F7EFE0; color: var(--tpl-color-warning); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 </style>
 </head>
 <body>

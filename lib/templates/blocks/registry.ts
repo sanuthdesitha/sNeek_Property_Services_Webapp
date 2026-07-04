@@ -12,6 +12,10 @@ import { z } from "zod";
 import { getPath } from "../model";
 import { applyFormatter } from "../formatters";
 import { getCtxTimezone, type BlockDefinition, type BlockRenderCtx } from "./types";
+// Report-wave blocks (rebrand doc 03 §1.3) — each in its own file under defs/.
+import { checklistSectionBlock } from "./defs/checklist-section";
+import { photoGridBlock } from "./defs/photo-grid";
+import { qaScoreCardBlock } from "./defs/qa-score-card";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -587,5 +591,8 @@ export const BLOCK_REGISTRY: Record<string, BlockDefinition<any>> = {
   pageBreak,
   footer,
   textBlock,
+  checklistSection: checklistSectionBlock,
+  photoGrid: photoGridBlock,
+  qaScoreCard: qaScoreCardBlock,
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */

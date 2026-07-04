@@ -151,7 +151,7 @@ const EMAIL_BLOCKS: BlockType[] = [
 const DOC_BLOCKS: BlockType[] = [
   "header", "hero", "heading", "text", "statRow", "infoCard", "lineItems",
   "totals", "terms", "button", "callout", "image", "divider", "spacer",
-  "pageBreak", "footer",
+  "pageBreak", "footer", "checklistSection", "photoGrid", "qaScoreCard",
 ];
 
 export const TEMPLATE_KINDS: Record<string, TemplateKindConfig> = {
