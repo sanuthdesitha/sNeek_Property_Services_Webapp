@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { Building2, ChevronRight, Settings, Truck, Wrench } from "lucide-react";
+import { ChevronRight, ClipboardList, Settings, Wrench } from "lucide-react";
 
 export const metadata = { title: "More · Estate maintenance" };
 
 const ITEMS = [
-  { label: "Properties", desc: "Asset registers", icon: Building2 },
-  { label: "Suppliers", desc: "Trades & vendors", icon: Truck },
-  { label: "Parts", desc: "Stock & reorder", icon: Wrench },
-  { label: "Settings", desc: "SLA & priorities", icon: Settings },
+  { href: "/v2/maintenance/tickets", label: "All tickets", desc: "Every work order", icon: Wrench },
+  { href: "/v2/maintenance/log", label: "History", desc: "Completed record", icon: ClipboardList },
+  { href: "/v2/maintenance/settings", label: "Settings", desc: "Security & preferences", icon: Settings },
 ];
 
 export default function MaintenanceMorePage() {
@@ -21,7 +20,7 @@ export default function MaintenanceMorePage() {
             {ITEMS.map((it) => {
               const Icon = it.icon;
               return (
-                <Link key={it.label} href="/v2/maintenance" className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
+                <Link key={it.label} href={it.href} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
                   <span className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
                     <Icon className="h-4 w-4" />
                   </span>

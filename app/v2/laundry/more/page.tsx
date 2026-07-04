@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { ChevronRight, FileText, Package, Settings, Users } from "lucide-react";
+import { CalendarRange, ChevronRight, Receipt, Settings, User, Users } from "lucide-react";
 
 export const metadata = { title: "More · Estate laundry" };
 
 const ITEMS = [
-  { label: "Inventory", desc: "Linen sets & par levels", icon: Package },
-  { label: "Reports", desc: "Weekly summaries", icon: FileText },
-  { label: "Team", desc: "Laundry roster", icon: Users },
-  { label: "Settings", desc: "Loops & thresholds", icon: Settings },
+  { href: "/v2/laundry/calendar", label: "Calendar", desc: "Pickups & drop-offs schedule", icon: CalendarRange },
+  { href: "/v2/laundry/hub", label: "Team hub", desc: "Feed & recognition", icon: Users },
+  { href: "/v2/laundry/invoices", label: "Invoices", desc: "Laundry billing", icon: Receipt },
+  { href: "/v2/laundry/profile", label: "Profile", desc: "Your details & banking", icon: User },
+  { href: "/v2/laundry/settings", label: "Settings", desc: "Security & preferences", icon: Settings },
 ];
 
 export default function LaundryMorePage() {
@@ -21,7 +22,7 @@ export default function LaundryMorePage() {
             {ITEMS.map((it) => {
               const Icon = it.icon;
               return (
-                <Link key={it.label} href="/v2/laundry" className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
+                <Link key={it.href} href={it.href} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
                   <span className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
                     <Icon className="h-4 w-4" />
                   </span>

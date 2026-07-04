@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { ChevronRight, FileText, Image, Settings, Sliders } from "lucide-react";
+import { ChevronRight, ClipboardCheck, User } from "lucide-react";
 
 export const metadata = { title: "More · Estate QA" };
 
 const ITEMS = [
-  { label: "Scoring rules", desc: "Weights & thresholds", icon: Sliders },
-  { label: "Photo library", desc: "Reference standards", icon: Image },
-  { label: "Reports", desc: "Client QA summaries", icon: FileText },
-  { label: "Settings", desc: "Review preferences", icon: Settings },
+  { href: "/v2/qa/reviews", label: "All reviews", desc: "History & pending", icon: ClipboardCheck },
+  { href: "/v2/qa/profile", label: "Profile & settings", desc: "Your details, security, preferences", icon: User },
 ];
 
 export default function QaMorePage() {
@@ -21,7 +19,7 @@ export default function QaMorePage() {
             {ITEMS.map((it) => {
               const Icon = it.icon;
               return (
-                <Link key={it.label} href="/v2/qa" className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
+                <Link key={it.label} href={it.href} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
                   <span className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
                     <Icon className="h-4 w-4" />
                   </span>
