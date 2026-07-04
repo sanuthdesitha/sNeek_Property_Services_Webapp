@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
   EBadge,
+  EButton,
   ECard,
   ECardBody,
   ECardHeader,
@@ -47,6 +49,7 @@ async function getQuality() {
           dueAt: true,
           job: {
             select: {
+              id: true,
               jobType: true,
               property: { select: { name: true, suburb: true } },
               assignments: { select: { user: { select: { name: true } } }, take: 1 },
@@ -104,7 +107,16 @@ export default async function QaTodayPage() {
                       <p className="text-[0.875rem] font-medium">{propName}{suburb ? `, ${suburb}` : ""}</p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{jobType} · {cleaner}</p>
                     </div>
-                    <EBadge tone={q.status === QaAssignmentStatus.IN_PROGRESS ? "info" : "primary"} soft>{titleCase(q.status)}</EBadge>
+                    <div className="flex items-center gap-2">
+                      <EBadge tone={q.status === QaAssignmentStatus.IN_PROGRESS ? "info" : "primary"} soft>{titleCase(q.status)}</EBadge>
+                      {q.job?.id ? (
+                        <Link href={`/qa/jobs/${q.job.id}`}>
+                          <EButton variant="gold" size="sm">
+                            {q.status === QaAssignmentStatus.IN_PROGRESS ? "Continue" : "Start review"}
+                          </EButton>
+                        </Link>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               );

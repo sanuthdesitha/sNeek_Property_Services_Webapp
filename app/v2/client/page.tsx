@@ -120,8 +120,11 @@ export default async function ClientHomePage() {
                   <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-3">
+                  <Link href="/client/booking">
+                    <EButton variant="gold" size="sm">Book a clean</EButton>
+                  </Link>
                   <Link href="/v2/client/services">
-                    <EButton variant="gold" size="sm">View services</EButton>
+                    <EButton variant="outline" size="sm">View services</EButton>
                   </Link>
                   <Link href="/v2/client/messages">
                     <EButton variant="outline" size="sm">
@@ -131,9 +134,21 @@ export default async function ClientHomePage() {
                 </div>
               </>
             ) : (
-              <p className="text-[0.9375rem] text-[hsl(var(--e-text-secondary))]">
-                No active services scheduled right now.
-              </p>
+              <>
+                <p className="text-[0.9375rem] text-[hsl(var(--e-text-secondary))]">
+                  No active services scheduled right now.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-3">
+                  <Link href="/client/booking">
+                    <EButton variant="gold" size="sm">Book a clean</EButton>
+                  </Link>
+                  <Link href="/v2/client/messages">
+                    <EButton variant="outline" size="sm">
+                      <MessageSquare className="h-3.5 w-3.5" /> Message ops
+                    </EButton>
+                  </Link>
+                </div>
+              </>
             )}
           </ECardBody>
           <div className="hidden items-center justify-center bg-[hsl(var(--e-primary))] p-6 md:flex">

@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { MaintenanceStatus, MaintenancePriority, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { ChevronRight } from "lucide-react";
 
 export const metadata = { title: "Tickets · Estate maintenance" };
 export const dynamic = "force-dynamic";
@@ -68,16 +70,21 @@ export default async function MaintenanceTicketsPage() {
             const name = t.property?.name ?? "Property";
             const suburb = t.property?.suburb ?? "";
             return (
-              <ECard key={t.id}>
-                <ECardBody className="flex items-center gap-3 pt-6">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[0.875rem] font-medium">{t.title}</p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{name}{suburb ? `, ${suburb}` : ""}</p>
-                  </div>
-                  <EBadge tone={priorityTone(t.priority)} soft>{titleCase(t.priority)}</EBadge>
-                  <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{titleCase(t.status)}</span>
-                </ECardBody>
-              </ECard>
+              <Link key={t.id} href={`/maintenance/visits/${t.id}`} className="block">
+                <ECard>
+                  <ECardBody className="flex items-center gap-3 pt-6">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[0.875rem] font-medium">{t.title}</p>
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{name}{suburb ? `, ${suburb}` : ""}</p>
+                    </div>
+                    <EBadge tone={priorityTone(t.priority)} soft>{titleCase(t.priority)}</EBadge>
+                    <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{titleCase(t.status)}</span>
+                    <EButton variant="outline" size="sm">
+                      Open <ChevronRight className="h-4 w-4" />
+                    </EButton>
+                  </ECardBody>
+                </ECard>
+              </Link>
             );
           })}
         </div>

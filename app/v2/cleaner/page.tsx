@@ -158,12 +158,26 @@ export default async function CleanerTodayPage() {
                 {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).join(", ")}
               </span>
             </p>
-            <div className="pt-2">
-              <Link href={`/v2/cleaner/jobs/${nextJob.id}`}>
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+              <Link href={`/v2/cleaner/jobs/${nextJob.id}`} className="flex-1">
                 <EButton variant="gold" className="w-full">
                   Open job <ChevronRight className="h-4 w-4" />
                 </EButton>
               </Link>
+              {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).length > 0 ? (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                    [nextJob.property.address, nextJob.property.suburb].filter(Boolean).join(", ")
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1"
+                >
+                  <EButton variant="outline" className="w-full">
+                    <MapPin className="h-4 w-4" /> Navigate
+                  </EButton>
+                </a>
+              ) : null}
             </div>
           </ECardBody>
         </ECard>

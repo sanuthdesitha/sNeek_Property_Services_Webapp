@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { ArrowUpRight } from "lucide-react";
 
 export const metadata = { title: "Queue · Estate laundry" };
 export const dynamic = "force-dynamic";
@@ -70,9 +72,14 @@ export default async function LaundryQueuePage() {
                         const suburb = it.property?.suburb ?? "";
                         const weight = it.bagWeightKg ? ` · ${it.bagWeightKg} kg` : "";
                         return (
-                          <div key={it.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
-                            {name}{suburb ? `, ${suburb}` : ""}{weight}
-                          </div>
+                          <Link
+                            key={it.id}
+                            href={`/laundry?task=${it.id}`}
+                            className="group flex items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem] transition-colors hover:border-[hsl(var(--e-border-strong))]"
+                          >
+                            <span className="min-w-0 truncate">{name}{suburb ? `, ${suburb}` : ""}{weight}</span>
+                            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-text-faint))] group-hover:text-[hsl(var(--e-foreground))]" />
+                          </Link>
                         );
                       })
                     )}

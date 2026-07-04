@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { ChevronRight } from "lucide-react";
 
 export const metadata = { title: "Reviews · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -36,6 +38,7 @@ type ReviewRow = {
   status: QaAssignmentStatus;
   onSiteMinutes: number | null;
   job: {
+    id: string;
     property: { name: string | null; suburb: string | null } | null;
     assignments: { user: { name: string | null } | null }[];
   } | null;
@@ -52,6 +55,7 @@ async function getReviews(): Promise<ReviewRow[]> {
         onSiteMinutes: true,
         job: {
           select: {
+            id: true,
             property: { select: { name: true, suburb: true } },
             assignments: { select: { user: { select: { name: true } } }, take: 1 },
           },
@@ -76,6 +80,8 @@ export default async function QaReviewsPage() {
             const propName = r.job?.property?.name ?? "Property";
             const suburb = r.job?.property?.suburb ?? "";
             const cleaner = r.job?.assignments[0]?.user?.name ?? "Unassigned";
+            const jobId = r.job?.id ?? null;
+            const isDone = r.status === QaAssignmentStatus.COMPLETED;
             return (
               <ECard key={r.id}>
                 <ECardBody className="flex items-center gap-3 pt-6">
@@ -85,6 +91,14 @@ export default async function QaReviewsPage() {
                   </div>
                   {r.onSiteMinutes ? <span className="e-numeral text-[0.9375rem]">{r.onSiteMinutes}m</span> : null}
                   <EBadge tone={statusTone(r.status)} soft>{titleCase(r.status)}</EBadge>
+                  {jobId ? (
+                    <Link href={`/qa/jobs/${jobId}`}>
+                      <EButton variant={isDone ? "outline" : "gold"} size="sm">
+                        {isDone ? "Open" : "Start review"}
+                        <ChevronRight className="h-4 w-4" />
+                      </EButton>
+                    </Link>
+                  ) : null}
                 </ECardBody>
               </ECard>
             );

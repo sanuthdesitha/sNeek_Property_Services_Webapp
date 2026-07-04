@@ -123,7 +123,7 @@ export default async function AdminClientsPage() {
                       <td className="px-4 py-3">
                         <EBadge tone={c.isActive ? "primary" : "neutral"} soft>{c.isActive ? "Active" : "Inactive"}</EBadge>
                       </td>
-                      <td className="px-4 py-3 text-right"><Link href="/v2/admin/clients"><EButton variant="ghost" size="sm">Open</EButton></Link></td>
+                      <td className="px-4 py-3 text-right"><Link href={`/v2/admin/clients/${c.id}`}><EButton variant="ghost" size="sm">Open</EButton></Link></td>
                     </tr>
                   ))}
                 </tbody>

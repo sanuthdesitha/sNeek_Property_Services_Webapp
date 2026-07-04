@@ -12,7 +12,7 @@ import {
   EEmptyState,
   EPageHeader,
 } from "@/components/v2/ui/primitives";
-import { CalendarPlus, ChevronRight } from "lucide-react";
+import { CalendarPlus, ChevronRight, MessageSquare } from "lucide-react";
 
 export const metadata = { title: "Services · Estate client" };
 export const dynamic = "force-dynamic";
@@ -75,11 +75,18 @@ export default async function ClientServicesPage() {
         title="Services"
         description="Everything upcoming and everything done — in one lifecycle."
         actions={
-          <Link href="/v2/client/messages">
-            <EButton variant="gold" size="sm">
-              <CalendarPlus className="h-3.5 w-3.5" /> Request a clean
-            </EButton>
-          </Link>
+          <>
+            <Link href="/client/booking">
+              <EButton variant="gold" size="sm">
+                <CalendarPlus className="h-3.5 w-3.5" /> Book a clean
+              </EButton>
+            </Link>
+            <Link href="/v2/client/messages">
+              <EButton variant="outline" size="sm">
+                <MessageSquare className="h-3.5 w-3.5" /> Message ops
+              </EButton>
+            </Link>
+          </>
         }
       />
 
@@ -95,7 +102,8 @@ export default async function ClientServicesPage() {
           active.map((job) => {
             const who = job.assignments[0]?.user?.name;
             return (
-              <ECard key={job.id}>
+              <Link key={job.id} href={`/client/jobs/${job.id}`} className="block">
+              <ECard>
                 <ECardBody className="flex items-center gap-4 pt-6">
                   <div className="flex h-14 w-14 flex-shrink-0 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]">
                     <span className="text-[0.625rem] uppercase opacity-70">
@@ -117,6 +125,7 @@ export default async function ClientServicesPage() {
                   <ChevronRight className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
                 </ECardBody>
               </ECard>
+              </Link>
             );
           })
         )}

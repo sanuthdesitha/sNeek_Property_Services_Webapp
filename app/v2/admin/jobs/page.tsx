@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
 import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -139,7 +140,8 @@ export default async function AdminJobsPage() {
                   const isDone = ci === 3;
                   const isQa = c.status === JobStatus.QA_REVIEW || c.status === JobStatus.SUBMITTED;
                   return (
-                    <ECard key={c.id} className="relative overflow-hidden">
+                    <Link key={c.id} href={`/v2/admin/jobs/${c.id}`} className="block">
+                    <ECard className="relative overflow-hidden transition-shadow hover:shadow-[var(--e-elevation-1)]">
                       <span
                         className="absolute inset-x-0 top-0 h-[3px]"
                         style={{ backgroundColor: `hsl(var(--e-${meta.tone === "primary" ? "accent-portal" : meta.tone}))` }}
@@ -169,6 +171,7 @@ export default async function AdminJobsPage() {
                         </div>
                       </ECardBody>
                     </ECard>
+                    </Link>
                   );
                 })
               )}

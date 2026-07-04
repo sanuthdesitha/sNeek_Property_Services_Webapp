@@ -11,6 +11,7 @@ import {
   EStatCard,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
+import { CleanerInvoiceActions } from "@/components/v2/cleaner/invoice-actions";
 
 export const metadata = { title: "Pay · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -63,6 +64,7 @@ export default async function CleanerPayPage() {
         eyebrow="Earnings"
         title="Pay"
         description={`Current period · ${periodLine}`}
+        actions={<CleanerInvoiceActions />}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
