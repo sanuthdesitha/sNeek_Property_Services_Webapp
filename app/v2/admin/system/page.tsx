@@ -5,11 +5,11 @@ import { Activity, ChevronRight, ClipboardList, Cog, ShieldCheck, Users } from "
 export const metadata = { title: "System · Estate admin" };
 
 const GROUPS = [
-  { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog },
-  { label: "Forms & checklists", desc: "Builder, library, coverage, stats", icon: ClipboardList },
-  { label: "Users & roles", desc: "Staff accounts and permissions", icon: Users },
-  { label: "Activity log", desc: "Full audit trail", icon: Activity },
-  { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck },
+  { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/admin/settings" },
+  { label: "Forms & checklists", desc: "Builder, library, coverage, stats", icon: ClipboardList, href: "/admin/forms" },
+  { label: "Users & roles", desc: "Staff accounts and permissions", icon: Users, href: "/admin/users" },
+  { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/admin/activity" },
+  { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck, href: "/admin/system" },
 ];
 
 export default function AdminSystemPage() {
@@ -22,7 +22,7 @@ export default function AdminSystemPage() {
             {GROUPS.map((g) => {
               const Icon = g.icon;
               return (
-                <Link key={g.label} href="/v2/admin" className="flex items-center gap-3 py-3.5 first:pt-0 last:pb-0 hover:opacity-80">
+                <Link key={g.label} href={g.href} className="flex items-center gap-3 py-3.5 first:pt-0 last:pb-0 hover:opacity-80">
                   <span className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
                     <Icon className="h-4 w-4" />
                   </span>

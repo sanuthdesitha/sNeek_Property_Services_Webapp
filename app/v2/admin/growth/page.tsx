@@ -5,9 +5,9 @@ import { ChevronRight, Globe, Megaphone, Send } from "lucide-react";
 export const metadata = { title: "Growth · Estate admin" };
 
 const AREAS = [
-  { label: "Marketing", desc: "Campaigns, social, asset library", icon: Megaphone },
-  { label: "Website CMS", desc: "Editor, blog, live preview", icon: Globe },
-  { label: "Comms center", desc: "Notification templates, send log, delivery", icon: Send },
+  { label: "Marketing", desc: "Campaigns, social, asset library", icon: Megaphone, href: "/admin/marketing" },
+  { label: "Website CMS", desc: "Editor, blog, live preview", icon: Globe, href: "/admin/website" },
+  { label: "Comms center", desc: "Notification templates, send log, delivery", icon: Send, href: "/admin/notifications" },
 ];
 
 export default function AdminGrowthPage() {
@@ -18,7 +18,7 @@ export default function AdminGrowthPage() {
         {AREAS.map((a) => {
           const Icon = a.icon;
           return (
-            <Link key={a.label} href="/v2/admin">
+            <Link key={a.label} href={a.href}>
               <ECard className="group h-full transition-shadow duration-200 hover:shadow-[var(--e-elevation-2)]">
                 <ECardBody className="space-y-3 pt-6">
                   <span className="flex h-10 w-10 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
