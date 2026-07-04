@@ -16,6 +16,7 @@ import {
   defaultClientInvoiceDoc,
   defaultJobReminderSms,
   defaultQuoteDoc,
+  defaultClientReportDoc,
 } from "./kinds";
 
 const SYSTEM_SCOPE = "SYSTEM";
@@ -30,6 +31,8 @@ export function defaultDocForKind(kind: string): TemplateDoc {
       return { ...doc, page: { ...doc.page, size: "A4" }, blocks: defaultClientInvoiceDoc() };
     case "doc.quote":
       return { ...doc, page: { ...doc.page, size: "A4" }, blocks: defaultQuoteDoc() };
+    case "doc.clientReport":
+      return { ...doc, page: { ...doc.page, size: "A4" }, blocks: defaultClientReportDoc() };
     case "sms.jobReminder":
       return { ...doc, blocks: defaultJobReminderSms() };
     default:

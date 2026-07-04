@@ -1,15 +1,19 @@
-import { db } from "@/lib/db";
+﻿import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { s3 } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
+import { flattenFieldsOneLevel, isFlattenedFieldVisible } from "@/lib/forms/visibility";
+// Checklist visibility/value helpers + the v2 data extractor live in a db-free
+// module so they are unit-testable and shared with the template engine.
 import {
-  isTemplateConditionalMet,
-  flattenFieldsOneLevel,
-  isFlattenedFieldVisible,
-} from "@/lib/forms/visibility";
+  isFieldVisibleInReport,
+  buildFieldValue,
+  extractClientReportData,
+  type ClientReportData,
+} from "./client-report-data";
+export { extractClientReportData, type ClientReportData };
 import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
 import { publicUrl } from "@/lib/s3";
 
@@ -97,78 +101,6 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-function isBalconyLikeField(field: any) {
-  const text = `${String(field?.id ?? "")} ${String(field?.label ?? "")}`.toLowerCase();
-  return text.includes("balcony");
-}
-
-function isConditionMet(
-  conditional: Conditional | undefined,
-  answers: Record<string, unknown>,
-  property: Record<string, unknown>
-) {
-  // Delegate to the shared form-visibility engine so the report honours the
-  // full operator set (notEquals/answered/oneOf/gt/lt/…) exactly as the cleaner
-  // form and required-field enforcement do. Previously this only did equality,
-  // so any non-`equals` conditional rendered the wrong fields in the client PDF.
-  return isTemplateConditionalMet(conditional, answers, property);
-}
-
-function isFieldVisibleInReport(
-  field: any,
-  conditional: Conditional | undefined,
-  answers: Record<string, unknown>,
-  property: Record<string, unknown>
-) {
-  if (property.hasBalcony !== true && isBalconyLikeField(field)) {
-    return false;
-  }
-  return isConditionMet(conditional, answers, property);
-}
-
-function uploadCountForField(
-  uploads: Record<string, unknown>,
-  media: Array<{ fieldId: string }>,
-  fieldId: string
-): number {
-  const raw = uploads[fieldId];
-  if (typeof raw === "string") return raw.trim() ? 1 : 0;
-  if (Array.isArray(raw)) {
-    return raw.filter((item) => typeof item === "string" && item.trim()).length;
-  }
-  return media.filter((item) => item.fieldId === fieldId).length;
-}
-
-function buildFieldValue(field: any, context: { answers: Record<string, unknown>; uploads: Record<string, unknown>; submission: any }) {
-  const { answers, uploads, submission } = context;
-  if (!field?.id) return "-";
-
-  if (isUploadFieldType(field.type)) {
-    const count = uploadCountForField(uploads, submission?.media ?? [], String(field.id));
-    return count > 0 ? `${count} file(s)` : "Not uploaded";
-  }
-
-  if (field.type === "inventory") {
-    const txs = (submission?.stockTxs ?? []).filter((tx: any) => tx.quantity < 0);
-    if (txs.length === 0) return "No inventory recorded";
-    return txs
-      .map(
-        (tx: any) =>
-          `${tx.propertyStock?.item?.name ?? tx.propertyStock?.itemId ?? "Item"}: ${Math.abs(tx.quantity)}`
-      )
-      .join(", ");
-  }
-
-  if (field.type === "signature") {
-    const value = answers[field.id];
-    return typeof value === "string" && value.trim().startsWith("data:image/")
-      ? value.trim()
-      : "-";
-  }
-
-  return formatFieldValue(field, answers[field.id]);
-}
-
 function checkboxMarkHtml(checked: boolean) {
   return checked ? "&#x2611;" : "&#x2610;";
 }
@@ -230,7 +162,7 @@ function buildAdminRequestedTasksHtml(submission: any): { html: string; usedMedi
             }
             <div style="margin-top:8px;font-size:11px;color:#7f1d1d;">
               ${task.requiresPhoto ? "Image proof required" : "No image proof required"}
-              ${task.requiresNote ? " · Cleaner note required" : ""}
+              ${task.requiresNote ? " Â· Cleaner note required" : ""}
             </div>
           </td>
           <td style="padding:10px;border-bottom:1px solid #fecaca;vertical-align:top;">
@@ -299,7 +231,7 @@ function buildUnifiedJobTasksHtml(submission: any): { html: string; usedMediaIds
             }
             <div style="margin-top:8px;font-size:11px;color:#475569;">
               Source: ${escapeHtml(String(task.source ?? "ADMIN").replace(/_/g, " "))}
-              ${task.approvalStatus ? ` • ${escapeHtml(String(task.approvalStatus).replace(/_/g, " "))}` : ""}
+              ${task.approvalStatus ? ` â€¢ ${escapeHtml(String(task.approvalStatus).replace(/_/g, " "))}` : ""}
             </div>
           </td>
           <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
@@ -429,7 +361,7 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
  * submission. Deliberately client-appropriate: QA pass/fail + score, the QA
  * inspector's client-safe notes, a compact damage-findings summary, and the
  * inspector's section photos. Internal pay/rework $ and cleaner-blame details
- * are intentionally EXCLUDED — those live only in the standalone QA report.
+ * are intentionally EXCLUDED â€” those live only in the standalone QA report.
  */
 function buildQaSummaryHtml(
   qaSubmission: any,
@@ -449,7 +381,7 @@ function buildQaSummaryHtml(
   const passed = qa?.passed ?? qaSubmission?.passed ?? null;
   const notes = String(qa?.notes ?? qaSubmission?.notes ?? "").trim();
 
-  // Section photos → flat key list for the gallery.
+  // Section photos â†’ flat key list for the gallery.
   const sectionPhotos: Record<string, unknown> =
     tools?.sectionPhotos && typeof tools.sectionPhotos === "object" ? tools.sectionPhotos : {};
   const photoKeys: string[] = [];
@@ -466,14 +398,14 @@ function buildQaSummaryHtml(
     .map(
       (d: any) => `
         <tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.area || "—")}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.area || "â€”")}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(String(d.severity ?? ""))}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.description || "—")}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${escapeHtml(d.description || "â€”")}</td>
         </tr>`
     )
     .join("");
 
-  // Nothing meaningful to show → no section.
+  // Nothing meaningful to show â†’ no section.
   if (score == null && !notes && !damageRows && photoKeys.length === 0) {
     return { html: "", photoKeys: [] };
   }
@@ -492,7 +424,7 @@ function buildQaSummaryHtml(
       <h3 style="margin:0 0 8px 0;">Quality inspection</h3>
       ${
         score != null
-          ? `<p>Result: <span class="badge ${passed ? "pass" : "fail"}">${Number(score).toFixed(0)}% — ${passed ? "PASSED" : "FAILED"}</span></p>`
+          ? `<p>Result: <span class="badge ${passed ? "pass" : "fail"}">${Number(score).toFixed(0)}% â€” ${passed ? "PASSED" : "FAILED"}</span></p>`
           : ""
       }
       ${notes ? `<div class="label">Inspector notes</div><div class="value" style="white-space:pre-wrap;">${escapeHtml(notes)}</div>` : ""}
@@ -556,7 +488,20 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   const settings = await getAppSettings();
   const theme = await loadTheme(themeId);
 
-  const html = buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme });
+  // Template engine v2 branch (rebrand doc 03 Â§5.3), gated per-kind and OFF by
+  // default â†’ byte-identical legacy report until doc.clientReport is flipped.
+  // Lazy import avoids a load-time cycle (the resolver imports this module).
+  const { resolveClientReportHtml } = await import("@/lib/templates/resolve/client-report");
+  const { html } = await resolveClientReportHtml({
+    job,
+    submission,
+    qa,
+    qaSubmission,
+    localDate,
+    settings,
+    theme,
+    snapshot: true,
+  });
 
   const htmlKey = `reports/${jobId}/report.html`;
   let storedHtmlKey: string | null = null;
@@ -620,7 +565,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   logger.info({ jobId, pdfUrl }, "Job report generated");
 }
 
-function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme }: any): string {
+export function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme }: any): string {
   const checklist = submission ? buildChecklistHtml(job, submission) : { html: "", usedMediaIds: new Set<string>() };
   const adminRequestedTasks = submission
     ? buildAdminRequestedTasksHtml(submission)
@@ -801,11 +746,11 @@ ${c.footerHtml}
 }
 
 /**
- * The "luxury" report skin — a premium, magazine-grade layout. Same data and
+ * The "luxury" report skin â€” a premium, magazine-grade layout. Same data and
  * sections as classic, just a far more refined presentation: serif display
  * headings (system serif stack, no external fonts so it stays A4/print-safe in
  * Playwright), a hero header band, hairline dividers, rounded soft-shadow photo
- * grid, and an elegant footer. Inline CSS only — no JS or web-font fetches.
+ * grid, and an elegant footer. Inline CSS only â€” no JS or web-font fetches.
  */
 function renderLuxuryReport(c: ReportRenderCtx): string {
   const serif = `"Cormorant Garamond", "Hoefler Text", Garamond, "Times New Roman", Georgia, serif`;

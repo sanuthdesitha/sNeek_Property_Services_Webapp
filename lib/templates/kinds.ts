@@ -139,6 +139,84 @@ const SAMPLE_QUOTE = {
   actionUrl: "https://example.com/quote/Q-3007",
 };
 
+const reportMedia = z.object({
+  url: z.string(),
+  type: z.enum(["PHOTO", "VIDEO"]).optional(),
+  caption: z.string().optional(),
+});
+
+/** Normalized by lib/reports/generator.ts extractClientReportData. */
+const clientReportContract = z.object({
+  report: z.object({
+    property: z.object({
+      name: z.string(),
+      suburb: z.string(),
+      jobType: z.string(),
+      cleanDate: z.string(),
+      cleaner: z.string(),
+      client: z.string(),
+    }),
+    summary: z.object({ sections: z.number(), photos: z.number(), qaPassed: z.boolean().nullable() }),
+    sections: z.array(
+      z.object({
+        title: z.string(),
+        items: z.array(
+          z.object({
+            label: z.string(),
+            checked: z.boolean().optional(),
+            value: z.string().optional(),
+            note: z.string().optional(),
+            media: z.array(reportMedia).optional(),
+          }),
+        ),
+      }),
+    ),
+    photos: z.array(reportMedia),
+    qa: z
+      .object({
+        score: z.number().nullable(),
+        passed: z.boolean().nullable(),
+        categories: z.array(z.object({ label: z.string(), score: z.number() })),
+      })
+      .nullable(),
+    hasQa: z.boolean(),
+  }),
+  actionUrl: z.string(),
+});
+
+const SAMPLE_CLIENT_REPORT = {
+  report: {
+    property: { name: "12 Marine Parade", suburb: "Coogee", jobType: "Airbnb Turnover", cleanDate: "2 July 2026", cleaner: "Ana R.", client: "James Harrington" },
+    summary: { sections: 2, photos: 3, qaPassed: true },
+    sections: [
+      {
+        title: "Kitchen",
+        items: [
+          { label: "Benches & splashback wiped", checked: true, media: [{ url: "https://x/k1.jpg", type: "PHOTO", caption: "Benchtop" }] },
+          { label: "Oven cleaned", checked: true },
+          { label: "Bin emptied & relined", checked: false, note: "No liners on site" },
+        ],
+      },
+      {
+        title: "Bathroom",
+        items: [
+          { label: "Shower glass", checked: true },
+          { label: "Toilet sanitised", checked: true },
+          { label: "Towels restocked", value: "4 towels", checked: undefined },
+        ],
+      },
+    ],
+    photos: [
+      { url: "https://x/a.jpg", type: "PHOTO", caption: "Living room" },
+      { url: "https://x/b.jpg", type: "PHOTO", caption: "Bedroom" },
+      { url: "https://x/c.jpg", type: "PHOTO", caption: "Kitchen" },
+    ],
+    qa: { score: 96, passed: true, categories: [{ label: "Kitchen", score: 98 }, { label: "Bathroom", score: 94 }] },
+    hasQa: true,
+  },
+  actionUrl: "https://example.com/portal/reports/abc",
+};
+
 // ---------------------------------------------------------------------------
 // Pilot kinds
 // ---------------------------------------------------------------------------
@@ -186,6 +264,17 @@ export const TEMPLATE_KINDS: Record<string, TemplateKindConfig> = {
     sampleData: () => SAMPLE_QUOTE,
     allowedBlocks: DOC_BLOCKS,
     requiredBlocks: ["lineItems", "totals"],
+    channels: ["pdf", "web"],
+  },
+  "doc.clientReport": {
+    kind: "doc.clientReport",
+    family: "document",
+    label: "Client report (PDF)",
+    chrome: "a4Page",
+    dataContract: clientReportContract,
+    sampleData: () => SAMPLE_CLIENT_REPORT,
+    allowedBlocks: DOC_BLOCKS,
+    requiredBlocks: ["checklistSection"],
     channels: ["pdf", "web"],
   },
   "sms.jobReminder": {
@@ -282,6 +371,31 @@ export function defaultClientInvoiceDoc(): Block[] {
       ],
     }),
     block("terms", "tm", { text: "{{payment.note}}" }),
+    block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
+  ];
+}
+
+/** A4 client cleaning report (§4.2) — checklist + evidence + QA. */
+export function defaultClientReportDoc(): Block[] {
+  return [
+    block("header", "hd", { variant: "document", eyebrow: "CLEANING REPORT", docDate: "{{report.property.cleanDate}}", showLogo: true }),
+    block("hero", "hr", {
+      eyebrow: "{{report.property.jobType}}",
+      headline: "{{report.property.name}}",
+      subline: "{{report.property.suburb}} · cleaned by {{report.property.cleaner}}",
+    }),
+    block("statRow", "st", {
+      items: [
+        { label: "Areas", value: "{{report.summary.sections}}", delta: "" },
+        { label: "Photos", value: "{{report.summary.photos}}", delta: "" },
+        { label: "Client", value: "{{report.property.client}}", delta: "" },
+      ],
+    }),
+    block("qaScoreCard", "qa", { bind: "report.qa" }, "report.hasQa"),
+    block("heading", "ch", { text: "Checklist", level: 2 }),
+    block("checklistSection", "cs", { bind: "report.sections", showMedia: true }),
+    block("heading", "ph", { text: "Photo evidence", level: 2 }),
+    block("photoGrid", "pg", { bind: "report.photos", columns: 3, showCaption: true }),
     block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
   ];
 }
