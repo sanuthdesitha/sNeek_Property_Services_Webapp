@@ -1,23 +1,82 @@
+import Link from "next/link";
+import { toZonedTime } from "date-fns-tz";
+import { ClientInvoiceStatus } from "@prisma/client";
+import { db } from "@/lib/db";
 import {
   EBadge,
   EButton,
   ECard,
   ECardBody,
   EPageHeader,
+  EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { Plus, Search } from "lucide-react";
 
 export const metadata = { title: "Clients · Estate admin" };
+export const dynamic = "force-dynamic";
 
-const CLIENTS = [
-  { name: "J. Harrington", props: 2, mtd: "$310", tone: "primary" as const, status: "Active" },
-  { name: "Coastal Stays Pty", props: 11, mtd: "$4,120", tone: "gold" as const, status: "Key account" },
-  { name: "M. Okafor", props: 1, mtd: "$680", tone: "primary" as const, status: "Active" },
-  { name: "Bondi Beach Rentals", props: 6, mtd: "$2,940", tone: "primary" as const, status: "Active" },
-  { name: "P. Nguyen", props: 1, mtd: "$0", tone: "warning" as const, status: "Onboarding" },
-];
+const TZ = "Australia/Sydney";
 
-export default function AdminClientsPage() {
+function money(n: number): string {
+  return "$" + Math.round(n).toLocaleString("en-AU");
+}
+
+function initials(name: string): string {
+  return (
+    name
+      .replace(/[^A-Za-z ]/g, "")
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "?"
+  );
+}
+
+async function getClients() {
+  const nowSyd = toZonedTime(new Date(), TZ);
+  const monthStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), 1);
+
+  const [clients, paidByClient] = await Promise.all([
+    db.client
+      .findMany({
+        orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+        take: 25,
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          suburb: true,
+          _count: { select: { properties: true } },
+        },
+      })
+      .catch(() => []),
+    db.clientInvoice
+      .groupBy({
+        by: ["clientId"],
+        where: { status: ClientInvoiceStatus.PAID, createdAt: { gte: monthStart } },
+        _sum: { totalAmount: true },
+      })
+      .catch(() => [] as { clientId: string; _sum: { totalAmount: number | null } }[]),
+  ]);
+
+  const mtdMap = new Map<string, number>();
+  for (const row of paidByClient) mtdMap.set(row.clientId, row._sum.totalAmount ?? 0);
+
+  return clients.map((c) => ({
+    id: c.id,
+    name: c.name,
+    isActive: c.isActive,
+    suburb: c.suburb,
+    properties: c._count.properties,
+    mtd: mtdMap.get(c.id) ?? 0,
+  }));
+}
+
+export default async function AdminClientsPage() {
+  const clients = await getClients();
+
   return (
     <div className="space-y-6">
       <EPageHeader
@@ -33,38 +92,47 @@ export default function AdminClientsPage() {
 
       <ECard>
         <ECardBody className="pt-6">
-          <div className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-            <table className="w-full text-[0.8125rem]">
-              <thead>
-                <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                  {["Client", "Properties", "Revenue · MTD", "Status", ""].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {CLIENTS.map((c) => (
-                  <tr key={c.name} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full text-[0.6875rem] font-semibold text-[hsl(var(--e-accent-portal-foreground))]" style={{ backgroundColor: "hsl(var(--e-accent-portal))" }}>
-                          {c.name.replace(/[^A-Za-z ]/g, "").split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                        </span>
-                        <span className="font-[550]">{c.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-[hsl(var(--e-text-secondary))]">{c.props}</td>
-                    <td className="px-4 py-3"><span className="e-numeral text-[0.9375rem]">{c.mtd}</span></td>
-                    <td className="px-4 py-3"><EBadge tone={c.tone} soft>{c.status}</EBadge></td>
-                    <td className="px-4 py-3 text-right"><EButton variant="ghost" size="sm">Open</EButton></td>
+          {clients.length === 0 ? (
+            <EEmptyState eyebrow="No clients yet" title="Your register is empty" description="Add a client to get started." />
+          ) : (
+            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+              <table className="w-full text-[0.8125rem]">
+                <thead>
+                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
+                    {["Client", "Properties", "Paid · MTD", "Status", ""].map((h) => (
+                      <th key={h} className="px-4 py-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {clients.map((c) => (
+                    <tr key={c.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full text-[0.6875rem] font-semibold text-[hsl(var(--e-accent-portal-foreground))]" style={{ backgroundColor: "hsl(var(--e-accent-portal))" }}>
+                            {initials(c.name)}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="font-[550]">{c.name}</span>
+                            {c.suburb ? <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{c.suburb}</p> : null}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-[hsl(var(--e-text-secondary))]">{c.properties}</td>
+                      <td className="px-4 py-3"><span className="e-numeral text-[0.9375rem]">{money(c.mtd)}</span></td>
+                      <td className="px-4 py-3">
+                        <EBadge tone={c.isActive ? "primary" : "neutral"} soft>{c.isActive ? "Active" : "Inactive"}</EBadge>
+                      </td>
+                      <td className="px-4 py-3 text-right"><Link href="/v2/admin/clients"><EButton variant="ghost" size="sm">Open</EButton></Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </ECardBody>
       </ECard>
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · representative data.</p>
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
     </div>
   );
 }

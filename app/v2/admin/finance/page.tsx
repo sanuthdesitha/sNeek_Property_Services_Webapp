@@ -1,3 +1,7 @@
+import Link from "next/link";
+import { toZonedTime } from "date-fns-tz";
+import { ClientInvoiceStatus } from "@prisma/client";
+import { db } from "@/lib/db";
 import {
   EBadge,
   EButton,
@@ -7,20 +11,80 @@ import {
   ECardTitle,
   EPageHeader,
   EStatCard,
+  EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { Banknote, FileText, TrendingUp, Users } from "lucide-react";
 
 export const metadata = { title: "Finance · Estate admin" };
+export const dynamic = "force-dynamic";
 
+const TZ = "Australia/Sydney";
 const TABS = ["Overview", "Invoices", "Payroll", "Cleaner invoices", "Pricing"];
 
-const INVOICES = [
-  { no: "INV-1042", client: "J. Harrington", amount: "$310.00", tone: "warning" as const, status: "Sent" },
-  { no: "INV-1041", client: "Coastal Stays", amount: "$2,140.00", tone: "success" as const, status: "Paid" },
-  { no: "INV-1040", client: "M. Okafor", amount: "$680.00", tone: "gold" as const, status: "Xero pushed" },
-];
+type Tone = "neutral" | "info" | "warning" | "success" | "gold";
 
-export default function AdminFinancePage() {
+function statusTone(status: ClientInvoiceStatus): Tone {
+  switch (status) {
+    case ClientInvoiceStatus.APPROVED:
+      return "info";
+    case ClientInvoiceStatus.SENT:
+      return "warning";
+    case ClientInvoiceStatus.PAID:
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+function money(n: number): string {
+  return "$" + Math.round(n).toLocaleString("en-AU");
+}
+
+async function getFinance() {
+  const nowSyd = toZonedTime(new Date(), TZ);
+  const monthStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), 1);
+
+  const [recent, outstanding, paidMtd] = await Promise.all([
+    db.clientInvoice
+      .findMany({
+        orderBy: { createdAt: "desc" },
+        take: 6,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          totalAmount: true,
+          xeroExportedAt: true,
+          client: { select: { name: true } },
+        },
+      })
+      .catch(() => []),
+    db.clientInvoice
+      .aggregate({
+        where: { status: { in: [ClientInvoiceStatus.APPROVED, ClientInvoiceStatus.SENT] } },
+        _sum: { totalAmount: true },
+        _count: { _all: true },
+      })
+      .catch(() => null),
+    db.clientInvoice
+      .aggregate({
+        where: { status: ClientInvoiceStatus.PAID, createdAt: { gte: monthStart } },
+        _sum: { totalAmount: true },
+      })
+      .catch(() => null),
+  ]);
+
+  return {
+    recent,
+    outstandingCount: outstanding?._count?._all ?? 0,
+    outstandingAud: outstanding?._sum?.totalAmount ?? 0,
+    paidMtdAud: paidMtd?._sum?.totalAmount ?? 0,
+  };
+}
+
+export default async function AdminFinancePage() {
+  const fin = await getFinance();
+
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="Commercial" title="Finance" description="Revenue, invoices, payroll, and pricing — one hub." />
@@ -43,10 +107,16 @@ export default function AdminFinancePage() {
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <EStatCard label="Revenue · MTD" value="$52,180" delta="+11%" icon={<TrendingUp className="h-4 w-4" />} />
-        <EStatCard label="Outstanding" value="$4,290" delta="6 invoices" deltaTone="neutral" icon={<FileText className="h-4 w-4" />} />
-        <EStatCard label="Payroll · next run" value="$8,640" delta="Mon 8 Jul" deltaTone="neutral" icon={<Banknote className="h-4 w-4" />} />
-        <EStatCard label="Gross margin" value="43%" delta="+2 pts" icon={<Users className="h-4 w-4" />} />
+        <EStatCard label="Paid · MTD" value={money(fin.paidMtdAud)} delta="this month" deltaTone="neutral" icon={<TrendingUp className="h-4 w-4" />} />
+        <EStatCard
+          label="Outstanding"
+          value={money(fin.outstandingAud)}
+          delta={`${fin.outstandingCount} invoice${fin.outstandingCount === 1 ? "" : "s"}`}
+          deltaTone="neutral"
+          icon={<FileText className="h-4 w-4" />}
+        />
+        <EStatCard label="Payroll" value="—" delta="see payroll tab" deltaTone="neutral" icon={<Banknote className="h-4 w-4" />} />
+        <EStatCard label="Clients billed" value={String(new Set(fin.recent.map((r) => r.client?.name)).size)} delta="recent" deltaTone="neutral" icon={<Users className="h-4 w-4" />} />
       </section>
 
       <ECard>
@@ -55,32 +125,41 @@ export default function AdminFinancePage() {
           <EButton variant="gold" size="sm">Generate invoices</EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
-          <div className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-            <table className="w-full text-[0.8125rem]">
-              <thead>
-                <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                  {["Invoice", "Client", "Amount", "Status", ""].map((h) => (
-                    <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {INVOICES.map((inv) => (
-                  <tr key={inv.no} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                    <td className="px-3 py-3 font-medium">{inv.no}</td>
-                    <td className="px-3 py-3 text-[hsl(var(--e-text-secondary))]">{inv.client}</td>
-                    <td className="px-3 py-3"><span className="e-numeral text-[0.9375rem]">{inv.amount}</span></td>
-                    <td className="px-3 py-3"><EBadge tone={inv.tone} soft>{inv.status}</EBadge></td>
-                    <td className="px-3 py-3 text-right"><EButton variant="ghost" size="sm">View</EButton></td>
+          {fin.recent.length === 0 ? (
+            <EEmptyState eyebrow="No invoices yet" title="Nothing to show" description="Generated invoices will appear here." />
+          ) : (
+            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+              <table className="w-full text-[0.8125rem]">
+                <thead>
+                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
+                    {["Invoice", "Client", "Amount", "Status", ""].map((h) => (
+                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {fin.recent.map((inv) => (
+                    <tr key={inv.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
+                      <td className="px-3 py-3 font-medium whitespace-nowrap">{inv.invoiceNumber}</td>
+                      <td className="px-3 py-3 text-[hsl(var(--e-text-secondary))]">{inv.client?.name ?? "—"}</td>
+                      <td className="px-3 py-3"><span className="e-numeral text-[0.9375rem]">{money(inv.totalAmount)}</span></td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <EBadge tone={statusTone(inv.status)} soft>{inv.status.charAt(0) + inv.status.slice(1).toLowerCase()}</EBadge>
+                          {inv.xeroExportedAt ? <EBadge tone="gold" soft>Xero</EBadge> : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-right"><Link href="/v2/admin/finance"><EButton variant="ghost" size="sm">View</EButton></Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </ECardBody>
       </ECard>
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · representative data.</p>
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
     </div>
   );
 }
