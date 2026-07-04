@@ -3434,3 +3434,75 @@ model GeocodeFailure {
   @@index([modelType, modelId])
   @@index([resolvedAt])
 }
+
+// ============================================================================
+// Template engine v2 (rebrand doc 03 §1.6) — unified block-based TemplateDoc.
+// Append-only publishing: editing creates a new DRAFT TemplateVersion;
+// publishing flips TemplateDefinition.publishedVersionId; versions never mutate.
+// Issued documents freeze doc + data in RenderedDocument (the generalized
+// __templateSchema pattern) so template edits never change issued paper.
+// ============================================================================
+
+enum TemplateVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model TemplateDefinition {
+  id                 String    @id @default(cuid())
+  // e.g. "email.clientInvoiceIssued" | "doc.clientInvoice" | "sms.jobReminder"
+  kind               String
+  name               String
+  // "SYSTEM" | "CLIENT:{id}" | "USER:{id}" — scoped overrides resolve most-specific first.
+  scope              String    @default("SYSTEM")
+  publishedVersionId String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  publishedVersion TemplateVersion?  @relation("PublishedTemplateVersion", fields: [publishedVersionId], references: [id])
+  versions         TemplateVersion[] @relation("TemplateDefinitionVersions")
+
+  @@unique([kind, scope])
+  @@index([kind])
+}
+
+model TemplateVersion {
+  id           String                @id @default(cuid())
+  definitionId String
+  version      Int
+  // The TemplateDoc block tree (lib/templates/model.ts), model version 2.
+  doc          Json
+  status       TemplateVersionStatus @default(DRAFT)
+  label        String?
+  createdById  String?
+  createdAt    DateTime              @default(now())
+  publishedAt  DateTime?
+
+  definition  TemplateDefinition  @relation("TemplateDefinitionVersions", fields: [definitionId], references: [id], onDelete: Cascade)
+  publishedOn TemplateDefinition? @relation("PublishedTemplateVersion")
+  rendered    RenderedDocument[]
+
+  @@unique([definitionId, version])
+  @@index([definitionId, status])
+}
+
+// Point-in-time freeze of an issued artifact (invoice sent, report generated,
+// quote sent). Re-viewing renders from the snapshot, never the live template.
+model RenderedDocument {
+  id                String   @id @default(cuid())
+  kind              String
+  entityType        String // e.g. "ClientInvoice" | "Quote" | "Report"
+  entityId          String
+  templateVersionId String?
+  docSnapshot       Json
+  dataSnapshot      Json
+  htmlKey           String? // S3 key
+  pdfKey            String? // S3 key
+  renderedAt        DateTime @default(now())
+
+  templateVersion TemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([kind, renderedAt])
+}
