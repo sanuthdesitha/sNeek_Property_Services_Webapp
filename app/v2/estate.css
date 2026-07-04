@@ -1,0 +1,224 @@
+/* ============================================================================
+   ESTATE — the v2 luxury design system (rebrand).
+   Scoped entirely to [data-skin="estate"] so the live app is UNAFFECTED.
+   All values per docs/rebrand/02-design-system-estate.md.
+   HSL triplets consumed as hsl(var(--x)) / hsl(var(--x) / a).
+   ============================================================================ */
+
+[data-skin="estate"] {
+  /* ── Ground & surfaces (warm hue 40–45) ── */
+  --e-background:        40 30% 96%;
+  --e-foreground:        160 18% 12%;
+  --e-surface:           40 40% 99%;
+  --e-surface-raised:    40 28% 94%;
+  --e-surface-sunken:    40 24% 91%;
+
+  /* ── Text hierarchy ── */
+  --e-text-secondary:    160 8% 32%;
+  --e-muted:             40 25% 93%;
+  --e-muted-foreground:  160 6% 40%;
+  --e-text-faint:        160 5% 55%;
+
+  /* ── Brand ── */
+  --e-primary:           158 42% 20%;
+  --e-primary-foreground: 42 60% 96%;
+  --e-primary-soft:      158 30% 92%;
+  --e-primary-hover:     158 42% 16%;
+
+  /* ── Champagne (decorative gold vs readable gold-ink) ── */
+  --e-gold:              41 42% 57%;
+  --e-gold-ink:          39 46% 33%;
+  --e-gold-soft:         42 45% 92%;
+  --e-gold-foreground:   40 35% 14%;
+
+  --e-secondary:         40 25% 92%;
+  --e-secondary-foreground: 158 20% 18%;
+  --e-accent:            42 45% 90%;
+  --e-accent-foreground: 39 46% 26%;
+
+  /* ── Per-portal accent (overridden by data-portal-accent) ── */
+  --e-accent-portal:            158 42% 20%;
+  --e-accent-portal-foreground: 42 60% 96%;
+  --e-accent-portal-soft:       158 30% 92%;
+
+  /* ── Semantic states ── */
+  --e-success:           152 40% 30%;
+  --e-success-foreground: 150 40% 96%;
+  --e-success-soft:      152 32% 91%;
+  --e-warning:           36 74% 38%;
+  --e-warning-foreground: 36 80% 96%;
+  --e-warning-soft:      38 65% 91%;
+  --e-danger:            5 58% 42%;
+  --e-danger-foreground: 10 60% 97%;
+  --e-danger-soft:       6 50% 93%;
+  --e-info:              205 39% 38%;
+  --e-info-foreground:   205 50% 96%;
+  --e-info-soft:         205 35% 92%;
+
+  /* ── Hairlines ── */
+  --e-border:            40 18% 86%;
+  --e-border-strong:     40 14% 76%;
+  --e-border-gold:       41 42% 57%;
+  --e-input:             40 16% 82%;
+  --e-ring:              158 42% 28%;
+
+  /* ── Sidebar (green rail) ── */
+  --e-sidebar-bg:        160 30% 11%;
+  --e-sidebar-fg:        42 25% 78%;
+  --e-sidebar-active-bg: 42 45% 90%;
+  --e-sidebar-active-fg: 158 42% 16%;
+  --e-sidebar-hairline:  158 15% 22%;
+
+  /* ── Radii ── */
+  --e-radius-xs: 4px;  --e-radius-sm: 6px;  --e-radius: 8px;
+  --e-radius-lg: 12px; --e-radius-xl: 16px; --e-radius-pill: 9999px;
+
+  /* ── Layered luxury shadows (green-tinted) ── */
+  --e-shadow-color: 158 30% 18%;
+  --e-elevation-1: 0 1px 2px hsl(var(--e-shadow-color)/0.05),
+                   0 0 0 1px hsl(var(--e-shadow-color)/0.03);
+  --e-elevation-2: 0 1px 2px hsl(var(--e-shadow-color)/0.05),
+                   0 4px 10px -2px hsl(var(--e-shadow-color)/0.07),
+                   0 12px 24px -12px hsl(var(--e-shadow-color)/0.10);
+  --e-elevation-3: 0 2px 4px hsl(var(--e-shadow-color)/0.06),
+                   0 12px 28px -8px hsl(var(--e-shadow-color)/0.14),
+                   0 32px 64px -24px hsl(var(--e-shadow-color)/0.20);
+  --e-elevation-gold: 0 1px 0 hsl(var(--e-gold)/0.35) inset,
+                      0 8px 24px -10px hsl(39 46% 33% / 0.25);
+
+  /* ── Motion ── */
+  --e-dur-instant: 100ms; --e-dur-fast: 160ms; --e-dur-base: 240ms;
+  --e-dur-slow: 400ms;    --e-dur-ceremony: 700ms; --e-dur-editorial: 1100ms;
+  --e-ease-standard:  cubic-bezier(0.2, 0, 0, 1);
+  --e-ease-entrance:  cubic-bezier(0.16, 1, 0.3, 1);
+  --e-ease-exit:      cubic-bezier(0.4, 0, 1, 1);
+  --e-ease-spring:    cubic-bezier(0.34, 1.3, 0.64, 1);
+
+  /* ── Fonts ── */
+  --e-font-serif: var(--font-estate-serif), Georgia, "Times New Roman", serif;
+  --e-font-sans:  var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --e-font-mono:  var(--font-mono), ui-monospace, monospace;
+
+  /* Applied to the scope root */
+  color: hsl(var(--e-foreground));
+  background-color: hsl(var(--e-background));
+  font-family: var(--e-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Dark ("Obsidian") — when the estate scope is inside a .dark tree ── */
+.dark [data-skin="estate"], [data-skin="estate"][data-mode="dark"] {
+  --e-background:        160 16% 6%;
+  --e-foreground:        42 28% 90%;
+  --e-surface:           158 13% 9%;
+  --e-surface-raised:    156 11% 13%;
+  --e-surface-sunken:    160 16% 5%;
+  --e-text-secondary:    42 16% 72%;
+  --e-muted:             156 10% 15%;
+  --e-muted-foreground:  42 12% 64%;
+  --e-text-faint:        42 8% 52%;
+  --e-primary:           158 32% 52%;
+  --e-primary-foreground: 160 30% 8%;
+  --e-primary-soft:      158 28% 16%;
+  --e-primary-hover:     158 32% 46%;
+  --e-gold:              41 46% 62%;
+  --e-gold-ink:          41 52% 68%;
+  --e-gold-soft:         40 25% 15%;
+  --e-secondary: 156 10% 17%; --e-secondary-foreground: 42 20% 86%;
+  --e-accent: 40 25% 15%; --e-accent-foreground: 41 45% 72%;
+  --e-accent-portal: 158 32% 52%; --e-accent-portal-soft: 158 28% 16%;
+  --e-success: 152 34% 52%; --e-success-soft: 152 28% 14%;
+  --e-warning: 38 70% 58%;  --e-warning-soft: 38 40% 14%;
+  --e-danger: 6 62% 60%;    --e-danger-soft: 6 35% 14%;
+  --e-info: 205 45% 60%;    --e-info-soft: 205 30% 15%;
+  --e-border: 156 10% 17%;
+  --e-border-strong: 154 9% 25%;
+  --e-input: 156 10% 19%;
+  --e-ring: 158 32% 56%;
+  --e-shadow-color: 160 40% 2%;
+  --e-elevation-gold: 0 1px 0 hsl(41 46% 62% / 0.25) inset,
+                      0 12px 32px -12px hsl(0 0% 0% / 0.6);
+  --e-sidebar-bg: 160 18% 4%; --e-sidebar-fg: 42 15% 62%;
+  --e-sidebar-active-bg: 41 46% 62%; --e-sidebar-active-fg: 160 30% 8%;
+}
+
+/* ── Per-portal accents (siblings in one mineral family) ── */
+[data-skin="estate"][data-portal-accent="client"] {
+  --e-accent-portal: 39 46% 37%; --e-accent-portal-foreground: 40 60% 97%;
+  --e-accent-portal-soft: 42 45% 92%; --e-ring: 39 46% 37%;
+}
+[data-skin="estate"][data-portal-accent="cleaner"] {
+  --e-accent-portal: 23 51% 41%; --e-accent-portal-foreground: 24 60% 96%;
+  --e-accent-portal-soft: 24 45% 92%; --e-ring: 23 51% 41%;
+}
+[data-skin="estate"][data-portal-accent="laundry"] {
+  --e-accent-portal: 205 39% 40%; --e-accent-portal-foreground: 205 60% 97%;
+  --e-accent-portal-soft: 205 35% 92%; --e-ring: 205 39% 40%;
+}
+[data-skin="estate"][data-portal-accent="qa"] {
+  --e-accent-portal: 284 22% 34%; --e-accent-portal-foreground: 284 40% 97%;
+  --e-accent-portal-soft: 284 25% 93%; --e-ring: 284 22% 34%;
+}
+[data-skin="estate"][data-portal-accent="maintenance"] {
+  --e-accent-portal: 206 16% 35%; --e-accent-portal-foreground: 206 40% 97%;
+  --e-accent-portal-soft: 206 20% 93%; --e-ring: 206 16% 35%;
+}
+.dark [data-skin="estate"][data-portal-accent="client"] { --e-accent-portal: 39 45% 64%; --e-accent-portal-soft: 40 25% 15%; --e-ring: 39 45% 64%; }
+.dark [data-skin="estate"][data-portal-accent="cleaner"] { --e-accent-portal: 23 48% 59%; --e-accent-portal-soft: 23 30% 15%; --e-ring: 23 48% 59%; }
+.dark [data-skin="estate"][data-portal-accent="laundry"] { --e-accent-portal: 205 39% 63%; --e-accent-portal-soft: 205 30% 15%; --e-ring: 205 39% 63%; }
+.dark [data-skin="estate"][data-portal-accent="qa"] { --e-accent-portal: 284 21% 61%; --e-accent-portal-soft: 284 20% 16%; --e-ring: 284 21% 61%; }
+.dark [data-skin="estate"][data-portal-accent="maintenance"] { --e-accent-portal: 206 17% 63%; --e-accent-portal-soft: 206 18% 16%; --e-ring: 206 17% 63%; }
+
+/* ── Public marketing variant ── */
+[data-skin="estate"][data-portal-accent="public"] {
+  --e-background: 42 45% 97%;
+  --e-surface:    40 55% 99%;
+  --e-border:     42 30% 87%;
+}
+
+/* ============================================================================
+   Typography utilities (the rationed serif system)
+   ============================================================================ */
+[data-skin="estate"] .e-serif { font-family: var(--e-font-serif); }
+[data-skin="estate"] .e-numeral {
+  font-family: var(--e-font-serif);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 500;
+}
+[data-skin="estate"] .e-tnum { font-variant-numeric: tabular-nums; }
+
+[data-skin="estate"] .e-display-2xl { font-family: var(--e-font-serif); font-weight: 350; font-size: 4.5rem; line-height: 1.02; letter-spacing: -0.005em; }
+[data-skin="estate"] .e-display-xl  { font-family: var(--e-font-serif); font-weight: 400; font-size: 3.5rem; line-height: 1.06; }
+[data-skin="estate"] .e-display-lg  { font-family: var(--e-font-serif); font-weight: 450; font-size: 2.5rem; line-height: 1.1; }
+[data-skin="estate"] .e-display-md  { font-family: var(--e-font-serif); font-weight: 500; font-size: 2rem; line-height: 1.15; }
+[data-skin="estate"] .e-display-sm  { font-family: var(--e-font-serif); font-weight: 520; font-size: 1.5rem; line-height: 1.2; }
+[data-skin="estate"] .e-eyebrow {
+  font-family: var(--e-font-sans);
+  font-weight: 600; font-size: 0.6875rem; line-height: 1.2;
+  letter-spacing: 0.28em; text-transform: uppercase;
+  color: hsl(var(--e-gold-ink));
+}
+
+/* ── The "Champagne Thread" — signature gold hairline ── */
+[data-skin="estate"] .e-thread {
+  height: 1px; border: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--e-gold) / 0.55), transparent);
+}
+
+/* ── Portal-signature header rule (first 48px accent) ── */
+[data-skin="estate"] .e-signature-rule {
+  position: relative; height: 1px; background: hsl(var(--e-border));
+}
+[data-skin="estate"] .e-signature-rule::before {
+  content: ""; position: absolute; left: 0; top: -0.5px; width: 48px; height: 2px;
+  background: hsl(var(--e-accent-portal));
+}
+
+/* ── Motion: gentle rise on entrance ── */
+@keyframes e-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+[data-skin="estate"] .e-rise { animation: e-rise var(--e-dur-slow) var(--e-ease-entrance) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="estate"] .e-rise { animation: none; }
+  [data-skin="estate"] * { scroll-behavior: auto; }
+}

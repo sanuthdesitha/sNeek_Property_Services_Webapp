@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Cormorant_Garamond } from "next/font/google";
+import { Inter, JetBrains_Mono, Cormorant_Garamond, Fraunces } from "next/font/google";
 import { kickWebScheduledOps } from "@/lib/ops/web-scheduler";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -33,6 +33,17 @@ const fontDisplaySerif = Cormorant_Garamond({
   subsets: ["latin"],
   variable: "--font-display-serif",
   weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+// ESTATE rebrand (v2) display serif — optical-size variable Fraunces. Loaded
+// here so it's available app-wide, but only CONSUMED under the `[data-skin=
+// "estate"]` scope (app/v2/**), so the live app is visually unaffected.
+const fontEstateSerif = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-estate-serif",
+  weight: ["300", "400", "500", "600", "700"],
   style: ["normal", "italic"],
   display: "swap",
 });
@@ -104,7 +115,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
-      <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontMono.variable} antialiased`}>
+      <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontEstateSerif.variable} ${fontMono.variable} antialiased`}>
         <Providers>{children}</Providers>
       </body>
     </html>

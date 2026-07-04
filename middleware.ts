@@ -44,6 +44,13 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
     }
 
+    // v2 rebrand preview — admin/ops only, invisible to clients/cleaners.
+    if (pathname.startsWith("/v2")) {
+      if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) {
+        return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      }
+    }
+
     // Admin routes
     if (pathname.startsWith("/admin")) {
       if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) {
