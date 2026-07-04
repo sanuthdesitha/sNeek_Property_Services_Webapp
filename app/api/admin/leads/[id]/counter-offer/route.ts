@@ -3,7 +3,7 @@ import { LeadStatus, QuoteStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { buildQuoteHtml } from "@/lib/pricing/quote-report";
+import { resolveQuoteHtml } from "@/lib/templates/resolve/quote";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     if (body.sendEmail) {
-      const html = buildQuoteHtml(
+      const { html } = await resolveQuoteHtml(
         {
           ...quote,
           createdAt: quote.createdAt,
@@ -74,8 +74,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           client: lead.client ? { name: lead.client.name, email: lead.client.email } : null,
         },
         {
-          companyName: settings.companyName,
-          logoUrl: settings.reportLogoUrl || settings.logoUrl,
+          branding: {
+            companyName: settings.companyName,
+            logoUrl: settings.reportLogoUrl || settings.logoUrl,
+          },
         }
       );
       const emailResult = await sendEmailDetailed({

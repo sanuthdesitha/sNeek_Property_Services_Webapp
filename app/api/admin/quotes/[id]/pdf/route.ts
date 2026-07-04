@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { buildQuoteHtml } from "@/lib/pricing/quote-report";
+import { resolveQuoteHtml } from "@/lib/templates/resolve/quote";
 import { getAppSettings } from "@/lib/settings";
 
 export async function GET(
@@ -25,10 +25,13 @@ export async function GET(
       return NextResponse.json({ error: "Quote not found" }, { status: 404 });
     }
 
-    const html = buildQuoteHtml(quote, {
-      companyName: settings.companyName,
-      logoUrl: settings.reportLogoUrl || settings.logoUrl,
-      companyAddress: settings.invoicing?.companyAddress,
+    const { html } = await resolveQuoteHtml(quote, {
+      branding: {
+        companyName: settings.companyName,
+        logoUrl: settings.reportLogoUrl || settings.logoUrl,
+        companyAddress: settings.invoicing?.companyAddress,
+      },
+      snapshot: true,
     });
 
     try {

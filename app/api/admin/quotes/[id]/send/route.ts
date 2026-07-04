@@ -3,7 +3,7 @@ import { NotificationChannel, NotificationStatus, QuoteStatus, Role } from "@pri
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { buildQuoteHtml } from "@/lib/pricing/quote-report";
+import { resolveQuoteHtml } from "@/lib/templates/resolve/quote";
 import { getAppSettings } from "@/lib/settings";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
 import { getChecklist } from "@/lib/checklists/store";
@@ -86,10 +86,13 @@ export async function POST(
 
     const settings = await getAppSettings();
     const subject = body.subject || settings.quoteDefaultEmailSubject;
-    const html = buildQuoteHtml(quote, {
-      companyName: settings.companyName,
-      logoUrl: settings.reportLogoUrl || settings.logoUrl,
-      companyAddress: settings.invoicing?.companyAddress,
+    const { html } = await resolveQuoteHtml(quote, {
+      branding: {
+        companyName: settings.companyName,
+        logoUrl: settings.reportLogoUrl || settings.logoUrl,
+        companyAddress: settings.invoicing?.companyAddress,
+      },
+      snapshot: true,
     });
 
     // Best-effort: attach the service checklist (covered/not-covered + extras)

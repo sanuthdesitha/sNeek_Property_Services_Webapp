@@ -93,7 +93,7 @@ const heroProps = z.object({
 const hero: BlockDefinition<z.infer<typeof heroProps>> = {
   type: "hero",
   label: "Hero",
-  channels: ["email", "web"],
+  channels: ["email", "pdf", "web"],
   propsSchema: heroProps,
   defaults: () => heroProps.parse({}),
   renderEmail(props, ctx) {

@@ -93,6 +93,52 @@ const jobReminderContract = z.object({
   shortUrl: z.string(),
 });
 
+const quoteLine = z.object({
+  label: z.string(),
+  quantity: z.number(),
+  unitAmount: z.number(),
+  lineTotal: z.number(),
+});
+
+/** Computed by lib/pricing — templates format, never recompute money. */
+const quoteContract = z.object({
+  quote: z.object({
+    number: z.string(),
+    serviceType: z.string(),
+    issuedAt: z.union([z.string(), z.date()]),
+    validUntil: z.union([z.string(), z.date()]),
+    subtotal: z.number(),
+    gstAmount: z.number(),
+    totalAmount: z.number(),
+    gstEnabled: z.boolean(),
+    notes: z.string(),
+    lines: z.array(quoteLine),
+  }),
+  client: z.object({ name: z.string(), address: z.string() }),
+  actionUrl: z.string(),
+});
+
+const SAMPLE_QUOTE = {
+  quote: {
+    number: "Q-3007",
+    serviceType: "Airbnb Turnover",
+    issuedAt: "2026-07-01T00:00:00.000Z",
+    validUntil: "2026-07-15T00:00:00.000Z",
+    subtotal: 420,
+    gstAmount: 42,
+    totalAmount: 462,
+    gstEnabled: true,
+    notes: "Includes linen change and restock check. Excludes exterior windows.",
+    lines: [
+      { label: "Standard turnover clean (2 bd / 1 ba)", quantity: 1, unitAmount: 260, lineTotal: 260 },
+      { label: "Linen change & staging", quantity: 1, unitAmount: 90, lineTotal: 90 },
+      { label: "Consumables restock", quantity: 1, unitAmount: 70, lineTotal: 70 },
+    ],
+  },
+  client: { name: "James Harrington", address: "12 Marine Parade, Coogee NSW" },
+  actionUrl: "https://example.com/quote/Q-3007",
+};
+
 // ---------------------------------------------------------------------------
 // Pilot kinds
 // ---------------------------------------------------------------------------
@@ -127,6 +173,17 @@ export const TEMPLATE_KINDS: Record<string, TemplateKindConfig> = {
     chrome: "a4Page",
     dataContract: invoiceContract,
     sampleData: () => SAMPLE_INVOICE,
+    allowedBlocks: DOC_BLOCKS,
+    requiredBlocks: ["lineItems", "totals"],
+    channels: ["pdf", "web"],
+  },
+  "doc.quote": {
+    kind: "doc.quote",
+    family: "document",
+    label: "Quote / proposal (PDF)",
+    chrome: "a4Page",
+    dataContract: quoteContract,
+    sampleData: () => SAMPLE_QUOTE,
     allowedBlocks: DOC_BLOCKS,
     requiredBlocks: ["lineItems", "totals"],
     channels: ["pdf", "web"],
@@ -235,5 +292,52 @@ export function defaultJobReminderSms(): Block[] {
     block("textBlock", "sms", {
       text: '{{companyName}}: {{jobType}} at {{property.shortName}} {{when | datetime:"EEE d MMM h:mma"}}. Details: {{shortUrl}}',
     }),
+  ];
+}
+
+/** A4 quote / proposal document (§4.2, sales-critical). */
+export function defaultQuoteDoc(): Block[] {
+  return [
+    block("header", "hd", {
+      variant: "document",
+      eyebrow: "PROPOSAL",
+      docNumber: "{{quote.number}}",
+      docDate: "Issued {{quote.issuedAt | date}}",
+      showLogo: true,
+    }),
+    block("hero", "hr", {
+      eyebrow: "{{quote.serviceType}}",
+      headline: "Proposal for {{client.name}}",
+      subline: "{{client.address}}",
+    }),
+    block("infoCard", "meta", {
+      title: "QUOTE DETAILS",
+      rows: [
+        { label: "Service", value: "{{quote.serviceType}}" },
+        { label: "Prepared for", value: "{{client.name}}" },
+        { label: "Valid until", value: "{{quote.validUntil | date}}" },
+      ],
+    }),
+    block("lineItems", "li", {
+      bind: "quote.lines",
+      columns: [
+        { label: "Item", path: "label", format: "text", align: "left" },
+        { label: "Qty", path: "quantity", format: "number", align: "right" },
+        { label: "Unit", path: "unitAmount", format: "money", align: "right" },
+        { label: "Total", path: "lineTotal", format: "money", align: "right" },
+      ],
+      emptyText: "No line items.",
+    }),
+    block("totals", "tt", {
+      rows: [
+        { label: "Subtotal", value: "{{quote.subtotal | money}}", emphasis: false, when: "" },
+        { label: "GST", value: "{{quote.gstAmount | money}}", emphasis: false, when: "quote.gstEnabled" },
+        { label: "Total", value: "{{quote.totalAmount | money}}", emphasis: true, when: "" },
+      ],
+    }),
+    block("callout", "note", { tone: "info", title: "What's included", text: "{{quote.notes}}" }, "quote.notes"),
+    block("button", "cta", { text: "Accept this quote", href: "{{actionUrl}}", showUrlInPdf: true }),
+    block("terms", "tm", { text: "This quote is valid until {{quote.validUntil | date}}. Prices in AUD." }),
+    block("footer", "ft", { showIdentity: true, showPageNumbers: true }),
   ];
 }
