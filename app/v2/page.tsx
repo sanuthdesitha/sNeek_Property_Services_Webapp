@@ -8,6 +8,10 @@ const LINKS = [
   { href: "/v2/showcase", label: "Design system", desc: "Living style guide — tokens, typography, components", accent: "admin" },
   { href: "/v2/admin", label: "Admin", desc: "Command dashboard", accent: "admin" },
   { href: "/v2/client", label: "Client portal", desc: "Home, services, money", accent: "client" },
+  { href: "/v2/cleaner", label: "Cleaner app", desc: "Today, jobs, supplies, pay", accent: "cleaner" },
+  { href: "/v2/laundry", label: "Laundry", desc: "Queue, runs, stats", accent: "laundry" },
+  { href: "/v2/qa", label: "Quality", desc: "Reviews, rework, stats", accent: "qa" },
+  { href: "/v2/maintenance", label: "Maintenance", desc: "Tickets, replacements, log", accent: "maintenance" },
   { href: "/v2/home", label: "Public site", desc: "Marketing home", accent: "public" },
 ];
 
