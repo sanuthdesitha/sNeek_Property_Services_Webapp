@@ -1,3 +1,5 @@
+"use client";
+
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import {
   LayoutDashboard,
