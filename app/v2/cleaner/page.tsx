@@ -13,7 +13,8 @@ import {
   EEmptyState,
   EStatCard,
 } from "@/components/v2/ui/primitives";
-import { CheckCircle2, ChevronRight, Clock, MapPin } from "lucide-react";
+import { CheckCircle2, ChevronRight, Clock, MapPin, BellRing } from "lucide-react";
+import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -107,6 +108,7 @@ export default async function CleanerTodayPage() {
 
   const jobs = await getCleanerWeekJobs(session.user.id, todayStart, nextWeek);
 
+  const offeredJobs = jobs.filter((j) => j.status === "OFFERED");
   const todayJobs = jobs.filter((j) => isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now));
   const laterToday = todayJobs.slice(1);
   const nextJob = todayJobs[0] ?? jobs[0] ?? null;
@@ -135,6 +137,44 @@ export default async function CleanerTodayPage() {
         <EStatCard label="Next" value={nextJob?.startTime || "—"} />
       </section>
 
+      {/* Offered jobs — accept or decline before they land in the schedule */}
+      {offeredJobs.length > 0 ? (
+        <section className="space-y-3">
+          <span className="e-eyebrow flex items-center gap-1.5">
+            <BellRing className="h-3.5 w-3.5" /> NEW OFFERS ({offeredJobs.length})
+          </span>
+          {offeredJobs.map((j) => (
+            <ECard key={j.id} variant="ceremony">
+              <ECardBody className="space-y-3 pt-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/v2/cleaner/jobs/${j.id}`}
+                      className="truncate text-[0.9375rem] font-[600] hover:underline"
+                    >
+                      {j.property.name}
+                    </Link>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {[
+                        format(toZonedTime(j.scheduledDate, TZ), "EEE d MMM"),
+                        j.startTime || null,
+                        titleCase(j.jobType),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                  <EBadge tone="warning" soft>
+                    Offered
+                  </EBadge>
+                </div>
+                <JobOfferActions jobId={j.id} size="md" />
+              </ECardBody>
+            </ECard>
+          ))}
+        </section>
+      ) : null}
+
       {/* Next job — the hero card */}
       {nextJob ? (
         <ECard variant="ceremony">
@@ -158,6 +198,14 @@ export default async function CleanerTodayPage() {
                 {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).join(", ")}
               </span>
             </p>
+            {nextJob.status === "OFFERED" ? (
+              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                <p className="mb-2 text-[0.8125rem] font-[550]">
+                  You've been offered this job — respond to add it to your schedule.
+                </p>
+                <JobOfferActions jobId={nextJob.id} size="md" />
+              </div>
+            ) : null}
             <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <EButton asChild variant="gold" className="w-full"><Link href={`/v2/cleaner/jobs/${nextJob.id}`} className="flex-1">
                   Open job <ChevronRight className="h-4 w-4" />
@@ -191,28 +239,41 @@ export default async function CleanerTodayPage() {
       {laterToday.length > 0 ? (
         <section className="space-y-3">
           <span className="e-eyebrow">LATER TODAY</span>
-          {laterToday.map((j) => (
-            <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
-              <ECard>
-                <ECardBody className="flex items-center gap-3 pt-6">
-                  <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-                    <span className="text-[0.8125rem] font-semibold tabular-nums">
-                      {j.startTime || "—"}
-                    </span>
+          {laterToday.map((j) => {
+            const isOffered = j.status === "OFFERED";
+            const body = (
+              <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+                <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
+                  <span className="text-[0.8125rem] font-semibold tabular-nums">
+                    {j.startTime || "—"}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    {titleCase(j.jobType)}
+                  </p>
+                </div>
+                <EBadge tone={statusTone(j.status)} soft>
+                  {titleCase(j.status)}
+                </EBadge>
+                {isOffered ? (
+                  <div className="w-full">
+                    <JobOfferActions jobId={j.id} size="sm" />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {titleCase(j.jobType)}
-                    </p>
-                  </div>
-                  <EBadge tone={statusTone(j.status)} soft>
-                    {titleCase(j.status)}
-                  </EBadge>
-                </ECardBody>
-              </ECard>
-            </Link>
-          ))}
+                ) : null}
+              </ECardBody>
+            );
+            // OFFERED rows carry inline Accept/Decline buttons, so they must not
+            // be wrapped in an anchor (no interactive controls inside a link).
+            return isOffered ? (
+              <ECard key={j.id}>{body}</ECard>
+            ) : (
+              <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
+                <ECard>{body}</ECard>
+              </Link>
+            );
+          })}
         </section>
       ) : null}
 

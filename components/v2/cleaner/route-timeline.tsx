@@ -30,6 +30,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EChip, EInput, ESelect } from "@/components/v2/cleaner/fields";
+import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 type TravelMode = "DRIVING" | "TRANSIT" | "WALKING" | "BICYCLING";
@@ -37,6 +38,7 @@ type RouteMode = "today" | "tomorrow" | "date";
 
 const STATUS_LABELS: Record<string, string> = {
   UNASSIGNED: "Unassigned",
+  OFFERED: "Offered",
   ASSIGNED: "Assigned",
   EN_ROUTE: "On the way",
   IN_PROGRESS: "In progress",
@@ -47,6 +49,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_TONE: Record<string, Tone> = {
+  OFFERED: "warning",
   EN_ROUTE: "warning",
   IN_PROGRESS: "info",
   COMPLETED: "success",
@@ -347,6 +350,15 @@ export function RouteTimeline({
                         </Link>
                       </EButton>
                     </div>
+
+                    {s.status === "OFFERED" ? (
+                      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-2.5">
+                        <p className="mb-2 text-[0.75rem] font-[550]">
+                          Offered — accept to keep this stop on your route.
+                        </p>
+                        <JobOfferActions jobId={s.jobId} size="sm" />
+                      </div>
+                    ) : null}
                   </ECardBody>
                 </ECard>
               </li>

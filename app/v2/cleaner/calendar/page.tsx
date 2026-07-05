@@ -71,6 +71,7 @@ export default async function V2CleanerCalendarPage() {
     subtitle: [job.property.suburb, titleCase(job.jobType)].filter(Boolean).join(" · "),
     startTime: job.startTime,
     status: titleCase(job.status),
+    rawStatus: job.status,
     tone: statusTone(job.status),
   }));
 

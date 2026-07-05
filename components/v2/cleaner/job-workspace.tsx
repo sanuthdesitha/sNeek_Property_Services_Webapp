@@ -43,6 +43,7 @@ import {
 import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import { JobActions } from "@/components/v2/cleaner/job-actions";
 import {
   FormRenderer,
   type AnswerMap,
@@ -496,6 +497,18 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           No active form template is configured for this job type — you can still clock in/out and complete the checklist.
         </EAlert>
       )}
+
+      {/* Per-job requests & reports — parity with the v1 cleaner job actions.
+          Hidden while the job is still OFFERED (accept first) or fully locked. */}
+      {status !== "OFFERED" && !locked ? (
+        <JobActions
+          jobId={job.id}
+          requiresSafetyCheckin={Boolean(job.requiresSafetyCheckin)}
+          safetyCheckinAt={job.safetyCheckinAt ?? null}
+          hasStarted={Boolean(hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0)}
+          onChanged={() => void load()}
+        />
+      ) : null}
 
       {/* Submit */}
       {!locked ? (

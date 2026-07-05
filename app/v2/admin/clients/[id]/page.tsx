@@ -16,6 +16,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { ArrowLeft, Building2, FileText, Mail, Phone, Wallet } from "lucide-react";
+import { ClientAutomationRules } from "@/components/v2/admin/clients/client-automation-rules";
 
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -289,6 +290,9 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
           )}
         </ECardBody>
       </ECard>
+
+      {/* Per-client message automation rules */}
+      <ClientAutomationRules clientId={client.id} />
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · read-only · live data from your workspace.</p>
     </div>

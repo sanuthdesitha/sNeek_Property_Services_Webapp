@@ -10,6 +10,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, CalendarDays, ListOrdered } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { EChip } from "@/components/v2/cleaner/fields";
+import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { cn } from "@/lib/utils";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
@@ -21,6 +22,7 @@ export interface CalendarJob {
   subtitle: string;
   startTime: string | null;
   status: string;
+  rawStatus?: string;
   tone: Tone;
 }
 
@@ -168,22 +170,39 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
 }
 
 function JobRow({ job }: { job: CalendarJob }) {
-  return (
+  const isOffered = job.rawStatus === "OFFERED";
+  const body = (
+    <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+      <div className="flex h-11 w-14 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
+        <span className="text-[0.8125rem] font-semibold tabular-nums">{job.startTime || "—"}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[0.875rem] font-[550]">{job.title}</p>
+        <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.subtitle}</p>
+      </div>
+      <EBadge tone={job.tone} soft>
+        {job.status}
+      </EBadge>
+      {isOffered ? (
+        <div className="flex w-full items-center justify-between gap-2">
+          <Link
+            href={`/v2/cleaner/jobs/${job.id}`}
+            className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] hover:underline"
+          >
+            View job
+          </Link>
+          <JobOfferActions jobId={job.id} size="sm" />
+        </div>
+      ) : null}
+    </ECardBody>
+  );
+  // OFFERED rows carry inline Accept/Decline buttons, so they must not be wrapped
+  // in an anchor (no interactive controls inside a link).
+  return isOffered ? (
+    <ECard>{body}</ECard>
+  ) : (
     <Link href={`/v2/cleaner/jobs/${job.id}`} className="block">
-      <ECard>
-        <ECardBody className="flex items-center gap-3 pt-6">
-          <div className="flex h-11 w-14 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-            <span className="text-[0.8125rem] font-semibold tabular-nums">{job.startTime || "—"}</span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[0.875rem] font-[550]">{job.title}</p>
-            <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.subtitle}</p>
-          </div>
-          <EBadge tone={job.tone} soft>
-            {job.status}
-          </EBadge>
-        </ECardBody>
-      </ECard>
+      <ECard>{body}</ECard>
     </Link>
   );
 }

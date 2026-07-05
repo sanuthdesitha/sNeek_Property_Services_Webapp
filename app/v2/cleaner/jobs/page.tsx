@@ -12,6 +12,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { ChevronRight, Clock } from "lucide-react";
+import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 
 export const metadata = { title: "Jobs · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -108,38 +109,52 @@ export default async function CleanerJobsPage() {
         />
       ) : (
         <div className="space-y-3">
-          {jobs.map((j) => (
-            <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
-              <ECard>
-                <ECardBody className="flex items-center gap-3 pt-6">
-                  <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-                    <span className="text-[0.625rem] font-medium uppercase tracking-[0.04em] text-[hsl(var(--e-muted-foreground))]">
-                      {format(toZonedTime(j.scheduledDate, TZ), "MMM")}
-                    </span>
-                    <span className="text-[0.9375rem] font-semibold leading-none tabular-nums">
-                      {format(toZonedTime(j.scheduledDate, TZ), "d")}
-                    </span>
+          {jobs.map((j) => {
+            const isOffered = j.status === "OFFERED";
+            const body = (
+              <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+                <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
+                  <span className="text-[0.625rem] font-medium uppercase tracking-[0.04em] text-[hsl(var(--e-muted-foreground))]">
+                    {format(toZonedTime(j.scheduledDate, TZ), "MMM")}
+                  </span>
+                  <span className="text-[0.9375rem] font-semibold leading-none tabular-nums">
+                    {format(toZonedTime(j.scheduledDate, TZ), "d")}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
+                  <p className="flex flex-wrap items-center gap-x-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    <span>{titleCase(j.jobType)}</span>
+                    {j.startTime ? (
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" /> {j.startTime}
+                        {j.dueTime ? `–${j.dueTime}` : ""}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+                <EBadge tone={statusTone(j.status)} soft>
+                  {titleCase(j.status)}
+                </EBadge>
+                {isOffered ? (
+                  <div className="w-full">
+                    <JobOfferActions jobId={j.id} size="sm" />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
-                    <p className="flex flex-wrap items-center gap-x-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      <span>{titleCase(j.jobType)}</span>
-                      {j.startTime ? (
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {j.startTime}
-                          {j.dueTime ? `–${j.dueTime}` : ""}
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <EBadge tone={statusTone(j.status)} soft>
-                    {titleCase(j.status)}
-                  </EBadge>
+                ) : (
                   <ChevronRight className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
-                </ECardBody>
-              </ECard>
-            </Link>
-          ))}
+                )}
+              </ECardBody>
+            );
+            // OFFERED rows carry inline Accept/Decline buttons, so they must not
+            // be wrapped in an anchor (no interactive controls inside a link).
+            return isOffered ? (
+              <ECard key={j.id}>{body}</ECard>
+            ) : (
+              <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
+                <ECard>{body}</ECard>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

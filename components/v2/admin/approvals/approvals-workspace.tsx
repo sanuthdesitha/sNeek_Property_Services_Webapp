@@ -25,6 +25,7 @@ import {
   DollarSign,
   RefreshCw,
   RotateCcw,
+  Send,
   Shirt,
   XCircle,
 } from "lucide-react";
@@ -137,6 +138,134 @@ function ConfirmButton({
     >
       {armed ? confirmLabel : label}
     </EButton>
+  );
+}
+
+/**
+ * Escalate a cleaner pay request to the client for approval.
+ * Mirrors v1 PayRequestsWorkspace → POST /api/admin/pay-adjustments/[id]/send-to-client
+ * { amount, title, description? }. Independent of approve/decline; it does not
+ * resolve the row — it surfaces the request in the client portal + notifies them.
+ */
+function SendToClientForm({
+  row,
+  defaultAmount,
+  onSent,
+}: {
+  row: any;
+  defaultAmount: number;
+  onSent: () => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [amount, setAmount] = useState(
+    defaultAmount > 0 ? defaultAmount.toFixed(2) : ""
+  );
+  const [title, setTitle] = useState(
+    row.title ?? row.reason ?? "Additional charge for approval"
+  );
+  const [description, setDescription] = useState<string>(row.description ?? "");
+
+  const alreadySent = Boolean(row.clientApproval);
+
+  async function submit() {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast({ title: "A valid amount greater than zero is required.", variant: "destructive" });
+      return;
+    }
+    if (!title.trim()) {
+      toast({ title: "A title is required.", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/pay-adjustments/${row.id}/send-to-client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: value,
+          title: title.trim(),
+          description: description.trim() || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not send to client.");
+      toast({ title: "Sent to client for approval" });
+      setOpen(false);
+      await onSent();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err?.message ?? "Could not send to client.", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (alreadySent) {
+    return (
+      <EBadge tone="info" soft>
+        Awaiting client approval
+      </EBadge>
+    );
+  }
+
+  if (!open) {
+    return (
+      <EButton size="sm" variant="outline" disabled={busy} onClick={() => setOpen(true)}>
+        <Send className="h-3.5 w-3.5" />
+        Send to client
+      </EButton>
+    );
+  }
+
+  return (
+    <div className="mt-3 w-full space-y-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.4)] p-3">
+      <p className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
+        Send to client for approval
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <p className="mb-1 text-[0.625rem] text-[hsl(var(--e-text-faint))]">Amount ($)</p>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className={FIELD_CLS + " w-28"}
+          />
+        </div>
+        <div className="min-w-[200px] flex-1">
+          <p className="mb-1 text-[0.625rem] text-[hsl(var(--e-text-faint))]">Title (shown to client)</p>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className={FIELD_CLS + " w-full"}
+          />
+        </div>
+      </div>
+      <div>
+        <p className="mb-1 text-[0.625rem] text-[hsl(var(--e-text-faint))]">Description (optional)</p>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="Context the client will see"
+          className={
+            FIELD_CLS + " h-auto w-full resize-y py-2 leading-snug"
+          }
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <EButton size="sm" variant="gold" disabled={busy} onClick={submit}>
+          <Send className="h-3.5 w-3.5" />
+          {busy ? "Sending…" : "Send"}
+        </EButton>
+        <EButton size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+          Cancel
+        </EButton>
+      </div>
+    </div>
   );
 }
 
@@ -557,6 +686,11 @@ export function ApprovalsWorkspace() {
                           successMsg: "Pay request declined",
                         })
                       }
+                    />
+                    <SendToClientForm
+                      row={row}
+                      defaultAmount={primaryPayAmount(row)}
+                      onSent={load}
                     />
                   </div>
                 </QueueCard>
