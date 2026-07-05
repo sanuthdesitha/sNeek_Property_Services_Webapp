@@ -350,7 +350,7 @@ function MessageEditor({
       <EModal
         open
         onClose={onClose}
-        wide
+        size="xl"
         eyebrow={initial ? "Edit message template" : "New message template"}
         title={form.name || "Untitled template"}
       >

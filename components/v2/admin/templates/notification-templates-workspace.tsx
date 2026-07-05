@@ -309,7 +309,7 @@ function NotificationEditor({
     <EModal
       open
       onClose={onClose}
-      wide
+      size="full"
       eyebrow={`Event · ${template.eventKey}`}
       title={template.label}
     >

@@ -206,12 +206,20 @@ export function EChipTabs({
 }
 
 /* ── Modal (Estate ceremony card over a warm scrim) ────────────────────── */
+const MODAL_SIZE = {
+  md: "max-w-md",
+  wide: "max-w-2xl",
+  xl: "max-w-4xl",
+  full: "max-w-6xl",
+} as const;
+
 export function EModal({
   open,
   onClose,
   title,
   eyebrow,
   wide = false,
+  size,
   children,
 }: {
   open: boolean;
@@ -219,6 +227,7 @@ export function EModal({
   title: React.ReactNode;
   eyebrow?: React.ReactNode;
   wide?: boolean;
+  size?: keyof typeof MODAL_SIZE;
   children: React.ReactNode;
 }) {
   React.useEffect(() => {
@@ -245,7 +254,7 @@ export function EModal({
         variant="ceremony"
         className={cn(
           "e-rise relative z-10 my-8 w-full bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]",
-          wide ? "max-w-2xl" : "max-w-md"
+          MODAL_SIZE[size ?? (wide ? "wide" : "md")]
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--e-border))] px-6 py-4">
@@ -262,7 +271,7 @@ export function EModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className="max-h-[82vh] overflow-y-auto px-6 py-5">{children}</div>
       </ECard>
     </div>
   );

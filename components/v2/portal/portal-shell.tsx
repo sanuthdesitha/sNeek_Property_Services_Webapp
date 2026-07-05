@@ -104,9 +104,9 @@ export function PortalShell({
   );
 
   return (
-    <div className="flex min-h-screen bg-[hsl(var(--e-background))]">
-      {/* Desktop rail */}
-      <aside className="sticky top-0 hidden h-screen w-60 flex-shrink-0 bg-[hsl(var(--e-sidebar-bg))] lg:block">
+    <div className="min-h-screen bg-[hsl(var(--e-background))]">
+      {/* Desktop rail — truly fixed so it never scrolls with the page */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-60 flex-shrink-0 border-r border-[hsl(var(--e-border))] bg-[hsl(var(--e-sidebar-bg))] lg:flex lg:flex-col">
         {railInner}
       </aside>
 
@@ -123,8 +123,8 @@ export function PortalShell({
         </div>
       ) : null}
 
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Main column — offset by the fixed rail width on desktop */}
+      <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.85)] px-4 backdrop-blur lg:px-8">
           <button className="lg:hidden" onClick={() => setOpen(true)} aria-label="Menu">
             <Menu className="h-5 w-5 text-[hsl(var(--e-foreground))]" />
