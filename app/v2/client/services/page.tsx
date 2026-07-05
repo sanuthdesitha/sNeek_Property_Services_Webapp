@@ -98,7 +98,7 @@ export default async function ClientServicesPage() {
           active.map((job) => {
             const who = job.assignments[0]?.user?.name;
             return (
-              <Link key={job.id} href={`/client/jobs/${job.id}`} className="block">
+              <Link key={job.id} href={`/v2/client/jobs/${job.id}`} className="block">
               <ECard>
                 <ECardBody className="flex items-center gap-4 pt-6">
                   <div className="flex h-14 w-14 flex-shrink-0 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]">

@@ -210,7 +210,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
               {STATUS_LABELS[job.status] ?? titleCase(job.status)}
             </EBadge>
             {job.status === "EN_ROUTE" ? (
-              <EButton asChild variant="gold" size="sm"><Link href={`/client/jobs/${job.id}`}>
+              <EButton asChild variant="gold" size="sm"><Link href={`/v2/client/jobs/${job.id}`}>
                   <Navigation className="h-3.5 w-3.5" /> Track live
                 </Link></EButton>
             ) : null}

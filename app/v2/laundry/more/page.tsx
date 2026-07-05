@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { CalendarRange, ChevronRight, Receipt, Settings, User, Users } from "lucide-react";
+import { BarChart3, CalendarRange, ChevronRight, Radar, Receipt, Settings, User, Users } from "lucide-react";
 
 export const metadata = { title: "More · Estate laundry" };
 
 const ITEMS = [
+  { href: "/v2/laundry/tracking", label: "Tracking", desc: "Live status of every set", icon: Radar },
   { href: "/v2/laundry/calendar", label: "Calendar", desc: "Pickups & drop-offs schedule", icon: CalendarRange },
   { href: "/v2/laundry/hub", label: "Team hub", desc: "Feed & recognition", icon: Users },
   { href: "/v2/laundry/invoices", label: "Invoices", desc: "Laundry billing", icon: Receipt },
+  { href: "/v2/laundry/reports", label: "Reports", desc: "Completed loads & turnaround", icon: BarChart3 },
   { href: "/v2/laundry/profile", label: "Profile", desc: "Your details & banking", icon: User },
-  { href: "/v2/laundry/settings", label: "Settings", desc: "Security & preferences", icon: Settings },
+  { href: "/v2/laundry/settings", label: "Settings", desc: "Notifications & appearance", icon: Settings },
 ];
 
 export default function LaundryMorePage() {

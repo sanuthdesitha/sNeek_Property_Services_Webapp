@@ -246,7 +246,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
         </div>
 
         <div className="mt-3 space-y-2">
-          {task.confirmations.length > 0 ? (
+          {Array.isArray(task.confirmations) && task.confirmations.length > 0 ? (
             task.confirmations.map((confirmation: any) => (
               <div key={confirmation.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3">
                 <p className="font-[550]">{format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}</p>

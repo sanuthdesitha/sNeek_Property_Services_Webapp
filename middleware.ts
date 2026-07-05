@@ -21,7 +21,10 @@ export default withAuth(
       role = validation.role ?? role;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
-      const isOnboardingPage = pathname === "/onboarding";
+      // v2-context users get the Estate onboarding; v1 keeps the classic one.
+      const inV2 = pathname.startsWith("/v2");
+      const onboardingPath = inV2 ? "/v2/onboarding" : "/onboarding";
+      const isOnboardingPage = pathname === "/onboarding" || pathname === "/v2/onboarding";
       if (validation.valid !== "indeterminate" && validation.requiresPasswordReset && !isForcePasswordPage) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/force-password-reset", req.url)));
       }
@@ -31,10 +34,10 @@ export default withAuth(
 
       if (validation.valid !== "indeterminate" && !validation.requiresPasswordReset) {
         if (validation.requiresOnboarding && !isOnboardingPage) {
-          return applySecurityHeaders(NextResponse.redirect(new URL("/onboarding", req.url)));
+          return applySecurityHeaders(NextResponse.redirect(new URL(onboardingPath, req.url)));
         }
         if (!validation.requiresOnboarding && isOnboardingPage) {
-          return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
+          return applySecurityHeaders(NextResponse.redirect(new URL(inV2 ? v2PortalHome(role) : portalHome(role), req.url)));
         }
       }
     }
@@ -65,6 +68,10 @@ export default withAuth(
       // /v2 root → the signed-in role's portal home.
       if (pathname === "/v2" || pathname === "/v2/") {
         return applySecurityHeaders(NextResponse.redirect(new URL(v2PortalHome(role), req.url)));
+      }
+      // Shared v2 pages any signed-in role may reach (onboarding wizard).
+      if (pathname === "/v2/onboarding") {
+        return applySecurityHeaders(NextResponse.next());
       }
       const isAdminOps = role === Role.ADMIN || role === Role.OPS_MANAGER;
       if (!isAdminOps) {

@@ -1,14 +1,32 @@
 "use client";
 
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
-import { Home, Waves, Truck, BarChart3, MoreHorizontal } from "lucide-react";
+import {
+  Home,
+  Waves,
+  Truck,
+  Radar,
+  CalendarRange,
+  Users,
+  Receipt,
+  BarChart3,
+  User,
+  Settings,
+} from "lucide-react";
 
+// Full laundry nav. First five surface in the mobile bottom bar (daily-use
+// screens); the rest appear in the desktop rail + mobile drawer.
 const NAV: NavItem[] = [
   { href: "/v2/laundry", label: "Today", icon: Home },
   { href: "/v2/laundry/queue", label: "Queue", icon: Waves },
   { href: "/v2/laundry/runs", label: "Runs", icon: Truck },
-  { href: "/v2/laundry/stats", label: "Stats", icon: BarChart3 },
-  { href: "/v2/laundry/more", label: "More", icon: MoreHorizontal },
+  { href: "/v2/laundry/tracking", label: "Tracking", icon: Radar },
+  { href: "/v2/laundry/calendar", label: "Calendar", icon: CalendarRange },
+  { href: "/v2/laundry/hub", label: "Team hub", icon: Users },
+  { href: "/v2/laundry/invoices", label: "Invoices", icon: Receipt },
+  { href: "/v2/laundry/reports", label: "Reports", icon: BarChart3 },
+  { href: "/v2/laundry/profile", label: "Profile", icon: User },
+  { href: "/v2/laundry/settings", label: "Settings", icon: Settings },
 ];
 
 export default function V2LaundryLayout({ children }: { children: React.ReactNode }) {

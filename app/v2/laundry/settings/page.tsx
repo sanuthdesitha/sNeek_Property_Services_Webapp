@@ -1,12 +1,12 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { ProfileSettings } from "@/components/profile/profile-settings";
 import { EPageHeader } from "@/components/v2/ui/primitives";
+import { EstateSettings } from "@/components/v2/laundry/estate-settings";
 
 export const metadata = { title: "Settings · Estate laundry" };
 export const dynamic = "force-dynamic";
 
-// Mirrors app/laundry/settings: reuses the ProfileSettings client component.
+// Estate-native settings (notifications + appearance) — no live-component imports.
 export default async function LaundrySettingsPage() {
   await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
 
@@ -15,9 +15,9 @@ export default async function LaundrySettingsPage() {
       <EPageHeader
         eyebrow="Preferences"
         title="Settings"
-        description="Notifications, security and account preferences."
+        description="Notifications and appearance."
       />
-      <ProfileSettings />
+      <EstateSettings />
     </div>
   );
 }

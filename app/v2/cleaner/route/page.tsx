@@ -5,7 +5,7 @@ import { addDays } from "date-fns";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { RouteTimeline } from "@/components/v2/cleaner/route-timeline";
+import { RouteDriving } from "@/components/v2/cleaner/route-driving";
 
 export const metadata = { title: "Route · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -125,9 +125,9 @@ export default async function V2CleanerRoutePage() {
       <EPageHeader
         eyebrow="Today"
         title="Your route"
-        description="Live travel times via Google Distance Matrix — driving, transit, walking, or biking."
+        description="Drive mode with live GPS heartbeat, or the full timeline with navigation deep links."
       />
-      <RouteTimeline initialDate={isoDate} initialStops={stops} />
+      <RouteDriving initialDate={isoDate} initialStops={stops} />
     </div>
   );
 }

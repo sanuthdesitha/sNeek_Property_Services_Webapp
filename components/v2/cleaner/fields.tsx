@@ -9,7 +9,10 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export const E_FIELD_CLASS =
-  "h-10 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 " +
+  // Inputs sit ON cards (which use --e-surface), so the field itself must read as a
+  // distinct inset: a sunken warm ground + a strong hairline. Using --e-surface for
+  // both made fields blend into the card (the "washed-out / mismatched" look).
+  "h-10 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-sunken))] px-3 " +
   "text-[0.875rem] text-[hsl(var(--e-foreground))] placeholder:text-[hsl(var(--e-text-faint))] " +
   "transition-[border-color,box-shadow] duration-[160ms] ease-[cubic-bezier(0.2,0,0,1)] " +
   "focus-visible:outline-none focus-visible:border-[hsl(var(--e-ring))] focus-visible:ring-1 focus-visible:ring-[hsl(var(--e-ring))] " +
