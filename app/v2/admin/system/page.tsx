@@ -46,6 +46,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/v2/admin/settings" },
       { label: "Checklists library", desc: "Modules, items & coverage", icon: ListChecks, href: "/v2/admin/checklists" },
       { label: "Forms & stats", desc: "Form builder, coverage, stats", icon: ClipboardList, href: "/v2/admin/forms" },
+      { label: "Templates", desc: "Email, notification & message designer", icon: FileText, href: "/v2/admin/templates" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },
       { label: "My profile", desc: "Your account, security & 2FA", icon: UserCircle, href: "/v2/admin/profile" },
       { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck, href: "/admin/system" },
