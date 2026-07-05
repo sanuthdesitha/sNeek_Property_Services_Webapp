@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { ChevronRight, Globe, Megaphone, Send } from "lucide-react";
+import { ChevronRight, Globe, Megaphone, Send, MessageSquare } from "lucide-react";
 
 export const metadata = { title: "Growth · Estate admin" };
 
 const AREAS = [
-  { label: "Marketing", desc: "Campaigns, social, asset library", icon: Megaphone, href: "/admin/marketing" },
+  { label: "Marketing", desc: "Campaigns, social, asset library", icon: Megaphone, href: "/v2/admin/marketing" },
   { label: "Website CMS", desc: "Editor, blog, live preview", icon: Globe, href: "/admin/website" },
-  { label: "Comms center", desc: "Notification templates, send log, delivery", icon: Send, href: "/admin/notifications" },
+  { label: "Comms center", desc: "Notification defaults, send log, delivery", icon: Send, href: "/v2/admin/notifications" },
+  { label: "Messages", desc: "Conversations, compose, templates", icon: MessageSquare, href: "/v2/admin/messages" },
 ];
 
 export default function AdminGrowthPage() {

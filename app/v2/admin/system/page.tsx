@@ -3,6 +3,7 @@ import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/compon
 import {
   Activity, Boxes, Building2, CalendarRange, ChevronRight, ClipboardCheck, ClipboardList,
   Cog, FileText, Inbox, Map, ShieldCheck, Sparkles, Users, Wallet,
+  Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase,
 } from "lucide-react";
 
 export const metadata = { title: "System · Estate admin" };
@@ -15,6 +16,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Calendar", desc: "Week-ahead job agenda", icon: CalendarRange, href: "/v2/admin/calendar" },
       { label: "Approvals", desc: "Pending across every queue", icon: Inbox, href: "/v2/admin/approvals" },
       { label: "Cases", desc: "Disputes, damage & issue tickets", icon: ClipboardCheck, href: "/v2/admin/cases" },
+      { label: "Maintenance", desc: "Repairs & replacements oversight", icon: Wrench, href: "/v2/admin/maintenance" },
     ],
   },
   {
@@ -33,14 +35,19 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Quotes & leads", desc: "Pipeline and accepted value", icon: FileText, href: "/v2/admin/quotes" },
       { label: "Reports", desc: "Client-facing job reports", icon: FileText, href: "/v2/admin/reports" },
       { label: "Inventory", desc: "Stock, shopping & suppliers", icon: Boxes, href: "/v2/admin/inventory" },
+      { label: "Pricing", desc: "Rate card, margins & per-service rates", icon: Tags, href: "/v2/admin/pricing" },
+      { label: "Delivery profiles", desc: "Report & invoice recipients", icon: Truck, href: "/v2/admin/delivery-profiles" },
+      { label: "Hiring", desc: "ATS pipeline, applications & quizzes", icon: Briefcase, href: "/admin/hiring" },
     ],
   },
   {
     title: "Configuration",
     items: [
       { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/v2/admin/settings" },
-      { label: "Forms & checklists", desc: "Builder, library, coverage, stats", icon: ClipboardList, href: "/admin/forms" },
+      { label: "Checklists library", desc: "Modules, items & coverage", icon: ListChecks, href: "/v2/admin/checklists" },
+      { label: "Forms & stats", desc: "Form builder, coverage, stats", icon: ClipboardList, href: "/admin/forms" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },
+      { label: "My profile", desc: "Your account, security & 2FA", icon: UserCircle, href: "/v2/admin/profile" },
       { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck, href: "/admin/system" },
     ],
   },
