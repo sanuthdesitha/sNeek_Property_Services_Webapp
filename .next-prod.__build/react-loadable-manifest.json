@@ -1,0 +1,95 @@
+{
+  "app\\admin\\calendar\\page.tsx -> ./_calendar": {
+    "id": 78194,
+    "files": [
+      "static/chunks/a6eb9415-7419bba5f2b5922e.js",
+      "static/chunks/808-f839dc385330b2fb.js",
+      "static/chunks/6422-b35a52506705ebc3.js",
+      "static/chunks/8194.ad78d4afb1152ca3.js"
+    ]
+  },
+  "app\\admin\\calendar\\page.tsx -> ./_laundry-calendar": {
+    "id": 58263,
+    "files": [
+      "static/chunks/a6eb9415-7419bba5f2b5922e.js",
+      "static/chunks/808-f839dc385330b2fb.js",
+      "static/chunks/8263.28e58f6824fd1ef2.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/finance-notifications-settings": {
+    "id": 51930,
+    "files": [
+      "static/chunks/3341-aef07936301659e7.js",
+      "static/chunks/1930.a5e101173fa548da.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/ical-sync-ops": {
+    "id": 33721,
+    "files": [
+      "static/chunks/8193-e37c8ceece0e5c68.js",
+      "static/chunks/3904-8e0c120f515c7ef6.js",
+      "static/chunks/3721.d5585ba228af9047.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/integrations-settings": {
+    "id": 32119,
+    "files": [
+      "static/chunks/6865.06012b1b4e89ff87.js",
+      "static/chunks/2119.e5c6052c623c4021.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/notification-test-form": {
+    "id": 65636,
+    "files": [
+      "static/chunks/3341-aef07936301659e7.js",
+      "static/chunks/7406-a21f6fedd8ededd8.js",
+      "static/chunks/5636.f8424e3db8706db3.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/payment-gateways-page": {
+    "id": 77257,
+    "files": [
+      "static/chunks/7257.c801298bc54a5394.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/pricebook-editor": {
+    "id": 55564,
+    "files": [
+      "static/chunks/5564.8a58ebf3698a9c91.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/scheduled-notification-controls": {
+    "id": 16064,
+    "files": [
+      "static/chunks/6064.93cc83038d8e9a4e.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/settings-audit-log": {
+    "id": 31421,
+    "files": [
+      "static/chunks/8193-e37c8ceece0e5c68.js",
+      "static/chunks/3904-8e0c120f515c7ef6.js",
+      "static/chunks/1421.62659f552a8a0d9a.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/settings-editor": {
+    "id": 66262,
+    "files": [
+      "static/chunks/3341-aef07936301659e7.js",
+      "static/chunks/7406-a21f6fedd8ededd8.js",
+      "static/chunks/6262.50d38c3b97248dd1.js"
+    ]
+  },
+  "components\\admin\\settings-workspace.tsx -> @/components/admin/xero-settings-tab": {
+    "id": 14210,
+    "files": [
+      "static/chunks/4210.495e4b31f9966501.js"
+    ]
+  },
+  "components\\forms\\field-input.tsx -> jsqr": {
+    "id": 69801,
+    "files": [
+      "static/chunks/d0f5a89a-4d2cb88f599a155a.js"
+    ]
+  }
+}
