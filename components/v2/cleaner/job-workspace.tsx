@@ -42,6 +42,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
+import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import {
   FormRenderer,
   type AnswerMap,
@@ -141,6 +142,24 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const locked = LOCKED.includes(status);
   const property = job?.property ?? {};
   const addressLine = [property.address, property.suburb, property.state, property.postcode].filter(Boolean).join(", ");
+  // accessInfo may be a plain string OR a structured object (codes/lockbox/
+  // parking/instructions/accessNotesSummary…). Render it as safe text either way.
+  const rawAccess: any = (property as any).accessInfo;
+  const accessText: string =
+    typeof rawAccess === "string"
+      ? rawAccess
+      : rawAccess && typeof rawAccess === "object"
+      ? [
+          rawAccess.accessNotesSummary,
+          rawAccess.instructions,
+          rawAccess.codes && typeof rawAccess.codes === "string" ? `Codes: ${rawAccess.codes}` : null,
+          rawAccess.lockbox && typeof rawAccess.lockbox === "string" ? `Lockbox: ${rawAccess.lockbox}` : null,
+          rawAccess.parking && typeof rawAccess.parking === "string" ? `Parking: ${rawAccess.parking}` : null,
+          rawAccess.other && typeof rawAccess.other === "string" ? rawAccess.other : null,
+        ]
+          .filter((x) => typeof x === "string" && x.trim())
+          .join("\n")
+      : "";
   const hasCheckin = Boolean(job?.gpsCheckInAt);
 
   function flash(tone: "success" | "danger" | "info", text: string) {
@@ -319,6 +338,21 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </EAlert>
       ) : null}
 
+      {/* Offer — accept or decline before starting */}
+      {status === "OFFERED" ? (
+        <ECard>
+          <ECardBody className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[0.9375rem] font-[600]">You've been offered this job</p>
+              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                Accept to add it to your schedule, or decline so it can be reassigned.
+              </p>
+            </div>
+            <JobOfferActions jobId={job.id} size="md" />
+          </ECardBody>
+        </ECard>
+      ) : null}
+
       {/* Property / access */}
       <ECard>
         <ECardBody className="space-y-3 pt-6">
@@ -330,13 +364,13 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
             {property.bedrooms ?? 0} bd · {property.bathrooms ?? 0} ba
             {job.startTime ? ` · ${job.startTime}${job.dueTime ? `–${job.dueTime}` : ""}` : ""}
           </p>
-          {property.accessInfo ? (
+          {accessText ? (
             <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3">
               <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
                 <KeyRound className="h-4 w-4" /> Access
               </p>
               <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                {property.accessInfo}
+                {accessText}
               </p>
             </div>
           ) : null}
