@@ -3,7 +3,7 @@ import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/compon
 import {
   Activity, Boxes, Building2, CalendarRange, ChevronRight, ClipboardCheck, ClipboardList,
   Cog, FileText, Inbox, Map, ShieldCheck, Sparkles, Users, Wallet,
-  Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase,
+  Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase, ReceiptText,
 } from "lucide-react";
 
 export const metadata = { title: "System · Estate admin" };
@@ -32,6 +32,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
     title: "Commercial",
     items: [
       { label: "Payroll", desc: "Pay runs & settlements", icon: Wallet, href: "/v2/admin/payroll" },
+      { label: "Cleaner invoices", desc: "Cleaner-submitted invoices · Xero · reverse", icon: ReceiptText, href: "/v2/admin/cleaner-invoices" },
       { label: "Quotes & leads", desc: "Pipeline and accepted value", icon: FileText, href: "/v2/admin/quotes" },
       { label: "Reports", desc: "Client-facing job reports", icon: FileText, href: "/v2/admin/reports" },
       { label: "Inventory", desc: "Stock, shopping & suppliers", icon: Boxes, href: "/v2/admin/inventory" },
