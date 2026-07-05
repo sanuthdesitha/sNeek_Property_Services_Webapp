@@ -37,7 +37,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Inventory", desc: "Stock, shopping & suppliers", icon: Boxes, href: "/v2/admin/inventory" },
       { label: "Pricing", desc: "Rate card, margins & per-service rates", icon: Tags, href: "/v2/admin/pricing" },
       { label: "Delivery profiles", desc: "Report & invoice recipients", icon: Truck, href: "/v2/admin/delivery-profiles" },
-      { label: "Hiring", desc: "ATS pipeline, applications & quizzes", icon: Briefcase, href: "/admin/hiring" },
+      { label: "Hiring", desc: "ATS pipeline, applications & quizzes", icon: Briefcase, href: "/v2/admin/hiring" },
     ],
   },
   {
