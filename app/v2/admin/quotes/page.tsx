@@ -119,9 +119,7 @@ export default async function AdminQuotesPage() {
         title="Quotes & leads"
         description="Pipeline from inbound lead to accepted quote."
         actions={
-          <Link href="/admin/quotes">
-            <EButton variant="gold" size="sm">Open quote builder</EButton>
-          </Link>
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/quotes">Open quote builder</Link></EButton>
         }
       />
 
@@ -135,7 +133,7 @@ export default async function AdminQuotesPage() {
       <ECard>
         <ECardHeader className="flex-row items-center justify-between">
           <ECardTitle>Recent quotes</ECardTitle>
-          <Link href="/admin/quotes"><EButton variant="ghost" size="sm">Manage quotes</EButton></Link>
+          <EButton asChild variant="ghost" size="sm"><Link href="/admin/quotes">Manage quotes</Link></EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
           {data.recentQuotes.length === 0 ? (

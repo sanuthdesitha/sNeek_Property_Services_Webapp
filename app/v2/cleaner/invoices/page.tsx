@@ -53,9 +53,7 @@ export default async function CleanerInvoicesPage() {
           title="Invoices"
           description="Review your period, then download or email your invoice."
           actions={
-            <Link href="/cleaner/invoices">
-              <EButton variant="outline" size="sm">Full invoice tool</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/cleaner/invoices">Full invoice tool</Link></EButton>
           }
         />
         <EEmptyState
@@ -107,9 +105,7 @@ export default async function CleanerInvoicesPage() {
                 These are not on this invoice yet — review them before sending.
               </p>
             </div>
-            <Link href="/v2/cleaner/pay-requests">
-              <EButton variant="outline" size="sm">Review pay requests</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/v2/cleaner/pay-requests">Review pay requests</Link></EButton>
           </ECardBody>
         </ECard>
       ) : null}
@@ -178,9 +174,7 @@ export default async function CleanerInvoicesPage() {
               Open the full invoice tool to choose a date range, exclude items and preview the PDF before emailing.
             </p>
           </div>
-          <Link href="/cleaner/invoices">
-            <EButton variant="outline" size="sm">Open full invoice tool</EButton>
-          </Link>
+          <EButton asChild variant="outline" size="sm"><Link href="/cleaner/invoices">Open full invoice tool</Link></EButton>
         </ECardBody>
       </ECard>
     </div>

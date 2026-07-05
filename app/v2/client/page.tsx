@@ -120,17 +120,11 @@ export default async function ClientHomePage() {
                   <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <Link href="/client/booking">
-                    <EButton variant="gold" size="sm">Book a clean</EButton>
-                  </Link>
-                  <Link href="/v2/client/services">
-                    <EButton variant="outline" size="sm">View services</EButton>
-                  </Link>
-                  <Link href="/v2/client/messages">
-                    <EButton variant="outline" size="sm">
+                  <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/services">View services</Link></EButton>
+                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </EButton>
-                  </Link>
+                    </Link></EButton>
                 </div>
               </>
             ) : (
@@ -139,14 +133,10 @@ export default async function ClientHomePage() {
                   No active services scheduled right now.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <Link href="/client/booking">
-                    <EButton variant="gold" size="sm">Book a clean</EButton>
-                  </Link>
-                  <Link href="/v2/client/messages">
-                    <EButton variant="outline" size="sm">
+                  <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </EButton>
-                  </Link>
+                    </Link></EButton>
                 </div>
               </>
             )}
@@ -203,9 +193,7 @@ export default async function ClientHomePage() {
         <ECard>
           <ECardHeader className="flex-row items-center justify-between">
             <ECardTitle>Upcoming services</ECardTitle>
-            <Link href="/v2/client/services">
-              <EButton variant="ghost" size="sm">View all</EButton>
-            </Link>
+            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/services">View all</Link></EButton>
           </ECardHeader>
           <ECardBody className="space-y-1">
             {upcoming.length === 0 ? (
@@ -242,9 +230,7 @@ export default async function ClientHomePage() {
         <ECard>
           <ECardHeader className="flex-row items-center justify-between">
             <ECardTitle>Recent reports</ECardTitle>
-            <Link href="/v2/client/reports">
-              <EButton variant="ghost" size="sm">View all</EButton>
-            </Link>
+            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/reports">View all</Link></EButton>
           </ECardHeader>
           <ECardBody className="space-y-1">
             {reports.length === 0 ? (

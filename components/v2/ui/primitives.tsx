@@ -57,15 +57,38 @@ const BTN_SIZE: Record<ButtonSize, string> = {
 
 export const EButton = React.forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize }
->(({ className, variant = "primary", size = "md", style, ...props }, ref) => (
-  <button
-    ref={ref}
-    className={cn(BTN_BASE, BTN_VARIANT[variant], BTN_SIZE[size], className)}
-    style={{ ["--tw-ring-color" as any]: "hsl(var(--e-ring))", ["--tw-ring-offset-color" as any]: "hsl(var(--e-background))", ...style }}
-    {...props}
-  />
-));
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize; asChild?: boolean }
+>(({ className, variant = "primary", size = "md", style, asChild = false, children, ...props }, ref) => {
+  const classes = cn(BTN_BASE, BTN_VARIANT[variant], BTN_SIZE[size], className);
+  const mergedStyle = {
+    ["--tw-ring-color" as any]: "hsl(var(--e-ring))",
+    ["--tw-ring-offset-color" as any]: "hsl(var(--e-background))",
+    ...style,
+  };
+  // asChild renders the single child element (e.g. a next/link <Link>) AS the
+  // styled control, so we never nest a <button> inside an <a> — invalid HTML
+  // that breaks hydration and can kill interactivity. The child (anchor)
+  // receives the button classes/styles directly.
+  if (asChild && React.isValidElement(children)) {
+    const child = children as React.ReactElement<any>;
+    return React.cloneElement(child, {
+      className: cn(classes, child.props.className),
+      style: { ...mergedStyle, ...(child.props.style || {}) },
+      ref,
+      ...props,
+    });
+  }
+  return (
+    <button
+      ref={ref}
+      className={classes}
+      style={mergedStyle}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+});
 EButton.displayName = "EButton";
 
 /* ── Card ──────────────────────────────────────────────────────────────── */

@@ -66,9 +66,7 @@ export default async function AdminInvoicesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Link href="/v2/admin/finance" aria-label="Back to finance">
-          <EButton variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></EButton>
-        </Link>
+        <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/finance" aria-label="Back to finance"><ArrowLeft className="h-4 w-4" /></Link></EButton>
         <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Finance</span>
       </div>
 

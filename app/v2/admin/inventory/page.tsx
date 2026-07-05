@@ -73,9 +73,7 @@ export default async function AdminInventoryPage() {
         title="Inventory & supplies"
         description="Items, per-property stock, counts, and shopping runs."
         actions={
-          <Link href="/admin/inventory">
-            <EButton variant="gold" size="sm">Open inventory hub</EButton>
-          </Link>
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/inventory">Open inventory hub</Link></EButton>
         }
       />
 
@@ -90,7 +88,7 @@ export default async function AdminInventoryPage() {
       <ECard>
         <ECardHeader className="flex-row items-center justify-between">
           <ECardTitle>Low stock</ECardTitle>
-          <Link href="/admin/inventory?tab=properties&filter=low"><EButton variant="ghost" size="sm">Manage stock</EButton></Link>
+          <EButton asChild variant="ghost" size="sm"><Link href="/admin/inventory?tab=properties&filter=low">Manage stock</Link></EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
           {s.lowStockLines.length === 0 ? (

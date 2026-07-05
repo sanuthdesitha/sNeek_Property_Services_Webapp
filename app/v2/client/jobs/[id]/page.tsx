@@ -193,11 +193,9 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/v2/client/jobs" className="inline-block">
-          <EButton variant="ghost" size="sm" className="-ml-2">
+        <EButton asChild variant="ghost" size="sm" className="-ml-2"><Link href="/v2/client/jobs" className="inline-block">
             <ArrowLeft className="h-4 w-4" /> Jobs
-          </EButton>
-        </Link>
+          </Link></EButton>
       </div>
 
       <EPageHeader
@@ -212,11 +210,9 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
               {STATUS_LABELS[job.status] ?? titleCase(job.status)}
             </EBadge>
             {job.status === "EN_ROUTE" ? (
-              <Link href={`/client/jobs/${job.id}`}>
-                <EButton variant="gold" size="sm">
+              <EButton asChild variant="gold" size="sm"><Link href={`/client/jobs/${job.id}`}>
                   <Navigation className="h-3.5 w-3.5" /> Track live
-                </EButton>
-              </Link>
+                </Link></EButton>
             ) : null}
           </>
         }

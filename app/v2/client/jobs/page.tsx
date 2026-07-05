@@ -31,12 +31,8 @@ export default async function ClientJobsPage() {
         description="Upcoming services first, with quick filters, task requests, and linked laundry updates."
         actions={
           <>
-            <Link href="/v2/client/calendar">
-              <EButton variant="outline" size="sm">Calendar</EButton>
-            </Link>
-            <Link href="/client/booking">
-              <EButton variant="gold" size="sm">Book a clean</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/v2/client/calendar">Calendar</Link></EButton>
+            <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
           </>
         }
       />
@@ -47,9 +43,7 @@ export default async function ClientJobsPage() {
           title="No jobs on record"
           description="Scheduled services across your properties will appear here."
           action={
-            <Link href="/client/booking">
-              <EButton variant="gold" size="sm">Book a clean</EButton>
-            </Link>
+            <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
           }
         />
       ) : (

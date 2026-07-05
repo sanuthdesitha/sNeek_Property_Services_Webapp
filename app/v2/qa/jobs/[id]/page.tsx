@@ -94,9 +94,7 @@ export default async function QaJobReviewPage({ params }: { params: { id: string
         title={`${propName}${suburb ? `, ${suburb}` : ""}`}
         description={`${titleCase(job.jobType)} · QA inspection`}
         actions={
-          <Link href={`/qa/jobs/${job.id}`}>
-            <EButton variant="gold">{inProgress ? "Continue review" : "Open review workspace"}</EButton>
-          </Link>
+          <EButton asChild variant="gold"><Link href={`/qa/jobs/${job.id}`}>{inProgress ? "Continue review" : "Open review workspace"}</Link></EButton>
         }
       />
 
@@ -163,9 +161,7 @@ export default async function QaJobReviewPage({ params }: { params: { id: string
             review workspace. Open it to complete the inspection.
           </EAlert>
           <div>
-            <Link href={`/qa/jobs/${job.id}`}>
-              <EButton variant="gold">{inProgress ? "Continue review" : "Open review workspace"}</EButton>
-            </Link>
+            <EButton asChild variant="gold"><Link href={`/qa/jobs/${job.id}`}>{inProgress ? "Continue review" : "Open review workspace"}</Link></EButton>
           </div>
         </ECardBody>
       </ECard>

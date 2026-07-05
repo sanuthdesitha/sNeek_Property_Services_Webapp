@@ -228,7 +228,7 @@ export default async function AdminCommandPage() {
               <ECardTitle>Today&apos;s dispatch</ECardTitle>
               <div className="flex gap-2">
                 <EButton variant="outline" size="sm"><MapPin className="h-3.5 w-3.5" /> Map</EButton>
-                <Link href="/v2/admin/jobs"><EButton variant="primary" size="sm">Open board</EButton></Link>
+                <EButton asChild variant="primary" size="sm"><Link href="/v2/admin/jobs">Open board</Link></EButton>
               </div>
             </ECardHeader>
             <ECardBody className="pt-0">

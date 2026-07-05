@@ -159,11 +159,9 @@ export default async function CleanerTodayPage() {
               </span>
             </p>
             <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-              <Link href={`/v2/cleaner/jobs/${nextJob.id}`} className="flex-1">
-                <EButton variant="gold" className="w-full">
+              <EButton asChild variant="gold" className="w-full"><Link href={`/v2/cleaner/jobs/${nextJob.id}`} className="flex-1">
                   Open job <ChevronRight className="h-4 w-4" />
-                </EButton>
-              </Link>
+                </Link></EButton>
               {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).length > 0 ? (
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(

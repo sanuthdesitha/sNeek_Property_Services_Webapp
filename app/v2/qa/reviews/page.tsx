@@ -92,12 +92,10 @@ export default async function QaReviewsPage() {
                   {r.onSiteMinutes ? <span className="e-numeral text-[0.9375rem]">{r.onSiteMinutes}m</span> : null}
                   <EBadge tone={statusTone(r.status)} soft>{titleCase(r.status)}</EBadge>
                   {jobId ? (
-                    <Link href={`/qa/jobs/${jobId}`}>
-                      <EButton variant={isDone ? "outline" : "gold"} size="sm">
+                    <EButton asChild variant={isDone ? "outline" : "gold"} size="sm"><Link href={`/qa/jobs/${jobId}`}>
                         {isDone ? "Open" : "Start review"}
                         <ChevronRight className="h-4 w-4" />
-                      </EButton>
-                    </Link>
+                      </Link></EButton>
                   ) : null}
                 </ECardBody>
               </ECard>

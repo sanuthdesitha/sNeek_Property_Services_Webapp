@@ -44,11 +44,9 @@ export default async function EstatePropertiesPage() {
         title="Properties"
         description={`${properties.length} active ${properties.length === 1 ? "property" : "properties"} under management.`}
         actions={
-          <Link href="/admin/properties">
-            <EButton variant="gold" size="sm">
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/properties">
               Full properties hub <ArrowUpRight className="h-3.5 w-3.5" />
-            </EButton>
-          </Link>
+            </Link></EButton>
         }
       />
 

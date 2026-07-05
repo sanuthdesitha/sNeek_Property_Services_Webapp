@@ -69,9 +69,7 @@ export default async function AdminPayrollPage() {
         title="Payroll"
         description="Committed pay runs and cleaner payouts."
         actions={
-          <Link href="/admin/finance?tab=payroll">
-            <EButton variant="gold" size="sm">New pay run</EButton>
-          </Link>
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/finance?tab=payroll">New pay run</Link></EButton>
         }
       />
 
@@ -85,9 +83,7 @@ export default async function AdminPayrollPage() {
       <ECard>
         <ECardHeader className="flex-row items-center justify-between">
           <ECardTitle>Pay runs</ECardTitle>
-          <Link href="/admin/finance?tab=payroll">
-            <EButton variant="ghost" size="sm">Open pay run tool</EButton>
-          </Link>
+          <EButton asChild variant="ghost" size="sm"><Link href="/admin/finance?tab=payroll">Open pay run tool</Link></EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
           {runs.length === 0 ? (
@@ -112,7 +108,7 @@ export default async function AdminPayrollPage() {
                       <td className="px-3 py-3"><span className="e-numeral text-[0.9375rem]">{formatCurrency(run.grandTotal ?? 0)}</span></td>
                       <td className="px-3 py-3"><EBadge tone={statusTone(run.status)} soft>{titleCase(run.status)}</EBadge></td>
                       <td className="px-3 py-3 tabular-nums whitespace-nowrap text-[hsl(var(--e-text-secondary))]">{format(new Date(run.createdAt), "d MMM yy")}</td>
-                      <td className="px-3 py-3 text-right"><Link href={`/admin/payroll/${run.id}`}><EButton variant="ghost" size="sm">View</EButton></Link></td>
+                      <td className="px-3 py-3 text-right"><EButton asChild variant="ghost" size="sm"><Link href={`/admin/payroll/${run.id}`}>View</Link></EButton></td>
                     </tr>
                   ))}
                 </tbody>

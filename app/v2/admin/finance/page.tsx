@@ -149,7 +149,7 @@ export default async function AdminFinancePage() {
                           {inv.xeroExportedAt ? <EBadge tone="gold" soft>Xero</EBadge> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-right"><Link href="/v2/admin/finance"><EButton variant="ghost" size="sm">View</EButton></Link></td>
+                      <td className="px-3 py-3 text-right"><EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/finance">View</Link></EButton></td>
                     </tr>
                   ))}
                 </tbody>

@@ -97,15 +97,9 @@ export default async function V2AdminCalendarPage() {
         description="Scheduled jobs and laundry pickups in one place — spot clashes early and open any job from its card."
         actions={
           <>
-            <Link href="/admin/calendar">
-              <EButton variant="outline" size="sm"><CalendarDays className="h-3.5 w-3.5" /> Jobs calendar</EButton>
-            </Link>
-            <Link href="/admin/calendar">
-              <EButton variant="ghost" size="sm"><Shirt className="h-3.5 w-3.5" /> Laundry</EButton>
-            </Link>
-            <Link href="/admin/calendar">
-              <EButton variant="primary" size="sm"><ExternalLink className="h-3.5 w-3.5" /> Full calendar</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/admin/calendar"><CalendarDays className="h-3.5 w-3.5" /> Jobs calendar</Link></EButton>
+            <EButton asChild variant="ghost" size="sm"><Link href="/admin/calendar"><Shirt className="h-3.5 w-3.5" /> Laundry</Link></EButton>
+            <EButton asChild variant="primary" size="sm"><Link href="/admin/calendar"><ExternalLink className="h-3.5 w-3.5" /> Full calendar</Link></EButton>
           </>
         }
       />
@@ -118,9 +112,7 @@ export default async function V2AdminCalendarPage() {
           title="No jobs scheduled"
           description="Nothing is on the calendar for the next seven days."
           action={
-            <Link href="/admin/calendar">
-              <EButton variant="outline" size="sm">Open full calendar</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/admin/calendar">Open full calendar</Link></EButton>
           }
         />
       ) : (

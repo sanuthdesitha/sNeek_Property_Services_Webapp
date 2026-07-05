@@ -60,9 +60,7 @@ export default async function CleanerProfilePage() {
     .catch(() => null)) as any;
 
   const editAction = (
-    <Link href="/cleaner/profile">
-      <EButton variant="gold" size="sm">Edit profile</EButton>
-    </Link>
+    <EButton asChild variant="gold" size="sm"><Link href="/cleaner/profile">Edit profile</Link></EButton>
   );
 
   if (!user) {
@@ -158,9 +156,7 @@ export default async function CleanerProfilePage() {
               The full profile page has the complete edit forms.
             </p>
           </div>
-          <Link href="/cleaner/profile">
-            <EButton variant="outline" size="sm">Open full profile</EButton>
-          </Link>
+          <EButton asChild variant="outline" size="sm"><Link href="/cleaner/profile">Open full profile</Link></EButton>
         </ECardBody>
       </ECard>
     </div>

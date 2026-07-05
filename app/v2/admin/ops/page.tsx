@@ -227,15 +227,9 @@ export default async function V2AdminOpsPage() {
         description="One inbox for dispatch, QA, cases, laundry follow-up, and compliance blockers."
         actions={
           <>
-            <Link href={`/admin/jobs/route-map?date=${selectedDate}`}>
-              <EButton variant="outline" size="sm"><Route className="h-3.5 w-3.5" /> Route map</EButton>
-            </Link>
-            <Link href={`/admin/ops/map?date=${selectedDate}`}>
-              <EButton variant="outline" size="sm"><MapPinned className="h-3.5 w-3.5" /> Live map</EButton>
-            </Link>
-            <Link href="/v2/admin/jobs">
-              <EButton variant="primary" size="sm">Open jobs</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href={`/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
+            <EButton asChild variant="outline" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Live map</Link></EButton>
+            <EButton asChild variant="primary" size="sm"><Link href="/v2/admin/jobs">Open jobs</Link></EButton>
           </>
         }
       />
@@ -425,12 +419,8 @@ export default async function V2AdminOpsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/admin/jobs/route-map?date=${selectedDate}`}>
-              <EButton variant="outline" size="sm"><Route className="h-3.5 w-3.5" /> Route map</EButton>
-            </Link>
-            <Link href={`/admin/ops/map?date=${selectedDate}`}>
-              <EButton variant="primary" size="sm"><MapPinned className="h-3.5 w-3.5" /> Open live map</EButton>
-            </Link>
+            <EButton asChild variant="outline" size="sm"><Link href={`/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
+            <EButton asChild variant="primary" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Open live map</Link></EButton>
           </div>
         </ECardHeader>
         <ECardBody className="pt-0">

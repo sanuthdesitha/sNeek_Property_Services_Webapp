@@ -190,9 +190,7 @@ export default async function CleanerJobDetailPage({ params }: { params: { id: s
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Link href={`/cleaner/jobs/${job.id}`}>
-          <EButton variant="gold">Start · Open job workspace</EButton>
-        </Link>
+        <EButton asChild variant="gold"><Link href={`/cleaner/jobs/${job.id}`}>Start · Open job workspace</Link></EButton>
         {addressLine ? (
           <a
             href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressLine)}`}

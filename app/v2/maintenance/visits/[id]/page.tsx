@@ -95,9 +95,7 @@ export default async function MaintenanceVisitPage({ params }: { params: { id: s
         title={item.title}
         description={`${propName}${suburb ? `, ${suburb}` : ""}`}
         actions={
-          <Link href={`/maintenance/visits/${item.id}`}>
-            <EButton variant="gold">Open visit workspace</EButton>
-          </Link>
+          <EButton asChild variant="gold"><Link href={`/maintenance/visits/${item.id}`}>Open visit workspace</Link></EButton>
         }
       />
 
@@ -154,9 +152,7 @@ export default async function MaintenanceVisitPage({ params }: { params: { id: s
             resolved run in the live maintenance visit workspace. Open it to work the job.
           </EAlert>
           <div>
-            <Link href={`/maintenance/visits/${item.id}`}>
-              <EButton variant="gold">Open visit workspace</EButton>
-            </Link>
+            <EButton asChild variant="gold"><Link href={`/maintenance/visits/${item.id}`}>Open visit workspace</Link></EButton>
           </div>
         </ECardBody>
       </ECard>

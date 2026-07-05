@@ -102,11 +102,9 @@ export default async function EstateCleanersPage() {
         title="Cleaners"
         description="Your cleaning team at a glance — workload, pay and status."
         actions={
-          <Link href="/admin/cleaners">
-            <EButton variant="gold" size="sm">
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/cleaners">
               Full cleaners hub <ArrowUpRight className="h-3.5 w-3.5" />
-            </EButton>
-          </Link>
+            </Link></EButton>
         }
       />
 
@@ -173,11 +171,9 @@ export default async function EstateCleanersPage() {
                         </EBadge>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/admin/workforce/performance/${c.id}`}>
-                          <EButton variant="ghost" size="sm">
+                        <EButton asChild variant="ghost" size="sm"><Link href={`/admin/workforce/performance/${c.id}`}>
                             Performance
-                          </EButton>
-                        </Link>
+                          </Link></EButton>
                       </td>
                     </tr>
                   ))}

@@ -76,16 +76,12 @@ export default async function ClientServicesPage() {
         description="Everything upcoming and everything done — in one lifecycle."
         actions={
           <>
-            <Link href="/client/booking">
-              <EButton variant="gold" size="sm">
+            <EButton asChild variant="gold" size="sm"><Link href="/client/booking">
                 <CalendarPlus className="h-3.5 w-3.5" /> Book a clean
-              </EButton>
-            </Link>
-            <Link href="/v2/client/messages">
-              <EButton variant="outline" size="sm">
+              </Link></EButton>
+            <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                 <MessageSquare className="h-3.5 w-3.5" /> Message ops
-              </EButton>
-            </Link>
+              </Link></EButton>
           </>
         }
       />

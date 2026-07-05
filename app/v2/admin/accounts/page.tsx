@@ -81,11 +81,9 @@ export default async function EstateAccountsPage() {
         title="Staff & client accounts"
         description="Every account in one place, with a live roll-up of your workspace."
         actions={
-          <Link href="/admin/accounts">
-            <EButton variant="gold" size="sm">
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/accounts">
               Manage in full hub <ArrowUpRight className="h-3.5 w-3.5" />
-            </EButton>
-          </Link>
+            </Link></EButton>
         }
       />
 
@@ -155,11 +153,9 @@ export default async function EstateAccountsPage() {
                           </EBadge>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <Link href={`/admin/accounts/users/${u.id}`}>
-                            <EButton variant="ghost" size="sm">
+                          <EButton asChild variant="ghost" size="sm"><Link href={`/admin/accounts/users/${u.id}`}>
                               Profile
-                            </EButton>
-                          </Link>
+                            </Link></EButton>
                         </td>
                       </tr>
                     ))}

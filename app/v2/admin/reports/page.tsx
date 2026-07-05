@@ -66,9 +66,7 @@ export default async function AdminReportsPage() {
         title="Reports"
         description="Generated job reports and client visibility."
         actions={
-          <Link href="/admin/reports">
-            <EButton variant="gold" size="sm">Open reports console</EButton>
-          </Link>
+          <EButton asChild variant="gold" size="sm"><Link href="/admin/reports">Open reports console</Link></EButton>
         }
       />
 
@@ -82,7 +80,7 @@ export default async function AdminReportsPage() {
       <ECard>
         <ECardHeader className="flex-row items-center justify-between">
           <ECardTitle>Recent reports</ECardTitle>
-          <Link href="/admin/reports"><EButton variant="ghost" size="sm">Filter & regenerate</EButton></Link>
+          <EButton asChild variant="ghost" size="sm"><Link href="/admin/reports">Filter & regenerate</Link></EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
           {reports.length === 0 ? (

@@ -110,11 +110,9 @@ export default async function QaTodayPage() {
                     <div className="flex items-center gap-2">
                       <EBadge tone={q.status === QaAssignmentStatus.IN_PROGRESS ? "info" : "primary"} soft>{titleCase(q.status)}</EBadge>
                       {q.job?.id ? (
-                        <Link href={`/qa/jobs/${q.job.id}`}>
-                          <EButton variant="gold" size="sm">
+                        <EButton asChild variant="gold" size="sm"><Link href={`/qa/jobs/${q.job.id}`}>
                             {q.status === QaAssignmentStatus.IN_PROGRESS ? "Continue" : "Start review"}
-                          </EButton>
-                        </Link>
+                          </Link></EButton>
                       ) : null}
                     </div>
                   </div>

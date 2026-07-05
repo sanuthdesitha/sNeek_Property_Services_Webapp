@@ -21,9 +21,7 @@ export default async function ClientBookingPage() {
         title="Book a clean"
         description="Pick a property and service, choose from available dates, and we'll take it from there."
         actions={
-          <Link href="/v2/client/jobs">
-            <EButton variant="outline" size="sm">View jobs</EButton>
-          </Link>
+          <EButton asChild variant="outline" size="sm"><Link href="/v2/client/jobs">View jobs</Link></EButton>
         }
       />
 

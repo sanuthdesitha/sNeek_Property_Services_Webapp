@@ -24,7 +24,7 @@ export default async function ClientShoppingPage({
         title="Shopping"
         description="Choose what needs to be purchased, start the run, then track receipts and payment details inside the run workspace."
         actions={
-          <Link href="/v2/client/inventory"><EButton variant="outline" size="sm">Back to inventory</EButton></Link>
+          <EButton asChild variant="outline" size="sm"><Link href="/v2/client/inventory">Back to inventory</Link></EButton>
         }
       />
 

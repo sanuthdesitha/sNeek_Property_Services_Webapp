@@ -159,9 +159,7 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Link href="/v2/admin/clients" aria-label="Back to client register">
-          <EButton variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></EButton>
-        </Link>
+        <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/clients" aria-label="Back to client register"><ArrowLeft className="h-4 w-4" /></Link></EButton>
         <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Clients</span>
       </div>
 
@@ -247,7 +245,7 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
                       <td className="px-3 py-2.5">{[j.property?.name, j.property?.suburb].filter(Boolean).join(", ") || "Property"}</td>
                       <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(j.jobType)}</td>
                       <td className="px-3 py-2.5"><EBadge tone={jobStatusTone(j.status)} soft>{titleCase(j.status)}</EBadge></td>
-                      <td className="px-3 py-2.5 text-right"><Link href={`/v2/admin/jobs/${j.id}`}><EButton variant="ghost" size="sm">Open</EButton></Link></td>
+                      <td className="px-3 py-2.5 text-right"><EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/jobs/${j.id}`}>Open</Link></EButton></td>
                     </tr>
                   ))}
                 </tbody>
@@ -261,7 +259,7 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
       <ECard>
         <ECardHeader className="flex-row items-center justify-between pb-2">
           <ECardTitle className="text-[0.95rem]">Outstanding invoices</ECardTitle>
-          <Link href="/v2/admin/finance/invoices"><EButton variant="ghost" size="sm">All invoices</EButton></Link>
+          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/finance/invoices">All invoices</Link></EButton>
         </ECardHeader>
         <ECardBody className="pt-0">
           {outstanding.length === 0 ? (

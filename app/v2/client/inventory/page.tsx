@@ -104,8 +104,8 @@ export default async function ClientInventoryPage({
         description="View stock levels for your properties."
         actions={
           <>
-            <Link href="/v2/client/shopping"><EButton variant="outline" size="sm">Start shopping</EButton></Link>
-            <Link href="/v2/client"><EButton variant="ghost" size="sm">Back to dashboard</EButton></Link>
+            <EButton asChild variant="outline" size="sm"><Link href="/v2/client/shopping">Start shopping</Link></EButton>
+            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client">Back to dashboard</Link></EButton>
           </>
         }
       />
@@ -141,7 +141,7 @@ export default async function ClientInventoryPage({
             </div>
             <div className="flex items-end gap-2">
               <EButton type="submit" size="sm">Apply</EButton>
-              <Link href="/v2/client/inventory"><EButton type="button" size="sm" variant="outline">Reset</EButton></Link>
+              <EButton asChild type="button" size="sm" variant="outline"><Link href="/v2/client/inventory">Reset</Link></EButton>
             </div>
           </form>
         </ECardBody>
@@ -161,7 +161,7 @@ export default async function ClientInventoryPage({
                     <ECardTitle className="text-[0.95rem]">
                       {property.name} <span className="text-[0.8125rem] font-normal text-[hsl(var(--e-muted-foreground))]">({property.suburb})</span>
                     </ECardTitle>
-                    <Link href={`/v2/client/shopping?propertyId=${property.id}`}><EButton size="sm" variant="outline">Start shopping</EButton></Link>
+                    <EButton asChild size="sm" variant="outline"><Link href={`/v2/client/shopping?propertyId=${property.id}`}>Start shopping</Link></EButton>
                   </ECardHeader>
                   <ECardBody className="p-0">
                     <div className="overflow-x-auto">
