@@ -23,7 +23,7 @@ export default async function AdminJobsPage() {
         description="Every engagement across the portfolio — scheduled, in motion, and settled."
         actions={
           <EButton variant="gold" asChild>
-            <Link href="/admin/jobs/new">
+            <Link href="/v2/admin/jobs/new">
               <Plus className="h-4 w-4" />
               New / Bulk
             </Link>

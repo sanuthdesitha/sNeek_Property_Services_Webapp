@@ -7,11 +7,12 @@
  *   POST   /api/admin/inventory/items                { name, sku?, category, location, unit, supplier?, unitCost? }
  *   PATCH  /api/admin/inventory/items/[id]           { name, category, location, unit, supplier, unitCost, isActive }
  * Archive = PATCH isActive:false (same as the classic desk's archive toggle).
- * Deep flows (per-property level editing, CSV import/export, shopping-list PDF)
- * stay in the classic desk via an EClassicLink.
+ * CSV import/export is native (Estate EModal):
+ *   POST /api/admin/inventory/items/import   { csv }            → { created, updated, errors }
+ *   GET  /api/admin/inventory/items/export                      → CSV download (direct link)
  */
-import { useEffect, useMemo, useState } from "react";
-import { Archive, Pencil, Plus, RotateCcw, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Archive, Download, Pencil, Plus, RotateCcw, Search, Upload } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   INVENTORY_LOCATIONS,
@@ -20,12 +21,12 @@ import {
 } from "@/lib/inventory/locations";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
 import {
-  EClassicLink,
   EField,
   EInput,
   EModal,
   ESelect,
   ETableShell,
+  ETextarea,
 } from "@/components/v2/admin/estate-kit";
 
 type InventoryItem = {
@@ -74,6 +75,16 @@ export function EstateItems() {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [saving, setSaving] = useState(false);
+
+  const [importing, setImporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    updated: number;
+    errors: Array<{ line: number; message: string }>;
+  } | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function load() {
     setLoading(true);
@@ -202,6 +213,54 @@ export function EstateItems() {
     }
   }
 
+  function openImport() {
+    setCsvText("");
+    setImportResult(null);
+    setImportOpen(true);
+  }
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      setCsvText(await file.text());
+      setImportResult(null);
+    } catch {
+      toast({ title: "Could not read file", variant: "destructive" });
+    }
+  }
+
+  async function runImport() {
+    const csv = csvText.trim();
+    if (!csv) {
+      toast({ title: "Paste or upload a CSV first.", variant: "destructive" });
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await fetch("/api/admin/inventory/items/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Import failed", description: body.error, variant: "destructive" });
+        return;
+      }
+      setImportResult({
+        created: body.created ?? 0,
+        updated: body.updated ?? 0,
+        errors: Array.isArray(body.errors) ? body.errors : [],
+      });
+      toast({ title: `Imported — ${body.created ?? 0} new, ${body.updated ?? 0} updated` });
+      await load();
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const modalOpen = creating || Boolean(editing);
   function closeModal() {
     setCreating(false);
@@ -230,9 +289,19 @@ export function EstateItems() {
             Show archived
           </label>
         </div>
-        <EButton size="sm" variant="gold" onClick={openCreate}>
-          <Plus className="h-3.5 w-3.5" /> Add item
-        </EButton>
+        <div className="flex items-center gap-2">
+          <EButton size="sm" variant="outline" onClick={openImport}>
+            <Upload className="h-3.5 w-3.5" /> Import
+          </EButton>
+          <EButton size="sm" variant="outline" asChild>
+            <a href="/api/admin/inventory/items/export" download>
+              <Download className="h-3.5 w-3.5" /> Export
+            </a>
+          </EButton>
+          <EButton size="sm" variant="gold" onClick={openCreate}>
+            <Plus className="h-3.5 w-3.5" /> Add item
+          </EButton>
+        </div>
       </div>
 
       <ECard className="overflow-hidden p-0">
@@ -307,12 +376,71 @@ export function EstateItems() {
         )}
       </ECard>
 
-      <div className="flex items-center justify-between">
-        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-          Per-property levels, CSV import/export &amp; shopping-list PDFs live in the classic inventory desk.
-        </p>
-        <EClassicLink href="/admin/inventory">Open inventory desk</EClassicLink>
-      </div>
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        Per-property stock levels are set from the property matrix &amp; count sheets. Use Import/Export
+        above for bulk catalog changes.
+      </p>
+
+      <EModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        eyebrow="Catalog"
+        title="Import items from CSV"
+        wide
+      >
+        <div className="space-y-4">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            Header row required. Columns: <span className="e-numeral">name</span> (required), sku,
+            category, location, unit, supplier, isActive. Existing items (matched by SKU, or
+            name+category+location) are updated; new ones are created.
+          </p>
+          <div className="flex items-center gap-2">
+            <EButton size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" /> Choose CSV file
+            </EButton>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={onPickFile}
+            />
+            <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">or paste below</span>
+          </div>
+          <EField label="CSV contents">
+            <ETextarea
+              rows={8}
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              placeholder={"name,sku,category,location,unit,supplier,isActive\nToilet roll,,Bathroom,STORE_ROOM,pack,Costco,true"}
+              className="font-mono text-[0.75rem]"
+            />
+          </EField>
+          {importResult ? (
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 text-[0.8125rem]">
+              <p className="text-[hsl(var(--e-foreground))]">
+                <span className="text-[hsl(var(--e-success))]">{importResult.created} created</span> ·{" "}
+                {importResult.updated} updated
+                {importResult.errors.length > 0 ? (
+                  <span className="text-[hsl(var(--e-danger))]"> · {importResult.errors.length} error(s)</span>
+                ) : null}
+              </p>
+              {importResult.errors.length > 0 ? (
+                <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-[0.75rem] text-[hsl(var(--e-danger))]">
+                  {importResult.errors.slice(0, 20).map((err, i) => (
+                    <li key={i}>
+                      Line {err.line}: {err.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          <EButton className="w-full" variant="gold" onClick={runImport} disabled={importing}>
+            {importing ? "Importing…" : "Import CSV"}
+          </EButton>
+        </div>
+      </EModal>
 
       <EModal
         open={modalOpen}

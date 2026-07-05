@@ -148,7 +148,7 @@ export function PropertiesPortfolio({ rows }: { rows: EstatePropertyRow[] }) {
           {filtered.map((prop) => (
             <Link
               key={prop.id}
-              href={`/admin/properties/${prop.id}`}
+              href={`/v2/admin/properties/${prop.id}`}
               className="group flex flex-col overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] transition-[transform,border-color,box-shadow] duration-[160ms] hover:-translate-y-0.5 hover:border-[hsl(var(--e-border-gold)/0.5)] hover:shadow-[var(--e-elevation-1)]"
             >
               <div className="relative aspect-[16/10] w-full overflow-hidden bg-[hsl(var(--e-surface-sunken))]">

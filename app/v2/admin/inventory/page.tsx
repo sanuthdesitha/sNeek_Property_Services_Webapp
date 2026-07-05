@@ -170,6 +170,37 @@ export default async function EstateInventoryPage({
   const onHandUnits = Math.round((onHandAgg._sum.quantity ?? 0) * 100) / 100;
   const onHandLines = onHandAgg._count;
 
+  // Catalog options for the native on-hand record/deliver flows — only fetched
+  // when that tab is active (mirrors the v1 hub's onHandCatalogs query).
+  const onHandCatalog =
+    tab === "on-hand"
+      ? await (async () => {
+          const [items, holders, props] = await Promise.all([
+            db.inventoryItem.findMany({
+              where: { isActive: true },
+              select: { id: true, name: true, unit: true },
+              orderBy: { name: "asc" },
+            }),
+            db.user.findMany({
+              where: {
+                isActive: true,
+                role: {
+                  in: [Role.CLEANER, Role.QA_INSPECTOR, Role.CLIENT, Role.ADMIN, Role.OPS_MANAGER],
+                },
+              },
+              select: { id: true, name: true, email: true, role: true },
+              orderBy: { name: "asc" },
+            }),
+            db.property.findMany({
+              where: { isActive: true },
+              select: { id: true, name: true, suburb: true },
+              orderBy: { name: "asc" },
+            }),
+          ]);
+          return { items, holders: holders.map((h) => ({ ...h, role: String(h.role) })), properties: props };
+        })()
+      : { items: [], holders: [], properties: [] };
+
   return (
     <div className="space-y-6">
       <EPageHeader
@@ -229,7 +260,7 @@ export default async function EstateInventoryPage({
         {tab === "properties" ? (
           <EstatePropertyMatrix rows={propertyRows} totals={propertyTotals} filter={filter} />
         ) : null}
-        {tab === "on-hand" ? <EstateOnHand /> : null}
+        {tab === "on-hand" ? <EstateOnHand catalog={onHandCatalog} /> : null}
         {tab === "stock-counts" ? <EstateStockRuns /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
         {tab === "suppliers" ? <EstateSuppliers /> : null}

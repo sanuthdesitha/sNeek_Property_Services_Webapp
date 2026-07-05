@@ -4,7 +4,9 @@
  * ESTATE per-property inventory overview — v2-native read matrix replacing the
  * v1 PropertyInventoryOverview. Pure presentational: all data is computed on the
  * server hub page. Filter tabs drive the ?filter= query (Estate shell preserved).
- * Deep per-property inventory editing links out to the classic property page.
+ * The per-row "Details" link points at the legacy property detail page — there
+ * is no /v2/admin/properties/[id] detail route yet, so this is the single
+ * intentional legacy link (see the task note); everything else is native.
  */
 import Link from "next/link";
 import { useMemo } from "react";
@@ -12,7 +14,7 @@ import { useSearchParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowRight, Boxes, Building2, ShoppingCart } from "lucide-react";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
-import { EChipTabs, EClassicLink, ETableShell } from "@/components/v2/admin/estate-kit";
+import { EChipTabs, ETableShell } from "@/components/v2/admin/estate-kit";
 
 export type PropertyInventoryFilter = "all" | "low" | "pending" | "stale";
 
@@ -184,7 +186,7 @@ export function EstatePropertyMatrix({
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link
-                      href={`/admin/properties/${row.id}#inventory`}
+                      href={`/v2/admin/properties/${row.id}?tab=inventory`}
                       className="inline-flex items-center gap-1 text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline"
                     >
                       Details <ArrowRight className="h-3 w-3" />
@@ -196,10 +198,6 @@ export function EstatePropertyMatrix({
           </ETableShell>
         )}
       </ECard>
-
-      <div className="flex items-center justify-end">
-        <EClassicLink href="/admin/inventory?tab=properties">Open classic property matrix</EClassicLink>
-      </div>
     </div>
   );
 }

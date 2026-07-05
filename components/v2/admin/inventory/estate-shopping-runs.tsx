@@ -3,14 +3,14 @@
 /**
  * ESTATE shopping runs — v2-native list of shopping runs.
  *   GET /api/admin/inventory/shopping-runs → ShoppingRun[]
- * A run's deep desk (purchase orders, receipts, client reimbursement, shopping
- * time approval — all PDF/email flows) stays in the classic inventory desk; each
- * row opens it via an EClassicLink.
+ * Each row opens the native Estate run desk at /v2/admin/inventory/shopping/[id]
+ * (purchase orders, receipts, client reimbursement, shopping-time approval).
  */
 import { useEffect, useMemo, useState } from "react";
-import { ShoppingCart } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, ShoppingCart } from "lucide-react";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
-import { EClassicLink, ETableShell } from "@/components/v2/admin/estate-kit";
+import { ETableShell } from "@/components/v2/admin/estate-kit";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 type ShoppingRun = {
@@ -109,7 +109,12 @@ export function EstateShoppingRuns() {
                   </EBadge>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <EClassicLink href="/admin/inventory?tab=shopping-runs">Open run</EClassicLink>
+                  <Link
+                    href={`/v2/admin/inventory/shopping/${run.id}`}
+                    className="inline-flex items-center gap-1 text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline"
+                  >
+                    Open run <ArrowRight className="h-3 w-3" />
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -117,12 +122,9 @@ export function EstateShoppingRuns() {
         )}
       </ECard>
 
-      <div className="flex items-center justify-between">
-        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-          Purchase orders, receipts, reimbursements &amp; shopping-time approval live in the classic desk.
-        </p>
-        <EClassicLink href="/admin/inventory?tab=shopping-runs">Shopping desk</EClassicLink>
-      </div>
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        Open a run for its purchase order, receipts, reimbursements &amp; shopping-time approval.
+      </p>
     </div>
   );
 }

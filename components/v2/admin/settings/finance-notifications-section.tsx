@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Sprout } from "lucide-react";
+import { Pencil, Sprout } from "lucide-react";
 import { EAlert, EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
-import { EToggle, ESectionHeading } from "./estate-form";
+import {
+  EField,
+  EInput,
+  EModal,
+  ESaveStatus,
+  ESectionHeading,
+  ETextarea,
+  EToggle,
+  useSaveStatus,
+} from "./estate-form";
 
 type TemplateData = {
   eventKey: string;
@@ -12,6 +20,21 @@ type TemplateData = {
   category: string;
   description: string | null;
   inDb: boolean;
+  emailSubject: string | null;
+  emailBodyText: string | null;
+  smsBody: string | null;
+  pushTitle: string | null;
+  pushBody: string | null;
+  allAvailableVars?: string[];
+  variableLabels?: string[];
+};
+
+type CopyDraft = {
+  emailSubject: string;
+  emailBodyText: string;
+  smsBody: string;
+  pushTitle: string;
+  pushBody: string;
 };
 
 type PreferenceData = { channel: string; role: string; enabled: boolean };
@@ -39,6 +62,19 @@ export function FinanceNotificationsSection() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Native template copy editor (same PATCH /api/admin/notifications/templates
+  // endpoint as the classic editor).
+  const [editing, setEditing] = useState<TemplateData | null>(null);
+  const [draft, setDraft] = useState<CopyDraft>({
+    emailSubject: "",
+    emailBodyText: "",
+    smsBody: "",
+    pushTitle: "",
+    pushBody: "",
+  });
+  const [savingCopy, setSavingCopy] = useState(false);
+  const { status: copyStatus, flash: flashCopy } = useSaveStatus();
 
   const seeded = templates.some((t) => t.inDb);
 
@@ -140,6 +176,48 @@ export function FinanceNotificationsSection() {
     }
   }
 
+  function openEditor(template: TemplateData) {
+    setEditing(template);
+    setDraft({
+      emailSubject: template.emailSubject ?? "",
+      emailBodyText: template.emailBodyText ?? "",
+      smsBody: template.smsBody ?? "",
+      pushTitle: template.pushTitle ?? "",
+      pushBody: template.pushBody ?? "",
+    });
+  }
+
+  function insertVariable(field: keyof CopyDraft, variable: string) {
+    setDraft((prev) => ({ ...prev, [field]: `${prev[field]}{${variable}}` }));
+  }
+
+  async function saveCopy() {
+    if (!editing) return;
+    setSavingCopy(true);
+    try {
+      const res = await fetch("/api/admin/notifications/templates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventKey: editing.eventKey,
+          emailSubject: draft.emailSubject || null,
+          emailBodyText: draft.emailBodyText || null,
+          smsBody: draft.smsBody || null,
+          pushTitle: draft.pushTitle || null,
+          pushBody: draft.pushBody || null,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      flashCopy("saved", "Template copy saved");
+      await load();
+      setEditing(null);
+    } catch {
+      flashCopy("error", "Failed to save template copy.");
+    } finally {
+      setSavingCopy(false);
+    }
+  }
+
   if (loading) {
     return (
       <p className="px-1 py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
@@ -199,9 +277,14 @@ export function FinanceNotificationsSection() {
               <div className="divide-y divide-[hsl(var(--e-border)/0.7)]">
                 {events.map((event) => (
                   <div key={event.eventKey} className="px-6 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[0.875rem] font-medium">{event.label}</p>
-                      {!event.inDb ? <EBadge tone="warning" soft>Not seeded</EBadge> : null}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[0.875rem] font-medium">{event.label}</p>
+                        {!event.inDb ? <EBadge tone="warning" soft>Not seeded</EBadge> : null}
+                      </div>
+                      <EButton variant="ghost" size="sm" onClick={() => openEditor(event)}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit copy
+                      </EButton>
                     </div>
                     {event.description ? (
                       <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-faint))]">{event.description}</p>
@@ -248,13 +331,95 @@ export function FinanceNotificationsSection() {
         })
       )}
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Message copy (subjects, bodies, variables) is edited in the{" "}
-        <Link href="/admin/settings?tab=finance-notifications" className="text-[hsl(var(--e-gold-ink))] hover:underline">
-          classic template editor
-        </Link>
-        .
-      </p>
+      <EModal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        eyebrow="Template copy"
+        title={editing?.label ?? "Edit template"}
+        wide
+      >
+        {editing ? (
+          <div className="space-y-5">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              Subjects, bodies and variables for this event. Leave a field blank to fall back to the default copy.
+            </p>
+
+            {editing.allAvailableVars && editing.allAvailableVars.length > 0 ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.75rem] font-medium text-[hsl(var(--e-text-secondary))]">
+                  Available variables — click to append to the email body
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {editing.allAvailableVars.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVariable("emailBodyText", v)}
+                      className="rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] px-2 py-1 text-[0.6875rem] font-medium text-[hsl(var(--e-text-secondary))] transition-colors hover:bg-[hsl(var(--e-muted))]"
+                    >
+                      {`{${v}}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <EField label="Email subject" htmlFor="fn-subject">
+              <EInput
+                id="fn-subject"
+                value={draft.emailSubject}
+                onChange={(e) => setDraft((prev) => ({ ...prev, emailSubject: e.target.value }))}
+                placeholder="Subject line for the email"
+              />
+            </EField>
+            <EField label="Email body" htmlFor="fn-body">
+              <ETextarea
+                id="fn-body"
+                className="min-h-[140px]"
+                value={draft.emailBodyText}
+                onChange={(e) => setDraft((prev) => ({ ...prev, emailBodyText: e.target.value }))}
+                placeholder="Body text — use {variables} for dynamic values"
+              />
+            </EField>
+            <EField label="SMS body" htmlFor="fn-sms">
+              <ETextarea
+                id="fn-sms"
+                value={draft.smsBody}
+                onChange={(e) => setDraft((prev) => ({ ...prev, smsBody: e.target.value }))}
+                placeholder="Short SMS text"
+              />
+            </EField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <EField label="Push title" htmlFor="fn-push-title">
+                <EInput
+                  id="fn-push-title"
+                  value={draft.pushTitle}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, pushTitle: e.target.value }))}
+                  placeholder="Notification title"
+                />
+              </EField>
+              <EField label="Push body" htmlFor="fn-push-body">
+                <EInput
+                  id="fn-push-body"
+                  value={draft.pushBody}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, pushBody: e.target.value }))}
+                  placeholder="Notification body"
+                />
+              </EField>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-1">
+              <ESaveStatus status={copyStatus} />
+              <EButton variant="outline" size="sm" onClick={() => setEditing(null)} disabled={savingCopy}>
+                Cancel
+              </EButton>
+              <EButton variant="gold" size="sm" onClick={saveCopy} disabled={savingCopy}>
+                {savingCopy ? "Saving…" : "Save copy"}
+              </EButton>
+            </div>
+          </div>
+        ) : null}
+      </EModal>
     </div>
   );
 }

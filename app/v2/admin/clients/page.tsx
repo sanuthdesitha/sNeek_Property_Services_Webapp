@@ -83,7 +83,7 @@ export default async function AdminClientsPage() {
         eyebrow="Clients"
         title="Client register"
         description="Every client, one canonical 360° record."
-        actions={<EButton variant="gold" size="sm"><Plus className="h-3.5 w-3.5" /> New client</EButton>}
+        actions={<EButton asChild variant="gold" size="sm"><Link href="/v2/admin/clients/new"><Plus className="h-3.5 w-3.5" /> New client</Link></EButton>}
       />
 
       <div className="flex h-9 items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">

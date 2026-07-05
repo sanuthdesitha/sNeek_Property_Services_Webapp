@@ -49,7 +49,7 @@ export default async function EstatePropertiesPage() {
         description={`${properties.length} active properties`}
         actions={
           <EButton asChild variant="gold" size="sm">
-            <Link href="/admin/properties/new">
+            <Link href="/v2/admin/properties/new">
               <Plus className="mr-1 h-3.5 w-3.5" /> Add property
             </Link>
           </EButton>

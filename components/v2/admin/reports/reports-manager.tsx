@@ -10,13 +10,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight, Download, FileText, RefreshCcw, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, FileText, Palette, RefreshCcw, Search, Trash2, X } from "lucide-react";
 import {
   EBadge,
   EButton,
   ECard,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
+import { EModal } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
 
@@ -39,8 +40,9 @@ export function ReportsManager() {
   const [updatingVisibility, setUpdatingVisibility] = useState<string | null>(null);
   const [reportToDelete, setReportToDelete] = useState<any | null>(null);
   const [deletingReport, setDeletingReport] = useState(false);
-  const [themes, setThemes] = useState<Array<{ id: string; name: string; kind: string; isDefault: boolean }>>([]);
+  const [themes, setThemes] = useState<Array<{ id: string; name: string; kind: string; isDefault: boolean; primaryColorHsl?: string | null; accentColorHsl?: string | null }>>([]);
   const [exportThemeId, setExportThemeId] = useState("__default__");
+  const [showThemePicker, setShowThemePicker] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/report-themes")
@@ -223,12 +225,9 @@ export function ReportsManager() {
                 </option>
               ))}
             </select>
-            <Link
-              href="/admin/reports/themes"
-              className="text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] underline-offset-4 hover:underline"
-            >
-              Manage themes (classic) →
-            </Link>
+            <EButton variant="ghost" size="sm" onClick={() => setShowThemePicker(true)}>
+              <Palette className="h-3.5 w-3.5" /> Themes
+            </EButton>
           </div>
           <EButton variant="outline" size="sm" onClick={() => void loadReports()}>
             <RefreshCcw className="h-3.5 w-3.5" /> Refresh
@@ -339,6 +338,80 @@ export function ReportsManager() {
           </EButton>
         </div>
       </div>
+
+      {/* Theme picker (native Estate modal — sets the regenerate theme) */}
+      <EModal
+        open={showThemePicker}
+        onClose={() => setShowThemePicker(false)}
+        eyebrow="Reports"
+        title="Report theme"
+        wide
+      >
+        <div className="space-y-3">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Choose the theme applied when you regenerate a report. Selecting one here sets it for the
+            &quot;Regenerate&quot; action on every row.
+          </p>
+          <div className="space-y-2">
+            {[{ id: "__default__", name: "Default theme", kind: "system", isDefault: false, primaryColorHsl: null, accentColorHsl: null }, ...themes].map(
+              (theme) => {
+                const selected = exportThemeId === theme.id;
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => {
+                      setExportThemeId(theme.id);
+                      setShowThemePicker(false);
+                      toast({ title: "Regenerate theme set", description: theme.name });
+                    }}
+                    className={
+                      "flex w-full items-center justify-between gap-3 rounded-[var(--e-radius)] border px-4 py-3 text-left transition-colors " +
+                      (selected
+                        ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]"
+                        : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]")
+                    }
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="flex gap-1">
+                        <span
+                          className="h-6 w-6 rounded-full border border-[hsl(var(--e-border-strong))]"
+                          style={{
+                            backgroundColor: theme.primaryColorHsl
+                              ? `hsl(${theme.primaryColorHsl})`
+                              : "hsl(var(--e-muted))",
+                          }}
+                        />
+                        <span
+                          className="h-6 w-6 rounded-full border border-[hsl(var(--e-border-strong))]"
+                          style={{
+                            backgroundColor: theme.accentColorHsl
+                              ? `hsl(${theme.accentColorHsl})`
+                              : "hsl(var(--e-gold-soft))",
+                          }}
+                        />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">
+                          {theme.name}
+                        </span>
+                        <span className="block text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                          {theme.kind}
+                          {theme.isDefault ? " · default" : ""}
+                        </span>
+                      </span>
+                    </span>
+                    {selected ? <Check className="h-4 w-4 shrink-0 text-[hsl(var(--e-gold-ink))]" /> : null}
+                  </button>
+                );
+              },
+            )}
+          </div>
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            Theme authoring (colours, logo, layout) lives in report settings.
+          </p>
+        </div>
+      </EModal>
 
       {/* Delete confirm */}
       {reportToDelete ? (

@@ -256,8 +256,8 @@ export default async function V2AdminOpsPage() {
         description="One inbox for dispatch, QA, cases, laundry follow-up, and compliance blockers."
         actions={
           <>
-            <EButton asChild variant="outline" size="sm"><Link href={`/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
-            <EButton asChild variant="outline" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Live map</Link></EButton>
+            <EButton asChild variant="outline" size="sm"><Link href={`/v2/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
+            <EButton asChild variant="outline" size="sm"><Link href={`/v2/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Live map</Link></EButton>
             <EButton asChild variant="primary" size="sm"><Link href="/v2/admin/jobs">Open jobs</Link></EButton>
           </>
         }
@@ -430,11 +430,11 @@ export default async function V2AdminOpsPage() {
       </div>
 
       {/* Live cleaners — Estate list off the same live-locations feed. The full
-          Google-Maps view stays classic at /admin/ops/map. */}
+          Google-Maps view is now the native Estate map at /v2/admin/ops/map. */}
       <LiveCleaners mapDate={selectedDate} />
 
       <div className="flex items-center justify-end">
-        <EClassicLink href={`/admin/ops/map?date=${selectedDate}`}>Open the classic live map</EClassicLink>
+        <EClassicLink href={`/v2/admin/ops/map?date=${selectedDate}`}>Open the live operations map</EClassicLink>
       </div>
 
       {/* Immediate attention — rendered Estate-style inline. */}

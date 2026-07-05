@@ -262,7 +262,7 @@ export function EstateCleanersRoster({ rows }: { rows: EstateCleanerRow[] }) {
                   <EAvatar name={r.name ?? r.email} image={r.image} size="lg" />
                   <div className="min-w-0">
                     <Link
-                      href={`/admin/workforce/performance/${r.id}`}
+                      href={`/v2/admin/workforce/performance/${r.id}`}
                       className="block truncate font-[550] text-[hsl(var(--e-foreground))] transition-colors hover:text-[hsl(var(--e-gold-ink))]"
                     >
                       {r.name ?? "Unnamed cleaner"}
@@ -327,7 +327,7 @@ export function EstateCleanersRoster({ rows }: { rows: EstateCleanerRow[] }) {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <EButton asChild size="sm" variant="outline">
-                  <Link href={`/admin/workforce/performance/${r.id}`}>
+                  <Link href={`/v2/admin/workforce/performance/${r.id}`}>
                     <BarChart3 className="h-3.5 w-3.5" />
                     Performance
                   </Link>

@@ -297,7 +297,7 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {user.role !== "CLIENT" ? (
                     <EButton asChild size="sm" variant="ghost">
-                      <Link href={`/admin/accounts/users/${user.id}`}>
+                      <Link href={`/v2/admin/accounts/users/${user.id}`}>
                         <BarChart2 className="h-3.5 w-3.5" />
                         Profile
                       </Link>

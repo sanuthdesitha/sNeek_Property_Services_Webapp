@@ -3,9 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
-import { EInput, ESelectNative, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
+import {
+  EField,
+  EInput,
+  EModal,
+  ESelectNative,
+  ESaveStatus,
+  ESectionHeading,
+  EToggle,
+  useSaveStatus,
+} from "./estate-form";
 
 type PropertyRow = {
   id: string;
@@ -72,6 +81,14 @@ export function IcalSection() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const { status, flash } = useSaveStatus();
 
+  // Native add / edit iCal feed (same PATCH endpoint as the classic console).
+  const [feedModalOpen, setFeedModalOpen] = useState(false);
+  const [feedPropertyId, setFeedPropertyId] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
+  const [feedEnabled, setFeedEnabled] = useState(true);
+  const [savingFeed, setSavingFeed] = useState(false);
+  const { status: feedStatus, flash: flashFeed } = useSaveStatus();
+
   async function load() {
     setLoading(true);
     const params = new URLSearchParams();
@@ -125,6 +142,58 @@ export function IcalSection() {
     }
   }
 
+  function openFeedModal(property?: PropertyRow) {
+    if (property) {
+      setFeedPropertyId(property.id);
+      setFeedUrl(property.integration?.icalUrl ?? "");
+      setFeedEnabled(property.integration?.isEnabled ?? true);
+    } else {
+      const first = payload.properties[0];
+      setFeedPropertyId(first?.id ?? "");
+      setFeedUrl(first?.integration?.icalUrl ?? "");
+      setFeedEnabled(first?.integration?.isEnabled ?? true);
+    }
+    setFeedModalOpen(true);
+  }
+
+  function onFeedPropertyChange(id: string) {
+    setFeedPropertyId(id);
+    const p = payload.properties.find((x) => x.id === id);
+    setFeedUrl(p?.integration?.icalUrl ?? "");
+    setFeedEnabled(p?.integration?.isEnabled ?? true);
+  }
+
+  async function saveFeed() {
+    if (!feedPropertyId) {
+      flashFeed("error", "Choose a property.");
+      return;
+    }
+    if (feedEnabled && !feedUrl.trim()) {
+      flashFeed("error", "Enter the iCal feed URL to enable syncing.");
+      return;
+    }
+    setSavingFeed(true);
+    try {
+      const res = await fetch(`/api/admin/properties/${feedPropertyId}/integration`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ icalUrl: feedUrl.trim() || null, isEnabled: feedEnabled }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        flashFeed("error", body?.error ?? "Could not save the feed.");
+        return;
+      }
+      flashFeed("saved", "Feed saved");
+      setFeedModalOpen(false);
+      await load();
+    } catch {
+      flashFeed("error", "Could not save the feed.");
+    } finally {
+      setSavingFeed(false);
+    }
+  }
+
   async function resync() {
     if (selectedIds.length === 0) {
       flash("error", "Select at least one sync-enabled property.");
@@ -159,9 +228,14 @@ export function IcalSection() {
         title="iCal sync"
         description="Every calendar sync run across all properties, with bulk re-sync for the ones that need a nudge."
         actions={
-          <EButton variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </EButton>
+          <div className="flex items-center gap-2">
+            <EButton variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </EButton>
+            <EButton variant="gold" size="sm" onClick={() => openFeedModal()} disabled={loading}>
+              <Plus className="h-3.5 w-3.5" /> Add feed
+            </EButton>
+          </div>
         }
       />
 
@@ -306,12 +380,69 @@ export function IcalSection() {
       </ECard>
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Deeper filters and revert tools live in the{" "}
+        Per-run revert and per-property sync options live in the{" "}
         <Link href="/admin/settings?tab=ical-sync" className="text-[hsl(var(--e-gold-ink))] hover:underline">
           classic iCal console
         </Link>
         .
       </p>
+
+      <EModal
+        open={feedModalOpen}
+        onClose={() => setFeedModalOpen(false)}
+        eyebrow="Reservations"
+        title="Add or edit iCal feed"
+      >
+        <div className="space-y-5">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Point a property at its calendar feed and enable syncing. It then appears in the re-sync list above.
+          </p>
+
+          <EField label="Property" htmlFor="ical-feed-property">
+            <ESelectNative
+              id="ical-feed-property"
+              value={feedPropertyId}
+              onChange={(e) => onFeedPropertyChange(e.target.value)}
+            >
+              {payload.properties.length === 0 ? <option value="">No properties</option> : null}
+              {payload.properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.suburb ? ` — ${p.suburb}` : ""}
+                  {p.integration?.icalUrl ? " (feed set)" : ""}
+                </option>
+              ))}
+            </ESelectNative>
+          </EField>
+
+          <EField label="iCal feed URL" htmlFor="ical-feed-url" hint="The .ics calendar URL from the booking channel.">
+            <EInput
+              id="ical-feed-url"
+              type="url"
+              value={feedUrl}
+              onChange={(e) => setFeedUrl(e.target.value)}
+              placeholder="https://…/reservations.ics"
+            />
+          </EField>
+
+          <EToggle
+            checked={feedEnabled}
+            onChange={setFeedEnabled}
+            label="Sync enabled"
+            description="Turn off to keep the URL on file without pulling the calendar."
+          />
+
+          <div className="flex items-center justify-end gap-3 pt-1">
+            <ESaveStatus status={feedStatus} />
+            <EButton variant="outline" size="sm" onClick={() => setFeedModalOpen(false)} disabled={savingFeed}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" size="sm" onClick={saveFeed} disabled={savingFeed}>
+              {savingFeed ? "Saving…" : "Save feed"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
     </div>
   );
 }

@@ -3,8 +3,8 @@
 /**
  * ESTATE quotes pipeline — leads + quotes in one native Estate workspace.
  * Same endpoints as the legacy hub (/api/admin/leads, /api/admin/quotes,
- * /api/admin/clients); brand-new Estate UI. The deep quote BUILDER stays
- * classic at /admin/quotes/new — linked discreetly from the page header.
+ * /api/admin/clients); brand-new Estate UI. The quote BUILDER and per-quote
+ * DETAIL are now native Estate screens under /v2/admin/quotes/*.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -417,6 +417,9 @@ export function QuotesPipeline() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <EButton asChild variant="ghost" size="sm">
+                          <Link href={`/v2/admin/quotes/${quote.id}`}>View</Link>
+                        </EButton>
                         <EButton variant="ghost" size="sm" onClick={() => void downloadQuotePdf(quote.id)}>
                           <Download className="h-3.5 w-3.5" /> PDF
                         </EButton>

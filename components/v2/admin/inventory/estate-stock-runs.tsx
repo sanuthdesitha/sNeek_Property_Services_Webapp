@@ -6,15 +6,15 @@
  *   GET   {apiBase}                → { properties, runs, canEditThresholds, canApply }
  *   POST  {apiBase}               { propertyId, title?, notes? }        (new run)
  *   PATCH {apiBase}/[id]          { status } / { apply:true } / { status:"DISCARDED" }
- * Entering counted quantities per line is a deep flow → open the run in the
- * classic count sheet via an EClassicLink.
+ *   PATCH {apiBase}/[id]          { lines:[{ id, countedOnHand, parLevel?, reorderThreshold?, note? }], status? }
+ * Entering counted quantities per line is now a native Estate count-sheet EModal
+ * (GET the run → edit lines → PATCH lines + submit).
  */
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, Plus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import {
-  EClassicLink,
   EField,
   EInput,
   EModal,
@@ -42,6 +42,26 @@ type Listing = {
   canApply: boolean;
 };
 
+type CountLine = {
+  id: string;
+  item: { id: string; name: string; unit: string; category: string } | null;
+  expectedOnHand: number;
+  countedOnHand: number | null;
+  parLevel: number | null;
+  reorderThreshold: number | null;
+  note: string | null;
+  currentOnHand: number;
+  currentParLevel: number;
+  currentReorderThreshold: number;
+};
+type RunDetail = {
+  id: string;
+  title: string;
+  status: RunStatus;
+  property: { id: string; name: string; suburb: string };
+  lines: CountLine[];
+};
+
 const STATUS_TONE: Record<RunStatus, "neutral" | "info" | "warning" | "success" | "danger"> = {
   DRAFT: "neutral",
   ACTIVE: "info",
@@ -66,6 +86,14 @@ export function EstateStockRuns() {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // Native count sheet
+  const [sheet, setSheet] = useState<RunDetail | null>(null);
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetSaving, setSheetSaving] = useState(false);
+  const [drafts, setDrafts] = useState<
+    Record<string, { counted: string; par: string; threshold: string; note: string }>
+  >({});
 
   async function load() {
     setLoading(true);
@@ -148,6 +176,95 @@ export function EstateStockRuns() {
     }
   }
 
+  function hydrateSheet(detail: RunDetail) {
+    setSheet(detail);
+    const next: Record<string, { counted: string; par: string; threshold: string; note: string }> = {};
+    for (const line of detail.lines) {
+      next[line.id] = {
+        counted: line.countedOnHand == null ? "" : String(line.countedOnHand),
+        par: line.parLevel == null ? String(line.currentParLevel ?? "") : String(line.parLevel),
+        threshold:
+          line.reorderThreshold == null
+            ? String(line.currentReorderThreshold ?? "")
+            : String(line.reorderThreshold),
+        note: line.note ?? "",
+      };
+    }
+    setDrafts(next);
+  }
+
+  async function openSheet(run: RunSummary) {
+    setSheetLoading(true);
+    setSheet({ id: run.id, title: run.title, status: run.status, property: run.property, lines: [] });
+    try {
+      const res = await fetch(`${API_BASE}/${run.id}`, { cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not open count", description: body.error, variant: "destructive" });
+        setSheet(null);
+        return;
+      }
+      hydrateSheet(body as RunDetail);
+    } finally {
+      setSheetLoading(false);
+    }
+  }
+
+  function sheetLinesPayload() {
+    if (!sheet) return [];
+    return sheet.lines.map((line) => {
+      const d = drafts[line.id] ?? { counted: "", par: "", threshold: "", note: "" };
+      return {
+        id: line.id,
+        countedOnHand: d.counted.trim() === "" ? null : Number(d.counted),
+        ...(listing.canEditThresholds
+          ? {
+              parLevel: d.par.trim() === "" ? null : Number(d.par),
+              reorderThreshold: d.threshold.trim() === "" ? null : Number(d.threshold),
+            }
+          : {}),
+        note: d.note.trim() || null,
+      };
+    });
+  }
+
+  async function saveSheet(submit: boolean) {
+    if (!sheet) return;
+    const readOnly = sheet.status === "APPLIED" || sheet.status === "DISCARDED";
+    if (readOnly) {
+      setSheet(null);
+      return;
+    }
+    setSheetSaving(true);
+    try {
+      const patch: Record<string, unknown> = { lines: sheetLinesPayload() };
+      // Advance the lifecycle: a fresh DRAFT becomes ACTIVE on first save; an
+      // explicit submit moves it to SUBMITTED (ready to apply).
+      if (submit) patch.status = "SUBMITTED";
+      else if (sheet.status === "DRAFT") patch.status = "ACTIVE";
+
+      const res = await fetch(`${API_BASE}/${sheet.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Save failed", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: submit ? "Count submitted" : "Count saved" });
+      if (submit) {
+        setSheet(null);
+      } else if (body?.lines) {
+        hydrateSheet(body as RunDetail);
+      }
+      await load();
+    } finally {
+      setSheetSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,7 +318,9 @@ export function EstateStockRuns() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
-                      <EClassicLink href="/admin/inventory?tab=stock-counts">Open sheet</EClassicLink>
+                      <EButton size="sm" variant="outline" onClick={() => openSheet(run)}>
+                        {readOnly ? "View sheet" : "Open sheet"}
+                      </EButton>
                       {run.status === "SUBMITTED" && listing.canApply ? (
                         <EButton
                           size="sm"
@@ -254,6 +373,140 @@ export function EstateStockRuns() {
             {creating ? "Starting…" : "Start count"}
           </EButton>
         </div>
+      </EModal>
+
+      <EModal
+        open={Boolean(sheet)}
+        onClose={() => setSheet(null)}
+        eyebrow={sheet ? `${sheet.property.name} · ${sheet.property.suburb}` : "Count sheet"}
+        title={sheet ? `Count sheet — ${sheet.title}` : "Count sheet"}
+        wide
+      >
+        {(() => {
+          if (!sheet) return null;
+          const readOnly = sheet.status === "APPLIED" || sheet.status === "DISCARDED";
+          if (sheetLoading && sheet.lines.length === 0) {
+            return (
+              <p className="py-10 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                Loading count sheet…
+              </p>
+            );
+          }
+          if (sheet.lines.length === 0) {
+            return (
+              <p className="py-10 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                This count has no lines yet.
+              </p>
+            );
+          }
+          return (
+            <div className="space-y-4">
+              <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                Enter counted on-hand per item.
+                {listing.canEditThresholds ? " Par & reorder thresholds are editable." : ""} Saving keeps
+                the count open; submitting readies it to apply.
+              </p>
+              <ETableShell
+                headers={[
+                  { label: "Item" },
+                  { label: "On hand", align: "center" },
+                  { label: "Counted", align: "center" },
+                  ...(listing.canEditThresholds
+                    ? [{ label: "Par", align: "center" as const }, { label: "Reorder", align: "center" as const }]
+                    : []),
+                  { label: "Note" },
+                ]}
+              >
+                {sheet.lines.map((line) => {
+                  const d = drafts[line.id] ?? { counted: "", par: "", threshold: "", note: "" };
+                  const patch = (p: Partial<typeof d>) =>
+                    setDrafts((prev) => ({ ...prev, [line.id]: { ...d, ...p } }));
+                  return (
+                    <tr key={line.id}>
+                      <td className="px-4 py-2.5">
+                        <span className="font-[550] text-[hsl(var(--e-foreground))]">
+                          {line.item?.name ?? "Item"}
+                        </span>
+                        <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                          {line.item?.category ?? ""} · per {line.item?.unit ?? "unit"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-2.5 text-center e-tnum text-[hsl(var(--e-muted-foreground))]">
+                        {line.currentOnHand}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <EInput
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          disabled={readOnly}
+                          value={d.counted}
+                          onChange={(e) => patch({ counted: e.target.value })}
+                          className="mx-auto h-8 w-20 text-center"
+                        />
+                      </td>
+                      {listing.canEditThresholds ? (
+                        <>
+                          <td className="px-4 py-2.5">
+                            <EInput
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              disabled={readOnly}
+                              value={d.par}
+                              onChange={(e) => patch({ par: e.target.value })}
+                              className="mx-auto h-8 w-16 text-center"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <EInput
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              disabled={readOnly}
+                              value={d.threshold}
+                              onChange={(e) => patch({ threshold: e.target.value })}
+                              className="mx-auto h-8 w-16 text-center"
+                            />
+                          </td>
+                        </>
+                      ) : null}
+                      <td className="px-4 py-2.5">
+                        <EInput
+                          disabled={readOnly}
+                          value={d.note}
+                          onChange={(e) => patch({ note: e.target.value })}
+                          placeholder="—"
+                          className="h-8"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </ETableShell>
+              <div className="flex items-center justify-end gap-2">
+                <EButton variant="outline" size="sm" onClick={() => setSheet(null)}>
+                  {readOnly ? "Close" : "Cancel"}
+                </EButton>
+                {!readOnly ? (
+                  <>
+                    <EButton
+                      variant="outline-gold"
+                      size="sm"
+                      disabled={sheetSaving}
+                      onClick={() => saveSheet(false)}
+                    >
+                      {sheetSaving ? "Saving…" : "Save progress"}
+                    </EButton>
+                    <EButton variant="gold" size="sm" disabled={sheetSaving} onClick={() => saveSheet(true)}>
+                      Submit count
+                    </EButton>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          );
+        })()}
       </EModal>
     </div>
   );

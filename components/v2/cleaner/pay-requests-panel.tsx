@@ -26,7 +26,7 @@ import {
   ECardBody,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { EModal, EClassicLink } from "@/components/v2/admin/estate-kit";
+import { EModal } from "@/components/v2/admin/estate-kit";
 import { EChip, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { toast } from "@/hooks/use-toast";
 
@@ -516,21 +516,18 @@ export function PayRequestsPanel({
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <EClassicLink href="/cleaner/pay-requests">Open classic view</EClassicLink>
-            <div className="flex gap-2">
-              <EButton variant="outline" size="sm" onClick={() => setModalOpen(false)} disabled={saving}>
-                Cancel
-              </EButton>
-              <EButton
-                variant="gold"
-                size="sm"
-                onClick={() => void submitPayRequest()}
-                disabled={saving || uploading}
-              >
-                {saving ? "Submitting…" : "Submit request"}
-              </EButton>
-            </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <EButton variant="outline" size="sm" onClick={() => setModalOpen(false)} disabled={saving}>
+              Cancel
+            </EButton>
+            <EButton
+              variant="gold"
+              size="sm"
+              onClick={() => void submitPayRequest()}
+              disabled={saving || uploading}
+            >
+              {saving ? "Submitting…" : "Submit request"}
+            </EButton>
           </div>
         </div>
       </EModal>

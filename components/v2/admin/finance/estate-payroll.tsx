@@ -5,7 +5,7 @@
  * Data is passed in from the server page (lib/payroll listPayrollRuns), and a
  * "New run" modal posts to the SAME endpoint the v1 list used:
  *   POST /api/admin/payroll/runs   { periodStart, periodEnd, cleanerId? }
- * Per-run detail links to the classic run desk /admin/payroll/[id].
+ * Per-run detail links to the native Estate run desk /v2/admin/payroll/[id].
  */
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -80,7 +80,7 @@ export function EstatePayroll({
         toast({ title: "Could not create run", description: body.error, variant: "destructive" });
         return;
       }
-      router.push(`/admin/payroll/${body.id}`);
+      router.push(`/v2/admin/payroll/${body.id}`);
     } finally {
       setCreating(false);
     }
@@ -136,7 +136,7 @@ export function EstatePayroll({
               <tr key={run.id} className="hover:bg-[hsl(var(--e-surface-raised))]">
                 <td className="px-4 py-3">
                   <Link
-                    href={`/admin/payroll/${run.id}`}
+                    href={`/v2/admin/payroll/${run.id}`}
                     className="font-[550] text-[hsl(var(--e-foreground))] transition-colors hover:text-[hsl(var(--e-gold-ink))]"
                   >
                     {fmt(run.periodStart)} – {fmt(run.periodEnd)}
@@ -161,7 +161,7 @@ export function EstatePayroll({
                 </td>
                 <td className="px-4 py-3 text-right">
                   <EButton asChild size="sm" variant="outline">
-                    <Link href={`/admin/payroll/${run.id}`}>
+                    <Link href={`/v2/admin/payroll/${run.id}`}>
                       Open <ChevronRight className="h-3.5 w-3.5" />
                     </Link>
                   </EButton>

@@ -109,10 +109,10 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
             {locations.length} live
           </EBadge>
           <Link
-            href={`/admin/ops/map?date=${mapDate}`}
+            href={`/v2/admin/ops/map?date=${mapDate}`}
             className="inline-flex items-center gap-1 text-[0.8125rem] font-[550] text-[hsl(var(--e-gold-ink))] underline-offset-4 hover:underline"
           >
-            <MapPinned className="h-3.5 w-3.5" aria-hidden /> Live map (classic)
+            <MapPinned className="h-3.5 w-3.5" aria-hidden /> Live map
           </Link>
         </div>
       </ECardHeader>

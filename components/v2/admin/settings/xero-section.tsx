@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Link2, Unlink } from "lucide-react";
 import { EAlert, EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
@@ -307,14 +306,6 @@ export function XeroSection() {
           </EButton>
         </div>
       </ECard>
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Anything else Xero lives in the{" "}
-        <Link href="/admin/settings?tab=xero" className="text-[hsl(var(--e-gold-ink))] hover:underline">
-          classic Xero tab
-        </Link>
-        .
-      </p>
     </div>
   );
 }
