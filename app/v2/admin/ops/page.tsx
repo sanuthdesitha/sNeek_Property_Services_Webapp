@@ -5,7 +5,11 @@ import { JobStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { buildDailyRoutePlan } from "@/lib/ops/dispatch";
+import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
+import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
+import { OpsLiveMap } from "@/components/admin/ops-live-map";
 import {
   EBadge,
   EButton,
@@ -63,6 +67,7 @@ export default async function V2AdminOpsPage() {
   const selectedDate = format(todayStart, "yyyy-MM-dd");
 
   const [
+    urgentItems,
     routePlan,
     unassignedSoon,
     qaPending,
@@ -72,6 +77,7 @@ export default async function V2AdminOpsPage() {
     flaggedLaundry,
     expiringDocs,
   ] = await Promise.all([
+    getAdminImmediateAttention().catch(() => [] as Awaited<ReturnType<typeof getAdminImmediateAttention>>),
     buildDailyRoutePlan(selectedDate).catch(() => [] as Awaited<ReturnType<typeof buildDailyRoutePlan>>),
     db.job
       .findMany({
@@ -183,6 +189,27 @@ export default async function V2AdminOpsPage() {
         .catch(() => [])
     : [];
   const continuationJobMap = new Map(continuationJobs.map((job) => [job.id, job]));
+
+  // Geocoded properties for the visual ops map. Plan D backfilled lat/lng on
+  // Property; properties without coords just won't appear as markers.
+  const geocodedProperties = await db.property
+    .findMany({
+      where: {
+        isActive: true,
+        latitude: { not: null },
+        longitude: { not: null },
+      },
+      select: { id: true, name: true, latitude: true, longitude: true },
+    })
+    .catch(() => []);
+  const opsMapProperties = geocodedProperties
+    .filter((p) => p.latitude != null && p.longitude != null)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      lat: p.latitude as number,
+      lng: p.longitude as number,
+    }));
 
   const stopCount = routePlan.reduce((sum, route) => sum + route.stops.length, 0);
 
@@ -409,28 +436,34 @@ export default async function V2AdminOpsPage() {
         </ECard>
       </div>
 
-      {/* Live map — heavy Google Maps component lives on the legacy route */}
+      <LiveCleanerLayer />
+
+      {/* Live map — same OpsLiveMap client component as the legacy console */}
       <ECard>
         <ECardHeader className="flex-row items-center justify-between">
           <div>
             <ECardTitle>Live ops map</ECardTitle>
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Real-time cleaner positions overlaid on geocoded properties.
+              Real-time positions for every active cleaner overlaid on every geocoded property.
+              Properties without a geocoded address won&apos;t appear — run the geocode backfill
+              script to populate them.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <EButton asChild variant="outline" size="sm"><Link href={`/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
-            <EButton asChild variant="primary" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Open live map</Link></EButton>
+            <EButton asChild variant="primary" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Full live map</Link></EButton>
           </div>
         </ECardHeader>
         <ECardBody className="pt-0">
-          <div className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] px-4 py-8 text-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            The interactive field map opens in the full operations console.
-          </div>
+          <OpsLiveMap initialProperties={opsMapProperties} />
         </ECardBody>
       </ECard>
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
+      <ImmediateAttentionPanel
+        title="Immediate Attention"
+        description="Critical approvals, dispatch blockers, and unresolved operational items."
+        items={urgentItems}
+      />
     </div>
   );
 }

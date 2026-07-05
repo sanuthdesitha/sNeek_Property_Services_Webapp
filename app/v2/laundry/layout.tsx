@@ -14,7 +14,7 @@ const NAV: NavItem[] = [
 export default function V2LaundryLayout({ children }: { children: React.ReactNode }) {
   return (
     <div data-skin="estate" data-portal-accent="laundry">
-      <PortalShell accent="laundry" wordmark="sNeek" nav={NAV} user={{ name: "Laundry ops", role: "Laundry" }}>
+      <PortalShell accent="laundry" wordmark="sNeek" nav={NAV} roleLabel="Laundry">
         {children}
       </PortalShell>
     </div>

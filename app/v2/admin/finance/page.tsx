@@ -1,165 +1,112 @@
-import Link from "next/link";
-import { toZonedTime } from "date-fns-tz";
-import { ClientInvoiceStatus } from "@prisma/client";
-import { db } from "@/lib/db";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EPageHeader,
-  EStatCard,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
-import { Banknote, FileText, TrendingUp, Users } from "lucide-react";
+import { format } from "date-fns";
+import { Role } from "@prisma/client";
+import { Banknote, FileWarning, TrendingUp, Wallet } from "lucide-react";
+import { requireRole } from "@/lib/auth/session";
+import { getFinanceDashboardData } from "@/lib/finance/dashboard";
+import { getFinanceHubSummary } from "@/lib/finance/hub";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { KpiTile } from "@/components/charts";
+import { FinanceDashboardWorkspace } from "@/components/admin/finance-dashboard-workspace";
+import { ClientInvoicesPage } from "@/components/admin/client-invoices-page";
+import { PayrollRunsList } from "@/components/payroll/payroll-runs-list";
+import type { FinanceTabKey } from "@/components/admin/finance-tab-nav";
+import { FinanceTabNavV2 } from "@/components/v2/admin/finance-tab-nav";
 
 export const metadata = { title: "Finance · Estate admin" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
-const TABS = ["Overview", "Invoices", "Payroll", "Cleaner invoices", "Pricing"];
+const TAB_KEYS: FinanceTabKey[] = ["overview", "invoices", "payroll"];
 
-type Tone = "neutral" | "info" | "warning" | "success" | "gold";
-
-function statusTone(status: ClientInvoiceStatus): Tone {
-  switch (status) {
-    case ClientInvoiceStatus.APPROVED:
-      return "info";
-    case ClientInvoiceStatus.SENT:
-      return "warning";
-    case ClientInvoiceStatus.PAID:
-      return "success";
-    default:
-      return "neutral";
-  }
+function normalizeTab(value: string | undefined): FinanceTabKey {
+  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as FinanceTabKey) : "overview";
 }
 
-function money(n: number): string {
-  return "$" + Math.round(n).toLocaleString("en-AU");
+function money(value: number) {
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }
 
-async function getFinance() {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const monthStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), 1);
+export default async function AdminFinancePage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string };
+}) {
+  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const [recent, outstanding, paidMtd] = await Promise.all([
-    db.clientInvoice
-      .findMany({
-        orderBy: { createdAt: "desc" },
-        take: 6,
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          totalAmount: true,
-          xeroExportedAt: true,
-          client: { select: { name: true } },
-        },
-      })
-      .catch(() => []),
-    db.clientInvoice
-      .aggregate({
-        where: { status: { in: [ClientInvoiceStatus.APPROVED, ClientInvoiceStatus.SENT] } },
-        _sum: { totalAmount: true },
-        _count: { _all: true },
-      })
-      .catch(() => null),
-    db.clientInvoice
-      .aggregate({
-        where: { status: ClientInvoiceStatus.PAID, createdAt: { gte: monthStart } },
-        _sum: { totalAmount: true },
-      })
-      .catch(() => null),
-  ]);
+  const tab = normalizeTab(searchParams?.tab);
 
-  return {
-    recent,
-    outstandingCount: outstanding?._count?._all ?? 0,
-    outstandingAud: outstanding?._sum?.totalAmount ?? 0,
-    paidMtdAud: paidMtd?._sum?.totalAmount ?? 0,
-  };
-}
+  // KPI strip metrics — all from existing finance/payroll/invoice queries.
+  const summary = await getFinanceHubSummary();
+  // The Overview tab reuses the Sphere-UI dashboard data; fetch it only when
+  // that tab is active so Invoices/Payroll don't pay for the heavy roll-up.
+  const dashboardData = tab === "overview" ? await getFinanceDashboardData() : null;
 
-export default async function AdminFinancePage() {
-  const fin = await getFinance();
+  const lastRunLabel = summary.lastRun
+    ? `${format(new Date(summary.lastRun.periodStart), "dd MMM")} – ${format(new Date(summary.lastRun.periodEnd), "dd MMM")}`
+    : "No runs yet";
 
   return (
     <div className="space-y-6">
-      <EPageHeader eyebrow="Commercial" title="Finance" description="Revenue, invoices, payroll, and pricing — one hub." />
+      <EPageHeader
+        eyebrow="Commercial"
+        title="Finance"
+        description="Revenue analytics, client invoices, and cleaner payroll — all in one place."
+      />
 
-      {/* Tab bar (underline style) */}
-      <div className="flex gap-6 border-b border-[hsl(var(--e-border))]">
-        {TABS.map((t, i) => (
-          <button
-            key={t}
-            className={
-              i === 0
-                ? "relative -mb-px pb-2.5 text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))]"
-                : "pb-2.5 text-[0.875rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-            }
-          >
-            {t}
-            {i === 0 ? <span className="absolute inset-x-0 bottom-0 h-0.5 rounded bg-[hsl(var(--e-accent-portal))]" /> : null}
-          </button>
-        ))}
-      </div>
-
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <EStatCard label="Paid · MTD" value={money(fin.paidMtdAud)} delta="this month" deltaTone="neutral" icon={<TrendingUp className="h-4 w-4" />} />
-        <EStatCard
-          label="Outstanding"
-          value={money(fin.outstandingAud)}
-          delta={`${fin.outstandingCount} invoice${fin.outstandingCount === 1 ? "" : "s"}`}
-          deltaTone="neutral"
-          icon={<FileText className="h-4 w-4" />}
+      {/* KPI summary strip — real metrics only. */}
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiTile
+          label="Revenue MTD"
+          value={money(summary.revenueMtd)}
+          icon={<TrendingUp />}
+          tone="success"
+          href="/v2/admin/finance?tab=overview"
         />
-        <EStatCard label="Payroll" value="—" delta="see payroll tab" deltaTone="neutral" icon={<Banknote className="h-4 w-4" />} />
-        <EStatCard label="Clients billed" value={String(new Set(fin.recent.map((r) => r.client?.name)).size)} delta="recent" deltaTone="neutral" icon={<Users className="h-4 w-4" />} />
+        <KpiTile
+          label={`Outstanding · ${summary.outstandingCount} sent`}
+          value={money(summary.outstandingReceivables)}
+          icon={<FileWarning />}
+          tone={summary.outstandingReceivables > 0 ? "warning" : "neutral"}
+          href="/v2/admin/finance?tab=invoices"
+        />
+        <KpiTile
+          label="Payroll due (MTD)"
+          value={money(summary.payrollDue)}
+          icon={<Wallet />}
+          tone={summary.payrollDue > 0 ? "info" : "neutral"}
+          href="/v2/admin/finance?tab=payroll"
+        />
+        <KpiTile
+          label={`Last run · ${lastRunLabel}`}
+          value={summary.lastRun ? money(summary.lastRun.grandTotal) : "—"}
+          icon={<Banknote />}
+          tone="primary"
+          href="/v2/admin/finance?tab=payroll"
+        />
       </section>
 
-      <ECard>
-        <ECardHeader className="flex-row items-center justify-between">
-          <ECardTitle>Recent invoices</ECardTitle>
-          <EButton variant="gold" size="sm">Generate invoices</EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {fin.recent.length === 0 ? (
-            <EEmptyState eyebrow="No invoices yet" title="Nothing to show" description="Generated invoices will appear here." />
-          ) : (
-            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-              <table className="w-full text-[0.8125rem]">
-                <thead>
-                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Invoice", "Client", "Amount", "Status", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {fin.recent.map((inv) => (
-                    <tr key={inv.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                      <td className="px-3 py-3 font-medium whitespace-nowrap">{inv.invoiceNumber}</td>
-                      <td className="px-3 py-3 text-[hsl(var(--e-text-secondary))]">{inv.client?.name ?? "—"}</td>
-                      <td className="px-3 py-3"><span className="e-numeral text-[0.9375rem]">{money(inv.totalAmount)}</span></td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <EBadge tone={statusTone(inv.status)} soft>{inv.status.charAt(0) + inv.status.slice(1).toLowerCase()}</EBadge>
-                          {inv.xeroExportedAt ? <EBadge tone="gold" soft>Xero</EBadge> : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right"><EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/finance">View</Link></EButton></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
+      <FinanceTabNavV2 active={tab} />
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
+      <div className="min-w-0">
+        {tab === "overview" && dashboardData ? (
+          <FinanceDashboardWorkspace data={dashboardData} />
+        ) : null}
+        {tab === "invoices" ? <ClientInvoicesPage /> : null}
+        {tab === "payroll" ? (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Payroll runs</h2>
+              <p className="text-sm text-muted-foreground">
+                Create a payroll run for a period, then review and process cleaner payouts.
+              </p>
+            </div>
+            <PayrollRunsList />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

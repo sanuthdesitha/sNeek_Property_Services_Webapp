@@ -1,21 +1,30 @@
-import Link from "next/link";
-import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
+import { JobStatus, Role } from "@prisma/client";
+import Link from "next/link";
+import { Plus, Users, UserCheck, Building2, Wallet } from "lucide-react";
+import { UsersManager } from "@/components/admin/users-manager";
+import { type AccountsTabKey } from "@/components/accounts/accounts-tab-nav";
+import { ClientsHubList, type ClientHubRow } from "@/components/accounts/clients-hub-list";
+import { BirthdaysCard } from "@/components/accounts/birthdays-card";
 import { getAccountsOverview } from "@/lib/accounts/overview";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  EEmptyState,
-  EPageHeader,
-  EStatCard,
-} from "@/components/v2/ui/primitives";
-import { Users, UserCheck, Building2, Wallet, ArrowUpRight, Cake } from "lucide-react";
+import { EstateAccountsTabNav } from "@/components/v2/admin/accounts-tab-nav";
+import { EButton, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Accounts · Estate admin" };
 export const dynamic = "force-dynamic";
+
+const ACTIVE_JOB_STATUSES: JobStatus[] = [
+  JobStatus.UNASSIGNED,
+  JobStatus.OFFERED,
+  JobStatus.ASSIGNED,
+  JobStatus.EN_ROUTE,
+  JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
+  JobStatus.SUBMITTED,
+  JobStatus.QA_REVIEW,
+];
 
 const fmtMoney = new Intl.NumberFormat("en-AU", {
   style: "currency",
@@ -23,55 +32,71 @@ const fmtMoney = new Intl.NumberFormat("en-AU", {
   maximumFractionDigits: 0,
 });
 
-function initials(name: string | null, email: string): string {
-  const src = name || email;
-  return (
-    src
-      .replace(/[^A-Za-z ]/g, "")
-      .split(" ")
-      .filter(Boolean)
-      .map((w) => w[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "?"
-  );
+const TAB_KEYS: AccountsTabKey[] = ["staff", "clients"];
+
+function normalizeTab(value: string | undefined): AccountsTabKey {
+  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as AccountsTabKey) : "staff";
 }
 
-function roleLabel(role: Role): string {
-  return String(role).replace(/_/g, " ");
+async function getClientRows(): Promise<ClientHubRow[]> {
+  const clients = await db.client.findMany({
+    where: { isActive: true },
+    include: { _count: { select: { properties: true } } },
+    orderBy: { name: "asc" },
+  });
+
+  const clientIds = clients.map((c) => c.id);
+
+  const [activeJobsAgg, latestInvoices] = await Promise.all([
+    clientIds.length === 0
+      ? Promise.resolve([] as Array<{ clientId: string; count: bigint }>)
+      : db.$queryRaw<Array<{ clientId: string; count: bigint }>>`
+          SELECT p."clientId" AS "clientId", COUNT(j.*)::bigint AS "count"
+          FROM "Job" j
+          JOIN "Property" p ON p.id = j."propertyId"
+          WHERE p."clientId" = ANY(${clientIds}::text[])
+            AND j.status::text = ANY(${ACTIVE_JOB_STATUSES.map((s) => s.toString())}::text[])
+          GROUP BY p."clientId"
+        `,
+    clientIds.length === 0
+      ? Promise.resolve([] as Array<{ clientId: string; totalAmount: number; createdAt: Date }>)
+      : db.$queryRaw<Array<{ clientId: string; totalAmount: number; createdAt: Date }>>`
+          SELECT DISTINCT ON ("clientId") "clientId", "totalAmount", "createdAt"
+          FROM "ClientInvoice"
+          WHERE "clientId" = ANY(${clientIds}::text[])
+          ORDER BY "clientId", "createdAt" DESC
+        `,
+  ]);
+
+  const activeJobMap = new Map(activeJobsAgg.map((r) => [r.clientId, Number(r.count)]));
+  const invoiceMap = new Map(latestInvoices.map((r) => [r.clientId, r]));
+
+  return clients.map((c) => {
+    const inv = invoiceMap.get(c.id);
+    return {
+      id: c.id,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      propertiesCount: c._count.properties,
+      activeJobsCount: activeJobMap.get(c.id) ?? 0,
+      lastInvoiceAmount: inv?.totalAmount ?? null,
+      lastInvoiceAt: inv?.createdAt?.toISOString() ?? null,
+    };
+  });
 }
 
-type StaffRow = {
-  id: string;
-  name: string | null;
-  email: string;
-  role: Role;
-  isActive: boolean;
-};
+export default async function EstateAccountsPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string };
+}) {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const tab = normalizeTab(searchParams?.tab);
 
-async function getStaff(): Promise<StaffRow[]> {
-  return db.user
-    .findMany({
-      where: { role: { not: Role.CLIENT } },
-      select: { id: true, name: true, email: true, role: true, isActive: true },
-      orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
-      take: 50,
-    })
-    .catch(() => [] as StaffRow[]);
-}
-
-export default async function EstateAccountsPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-  const [overview, staff] = await Promise.all([
-    getAccountsOverview(30).catch(() => ({
-      totalStaff: 0,
-      activeCleaners: 0,
-      totalClients: 0,
-      outstandingReceivables: 0,
-      upcomingBirthdays: [],
-    })),
-    getStaff(),
+  const [overview, clientRows] = await Promise.all([
+    getAccountsOverview(30),
+    tab === "clients" ? getClientRows() : Promise.resolve<ClientHubRow[]>([]),
   ]);
 
   return (
@@ -79,14 +104,18 @@ export default async function EstateAccountsPage() {
       <EPageHeader
         eyebrow="Accounts"
         title="Staff & client accounts"
-        description="Every account in one place, with a live roll-up of your workspace."
+        description="Staff and client accounts in one place — with a rich summary for every account."
         actions={
-          <EButton asChild variant="gold" size="sm"><Link href="/admin/accounts">
-              Manage in full hub <ArrowUpRight className="h-3.5 w-3.5" />
-            </Link></EButton>
+          tab === "clients" ? (
+            <EButton asChild variant="gold" size="sm"><Link href="/admin/clients/new">
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Add client
+              </Link></EButton>
+          ) : null
         }
       />
 
+      {/* KPI summary strip — real, cheap metrics only */}
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <EStatCard label="Total staff" value={overview.totalStaff} icon={<Users className="h-4 w-4" />} />
         <EStatCard label="Active cleaners" value={overview.activeCleaners} icon={<UserCheck className="h-4 w-4" />} />
@@ -98,110 +127,20 @@ export default async function EstateAccountsPage() {
         />
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
-        <ECard>
-          <ECardBody className="pt-6">
-            {staff.length === 0 ? (
-              <EEmptyState
-                eyebrow="No staff yet"
-                title="No staff accounts"
-                description="Create staff accounts from the full accounts hub."
-              />
-            ) : (
-              <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-                <table className="w-full text-[0.8125rem]">
-                  <thead>
-                    <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                      {["Member", "Role", "Status", ""].map((h) => (
-                        <th
-                          key={h}
-                          className="px-4 py-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {staff.map((u) => (
-                      <tr
-                        key={u.id}
-                        className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]"
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <span
-                              className="flex h-8 w-8 items-center justify-center rounded-full text-[0.6875rem] font-semibold text-[hsl(var(--e-accent-portal-foreground))]"
-                              style={{ backgroundColor: "hsl(var(--e-accent-portal))" }}
-                            >
-                              {initials(u.name, u.email)}
-                            </span>
-                            <div className="min-w-0">
-                              <span className="font-[550]">{u.name ?? "Unnamed"}</span>
-                              <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{u.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <EBadge tone="neutral" soft>
-                            {roleLabel(u.role)}
-                          </EBadge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <EBadge tone={u.isActive ? "primary" : "neutral"} soft>
-                            {u.isActive ? "Active" : "Disabled"}
-                          </EBadge>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <EButton asChild variant="ghost" size="sm"><Link href={`/admin/accounts/users/${u.id}`}>
-                              Profile
-                            </Link></EButton>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </ECardBody>
-        </ECard>
+      <EstateAccountsTabNav active={tab} />
 
-        <ECard>
-          <ECardBody className="pt-6">
-            <div className="mb-3 flex items-center gap-2 text-[hsl(var(--e-text-secondary))]">
-              <Cake className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />
-              <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
-                Upcoming birthdays
-              </span>
-            </div>
-            {overview.upcomingBirthdays.length === 0 ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-text-faint))]">None in the next 30 days.</p>
-            ) : (
-              <ul className="space-y-2.5">
-                {overview.upcomingBirthdays.map((b) => (
-                  <li key={b.id} className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-[0.8125rem] font-[550]">{b.name ?? "Unnamed"}</p>
-                      <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{roleLabel(b.role)}</p>
-                    </div>
-                    <EBadge tone={b.daysUntil === 0 ? "gold" : "neutral"} soft>
-                      {b.daysUntil === 0 ? "Today" : `${b.daysUntil}d`}
-                    </EBadge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </ECardBody>
-        </ECard>
-      </div>
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Estate preview · live data from your workspace. Creating, editing and disabling accounts stays in the{" "}
-        <Link href="/admin/accounts" className="underline">
-          full accounts hub
-        </Link>
-        .
-      </p>
+      {tab === "staff" ? (
+        <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
+          <div className="min-w-0">
+            <UsersManager canManage={session.user.role === Role.ADMIN} embedded />
+          </div>
+          <div className="space-y-6">
+            <BirthdaysCard birthdays={overview.upcomingBirthdays} />
+          </div>
+        </div>
+      ) : (
+        <ClientsHubList clients={clientRows} />
+      )}
     </div>
   );
 }

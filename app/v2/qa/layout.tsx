@@ -14,7 +14,7 @@ const NAV: NavItem[] = [
 export default function V2QaLayout({ children }: { children: React.ReactNode }) {
   return (
     <div data-skin="estate" data-portal-accent="qa">
-      <PortalShell accent="qa" wordmark="sNeek" nav={NAV} user={{ name: "Quality team", role: "QA" }}>
+      <PortalShell accent="qa" wordmark="sNeek" nav={NAV} roleLabel="QA">
         {children}
       </PortalShell>
     </div>

@@ -8,8 +8,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -23,15 +24,23 @@ export function PortalShell({
   wordmark,
   nav,
   user,
+  roleLabel,
   children,
 }: {
   accent: "admin" | "client" | "cleaner" | "laundry" | "qa" | "maintenance";
   wordmark: string;
   nav: NavItem[];
+  /** Optional override; when omitted the signed-in NextAuth session user is shown. */
   user?: { name: string; role: string };
+  /** Second line under the user's name, e.g. "Admin", "Client". */
+  roleLabel?: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const displayName = user?.name ?? session?.user?.name ?? "";
+  const displayRole = user?.role ?? roleLabel ?? "";
+  const initials = displayName.trim().slice(0, 2).toUpperCase();
   const [open, setOpen] = React.useState(false);
   const isActive = (href: string) => pathname === href || (href !== "/v2/" + accent && pathname.startsWith(href));
 
@@ -68,22 +77,29 @@ export function PortalShell({
           );
         })}
       </nav>
-      {user ? (
-        <div className="border-t border-[hsl(var(--e-sidebar-hairline))] px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[0.75rem] font-semibold text-[hsl(var(--e-sidebar-active-fg))] ring-2"
-              style={{ backgroundColor: "hsl(var(--e-sidebar-active-bg))", ["--tw-ring-color" as any]: "hsl(var(--e-accent-portal))" }}
-            >
-              {user.name.slice(0, 2).toUpperCase()}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[0.8125rem] font-medium text-[hsl(var(--e-sidebar-fg))]">{user.name}</p>
-              <p className="truncate text-[0.6875rem] text-[hsl(var(--e-sidebar-fg))]/60">{user.role}</p>
-            </div>
+      <div className="border-t border-[hsl(var(--e-sidebar-hairline))] px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[0.75rem] font-semibold text-[hsl(var(--e-sidebar-active-fg))] ring-2"
+            style={{ backgroundColor: "hsl(var(--e-sidebar-active-bg))", ["--tw-ring-color" as any]: "hsl(var(--e-accent-portal))" }}
+          >
+            {initials}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[0.8125rem] font-medium text-[hsl(var(--e-sidebar-fg))]">{displayName}</p>
+            <p className="truncate text-[0.6875rem] text-[hsl(var(--e-sidebar-fg))]/60">{displayRole}</p>
           </div>
+          <button
+            type="button"
+            onClick={() => signOut({ callbackUrl: "/v2/login" })}
+            aria-label="Sign out"
+            title="Sign out"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--e-radius-sm)] text-[hsl(var(--e-sidebar-fg))]/60 transition-colors duration-150 hover:bg-white/5 hover:text-[hsl(var(--e-sidebar-fg))]"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 

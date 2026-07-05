@@ -15,7 +15,7 @@ const NAV: NavItem[] = [
 export default function V2ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     <div data-skin="estate" data-portal-accent="client">
-      <PortalShell accent="client" wordmark="sNeek" nav={NAV} user={{ name: "J. Harrington", role: "Client" }}>
+      <PortalShell accent="client" wordmark="sNeek" nav={NAV} roleLabel="Client">
         {children}
       </PortalShell>
     </div>

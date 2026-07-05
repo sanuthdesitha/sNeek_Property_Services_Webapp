@@ -38,7 +38,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
   {
     title: "Configuration",
     items: [
-      { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/admin/settings" },
+      { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/v2/admin/settings" },
       { label: "Forms & checklists", desc: "Builder, library, coverage, stats", icon: ClipboardList, href: "/admin/forms" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },
       { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck, href: "/admin/system" },
