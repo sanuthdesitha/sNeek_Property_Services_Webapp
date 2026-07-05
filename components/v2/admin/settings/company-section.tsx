@@ -20,6 +20,8 @@ export type CompanySettings = {
   accountsEmail: string;
   timezone: string;
   gstEnabled: boolean;
+  quoteDefaultEmailSubject: string;
+  quoteDefaultValidityDays: number;
 };
 
 /**
@@ -52,6 +54,8 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
           reportLogoUrl: form.reportLogoUrl,
           accountsEmail: form.accountsEmail,
           timezone: form.timezone,
+          quoteDefaultEmailSubject: form.quoteDefaultEmailSubject,
+          quoteDefaultValidityDays: form.quoteDefaultValidityDays,
           pricing: { gstEnabled: form.gstEnabled },
         }),
       });
@@ -191,13 +195,36 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
       </ECard>
 
       <ECard className="p-6">
-        <EToggle
-          checked={form.gstEnabled}
-          onChange={(v) => set("gstEnabled", v)}
-          disabled={readOnly}
-          label="GST on new pricing"
-          description="Applies 10% GST to newly generated quotes and invoices by default."
-        />
+        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <EField label="Quote email subject" htmlFor="quote-subject">
+              <EInput
+                id="quote-subject"
+                value={form.quoteDefaultEmailSubject}
+                onChange={(e) => set("quoteDefaultEmailSubject", e.target.value)}
+                disabled={readOnly}
+              />
+            </EField>
+            <EField label="Quote validity (days)" htmlFor="quote-validity">
+              <EInput
+                id="quote-validity"
+                type="number"
+                min={1}
+                max={90}
+                value={form.quoteDefaultValidityDays}
+                onChange={(e) => set("quoteDefaultValidityDays", Number(e.target.value || 14))}
+                disabled={readOnly}
+              />
+            </EField>
+          </div>
+          <EToggle
+            checked={form.gstEnabled}
+            onChange={(v) => set("gstEnabled", v)}
+            disabled={readOnly}
+            label="GST on new pricing"
+            description="Applies 10% GST to newly generated quotes and invoices by default."
+          />
+        </div>
       </ECard>
 
       <div className="flex items-center justify-end gap-3">

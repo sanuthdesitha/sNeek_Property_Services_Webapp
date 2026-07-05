@@ -235,6 +235,29 @@ const updateSchema = z.object({
       serviceCalculator: z.boolean().optional(),
     })
     .optional(),
+  // Bank / invoicing payee details — persisted (merged) by saveAppSettings and
+  // rendered on invoices; previously stripped here so the settings form's bank
+  // fields silently did not save. Accepting them makes that section functional.
+  invoicing: z
+    .object({
+      defaultPaymentTermsDays: z.number().int().min(0).max(365).optional(),
+      bankName: z.string().trim().optional(),
+      bankBsb: z.string().trim().optional(),
+      bankAccountNumber: z.string().trim().optional(),
+      bankAccountName: z.string().trim().optional(),
+      paymentNote: z.string().trim().optional(),
+      abn: z.string().trim().optional(),
+      companyAddress: z.string().trim().optional(),
+    })
+    .optional(),
+  evidenceStamp: z
+    .object({
+      dateFormat: z.string().trim().optional(),
+      timeFormat: z.string().trim().optional(),
+      showWeekday: z.boolean().optional(),
+    })
+    .partial()
+    .optional(),
 });
 
 export async function GET() {
