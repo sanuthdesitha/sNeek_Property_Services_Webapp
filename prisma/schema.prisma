@@ -1093,6 +1093,10 @@ model Job {
   // Set when this job's cleaner pay has been included in a payroll run. Prevents
   // the same job being paid again in a later/overlapping run (payroll idempotency).
   payrollRunId          String?
+  // Set when the cleaner's invoice covering this job has been marked PAID by admin
+  // (parallel to payrollRunId — the cleaner-invoice payment path). Cleared if the
+  // invoice is reversed/deleted so the job can be re-invoiced + re-paid.
+  cleanerPaidAt         DateTime?
   // ── Rework / reclean ──────────────────────────────────────────────────────
   // A rework job is a distinct Job created when QA fails a clean. It carries the
   // QA-flagged areas (+ the photos QA captured) so the cleaner sees exactly what

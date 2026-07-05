@@ -19,6 +19,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: { status: body.status },
     });
 
+    // Stamp / clear the covered jobs so they show as paid to the cleaner (and,
+    // when reversed, become re-invoiceable). jobIds are snapshotted at send time.
+    const jobIds = Array.isArray((updated.lineData as any)?.jobIds)
+      ? ((updated.lineData as any).jobIds as string[]).filter((x) => typeof x === "string")
+      : [];
+    if (jobIds.length) {
+      if (body.status === "PAID") {
+        await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: new Date() } });
+      } else if (body.status === "VOID") {
+        await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: null } });
+      }
+    }
+
     await db.auditLog.create({
       data: {
         userId: session.user.id,
@@ -51,6 +64,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
         { error: "This invoice is already in Xero. Void it in Xero before deleting." },
         { status: 409 }
       );
+    }
+
+    // Free the covered jobs — clear any paid stamp so they can be re-invoiced.
+    const delJobIds = Array.isArray((existing.lineData as any)?.jobIds)
+      ? ((existing.lineData as any).jobIds as string[]).filter((x) => typeof x === "string")
+      : [];
+    if (delJobIds.length) {
+      await db.job.updateMany({ where: { id: { in: delJobIds } }, data: { cleanerPaidAt: null } });
     }
 
     await db.cleanerInvoiceSubmission.delete({ where: { id: params.id } });
