@@ -5,7 +5,7 @@ import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientJobsForUser } from "@/lib/client/portal-data";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { ClientJobsWorkspace } from "@/components/client/client-jobs-workspace";
+import { ClientJobsBoard } from "@/components/v2/client/jobs-board";
 import { EButton, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Jobs · Estate client" };
@@ -47,7 +47,7 @@ export default async function ClientJobsPage() {
           }
         />
       ) : (
-        <ClientJobsWorkspace
+        <ClientJobsBoard
           jobs={jobs}
           showCleanerNames={visibility?.showCleanerNames ?? false}
           showClientTaskRequests={visibility?.showClientTaskRequests ?? false}

@@ -3,8 +3,8 @@ import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { ShoppingRunLauncher } from "@/components/inventory/shopping-run-launcher";
-import { CleanerOnHandView } from "@/components/inventory/cleaner-on-hand-view";
+import { ShoppingLauncher } from "@/components/v2/cleaner/shopping-launcher";
+import { OnHandView } from "@/components/v2/cleaner/on-hand-view";
 
 export const metadata = { title: "Shopping · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -40,14 +40,11 @@ export default async function V2CleanerShoppingPage({
         description="Choose what needs buying, start the run, then track receipts, payment, and time in the run workspace."
       />
 
-      <ShoppingRunLauncher
-        mode="cleaner"
+      <ShoppingLauncher
         apiPath="/api/cleaner/inventory/shopping-plan"
         runsApiBase="/api/cleaner/inventory/shopping-runs"
         workspaceBasePath="/v2/cleaner/shopping"
         initialPropertyId={searchParams?.propertyId}
-        title="Shopping"
-        description="Choose what needs to be bought, start the run, then track receipts, payment method, and shopping time inside the run workspace."
       />
 
       <section className="space-y-3">
@@ -57,7 +54,7 @@ export default async function V2CleanerShoppingPage({
             Stock you&apos;re holding that hasn&apos;t been dropped at a unit yet. Deliver it to update that unit&apos;s count.
           </p>
         </div>
-        <CleanerOnHandView properties={properties} />
+        <OnHandView properties={properties} />
       </section>
     </div>
   );

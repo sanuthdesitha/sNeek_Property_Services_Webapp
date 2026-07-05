@@ -1,11 +1,10 @@
 import { Role } from "@prisma/client";
-import { Wrench } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { filterAirbnbPropertyIds } from "@/lib/maintenance/airbnb";
-import { ClientMaintenance } from "@/components/maintenance/client-maintenance";
 import { EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { MaintenanceBoard } from "@/components/v2/client/maintenance/maintenance-board";
 
 export const metadata = { title: "Maintenance · Estate client" };
 export const dynamic = "force-dynamic";
@@ -41,7 +40,7 @@ export default async function ClientMaintenancePage() {
           description="Maintenance tracking is available for Airbnb turnover properties. Once one is set up, you'll be able to report and track items here."
         />
       ) : (
-        <ClientMaintenance properties={airbnbProperties} />
+        <MaintenanceBoard properties={airbnbProperties} />
       )}
     </div>
   );

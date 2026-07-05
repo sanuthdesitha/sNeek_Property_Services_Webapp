@@ -15,7 +15,7 @@ import {
   EStatCard,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { PayNowButton } from "@/components/client/pay-now-button";
+import { PayInvoiceButton } from "@/components/v2/client/pay-invoice-button";
 import { CreditCard, Receipt, Wallet, FileText } from "lucide-react";
 
 export const metadata = { title: "Finance · Estate client" };
@@ -261,7 +261,7 @@ export default async function V2ClientFinancePage() {
                           <EBadge tone={invoiceTone(invoice.status)} soft>
                             {invoice.status.replace(/_/g, " ")}
                           </EBadge>
-                          {payable ? <PayNowButton invoiceId={invoice.id} /> : null}
+                          {payable ? <PayInvoiceButton invoiceId={invoice.id} /> : null}
                         </div>
                       </div>
                     </div>

@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { ClientQuotesPage } from "@/components/client/client-quotes-page";
+import { ClientQuotesBoard } from "@/components/v2/client/quotes-board";
 
 export const metadata = { title: "Quotes · Estate client" };
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export default async function V2ClientQuotesRoute() {
         title="Quotes"
         description="Your requested estimates and their status — review, accept, or decline."
       />
-      <ClientQuotesPage />
+      <ClientQuotesBoard />
     </div>
   );
 }

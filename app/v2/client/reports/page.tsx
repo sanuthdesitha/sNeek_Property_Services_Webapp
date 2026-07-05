@@ -10,7 +10,7 @@ import {
   EEmptyState,
   EPageHeader,
 } from "@/components/v2/ui/primitives";
-import { ClientReportDownloadButton } from "@/components/client/report-download-button";
+import { EstateReportDownloadButton } from "@/components/v2/client/report-download-button";
 import { FileText } from "lucide-react";
 
 export const metadata = { title: "Reports · Estate client" };
@@ -83,7 +83,7 @@ export default async function ClientReportsPage() {
                     </div>
                   </div>
                   {showDownloads ? (
-                    <ClientReportDownloadButton jobId={report.job.id} label="Download PDF" />
+                    <EstateReportDownloadButton jobId={report.job.id} label="Download PDF" />
                   ) : (
                     <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
                       PDF hidden

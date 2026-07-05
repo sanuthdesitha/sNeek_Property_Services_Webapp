@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { StockRunWorkspace } from "@/components/inventory/stock-run-workspace";
+import { StockRunWorkspace } from "@/components/v2/cleaner/stock-run-workspace";
 
 export const metadata = { title: "Stock counts · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -22,11 +22,7 @@ export default async function V2CleanerStockRunsPage() {
         title="Stock counts"
         description="Count actual stock levels on site and submit the run for admin review."
       />
-      <StockRunWorkspace
-        apiBase="/api/cleaner/stock-runs"
-        title="Stock Counts"
-        description="Count actual stock levels on site and submit the run for admin review."
-      />
+      <StockRunWorkspace apiBase="/api/cleaner/stock-runs" />
     </div>
   );
 }

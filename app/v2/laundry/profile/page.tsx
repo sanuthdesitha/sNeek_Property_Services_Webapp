@@ -4,16 +4,14 @@ import { Role } from "@prisma/client";
 import { authOptions } from "@/lib/auth/auth-options";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { AdminProfileForm } from "@/components/admin/admin-profile-form";
-import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
-import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
-import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { EPageHeader } from "@/components/v2/ui/primitives";
+import { EstateProfile } from "@/components/v2/laundry/estate-profile";
 
 export const metadata = { title: "Profile · Estate laundry" };
 export const dynamic = "force-dynamic";
 
-// Mirrors app/laundry/profile: same user query, reuses the profile client sections.
+// Mirrors app/laundry/profile: same user query + endpoints (/api/me/profile,
+// /api/me/preferences, /api/me/password, /api/auth/2fa/settings), Estate-native.
 export default async function LaundryProfilePage() {
   await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
   const session = await getServerSession(authOptions);
@@ -35,11 +33,16 @@ export default async function LaundryProfilePage() {
         latitude: true,
         longitude: true,
         placeId: true,
+        bankAccountName: true,
+        bankBsb: true,
+        bankAccountNumber: true,
+        abn: true,
         uiDensity: true,
         themePreference: true,
         invoicingCadence: true,
         invoiceDayOfWeek: true,
         invoiceDayOfMonth: true,
+        preferredPayoutMethod: true,
         profileEditingEnabled: true,
       } as any,
     })
@@ -56,22 +59,18 @@ export default async function LaundryProfilePage() {
         description="Your contact details and preferences."
       />
 
-      <div className="mx-auto max-w-3xl space-y-6">
-        <AdminProfileForm user={user as any} editingEnabled={editingEnabled} />
-
-        <TwoFactorSettings />
-
-        <BillingPreferencesSection
-          initialCadence={(user as any).invoicingCadence ?? undefined}
-          initialDayOfWeek={(user as any).invoiceDayOfWeek ?? null}
-          initialDayOfMonth={(user as any).invoiceDayOfMonth ?? null}
-        />
-
-        <DisplayPreferencesSection
-          initialDensity={(user as any).uiDensity ?? undefined}
-          initialTheme={(user as any).themePreference ?? undefined}
-        />
-      </div>
+      <EstateProfile
+        user={user as any}
+        editingEnabled={editingEnabled}
+        showBanking
+        showPayout
+        initialCadence={(user as any).invoicingCadence ?? undefined}
+        initialDayOfWeek={(user as any).invoiceDayOfWeek ?? null}
+        initialDayOfMonth={(user as any).invoiceDayOfMonth ?? null}
+        initialDensity={(user as any).uiDensity ?? undefined}
+        initialTheme={(user as any).themePreference ?? undefined}
+        initialPayout={(user as any).preferredPayoutMethod ?? undefined}
+      />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { CleanerLostFoundPage } from "@/components/cleaner/lost-found-page";
+import { LostFoundForm } from "@/components/v2/cleaner/lost-found-form";
 
 export const metadata = { title: "Lost & found · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -16,7 +16,8 @@ const TZ = "Australia/Sydney";
  * Estate wrapper for lost & found. Same module gate + data source as the legacy
  * `app/cleaner/lost-found` route: the session cleaner's assigned jobs become the
  * dropdown of jobs a found item can be logged against. The mounted
- * `CleanerLostFoundPage` client component owns the log/list mutations.
+ * Estate-native `LostFoundForm` client component owns the log mutation
+ * (POST /api/cleaner/lost-found).
  */
 export default async function V2CleanerLostFoundPage() {
   await ensureCleanerModuleAccess("lostFound");
@@ -43,7 +44,7 @@ export default async function V2CleanerLostFoundPage() {
         title="Lost & found"
         description="Log items found on a job so the office can reunite them with guests."
       />
-      <CleanerLostFoundPage jobs={jobOptions} />
+      <LostFoundForm jobs={jobOptions} />
     </div>
   );
 }

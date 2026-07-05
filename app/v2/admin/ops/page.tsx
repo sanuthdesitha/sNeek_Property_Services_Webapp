@@ -7,9 +7,8 @@ import { db } from "@/lib/db";
 import { buildDailyRoutePlan } from "@/lib/ops/dispatch";
 import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
-import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
-import { LiveCleanerLayer } from "@/components/admin/live-cleaner-layer";
-import { OpsLiveMap } from "@/components/admin/ops-live-map";
+import { LiveCleaners } from "@/components/v2/admin/ops/live-cleaners";
+import { ContinuationDecisions } from "@/components/v2/admin/ops/continuation-decisions";
 import {
   EBadge,
   EButton,
@@ -21,14 +20,24 @@ import {
   EPageHeader,
   EStatCard,
 } from "@/components/v2/ui/primitives";
+import { EClassicLink } from "@/components/v2/admin/estate-kit";
 import {
   AlertTriangle,
+  Bell,
   ClipboardList,
   MapPinned,
   Route,
   ShieldAlert,
   Shirt,
 } from "lucide-react";
+
+type AttentionItem = Awaited<ReturnType<typeof getAdminImmediateAttention>>[number];
+
+function attentionTone(tone: AttentionItem["tone"]): Tone {
+  if (tone === "critical") return "danger";
+  if (tone === "warning") return "warning";
+  return "info";
+}
 
 export const metadata = { title: "Operations · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -190,26 +199,19 @@ export default async function V2AdminOpsPage() {
     : [];
   const continuationJobMap = new Map(continuationJobs.map((job) => [job.id, job]));
 
-  // Geocoded properties for the visual ops map. Plan D backfilled lat/lng on
-  // Property; properties without coords just won't appear as markers.
-  const geocodedProperties = await db.property
-    .findMany({
-      where: {
-        isActive: true,
-        latitude: { not: null },
-        longitude: { not: null },
-      },
-      select: { id: true, name: true, latitude: true, longitude: true },
-    })
-    .catch(() => []);
-  const opsMapProperties = geocodedProperties
-    .filter((p) => p.latitude != null && p.longitude != null)
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      lat: p.latitude as number,
-      lng: p.longitude as number,
-    }));
+  // Flatten continuation requests for the Estate inline approve/decline list.
+  const continuationRows = continuationRequests.map((request) => {
+    const job = continuationJobMap.get(request.jobId);
+    return {
+      id: request.id,
+      jobId: request.jobId,
+      reason: request.reason ?? "",
+      requestedAt: new Date(request.requestedAt).toISOString(),
+      jobNumber: job?.jobNumber ?? null,
+      propertyName: job?.property?.name ?? null,
+      suburb: job?.property?.suburb ?? null,
+    };
+  });
 
   const stopCount = routePlan.reduce((sum, route) => sum + route.stops.length, 0);
 
@@ -290,23 +292,14 @@ export default async function V2AdminOpsPage() {
                 <EBadge tone="warning" soft>Unassigned</EBadge>
               </Link>
             ))}
-            {continuationRequests.slice(0, 6).map((request) => {
-              const job = continuationJobMap.get(request.jobId);
-              return (
-                <Link key={request.id} href={`/v2/admin/jobs/${request.jobId}`} className={rowCls}>
-                  <div className="min-w-0">
-                    <p className="text-[0.8125rem] font-[550]">{job?.property.name ?? "Continuation request"}</p>
-                    <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {job?.property.suburb ? `${job.property.suburb} · ` : ""}
-                      {job?.jobNumber ? `#${job.jobNumber} · ` : ""}
-                      Requested {format(new Date(request.requestedAt), "dd MMM HH:mm")}
-                    </p>
-                    {request.reason ? <p className="mt-1 text-[0.75rem]">{request.reason}</p> : null}
-                  </div>
-                  <EBadge tone="danger" soft>Pending</EBadge>
-                </Link>
-              );
-            })}
+            {continuationRows.length > 0 ? (
+              <div className="space-y-2 pt-1">
+                <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--e-gold-ink))]">
+                  Continuation requests
+                </p>
+                <ContinuationDecisions requests={continuationRows} />
+              </div>
+            ) : null}
             {noBlockers ? (
               <EEmptyState eyebrow="All clear" title="No dispatch blockers" description="Nothing needs allocation right now." />
             ) : null}
@@ -436,34 +429,66 @@ export default async function V2AdminOpsPage() {
         </ECard>
       </div>
 
-      <LiveCleanerLayer />
+      {/* Live cleaners — Estate list off the same live-locations feed. The full
+          Google-Maps view stays classic at /admin/ops/map. */}
+      <LiveCleaners mapDate={selectedDate} />
 
-      {/* Live map — same OpsLiveMap client component as the legacy console */}
+      <div className="flex items-center justify-end">
+        <EClassicLink href={`/admin/ops/map?date=${selectedDate}`}>Open the classic live map</EClassicLink>
+      </div>
+
+      {/* Immediate attention — rendered Estate-style inline. */}
       <ECard>
-        <ECardHeader className="flex-row items-center justify-between">
-          <div>
-            <ECardTitle>Live ops map</ECardTitle>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Real-time positions for every active cleaner overlaid on every geocoded property.
-              Properties without a geocoded address won&apos;t appear — run the geocode backfill
-              script to populate them.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <EButton asChild variant="outline" size="sm"><Link href={`/admin/jobs/route-map?date=${selectedDate}`}><Route className="h-3.5 w-3.5" /> Route map</Link></EButton>
-            <EButton asChild variant="primary" size="sm"><Link href={`/admin/ops/map?date=${selectedDate}`}><MapPinned className="h-3.5 w-3.5" /> Full live map</Link></EButton>
-          </div>
+        <ECardHeader>
+          <ECardTitle className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" aria-hidden />
+            Immediate attention
+          </ECardTitle>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Critical approvals, dispatch blockers, and unresolved operational items.
+          </p>
         </ECardHeader>
-        <ECardBody className="pt-0">
-          <OpsLiveMap initialProperties={opsMapProperties} />
+        <ECardBody className="space-y-3 pt-0">
+          {urgentItems.filter((item) => Number(item.count) > 0).length === 0 ? (
+            <p className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] px-3 py-6 text-center text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+              No urgent actions right now.
+            </p>
+          ) : (
+            urgentItems
+              .filter((item) => Number(item.count) > 0)
+              .map((item: AttentionItem) => {
+                const tone = attentionTone(item.tone);
+                const inner = (
+                  <>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[0.8125rem] font-[550]">{item.title}</p>
+                        <EBadge tone={tone} soft>{item.count}</EBadge>
+                      </div>
+                      <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        {item.description}
+                      </p>
+                    </div>
+                    {item.href ? (
+                      <span className="shrink-0 text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))]">
+                        {item.actionLabel ?? "Review"}
+                      </span>
+                    ) : null}
+                  </>
+                );
+                return item.href ? (
+                  <Link key={item.id} href={item.href} className={rowCls}>
+                    {inner}
+                  </Link>
+                ) : (
+                  <div key={item.id} className={rowCls}>
+                    {inner}
+                  </div>
+                );
+              })
+          )}
         </ECardBody>
       </ECard>
-
-      <ImmediateAttentionPanel
-        title="Immediate Attention"
-        description="Critical approvals, dispatch blockers, and unresolved operational items."
-        items={urgentItems}
-      />
     </div>
   );
 }

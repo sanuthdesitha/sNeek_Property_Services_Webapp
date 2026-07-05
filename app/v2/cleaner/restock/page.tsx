@@ -1,15 +1,15 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { CleanerRestockClient } from "@/components/cleaner/restock-client";
+import { RestockPanel } from "@/components/v2/cleaner/restock-panel";
 
 export const metadata = { title: "Restock · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
 /**
- * Estate wrapper for the cleaner restock workspace. Same auth as the legacy
- * `app/cleaner/restock` route. The mounted `CleanerRestockClient` owns its live
- * restock request data + submit mutations via its own endpoints.
+ * Estate cleaner restock workspace. Same auth as the legacy
+ * `app/cleaner/restock` route. The mounted Estate-native `RestockPanel` owns its
+ * live restock data + submit mutations against /api/cleaner/inventory/restock.
  */
 export default async function V2CleanerRestockPage() {
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
@@ -18,9 +18,9 @@ export default async function V2CleanerRestockPage() {
       <EPageHeader
         eyebrow="Inventory"
         title="Restock"
-        description="Flag what needs replenishing so the office can top up unit supplies."
+        description="Topped up supplies at a property? Record what you added so on-hand counts stay accurate."
       />
-      <CleanerRestockClient />
+      <RestockPanel />
     </div>
   );
 }

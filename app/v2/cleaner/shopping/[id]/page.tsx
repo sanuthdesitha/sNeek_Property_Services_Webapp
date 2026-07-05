@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
-import { ShoppingRunWorkspace } from "@/components/inventory/shopping-run-workspace";
+import { ShoppingRunWorkspace } from "@/components/v2/cleaner/shopping-run-workspace";
 
 export const metadata = { title: "Shopping run · Estate cleaner" };
 export const dynamic = "force-dynamic";

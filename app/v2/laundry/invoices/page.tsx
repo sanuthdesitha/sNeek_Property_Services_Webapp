@@ -1,13 +1,13 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { LaundryInvoicesPage } from "@/components/laundry/invoices-page";
+import { InvoicesPanel } from "@/components/v2/laundry/invoices-panel";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Invoices · Estate laundry" };
 export const dynamic = "force-dynamic";
 
-// Mirrors app/laundry/invoices: same property query, reuses LaundryInvoicesPage.
+// Mirrors app/laundry/invoices: same property query + endpoints, Estate-native.
 export default async function LaundryInvoicesRoutePage() {
   await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
 
@@ -27,7 +27,7 @@ export default async function LaundryInvoicesRoutePage() {
         title="Invoices"
         description="Generate and review laundry invoices by property."
       />
-      <LaundryInvoicesPage properties={properties} />
+      <InvoicesPanel properties={properties} />
     </div>
   );
 }

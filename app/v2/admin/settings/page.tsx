@@ -1,45 +1,51 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { db } from "@/lib/db";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { EChipTabs } from "@/components/v2/admin/estate-kit";
 import { getAppSettings } from "@/lib/settings";
-import { SettingsWorkspace } from "@/components/admin/settings-workspace";
+import {
+  Building2,
+  Plug,
+  CalendarCheck,
+  CreditCard,
+  FileSpreadsheet,
+  BellRing,
+} from "lucide-react";
+import { CompanySection } from "@/components/v2/admin/settings/company-section";
+import { IntegrationsSection } from "@/components/v2/admin/settings/integrations-section";
+import { IcalSection } from "@/components/v2/admin/settings/ical-section";
+import { GatewaysSection } from "@/components/v2/admin/settings/gateways-section";
+import { XeroSection } from "@/components/v2/admin/settings/xero-section";
+import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
+
+type TabKey =
+  | "company"
+  | "integrations"
+  | "ical-sync"
+  | "payment-gateways"
+  | "xero"
+  | "finance-notifications";
+
+const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly: boolean }> = [
+  { key: "company", label: "Company & brand", icon: <Building2 className="h-4 w-4" />, adminOnly: false },
+  { key: "integrations", label: "Integrations", icon: <Plug className="h-4 w-4" />, adminOnly: true },
+  { key: "ical-sync", label: "iCal sync", icon: <CalendarCheck className="h-4 w-4" />, adminOnly: true },
+  { key: "payment-gateways", label: "Payment gateways", icon: <CreditCard className="h-4 w-4" />, adminOnly: true },
+  { key: "xero", label: "Xero", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true },
+  { key: "finance-notifications", label: "Finance notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
+];
 
 export default async function SettingsPage({ searchParams }: { searchParams: { tab?: string } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const isAdmin = session.user.role === Role.ADMIN;
   const appSettings = await getAppSettings();
-  const cleaners = await db.user.findMany({
-    where: { role: Role.CLEANER, isActive: true },
-    select: { id: true, name: true, email: true },
-    orderBy: [{ name: "asc" }, { email: "asc" }],
-  });
 
-  const emailConfigured = Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
-  const twilioConfigured = Boolean(
-    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER
-  );
-  const cellcastConfigured = Boolean(process.env.CELLCAST_APPKEY);
-  const activeSmsProviderConfigured =
-    appSettings.smsProvider === "none"
-      ? true
-      : appSettings.smsProvider === "twilio"
-        ? twilioConfigured
-        : cellcastConfigured;
-  const configuredAppUrl =
-    process.env.APP_BASE_URL?.trim() ||
-    process.env.APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    "";
-
-  const permissionRows = (Object.keys(PERMISSIONS) as Array<keyof typeof PERMISSIONS>).map((permission) => ({
-    permission,
-    roles: Array.from(PERMISSIONS[permission]),
-  }));
+  const availableTabs = ALL_TABS.filter((t) => isAdmin || !t.adminOnly);
+  const requested = availableTabs.find((t) => t.key === searchParams.tab)?.key;
+  const activeTab: TabKey = requested ?? availableTabs[0]!.key;
 
   return (
     <div className="space-y-6">
@@ -49,19 +55,36 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
         description="Grouped operational settings with integrations and API credentials."
       />
 
-      <SettingsWorkspace
-        appSettings={appSettings}
-        cleaners={cleaners}
-        isAdmin={isAdmin}
-        sessionEmail={session.user.email ?? ""}
-        emailConfigured={emailConfigured}
-        twilioConfigured={twilioConfigured}
-        cellcastConfigured={cellcastConfigured}
-        activeSmsProviderConfigured={activeSmsProviderConfigured}
-        configuredAppUrl={configuredAppUrl}
-        permissionRows={permissionRows}
-        defaultTab={searchParams.tab}
+      <EChipTabs
+        tabs={availableTabs.map((t) => ({
+          key: t.key,
+          label: t.label,
+          icon: t.icon,
+          href: `/v2/admin/settings?tab=${t.key}`,
+          active: t.key === activeTab,
+        }))}
       />
+
+      {activeTab === "company" ? (
+        <CompanySection
+          initial={{
+            companyName: appSettings.companyName,
+            projectName: appSettings.projectName,
+            logoUrl: appSettings.logoUrl,
+            reportLogoUrl: appSettings.reportLogoUrl,
+            accountsEmail: appSettings.accountsEmail,
+            timezone: appSettings.timezone,
+            gstEnabled: appSettings.pricing.gstEnabled,
+          }}
+          readOnly={!isAdmin}
+        />
+      ) : null}
+
+      {activeTab === "integrations" && isAdmin ? <IntegrationsSection /> : null}
+      {activeTab === "ical-sync" && isAdmin ? <IcalSection /> : null}
+      {activeTab === "payment-gateways" && isAdmin ? <GatewaysSection /> : null}
+      {activeTab === "xero" && isAdmin ? <XeroSection /> : null}
+      {activeTab === "finance-notifications" && isAdmin ? <FinanceNotificationsSection /> : null}
     </div>
   );
 }

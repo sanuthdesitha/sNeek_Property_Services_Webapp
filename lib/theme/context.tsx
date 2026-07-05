@@ -58,6 +58,7 @@ export function ThemeProvider({
       pathname.startsWith("/client") ||
       pathname.startsWith("/laundry") ||
       pathname.startsWith("/qa") ||
+      pathname.startsWith("/v2") ||
       pathname.startsWith("/dev");
 
     if (isPortalPath) {

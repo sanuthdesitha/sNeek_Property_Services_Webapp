@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { ClientApprovalsClient } from "@/components/client/approvals-client";
+import { ClientApprovalsBoard } from "@/components/v2/client/approvals-board";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Approvals · Estate client" };
@@ -18,7 +18,7 @@ export default async function ClientApprovalsPage() {
         title="Approvals"
         description="Review and approve optional extras before any work is billed to your account."
       />
-      <ClientApprovalsClient />
+      <ClientApprovalsBoard />
     </div>
   );
 }

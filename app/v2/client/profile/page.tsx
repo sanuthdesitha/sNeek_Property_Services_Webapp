@@ -4,11 +4,8 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { authOptions } from "@/lib/auth/auth-options";
-import { ClientProfileForm } from "@/components/client/client-profile-form";
-import { DisplayPreferencesSection } from "@/components/profile/display-preferences-section";
-import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
-import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { EPageHeader } from "@/components/v2/ui/primitives";
+import { ProfileSettings } from "@/components/v2/client/profile/profile-settings";
 
 export const metadata = { title: "Profile · Estate client" };
 export const dynamic = "force-dynamic";
@@ -27,8 +24,6 @@ export default async function ClientProfilePage() {
         email: true,
         phone: true,
         clientId: true,
-        uiDensity: true,
-        themePreference: true,
         invoicingCadence: true,
         invoiceDayOfWeek: true,
         invoiceDayOfMonth: true,
@@ -36,9 +31,6 @@ export default async function ClientProfilePage() {
         suburb: true,
         state: true,
         postcode: true,
-        latitude: true,
-        longitude: true,
-        placeId: true,
         profileEditingEnabled: true,
       } as any,
     })
@@ -75,11 +67,11 @@ export default async function ClientProfilePage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <EPageHeader
         eyebrow="Account"
-        title="Your profile"
-        description="Manage your contact details, billing, and how we reach you."
+        title="Profile & security"
+        description="Manage your contact details, billing, security, and how we reach you."
       />
 
-      <ClientProfileForm
+      <ProfileSettings
         editingEnabled={editingEnabled}
         user={{
           id: user.id,
@@ -90,25 +82,14 @@ export default async function ClientProfilePage() {
           suburb: user.suburb,
           state: user.state,
           postcode: user.postcode,
-          latitude: user.latitude,
-          longitude: user.longitude,
-          placeId: user.placeId,
         }}
         comms={comms}
-        properties={properties}
-      />
-
-      <TwoFactorSettings />
-
-      <BillingPreferencesSection
-        initialCadence={user.invoicingCadence ?? undefined}
-        initialDayOfWeek={user.invoiceDayOfWeek ?? null}
-        initialDayOfMonth={user.invoiceDayOfMonth ?? null}
-      />
-
-      <DisplayPreferencesSection
-        initialDensity={user.uiDensity ?? undefined}
-        initialTheme={user.themePreference ?? undefined}
+        properties={properties as { id: string; name: string; address: string; suburb: string }[]}
+        billing={{
+          cadence: (user.invoicingCadence ?? "ON_COMPLETION") as any,
+          dayOfWeek: user.invoiceDayOfWeek ?? null,
+          dayOfMonth: user.invoiceDayOfMonth ?? null,
+        }}
       />
     </div>
   );

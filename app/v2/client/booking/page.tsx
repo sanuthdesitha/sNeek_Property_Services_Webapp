@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { listClientPropertiesForUser } from "@/lib/client/portal-data";
-import { BookingWizard } from "@/components/client/booking-wizard";
+import { EstateBookingFlow } from "@/components/v2/client/booking-flow";
 import { EButton, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Book a clean · Estate client" };
@@ -32,7 +32,7 @@ export default async function ClientBookingPage() {
           description="Once a property is linked to your account you can request a clean here."
         />
       ) : (
-        <BookingWizard properties={properties} />
+        <EstateBookingFlow properties={properties} />
       )}
     </div>
   );

@@ -3,12 +3,17 @@ import { requireRole } from "@/lib/auth/session";
 import { JobStatus, Role } from "@prisma/client";
 import Link from "next/link";
 import { Plus, Users, UserCheck, Building2, Wallet } from "lucide-react";
-import { UsersManager } from "@/components/admin/users-manager";
-import { type AccountsTabKey } from "@/components/accounts/accounts-tab-nav";
-import { ClientsHubList, type ClientHubRow } from "@/components/accounts/clients-hub-list";
-import { BirthdaysCard } from "@/components/accounts/birthdays-card";
 import { getAccountsOverview } from "@/lib/accounts/overview";
-import { EstateAccountsTabNav } from "@/components/v2/admin/accounts-tab-nav";
+import {
+  EstateAccountsTabNav,
+  type EstateAccountsTabKey,
+} from "@/components/v2/admin/accounts-tab-nav";
+import { EstateStaffManager } from "@/components/v2/admin/accounts/staff-manager";
+import {
+  EstateClientsList,
+  type EstateClientRow,
+} from "@/components/v2/admin/accounts/clients-list";
+import { EstateBirthdaysCard } from "@/components/v2/admin/accounts/birthdays-card";
 import { EButton, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Accounts · Estate admin" };
@@ -32,13 +37,13 @@ const fmtMoney = new Intl.NumberFormat("en-AU", {
   maximumFractionDigits: 0,
 });
 
-const TAB_KEYS: AccountsTabKey[] = ["staff", "clients"];
+const TAB_KEYS: EstateAccountsTabKey[] = ["staff", "clients"];
 
-function normalizeTab(value: string | undefined): AccountsTabKey {
-  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as AccountsTabKey) : "staff";
+function normalizeTab(value: string | undefined): EstateAccountsTabKey {
+  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as EstateAccountsTabKey) : "staff";
 }
 
-async function getClientRows(): Promise<ClientHubRow[]> {
+async function getClientRows(): Promise<EstateClientRow[]> {
   const clients = await db.client.findMany({
     where: { isActive: true },
     include: { _count: { select: { properties: true } } },
@@ -96,7 +101,7 @@ export default async function EstateAccountsPage({
 
   const [overview, clientRows] = await Promise.all([
     getAccountsOverview(30),
-    tab === "clients" ? getClientRows() : Promise.resolve<ClientHubRow[]>([]),
+    tab === "clients" ? getClientRows() : Promise.resolve<EstateClientRow[]>([]),
   ]);
 
   return (
@@ -132,14 +137,22 @@ export default async function EstateAccountsPage({
       {tab === "staff" ? (
         <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
           <div className="min-w-0">
-            <UsersManager canManage={session.user.role === Role.ADMIN} embedded />
+            <EstateStaffManager canManage={session.user.role === Role.ADMIN} />
           </div>
           <div className="space-y-6">
-            <BirthdaysCard birthdays={overview.upcomingBirthdays} />
+            <EstateBirthdaysCard
+              birthdays={overview.upcomingBirthdays.map((b) => ({
+                id: b.id,
+                name: b.name,
+                nextBirthday: b.nextBirthday.toISOString(),
+                daysUntil: b.daysUntil,
+                turningAge: b.turningAge,
+              }))}
+            />
           </div>
         </div>
       ) : (
-        <ClientsHubList clients={clientRows} />
+        <EstateClientsList clients={clientRows} />
       )}
     </div>
   );

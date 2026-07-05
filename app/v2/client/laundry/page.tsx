@@ -4,7 +4,8 @@ import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientLaundryForUser } from "@/lib/client/portal-data";
 import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { ClientLaundryWorkspace } from "@/components/client/client-laundry-workspace";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { LaundryWorkspace } from "@/components/v2/client/laundry/laundry-workspace";
 
 export const metadata = { title: "Laundry · Estate client" };
 export const dynamic = "force-dynamic";
@@ -17,9 +18,13 @@ export default async function ClientLaundryPage() {
   const tasks = await listClientLaundryForUser(session.user.id).catch(() => []);
 
   return (
-    <ClientLaundryWorkspace
-      tasks={tasks}
-      showLaundryImages={portal?.visibility.showLaundryImages ?? false}
-    />
+    <div className="space-y-6">
+      <EPageHeader
+        eyebrow="Your homes"
+        title="Laundry"
+        description="Read-only laundry schedule and timeline for your properties, with today's linked cleaning jobs pinned first."
+      />
+      <LaundryWorkspace tasks={tasks} showLaundryImages={portal?.visibility.showLaundryImages ?? false} />
+    </div>
   );
 }

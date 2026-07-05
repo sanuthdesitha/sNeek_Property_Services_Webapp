@@ -1,11 +1,10 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-// The legacy approvals page is a self-contained "use client" workspace — all
-// queues (continuations, timing, pay requests via PayRequestsWorkspace, clock
-// adjustments via ClockAdjustmentsWorkspace, client approvals, flagged
-// laundry, reschedules, QA reworks, skip requests) with every approve /
-// decline / send-to-client mutation. Mount it directly; never fork it.
-import ApprovalsWorkspace from "@/app/admin/approvals/page";
+// Estate-native approval centre: one /api/admin/all-approvals fetch feeds all
+// nine queues (continuations, timing, pay requests, clock adjustments, client
+// approvals, flagged laundry, reschedules, QA reworks, skip requests) with
+// native Approve/Decline wired to the same v1 mutation endpoints.
+import { ApprovalsWorkspace } from "@/components/v2/admin/approvals/approvals-workspace";
 
 export const metadata = { title: "Approvals · Estate admin" };
 export const dynamic = "force-dynamic";

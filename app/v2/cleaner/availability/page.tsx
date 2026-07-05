@@ -1,16 +1,16 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { CleanerAvailabilityPage } from "@/components/cleaner/availability-page";
+import { AvailabilityEditor } from "@/components/v2/cleaner/availability-editor";
 
 export const metadata = { title: "Availability · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
 /**
- * Estate wrapper for the live cleaner availability workspace. Auth + data source
- * are identical to the legacy `app/cleaner/availability` route: the mounted
- * `CleanerAvailabilityPage` client component owns its own fetches/mutations
- * (weekly hours + time-off), scoped to the session cleaner by its endpoints.
+ * Estate cleaner availability workspace. Auth + data source are identical to the
+ * legacy `app/cleaner/availability` route: the mounted Estate-native
+ * `AvailabilityEditor` owns its own fetches/mutations (weekly hours + time-off)
+ * against GET/PATCH /api/cleaner/availability, scoped to the session cleaner.
  */
 export default async function V2CleanerAvailabilityPage() {
   await requireRole([Role.CLEANER]);
@@ -21,7 +21,7 @@ export default async function V2CleanerAvailabilityPage() {
         title="Availability"
         description="Set the hours you're free to work and log any time off."
       />
-      <CleanerAvailabilityPage />
+      <AvailabilityEditor />
     </div>
   );
 }

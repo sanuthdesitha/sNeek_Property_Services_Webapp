@@ -4,7 +4,7 @@ import { toZonedTime } from "date-fns-tz";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { CleanerPayRequestsPage } from "@/components/cleaner/pay-requests-page";
+import { PayRequestsPanel } from "@/components/v2/cleaner/pay-requests-panel";
 
 export const metadata = { title: "Pay requests · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ export default async function CleanerPayRequestsRoutePage() {
         title="Extra pay requests"
         description="Submit job-linked, property, or standalone extra payment requests with evidence."
       />
-      <CleanerPayRequestsPage jobs={jobOptions} properties={propertyOptions} />
+      <PayRequestsPanel jobs={jobOptions} properties={propertyOptions} />
     </div>
   );
 }
