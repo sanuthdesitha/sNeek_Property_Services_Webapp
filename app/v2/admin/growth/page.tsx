@@ -6,7 +6,7 @@ export const metadata = { title: "Growth · Estate admin" };
 
 const AREAS = [
   { label: "Marketing", desc: "Campaigns, social, asset library", icon: Megaphone, href: "/v2/admin/marketing" },
-  { label: "Website CMS", desc: "Editor, blog, live preview", icon: Globe, href: "/admin/website" },
+  { label: "Website CMS", desc: "Editor, blog, live preview", icon: Globe, href: "/v2/admin/website" },
   { label: "Comms center", desc: "Notification defaults, send log, delivery", icon: Send, href: "/v2/admin/notifications" },
   { label: "Messages", desc: "Conversations, compose, templates", icon: MessageSquare, href: "/v2/admin/messages" },
 ];
