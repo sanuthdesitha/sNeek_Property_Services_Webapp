@@ -1,12 +1,13 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { StaffWorkforceHub } from "@/components/workforce/staff-workforce-hub";
 import { EPageHeader } from "@/components/v2/ui/primitives";
+import { LaundryTeamHub } from "@/components/v2/laundry/laundry-team-hub";
 
 export const metadata = { title: "Team hub · Estate laundry" };
 export const dynamic = "force-dynamic";
 
-// Mirrors app/laundry/hub: reuses the exact StaffWorkforceHub client component.
+// Native Estate team hub — feed / recognition / leaderboards over the SAME
+// /api/me/workforce endpoint the v1 hub uses. No v1 workforce / UI imports.
 export default async function LaundryHubPage() {
   await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
 
@@ -15,9 +16,9 @@ export default async function LaundryHubPage() {
       <EPageHeader
         eyebrow="Workforce"
         title="Team hub"
-        description="Shifts, availability and the laundry roster for the week."
+        description="Announcements, recognition and leaderboards for the Estate team."
       />
-      <StaffWorkforceHub title="Laundry Team Hub" />
+      <LaundryTeamHub />
     </div>
   );
 }
