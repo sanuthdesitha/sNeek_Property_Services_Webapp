@@ -49,7 +49,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Templates", desc: "Email, notification & message designer", icon: FileText, href: "/v2/admin/templates" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },
       { label: "My profile", desc: "Your account, security & 2FA", icon: UserCircle, href: "/v2/admin/profile" },
-      { label: "Diagnostics", desc: "Email, uploads, health checks", icon: ShieldCheck, href: "/admin/system" },
+      { label: "Diagnostics", desc: "Process, DB, email & upload health", icon: ShieldCheck, href: "/v2/admin/diagnostics" },
     ],
   },
 ];
