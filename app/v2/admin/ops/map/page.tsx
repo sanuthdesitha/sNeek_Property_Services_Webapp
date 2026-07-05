@@ -258,7 +258,7 @@ export default async function V2OpsMapPage({
             <Link href="/v2/admin/jobs?status=WAITING_CONTINUATION_APPROVAL">Continuation approvals</Link>
           </EButton>
           <EButton asChild size="sm" variant="outline">
-            <Link href="/admin/cases">
+            <Link href="/v2/admin/cases">
               <ShieldAlert className="h-4 w-4" />
               Open cases
             </Link>

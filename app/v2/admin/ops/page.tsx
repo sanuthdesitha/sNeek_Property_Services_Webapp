@@ -356,7 +356,7 @@ export default async function V2AdminOpsPage() {
           </ECardHeader>
           <ECardBody className="space-y-3 pt-0">
             {newLeads.map((lead) => (
-              <Link key={lead.id} href="/admin/quotes" className="block rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-3 transition-colors hover:bg-[hsl(var(--e-muted))]">
+              <Link key={lead.id} href="/v2/admin/quotes" className="block rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-3 transition-colors hover:bg-[hsl(var(--e-muted))]">
                 <p className="text-[0.8125rem] font-[550]">{lead.name}</p>
                 <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   {lead.email} · {lead.suburb || "Area not set"} · {lead.serviceType.replace(/_/g, " ")}
@@ -409,7 +409,7 @@ export default async function V2AdminOpsPage() {
           </ECardHeader>
           <ECardBody className="space-y-3 pt-0">
             {expiringDocs.map((doc) => (
-              <Link key={doc.id} href="/admin/workforce" className={rowCls}>
+              <Link key={doc.id} href="/v2/admin/accounts" className={rowCls}>
                 <div className="min-w-0">
                   <p className="text-[0.8125rem] font-[550]">{doc.title}</p>
                   <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

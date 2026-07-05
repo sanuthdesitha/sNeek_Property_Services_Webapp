@@ -32,7 +32,7 @@ export default async function ClientJobsPage() {
         actions={
           <>
             <EButton asChild variant="outline" size="sm"><Link href="/v2/client/calendar">Calendar</Link></EButton>
-            <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+            <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
           </>
         }
       />
@@ -43,7 +43,7 @@ export default async function ClientJobsPage() {
           title="No jobs on record"
           description="Scheduled services across your properties will appear here."
           action={
-            <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+            <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
           }
         />
       ) : (

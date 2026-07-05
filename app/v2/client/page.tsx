@@ -120,7 +120,7 @@ export default async function ClientHomePage() {
                   <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+                  <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
                   <EButton asChild variant="outline" size="sm"><Link href="/v2/client/services">View services</Link></EButton>
                   <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
@@ -133,7 +133,7 @@ export default async function ClientHomePage() {
                   No active services scheduled right now.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <EButton asChild variant="gold" size="sm"><Link href="/client/booking">Book a clean</Link></EButton>
+                  <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
                   <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
                     </Link></EButton>
