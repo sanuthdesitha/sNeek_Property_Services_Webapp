@@ -15,9 +15,15 @@ import {
   Pin,
   Sparkles,
   RefreshCw,
+  MessageCircle,
+  GraduationCap,
+  FileCheck2,
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { EChip } from "@/components/v2/cleaner/fields";
+import { ChatPanel } from "@/components/v2/cleaner/hub/chat-panel";
+import { LearningPanel } from "@/components/v2/cleaner/hub/learning-panel";
+import { DocumentsPanel } from "@/components/v2/cleaner/hub/documents-panel";
 
 interface Post {
   id: string;
@@ -62,8 +68,10 @@ function titleCase(v: string) {
   return v.toLowerCase().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+type HubTab = "feed" | "chat" | "learning" | "documents" | "recognition" | "leaderboard";
+
 export function TeamHub() {
-  const [tab, setTab] = React.useState<"feed" | "recognition" | "leaderboard">("feed");
+  const [tab, setTab] = React.useState<HubTab>("feed");
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<any>(null);
@@ -82,6 +90,33 @@ export function TeamHub() {
       setLoading(false);
     }
   }, []);
+
+  /**
+   * Shared workforce action helper — every DM/learning/document mutation posts to
+   * the SAME endpoint the v1 hub uses: `POST /api/me/workforce` with an `action`
+   * field (OPEN_DIRECT_CHAT / START_LEARNING / SAVE_LEARNING_PROGRESS /
+   * SUBMIT_LEARNING / RESTART_LEARNING / SIGN_DOCUMENT). Returns the JSON body.
+   */
+  const runAction = React.useCallback(async (payload: Record<string, unknown>) => {
+    const res = await fetch("/api/me/workforce", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || "Action failed.");
+    return json;
+  }, []);
+
+  const openDirectChat = React.useCallback(
+    async (otherUserId: string): Promise<string | null> => {
+      const body = await runAction({ action: "OPEN_DIRECT_CHAT", otherUserId });
+      const id = body?.result?.id ?? null;
+      await load();
+      return id;
+    },
+    [runAction, load]
+  );
 
   React.useEffect(() => {
     void load();
@@ -124,6 +159,15 @@ export function TeamHub() {
         <EChip active={tab === "feed"} onClick={() => setTab("feed")}>
           <span className="inline-flex items-center gap-1.5"><Megaphone className="h-3.5 w-3.5" /> Feed</span>
         </EChip>
+        <EChip active={tab === "chat"} onClick={() => setTab("chat")}>
+          <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> Chat</span>
+        </EChip>
+        <EChip active={tab === "learning"} onClick={() => setTab("learning")}>
+          <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5" /> Learning</span>
+        </EChip>
+        <EChip active={tab === "documents"} onClick={() => setTab("documents")}>
+          <span className="inline-flex items-center gap-1.5"><FileCheck2 className="h-3.5 w-3.5" /> Documents</span>
+        </EChip>
         <EChip active={tab === "recognition"} onClick={() => setTab("recognition")}>
           <span className="inline-flex items-center gap-1.5"><Award className="h-3.5 w-3.5" /> Recognition</span>
         </EChip>
@@ -160,6 +204,32 @@ export function TeamHub() {
             ))}
           </div>
         )
+      ) : null}
+
+      {tab === "chat" ? (
+        <ChatPanel
+          channels={Array.isArray(data?.channels) ? data.channels : []}
+          directory={Array.isArray(data?.directory) ? data.directory : []}
+          myUserId={data?.me?.id ?? null}
+          onOpenDirectChat={openDirectChat}
+        />
+      ) : null}
+
+      {tab === "learning" ? (
+        <LearningPanel
+          assignments={Array.isArray(data?.assignments) ? data.assignments : []}
+          runAction={runAction}
+          reload={load}
+        />
+      ) : null}
+
+      {tab === "documents" ? (
+        <DocumentsPanel
+          documents={Array.isArray(data?.documents) ? data.documents : []}
+          documentRequests={Array.isArray(data?.documentRequests) ? data.documentRequests : []}
+          runAction={runAction}
+          reload={load}
+        />
       ) : null}
 
       {tab === "recognition" ? (
