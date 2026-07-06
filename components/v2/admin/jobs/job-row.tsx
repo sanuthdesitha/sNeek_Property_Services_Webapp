@@ -8,7 +8,7 @@
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { UserRound, UserRoundPlus } from "lucide-react";
+import { Settings2, UserRound, UserRoundPlus } from "lucide-react";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 
 const TZ = "Australia/Sydney";
@@ -129,10 +129,11 @@ type RowProps = {
   selected: boolean;
   onToggleSelect: (jobId: string) => void;
   onQuickAssign: (job: any) => void;
+  onManage?: (job: any) => void;
 };
 
 /** List row: property (serif) · client · cleaner · time · status · money. */
-export function EJobRow({ job, selected, onToggleSelect, onQuickAssign }: RowProps) {
+export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage }: RowProps) {
   const router = useRouter();
   const cleaners = assignmentNames(job);
   const clientName = job?.property?.client?.name ?? job?.client?.name ?? "—";
@@ -214,6 +215,18 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign }: RowPro
             Assign
           </EButton>
         ) : null}
+        {onManage ? (
+          <EButton
+            size="sm"
+            variant="ghost"
+            aria-label={`Manage ${job?.property?.name ?? "job"}`}
+            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            onClick={() => onManage(job)}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Manage
+          </EButton>
+        ) : null}
         <EButton
           size="sm"
           variant="ghost"
@@ -228,7 +241,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign }: RowPro
 }
 
 /** Board card — compact ceremony of the same facts. */
-export function EBoardCard({ job, selected, onToggleSelect, onQuickAssign }: RowProps) {
+export function EBoardCard({ job, selected, onToggleSelect, onQuickAssign, onManage }: RowProps) {
   const router = useRouter();
   const cleaners = assignmentNames(job);
   const money = moneyLabel(job);
@@ -269,13 +282,18 @@ export function EBoardCard({ job, selected, onToggleSelect, onQuickAssign }: Row
           <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" />
           {cleaners.length > 0 ? cleaners.join(", ") : <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>}
         </p>
-        {status === "UNASSIGNED" && String(job?.cleanSkipStatus ?? "") !== "SKIPPED" ? (
-          <span onClick={(event) => event.stopPropagation()}>
+        <span className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+          {onManage ? (
+            <EButton size="sm" variant="ghost" aria-label={`Manage ${job?.property?.name ?? "job"}`} onClick={() => onManage(job)}>
+              <Settings2 className="h-3.5 w-3.5" />
+            </EButton>
+          ) : null}
+          {status === "UNASSIGNED" && String(job?.cleanSkipStatus ?? "") !== "SKIPPED" ? (
             <EButton size="sm" variant="outline-gold" onClick={() => onQuickAssign(job)}>
               Assign
             </EButton>
-          </span>
-        ) : null}
+          ) : null}
+        </span>
       </div>
     </div>
   );

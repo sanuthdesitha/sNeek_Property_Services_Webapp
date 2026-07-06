@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
 import { MaintenanceStatus, MaintenancePriority, MaintenanceAction, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -128,13 +129,16 @@ export default async function MaintenanceTodayPage() {
               return (
                 <div key={o.id}>
                   {i > 0 ? <EThread className="my-1" /> : null}
-                  <div className="flex items-center justify-between gap-2 py-1.5">
+                  <Link
+                    href={`/v2/maintenance/visits/${o.id}`}
+                    className="flex items-center justify-between gap-2 py-1.5 transition-opacity hover:opacity-80"
+                  >
                     <div className="min-w-0">
                       <p className="text-[0.875rem] font-medium">{o.title}</p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{name}{suburb ? `, ${suburb}` : ""}</p>
                     </div>
                     <EBadge tone={priorityTone(o.priority)} soft>{titleCase(o.priority)}</EBadge>
-                  </div>
+                  </Link>
                 </div>
               );
             })

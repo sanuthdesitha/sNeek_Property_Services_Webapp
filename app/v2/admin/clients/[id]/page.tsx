@@ -17,6 +17,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { ArrowLeft, Building2, FileText, Mail, Phone, Wallet } from "lucide-react";
 import { ClientAutomationRules } from "@/components/v2/admin/clients/client-automation-rules";
+import { ClientActions } from "@/components/v2/admin/clients/client-actions";
 
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -94,6 +95,9 @@ async function getClient(id: string) {
         phone: true,
         address: true,
         suburb: true,
+        state: true,
+        postcode: true,
+        notes: true,
         isActive: true,
         createdAt: true,
         properties: {
@@ -168,7 +172,25 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
         eyebrow="Client 360"
         title={client.name}
         description={client.suburb ? `Based in ${client.suburb}` : "Client record"}
-        actions={<EBadge tone={client.isActive ? "primary" : "neutral"} soft>{client.isActive ? "Active" : "Inactive"}</EBadge>}
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <EBadge tone={client.isActive ? "primary" : "neutral"} soft>{client.isActive ? "Active" : "Inactive"}</EBadge>
+            <ClientActions
+              client={{
+                id: client.id,
+                name: client.name,
+                email: client.email,
+                phone: client.phone,
+                address: client.address,
+                suburb: client.suburb,
+                state: client.state,
+                postcode: client.postcode,
+                notes: client.notes,
+                isActive: client.isActive,
+              }}
+            />
+          </div>
+        }
       />
 
       <section className="grid gap-4 sm:grid-cols-3">

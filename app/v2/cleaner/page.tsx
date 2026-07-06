@@ -13,8 +13,11 @@ import {
   EEmptyState,
   EStatCard,
 } from "@/components/v2/ui/primitives";
-import { CheckCircle2, ChevronRight, Clock, MapPin, BellRing } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Clock, MapPin, BellRing, Megaphone, Pin } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
+import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
+import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -97,6 +100,9 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
 
 export default async function CleanerTodayPage() {
   const session = await requireRole([Role.CLEANER]);
+  // Same safety net as the v1 dashboard: close out any clock left running
+  // overnight before computing today's numbers.
+  await autoClockOutStaleTimeLogsForUser(session.user.id).catch(() => {});
   const cleanerName =
     session.user.name?.trim()?.split(" ")[0] ||
     session.user.email?.split("@")[0] ||
@@ -106,8 +112,13 @@ export default async function CleanerTodayPage() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const nextWeek = new Date(todayStart.getTime() + 7 * 86_400_000);
 
-  const jobs = await getCleanerWeekJobs(session.user.id, todayStart, nextWeek);
+  const [jobs, urgentItems, teamPosts] = await Promise.all([
+    getCleanerWeekJobs(session.user.id, todayStart, nextWeek),
+    getCleanerImmediateAttention(session.user.id).catch(() => []),
+    getWorkforceDashboardPosts(session.user.id, 3).catch(() => []),
+  ]);
 
+  const visibleUrgent = urgentItems.filter((item) => Number(item.count) > 0);
   const offeredJobs = jobs.filter((j) => j.status === "OFFERED");
   const todayJobs = jobs.filter((j) => isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now));
   const laterToday = todayJobs.slice(1);
@@ -136,6 +147,50 @@ export default async function CleanerTodayPage() {
         <EStatCard label="This week" value={String(jobs.length)} />
         <EStatCard label="Next" value={nextJob?.startTime || "—"} />
       </section>
+
+      {/* Immediate attention — same feed the v1 dashboard surfaces (overdue
+          submissions, unconfirmed jobs, safety check-ins, …), rerouted to v2 */}
+      {visibleUrgent.length > 0 ? (
+        <section className="space-y-3">
+          <span className="e-eyebrow flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" /> NEEDS ATTENTION
+          </span>
+          {visibleUrgent.map((item) => {
+            const href = item.href ? item.href.replace(/^\/cleaner(?=\/|$)/, "/v2/cleaner") : null;
+            const tone: Tone =
+              item.tone === "critical" ? "danger" : item.tone === "warning" ? "warning" : "info";
+            return (
+              <ECard
+                key={item.id}
+                className={
+                  item.tone === "critical"
+                    ? "border-l-[3px] border-l-[hsl(var(--e-danger))]"
+                    : "border-l-[3px] border-l-[hsl(var(--e-warning))]"
+                }
+              >
+                <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 text-[0.875rem] font-[550]">
+                      {item.title}
+                      <EBadge tone={tone} soft>
+                        {item.count}
+                      </EBadge>
+                    </p>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{item.description}</p>
+                  </div>
+                  {href ? (
+                    <EButton asChild variant="outline" size="sm">
+                      <Link href={href}>
+                        {item.actionLabel || "Open"} <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </EButton>
+                  ) : null}
+                </ECardBody>
+              </ECard>
+            );
+          })}
+        </section>
+      ) : null}
 
       {/* Offered jobs — accept or decline before they land in the schedule */}
       {offeredJobs.length > 0 ? (
@@ -274,6 +329,44 @@ export default async function CleanerTodayPage() {
               </Link>
             );
           })}
+        </section>
+      ) : null}
+
+      {/* Team updates — the latest workforce posts, same feed as the v1 dashboard */}
+      {teamPosts.length > 0 ? (
+        <section className="space-y-3">
+          <span className="e-eyebrow flex items-center gap-1.5">
+            <Megaphone className="h-3.5 w-3.5" /> TEAM UPDATES
+          </span>
+          {teamPosts.map((post: any) => (
+            <ECard key={post.id} variant={post.pinned ? "ceremony" : "default"}>
+              <ECardBody className="space-y-2 pt-6">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    {post.pinned ? <Pin className="h-3.5 w-3.5 text-[hsl(var(--e-gold-ink))]" /> : null}
+                    <EBadge tone={post.type === "RECOGNITION" ? "gold" : "info"} soft>
+                      {titleCase(String(post.type || "UPDATE"))}
+                    </EBadge>
+                  </div>
+                  <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                    {format(toZonedTime(new Date(post.createdAt), TZ), "d MMM")}
+                  </span>
+                </div>
+                <p className="text-[0.9375rem] font-[550]">{post.title}</p>
+                <p className="line-clamp-3 whitespace-pre-wrap text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+                  {post.body}
+                </p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {post.createdBy?.name || "Team"}
+                </p>
+              </ECardBody>
+            </ECard>
+          ))}
+          <EButton asChild variant="ghost" size="sm">
+            <Link href="/v2/cleaner/hub">
+              Open team hub <ChevronRight className="h-4 w-4" />
+            </Link>
+          </EButton>
         </section>
       ) : null}
 

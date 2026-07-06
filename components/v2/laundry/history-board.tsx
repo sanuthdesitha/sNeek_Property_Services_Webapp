@@ -12,7 +12,7 @@
  */
 import * as React from "react";
 import { format } from "date-fns";
-import { PackageCheck, RefreshCw, Search, Weight } from "lucide-react";
+import { FilePenLine, PackageCheck, RefreshCw, Search, Weight } from "lucide-react";
 import {
   EAlert,
   EBadge,
@@ -22,6 +22,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
+import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
 
 type LaundryStatus =
   | "PENDING"
@@ -72,8 +73,11 @@ type HistoryTask = {
   dropoffCostAud?: number | null;
   updatedAt?: string | null;
   createdAt?: string | null;
+  receiptImageUrl?: string | null;
+  supplierId?: string | null;
   property?: { name?: string | null; suburb?: string | null } | null;
   supplier?: { name?: string | null } | null;
+  confirmations?: Array<{ notes?: string | null; bagLocation?: string | null }>;
 };
 
 function toneFor(status: string): Tone {
@@ -109,6 +113,10 @@ export function HistoryBoard() {
   const [status, setStatus] = React.useState<"ALL" | LaundryStatus>("ALL");
   const [dateFilter, setDateFilter] = React.useState("");
 
+  // Post-completion corrections (same PATCH flow as the v1 history tab).
+  const loadRef = React.useRef<() => void>(() => {});
+  const { openAction, modal } = useLaundryActionModal(() => loadRef.current());
+
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
@@ -138,6 +146,10 @@ export function HistoryBoard() {
 
   React.useEffect(() => {
     void load();
+  }, [load]);
+
+  React.useEffect(() => {
+    loadRef.current = () => void load({ silent: true });
   }, [load]);
 
   /* ── Client-side filters ─────────────────────────────────────────────── */
@@ -291,6 +303,7 @@ export function HistoryBoard() {
                     { label: "Weight", align: "right" },
                     { label: "Cost", align: "right" },
                     { label: "Returned", align: "right" },
+                    { label: "", align: "right" },
                   ]}
                 >
                   {g.rows.map((t) => (
@@ -315,6 +328,14 @@ export function HistoryBoard() {
                       <td className="e-tnum px-4 py-3 text-right text-[hsl(var(--e-muted-foreground))]">
                         {t.droppedAt ? format(new Date(t.droppedAt), "HH:mm") : "—"}
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        {t.status === "DROPPED" ? (
+                          <EButton variant="ghost" size="sm" onClick={() => openAction(t, "EDIT_COMPLETED")}>
+                            <FilePenLine className="h-3.5 w-3.5" />
+                            Edit
+                          </EButton>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </ETableShell>
@@ -323,6 +344,7 @@ export function HistoryBoard() {
           ))}
         </div>
       )}
+      {modal}
     </div>
   );
 }

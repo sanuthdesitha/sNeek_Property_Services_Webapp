@@ -17,6 +17,7 @@ import {
   ECardTitle,
 } from "@/components/v2/ui/primitives";
 import { ESwitch } from "@/components/v2/cleaner/fields";
+import { EPasskeySection } from "@/components/v2/shared/passkey-section";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -194,6 +195,8 @@ export function EstateSettings() {
     <div className="mx-auto max-w-3xl space-y-6">
       <NotificationSection />
       <AppearanceSection />
+      {/* Biometric sign-in devices (WebAuthn) — parity with v1 ProfileSettings. */}
+      <EPasskeySection />
       <ECard>
         <ECardBody className="pt-6">
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">

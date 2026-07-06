@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { listClientPropertiesForUser } from "@/lib/client/portal-data";
@@ -34,7 +35,8 @@ export default async function ClientPropertiesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {properties.map((p) => (
-            <ECard key={p.id}>
+            <Link key={p.id} href={`/v2/client/properties/${p.id}`} className="group block">
+              <ECard className="h-full transition-colors duration-[160ms] group-hover:border-[hsl(var(--e-gold))]">
               <ECardBody className="space-y-3 pt-6">
                 <div className="flex items-start justify-between">
                   <span className="flex h-10 w-10 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
@@ -62,7 +64,8 @@ export default async function ClientPropertiesPage() {
                   </span>
                 </div>
               </ECardBody>
-            </ECard>
+              </ECard>
+            </Link>
           ))}
         </div>
       )}

@@ -49,8 +49,9 @@ import {
   EConfirmModal,
   EModal,
 } from "@/components/v2/admin/estate-kit";
+import { PropertyBillingRates } from "./property-billing-rates";
 
-type TabKey = "profile" | "jobs" | "checklist" | "inventory";
+type TabKey = "profile" | "jobs" | "checklist" | "inventory" | "billing";
 
 const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
   SUCCESS: "success",
@@ -427,6 +428,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     { key: "jobs", label: "Jobs & history", icon: <FileText className="h-3.5 w-3.5" />, count: jobCount },
     { key: "checklist", label: "Checklist", icon: <ClipboardList className="h-3.5 w-3.5" />, count: pendingTasks.length },
     { key: "inventory", label: "Inventory", icon: <ClipboardList className="h-3.5 w-3.5" />, count: stockRows.length },
+    { key: "billing", label: "Billing rates", icon: <FileText className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -653,6 +655,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
       {/* JOBS & HISTORY */}
       {tab === "jobs" ? <PropertyJobs propertyId={propertyId} /> : null}
+
+      {/* BILLING RATES */}
+      {tab === "billing" ? <PropertyBillingRates propertyId={propertyId} /> : null}
 
       {/* CHECKLIST */}
       {tab === "checklist" ? (

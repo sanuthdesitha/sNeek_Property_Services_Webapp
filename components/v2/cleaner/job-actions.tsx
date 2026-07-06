@@ -9,6 +9,8 @@
  *   GET  /api/cleaner/jobs/[id]/early-checkout-requests    → view admin-raised
  *                                                            early check-in / late
  *                                                            checkout requests
+ *   PATCH /api/cleaner/job-early-checkouts/[requestId]     → approve / decline a
+ *                                                            pending timing request
  *   POST /api/cleaner/jobs/[id]/approval-request           → per-job extra-pay
  *   POST /api/cleaner/jobs/[id]/damage-report              → damage + cost recovery
  *   POST /api/cleaner/jobs/[id]/safety-checkin             → "I'm safe" confirmation
@@ -150,31 +152,58 @@ function SafetyCheckin({
   );
 }
 
-/* ── Early checkout / check-in requests (read-only view) ─────────────────── */
+/* ── Early checkout / check-in requests — view + approve/decline ──────────
+   PENDING requests raised by admin can be approved or declined by the
+   assigned cleaner: PATCH /api/cleaner/job-early-checkouts/[requestId]
+   { decision: "APPROVE" | "DECLINE" } — same contract as v1. */
 function EarlyCheckoutStatus({ jobId }: { jobId: string }) {
   const [rows, setRows] = React.useState<any[] | null>(null);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<Notice>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const res = await fetch(`/api/cleaner/jobs/${jobId}/early-checkout-requests`, { cache: "no-store" });
+      const data = await res.json().catch(() => []);
+      if (res.ok) setRows(Array.isArray(data) ? data : []);
+    } catch {
+      /* soft — the section simply hides */
+    }
+  }, [jobId]);
 
   React.useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/cleaner/jobs/${jobId}/early-checkout-requests`, { cache: "no-store" });
-        const data = await res.json().catch(() => []);
-        if (alive && res.ok) setRows(Array.isArray(data) ? data : []);
-      } catch {
-        /* soft — the section simply hides */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [jobId]);
+    void load();
+  }, [load]);
+
+  async function respond(requestId: string, decision: "APPROVE" | "DECLINE") {
+    setBusy(decision);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/cleaner/job-early-checkouts/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Could not update timing request");
+      setNotice({
+        tone: "success",
+        text: decision === "APPROVE" ? "Timing update approved." : "Timing update declined.",
+      });
+      await load();
+    } catch (e: any) {
+      setNotice({ tone: "danger", text: e?.message || "Could not update timing request." });
+    } finally {
+      setBusy(null);
+    }
+  }
 
   if (!rows || rows.length === 0) return null;
   const latest = rows[0];
+  const pending = String(latest.status ?? "").toUpperCase() === "PENDING";
 
   return (
-    <ECard>
+    <ECard variant={pending ? "ceremony" : "default"}>
       <ECardBody className="space-y-2 pt-6">
         <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
           <LogOut className="h-4 w-4" /> Timing request
@@ -183,10 +212,30 @@ function EarlyCheckoutStatus({ jobId }: { jobId: string }) {
           <EBadge tone="info" soft>
             {latest.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}
           </EBadge>
-          {latest.status ? <EBadge tone="neutral" soft>{titleCase(String(latest.status))}</EBadge> : null}
+          {latest.status ? (
+            <EBadge tone={pending ? "warning" : "neutral"} soft>
+              {titleCase(String(latest.status))}
+            </EBadge>
+          ) : null}
         </div>
         {latest.reason ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{latest.reason}</p>
+        ) : null}
+        <LocalNotice notice={notice} />
+        {pending ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <EButton size="sm" disabled={busy !== null} onClick={() => void respond(latest.id, "APPROVE")}>
+              {busy === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Approve
+            </EButton>
+            <EButton
+              size="sm"
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => void respond(latest.id, "DECLINE")}
+            >
+              {busy === "DECLINE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Decline
+            </EButton>
+          </div>
         ) : null}
       </ECardBody>
     </ECard>

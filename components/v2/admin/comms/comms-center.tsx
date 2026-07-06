@@ -6,9 +6,10 @@ import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { EConfirmModal } from "@/components/v2/admin/estate-kit";
 import { CommsControlCenter } from "@/components/v2/admin/comms/control-center";
 import { CommsDeliveryLog } from "@/components/v2/admin/comms/delivery-log";
+import { CommsManualDispatch } from "@/components/v2/admin/comms/manual-dispatch";
 import { useEstateToast, EToastViewport } from "@/components/v2/admin/comms/toast";
 
-type Section = "control" | "log";
+type Section = "control" | "dispatch" | "log";
 
 export function CommsCenter() {
   const [section, setSection] = useState<Section>("control");
@@ -83,10 +84,12 @@ export function CommsCenter() {
 
       <div className="inline-flex items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
         {sectionBtn("control", "Control center")}
+        {sectionBtn("dispatch", "Manual dispatch")}
         {sectionBtn("log", "Delivery log")}
       </div>
 
       {section === "control" ? <CommsControlCenter onToast={push} /> : null}
+      {section === "dispatch" ? <CommsManualDispatch onToast={push} /> : null}
       {section === "log" ? <CommsDeliveryLog onToast={push} reloadSignal={reloadSignal} /> : null}
 
       <EConfirmModal

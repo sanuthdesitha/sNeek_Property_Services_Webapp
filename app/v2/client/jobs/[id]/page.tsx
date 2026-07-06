@@ -19,6 +19,7 @@ import {
   EThread,
 } from "@/components/v2/ui/primitives";
 import { JobSkipAction } from "@/components/v2/client/job-skip-action";
+import { JobLivePanel } from "@/components/v2/client/job-live-panel";
 import {
   ArrowLeft,
   Briefcase,
@@ -27,7 +28,6 @@ import {
   Download,
   FileText,
   MapPin,
-  Navigation,
   Shirt,
   Star,
   User,
@@ -125,6 +125,17 @@ async function getScopedJob(id: string, clientId: string) {
             pickedUpAt: true,
             droppedAt: true,
             noPickupRequired: true,
+            confirmations: {
+              orderBy: { createdAt: "desc" },
+              select: {
+                id: true,
+                createdAt: true,
+                laundryReady: true,
+                bagLocation: true,
+                photoUrl: true,
+                notes: true,
+              },
+            },
           },
         },
         invoiceLines: {
@@ -160,6 +171,69 @@ async function getScopedJob(id: string, clientId: string) {
       },
     })
     .catch(() => null);
+}
+
+const JOB_STATUS_STEPS = [
+  "UNASSIGNED",
+  "ASSIGNED",
+  "EN_ROUTE",
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "QA_REVIEW",
+  "COMPLETED",
+  "INVOICED",
+];
+
+function StatusTimeline({ status }: { status: string }) {
+  const currentIdx = JOB_STATUS_STEPS.indexOf(status);
+  const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
+  return (
+    <div className="flex items-center gap-0">
+      {JOB_STATUS_STEPS.map((step, i) => {
+        const done = i < effectiveIdx;
+        const active = i === effectiveIdx;
+        const label = STATUS_LABELS[step] ?? titleCase(step);
+        return (
+          <div key={step} className="flex items-center">
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className="h-3 w-3 rounded-full border-2"
+                style={{
+                  borderColor:
+                    done || active ? "hsl(var(--e-accent-portal))" : "hsl(var(--e-border-strong))",
+                  backgroundColor: done
+                    ? "hsl(var(--e-accent-portal))"
+                    : active
+                      ? "hsl(var(--e-accent-portal-soft))"
+                      : "hsl(var(--e-muted))",
+                }}
+              />
+              <span
+                className="text-[9px] font-semibold uppercase tracking-[0.08em] leading-none"
+                style={{
+                  color: active
+                    ? "hsl(var(--e-accent-portal))"
+                    : done
+                      ? "hsl(var(--e-muted-foreground))"
+                      : "hsl(var(--e-text-faint))",
+                }}
+              >
+                {label}
+              </span>
+            </div>
+            {i < JOB_STATUS_STEPS.length - 1 ? (
+              <div
+                className="mb-4 h-px w-8 sm:w-12"
+                style={{
+                  backgroundColor: done ? "hsl(var(--e-accent-portal))" : "hsl(var(--e-border))",
+                }}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -209,14 +283,19 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
             <EBadge tone={statusTone(job.status)} soft>
               {STATUS_LABELS[job.status] ?? titleCase(job.status)}
             </EBadge>
-            {job.status === "EN_ROUTE" ? (
-              <EButton asChild variant="gold" size="sm"><Link href={`/v2/client/jobs/${job.id}`}>
-                  <Navigation className="h-3.5 w-3.5" /> Track live
-                </Link></EButton>
-            ) : null}
           </>
         }
       />
+
+      {/* Status timeline */}
+      <ECard>
+        <ECardBody className="overflow-x-auto py-5 pt-5">
+          <StatusTimeline status={job.status} />
+        </ECardBody>
+      </ECard>
+
+      {/* Live arrival tracking (polls while EN_ROUTE) */}
+      {job.status === "EN_ROUTE" ? <JobLivePanel jobId={job.id} /> : null}
 
       {/* Skip-clean state */}
       {skipStatus === "SKIPPED" ? (
@@ -358,6 +437,47 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
                 ) : null}
               </div>
             )}
+            {job.laundryTask.confirmations.length > 0 ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">
+                  Laundry updates
+                </p>
+                {job.laundryTask.confirmations.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
+                  >
+                    {c.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={c.photoUrl}
+                        alt="Laundry"
+                        className="h-16 w-16 shrink-0 rounded-[var(--e-radius-sm)] object-cover"
+                      />
+                    ) : null}
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        {format(new Date(c.createdAt), "d MMM HH:mm")}
+                      </p>
+                      {c.laundryReady ? (
+                        <EBadge tone="success" soft>
+                          Ready
+                        </EBadge>
+                      ) : null}
+                      {c.bagLocation ? (
+                        <p className="text-[0.875rem]">
+                          <span className="text-[hsl(var(--e-muted-foreground))]">Location: </span>
+                          {c.bagLocation}
+                        </p>
+                      ) : null}
+                      {c.notes ? (
+                        <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{c.notes}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </ECardBody>
         </ECard>
       ) : null}

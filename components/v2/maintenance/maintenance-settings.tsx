@@ -25,6 +25,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { ESwitch } from "@/components/v2/cleaner/fields";
 import { EstateProfile, type EstateProfileUser } from "@/components/v2/laundry/estate-profile";
+import { EPasskeySection } from "@/components/v2/shared/passkey-section";
 import { toast } from "@/hooks/use-toast";
 
 type ChannelPrefs = { web: boolean; email: boolean; sms: boolean };
@@ -151,6 +152,8 @@ export function MaintenanceSettings({
       />
       {/* Notification channel matrix */}
       <NotificationSection />
+      {/* Biometric sign-in devices (WebAuthn) — parity with v1 ProfileSettings. */}
+      <EPasskeySection />
     </div>
   );
 }

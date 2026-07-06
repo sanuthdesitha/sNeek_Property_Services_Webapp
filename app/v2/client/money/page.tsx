@@ -15,6 +15,7 @@ import {
   EStatCard,
 } from "@/components/v2/ui/primitives";
 import { Wallet } from "lucide-react";
+import { PayInvoiceButton } from "@/components/v2/client/pay-invoice-button";
 
 export const metadata = { title: "Money · Estate client" };
 export const dynamic = "force-dynamic";
@@ -107,7 +108,7 @@ export default async function ClientMoneyPage() {
               <table className="w-full text-[0.8125rem]">
                 <thead>
                   <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Invoice", "Period", "Amount", "Status"].map((h) => (
+                    {["Invoice", "Period", "Amount", "Status", "Payment"].map((h) => (
                       <th
                         key={h}
                         className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]"
@@ -137,6 +138,11 @@ export default async function ClientMoneyPage() {
                           <EBadge tone={invoiceTone(inv.status)} soft>
                             {inv.status.replace(/_/g, " ")}
                           </EBadge>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {inv.status === "SENT" || inv.status === "APPROVED" ? (
+                            <PayInvoiceButton invoiceId={inv.id} />
+                          ) : null}
                         </td>
                       </tr>
                     );

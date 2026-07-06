@@ -5,12 +5,15 @@
  * UsersManager. Same API surface, new Estate UI:
  *   list           → GET    /api/admin/users?includeInactive=1[&role=X]
  *   clients        → GET    /api/admin/clients          (for CLIENT linking)
+ *   create         → POST   /api/admin/users            { name, email, phone?, role, invite, password?, clientId? }
  *   edit fields    → PATCH  /api/admin/users/[id]       { name, email, phone, role, isActive, clientId? }
  *   resend invite  → POST   /api/admin/users/[id]/resend-otp
  *   toggle active  → PATCH  /api/admin/users/[id]       { isActive }
+ *   reset password → POST   /api/admin/users/[id]/reset-password { security }
+ *   reset 2FA      → POST   /api/admin/users/[id]/disable-2fa    { security }
  *   delete         → DELETE /api/admin/users/[id]       { security: { pin?, password? } }
- * Account creation and the deep profile-permission / bank-detail flows stay in
- * the classic accounts workspace (discreet link below the roster).
+ * Deep profile-permission / bank-detail flows stay in the classic accounts
+ * workspace (discreet link below the roster).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,8 +25,10 @@ import {
   RefreshCw,
   Trash2,
   UserCog,
+  UserRoundPlus,
   UserX,
   ShieldCheck,
+  ShieldOff,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
@@ -100,6 +105,24 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
 
   const [deleteTarget, setDeleteTarget] = useState<UserItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [reset2faTarget, setReset2faTarget] = useState<UserItem | null>(null);
+  const [resetting2fa, setResetting2fa] = useState(false);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createMode, setCreateMode] = useState<"invite" | "password">("invite");
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: "CLEANER" as AccountRole,
+    clientId: "",
+    password: "",
+  });
+  const [createdInvitation, setCreatedInvitation] = useState<{ email: string; link: string; emailSent: boolean } | null>(null);
 
   const loadUsers = useCallback(async (filter: string) => {
     setLoading(true);
@@ -215,6 +238,117 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
     }
   }
 
+  async function resetPassword(credentials?: { pin?: string; password?: string }) {
+    if (!resetTarget) return;
+    setResetting(true);
+    try {
+      const res = await fetch(`/api/admin/users/${resetTarget.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not reset password.");
+      if (body.warning && body.tempPassword) {
+        toast({
+          title: "Password reset, email failed",
+          description: `Temporary password: ${body.tempPassword}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Temporary password sent", description: "The user received a reset email." });
+      }
+      setResetTarget(null);
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err.message ?? "Could not reset password.", variant: "destructive" });
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function reset2fa(credentials?: { pin?: string; password?: string }) {
+    if (!reset2faTarget) return;
+    setResetting2fa(true);
+    try {
+      const res = await fetch(`/api/admin/users/${reset2faTarget.id}/disable-2fa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not reset 2FA.");
+      toast({ title: "Two-step verification reset", description: "They can sign in with their password and set it up again." });
+      setReset2faTarget(null);
+      await loadUsers(roleFilter);
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err.message ?? "Could not reset 2FA.", variant: "destructive" });
+    } finally {
+      setResetting2fa(false);
+    }
+  }
+
+  async function createUser() {
+    if (!createForm.name.trim() || !createForm.email.trim()) {
+      toast({ title: "Name and email are required.", variant: "destructive" });
+      return;
+    }
+    if (createMode === "password" && !createForm.password) {
+      toast({ title: "Password is required in manual-password mode.", variant: "destructive" });
+      return;
+    }
+    if (createForm.role === "CLIENT" && !createForm.clientId) {
+      toast({ title: "Client accounts must be linked to a client profile.", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: createForm.name.trim(),
+        email: createForm.email.trim(),
+        invite: createMode === "invite",
+        role: createForm.role,
+        phone: createForm.phone.trim() || undefined,
+        clientId: createForm.role === "CLIENT" ? createForm.clientId : undefined,
+      };
+      if (createMode === "password") payload.password = createForm.password;
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to create account.");
+      if (createMode === "invite" && body.invitationLink) {
+        setCreatedInvitation({
+          email: body.email ?? createForm.email.trim(),
+          link: body.invitationLink,
+          emailSent: !!body.invitationEmailSent,
+        });
+        try {
+          await navigator.clipboard.writeText(body.invitationLink);
+        } catch {
+          /* clipboard not granted — the link is shown on screen */
+        }
+        toast({
+          title: body.invitationEmailSent ? "Invitation sent" : "Account created",
+          description: body.invitationEmailSent
+            ? "Invitation email sent and link copied to clipboard."
+            : "Invitation email failed — share the link manually (copied to clipboard).",
+          variant: body.invitationEmailSent ? "default" : "destructive",
+        });
+      } else {
+        toast({ title: "Account created", description: "The account is active immediately and can sign in now." });
+        setCreateOpen(false);
+      }
+      setCreateForm({ name: "", email: "", phone: "", role: "CLEANER", clientId: "", password: "" });
+      await loadUsers(roleFilter);
+    } catch (err: any) {
+      toast({ title: "Create failed", description: err.message ?? "Failed to create account.", variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function deleteUser(credentials?: { pin?: string; password?: string }) {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -239,7 +373,7 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <ECard className="grid gap-2 p-3 sm:grid-cols-[1fr_12rem]">
+      <ECard className={"grid gap-2 p-3 " + (canManage ? "sm:grid-cols-[1fr_12rem_auto]" : "sm:grid-cols-[1fr_12rem]")}>
         <EInput
           placeholder="Search name, email or phone…"
           value={search}
@@ -253,6 +387,12 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
             </option>
           ))}
         </ESelect>
+        {canManage ? (
+          <EButton variant="gold" onClick={() => { setCreatedInvitation(null); setCreateOpen(true); }}>
+            <UserRoundPlus className="h-4 w-4" />
+            New account
+          </EButton>
+        ) : null}
       </ECard>
 
       {/* Roster */}
@@ -329,6 +469,24 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
                         size="sm"
                         variant="ghost"
                         disabled={busyUserId === user.id}
+                        onClick={() => setResetTarget(user)}
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Reset password
+                      </EButton>
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyUserId === user.id}
+                        onClick={() => setReset2faTarget(user)}
+                      >
+                        <ShieldOff className="h-3.5 w-3.5" />
+                        Reset 2FA
+                      </EButton>
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyUserId === user.id}
                         onClick={() => toggleActive(user)}
                         className={user.isActive ? "text-[hsl(var(--e-danger))]" : "text-[hsl(var(--e-success))]"}
                       >
@@ -362,7 +520,7 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             <KeyRound className="h-3 w-3" />
-            Create accounts, password resets & 2FA:
+            Extended profile, bank details & permission overrides:
           </span>
           <EClassicLink href="/admin/accounts?tab=staff">classic accounts workspace</EClassicLink>
         </div>
@@ -449,6 +607,153 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
           </div>
         </div>
       </EModal>
+
+      {/* Create account — invite or manual password (same POST /api/admin/users as v1) */}
+      <EModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        eyebrow="Accounts"
+        title="New account"
+        wide
+      >
+        {createdInvitation ? (
+          <div className="space-y-4">
+            <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+              Invitation for <span className="font-[550]">{createdInvitation.email}</span>{" "}
+              {createdInvitation.emailSent ? "was emailed and is" : "could not be emailed — share this link manually; it is"}{" "}
+              copied to your clipboard.
+            </p>
+            <div className="break-all rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] px-3 py-2.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              {createdInvitation.link}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+              <EButton variant="outline" size="sm" onClick={() => setCreatedInvitation(null)}>
+                Create another
+              </EButton>
+              <EButton variant="primary" size="sm" onClick={() => { setCreatedInvitation(null); setCreateOpen(false); }}>
+                Done
+              </EButton>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
+              {(["invite", "password"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setCreateMode(mode)}
+                  aria-current={createMode === mode ? "page" : undefined}
+                  className={
+                    "rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
+                    (createMode === mode
+                      ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
+                      : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
+                  }
+                >
+                  {mode === "invite" ? "Email invitation" : "Set password"}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <EField label="Name">
+                <EInput value={createForm.name} onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))} />
+              </EField>
+              <EField label="Email">
+                <EInput type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} />
+              </EField>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <EField label="Phone" hint="Optional.">
+                <EInput
+                  type="tel"
+                  inputMode="tel"
+                  maxLength={16}
+                  placeholder="0451217210 or +61451217210"
+                  value={createForm.phone}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, phone: e.target.value }))}
+                />
+              </EField>
+              <EField label="Role">
+                <ESelect value={createForm.role} onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value as AccountRole }))}>
+                  {MANAGED_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {roleLabel(role)}
+                    </option>
+                  ))}
+                </ESelect>
+              </EField>
+            </div>
+            {createForm.role === "CLIENT" ? (
+              <EField label="Linked client profile">
+                <ESelect value={createForm.clientId} onChange={(e) => setCreateForm((p) => ({ ...p, clientId: e.target.value }))}>
+                  <option value="">Select client…</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </ESelect>
+              </EField>
+            ) : null}
+            {createMode === "password" ? (
+              <EField label="Password" hint="The account is active immediately with this password.">
+                <EInput
+                  type="password"
+                  autoComplete="new-password"
+                  value={createForm.password}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))}
+                />
+              </EField>
+            ) : (
+              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                An invitation email with a one-time setup link is sent to the new account.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+              <EButton variant="outline" size="sm" onClick={() => setCreateOpen(false)} disabled={creating}>
+                Cancel
+              </EButton>
+              <EButton variant="gold" size="sm" onClick={createUser} disabled={creating}>
+                {creating ? "Creating…" : createMode === "invite" ? "Send invitation" : "Create account"}
+              </EButton>
+            </div>
+          </div>
+        )}
+      </EModal>
+
+      {/* Reset password — security-verified (same policy as v1) */}
+      <EConfirmModal
+        open={!!resetTarget}
+        onClose={() => setResetTarget(null)}
+        title="Reset password"
+        description={
+          resetTarget
+            ? `Generate a temporary password for ${resetTarget.name ?? resetTarget.email} and email it to them. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Reset password"
+        requireSecurity
+        danger={false}
+        loading={resetting}
+        onConfirm={resetPassword}
+      />
+
+      {/* Reset 2FA — security-verified (same policy as v1) */}
+      <EConfirmModal
+        open={!!reset2faTarget}
+        onClose={() => setReset2faTarget(null)}
+        title="Reset two-step verification"
+        description={
+          reset2faTarget
+            ? `${reset2faTarget.name ?? reset2faTarget.email} will be able to sign in with just their password and set 2FA up again. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Reset 2FA"
+        requireSecurity
+        loading={resetting2fa}
+        onConfirm={reset2fa}
+      />
 
       {/* Delete — high-risk confirm: DELETE phrase + PIN/password (same policy as v1) */}
       <EConfirmModal

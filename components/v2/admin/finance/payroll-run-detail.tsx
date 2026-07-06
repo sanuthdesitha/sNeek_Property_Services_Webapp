@@ -358,7 +358,18 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                   </p>
                 ) : null}
               </div>
-              <p className="e-numeral text-[1.125rem] text-[hsl(var(--e-foreground))]">{money(payout.amount)}</p>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/api/admin/finance/payroll/payslip?cleanerId=${encodeURIComponent(payout.cleanerId)}&startDate=${encodeURIComponent(String(run.periodStart).slice(0, 10))}&endDate=${encodeURIComponent(String(run.periodEnd).slice(0, 10))}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[0.75rem] font-[550] text-[hsl(var(--e-accent-portal))] hover:underline"
+                  title="Download payslip PDF for this period"
+                >
+                  Payslip PDF
+                </a>
+                <p className="e-numeral text-[1.125rem] text-[hsl(var(--e-foreground))]">{money(payout.amount)}</p>
+              </div>
             </div>
           ))}
           {run.payouts.length === 0 ? (

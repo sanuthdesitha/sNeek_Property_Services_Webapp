@@ -33,6 +33,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import {
+  EConfirmModal,
   EField,
   EInput,
   EModal,
@@ -75,6 +76,7 @@ type FullInvoice = {
   subtotal: number;
   gstAmount: number;
   totalAmount: number;
+  gstEnabled?: boolean;
   lines: InvoiceLine[];
 };
 
@@ -133,6 +135,10 @@ export function EstateInvoices() {
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [newLine, setNewLine] = useState({ description: "", quantity: "1", unitPrice: "0" });
+
+  // Delete confirm
+  const [deleteFor, setDeleteFor] = useState<Invoice | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -195,6 +201,24 @@ export function EstateInvoices() {
       await load();
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function deleteInvoice() {
+    if (!deleteFor) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/invoices/${deleteFor.id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Delete failed", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Invoice deleted" });
+      setDeleteFor(null);
+      await load();
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -526,6 +550,29 @@ export function EstateInvoices() {
                         {inv.xeroExportedAt ? "Xero ✓" : "Xero"}
                       </EButton>
                     ) : null}
+                    {inv.status === "SENT" || inv.status === "APPROVED" ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === inv.id}
+                        onClick={() => patchStatus(inv, "VOID", "Invoice voided")}
+                        title="Void this invoice"
+                      >
+                        Void
+                      </EButton>
+                    ) : null}
+                    {inv.status === "DRAFT" || inv.status === "VOID" ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        className="text-[hsl(var(--e-danger))]"
+                        disabled={busy === inv.id}
+                        onClick={() => setDeleteFor(inv)}
+                        title="Delete this invoice"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </EButton>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -764,6 +811,22 @@ export function EstateInvoices() {
               </div>
             </div>
 
+            {/* GST toggle — same PATCH { gstEnabled } as v1 */}
+            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+              <div>
+                <p className="text-[0.875rem] font-[550]">GST (10%)</p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Toggle whether GST is added on top of the subtotal.
+                </p>
+              </div>
+              <ESwitch
+                checked={editInvoice.gstEnabled !== false}
+                onCheckedChange={(v) =>
+                  patchInvoiceLines({ gstEnabled: v }, v ? "GST enabled" : "GST disabled")
+                }
+              />
+            </div>
+
             {/* Totals */}
             <div className="grid grid-cols-3 gap-3 border-t border-[hsl(var(--e-border))] pt-4">
               <div>
@@ -787,6 +850,17 @@ export function EstateInvoices() {
           </div>
         )}
       </EModal>
+
+      {/* Delete invoice */}
+      <EConfirmModal
+        open={Boolean(deleteFor)}
+        onClose={() => setDeleteFor(null)}
+        title={`Delete ${deleteFor?.invoiceNumber ?? "invoice"}?`}
+        description="This permanently removes the invoice and its line items."
+        confirmLabel="Delete invoice"
+        loading={deleting}
+        onConfirm={deleteInvoice}
+      />
     </div>
   );
 }
