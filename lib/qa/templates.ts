@@ -1,4 +1,5 @@
 import { JobType } from "@prisma/client";
+import { computeQaScore, PASS_THRESHOLD } from "@/lib/qa/scoring";
 
 export type QaTemplateField = {
   id: string;
@@ -169,6 +170,34 @@ export function buildDefaultQaTemplateSchema(jobType: JobType): QaTemplateSchema
 }
 
 export function scoreQaSubmission(schema: QaTemplateSchema, data: Record<string, unknown>) {
+  // Real (seeded/authored) QA templates use FormSchema fields — radio/select/
+  // yesno/checkbox with a NESTED `scoring: { max, weight }` — and are scored by
+  // the canonical engine in lib/qa/scoring.ts (Pass/Minor/Fail → 2/1/0). The
+  // legacy math below only understands `type:"rating"` with top-level max, so
+  // on a real template it found zero scorable fields and returned score 100 /
+  // passed no matter what the inspector answered. Delegate whenever any field
+  // carries nested scoring; keep the legacy path for the auto-generated
+  // default template (buildDefaultQaTemplateSchema).
+  const hasNestedScoring = (schema.sections ?? []).some((section) =>
+    ((section.fields ?? []) as Array<Record<string, unknown>>).some(
+      (field) =>
+        field &&
+        typeof field === "object" &&
+        typeof (field as { scoring?: { max?: unknown } }).scoring?.max === "number"
+    )
+  );
+  if (hasNestedScoring) {
+    const result = computeQaScore(schema as never, data);
+    const categoryScores: Record<string, number> = {};
+    for (const s of result.sectionScores) categoryScores[s.sectionId] = s.percent;
+    const reworkRequired = data.rework_required === true;
+    return {
+      score: result.percent,
+      categoryScores,
+      passed: result.percent >= PASS_THRESHOLD && !reworkRequired,
+    };
+  }
+
   let weightedTotal = 0;
   let weightTotal = 0;
   const categoryScores: Record<string, number> = {};

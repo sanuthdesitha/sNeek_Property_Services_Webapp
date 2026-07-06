@@ -15,6 +15,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { ArrowLeft, MapPin, Shirt, ShieldCheck, Wallet } from "lucide-react";
+import { QuickQaReview } from "@/components/v2/admin/jobs/quick-qa-review";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -220,6 +221,9 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
             ) : (
               <p className="text-[hsl(var(--e-muted-foreground))]">No QA review yet.</p>
             )}
+            <div className="pt-2">
+              <QuickQaReview jobId={job.id} jobStatus={job.status} hasReview={!!qa} defaultScore={qa ? Math.round(qa.score) : 90} />
+            </div>
           </ECardBody>
         </ECard>
 
@@ -249,7 +253,6 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
         </ECard>
       ) : null}
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · read-only · live data from your workspace.</p>
     </div>
   );
 }
