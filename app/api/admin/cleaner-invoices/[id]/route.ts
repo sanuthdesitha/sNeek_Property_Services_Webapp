@@ -6,6 +6,10 @@ import { db } from "@/lib/db";
 
 const patchSchema = z.object({
   status: z.enum(["SUBMITTED", "XERO_PUSHED", "PAID", "VOID"]),
+  // Payment settlement — supplied when status === "PAID".
+  paidAmount: z.number().nonnegative().optional(),
+  paidBankAccount: z.string().trim().max(200).optional(),
+  paidNote: z.string().trim().max(2000).optional(),
 });
 
 /** Update a cleaner invoice submission's status (e.g. mark it paid). */
@@ -14,9 +18,31 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
 
+    // Record payment settlement on PAID; clear it when reversed/re-opened.
+    let paymentData: {
+      paidAt: Date | null;
+      paidAmount: number | null;
+      paidBankAccount: string | null;
+      paidNote: string | null;
+    };
+    if (body.status === "PAID") {
+      const existing = await db.cleanerInvoiceSubmission.findUnique({
+        where: { id: params.id },
+        select: { totalAmount: true },
+      });
+      paymentData = {
+        paidAt: new Date(),
+        paidAmount: body.paidAmount ?? existing?.totalAmount ?? 0,
+        paidBankAccount: body.paidBankAccount || null,
+        paidNote: body.paidNote || null,
+      };
+    } else {
+      paymentData = { paidAt: null, paidAmount: null, paidBankAccount: null, paidNote: null };
+    }
+
     const updated = await db.cleanerInvoiceSubmission.update({
       where: { id: params.id },
-      data: { status: body.status },
+      data: { status: body.status, ...paymentData },
     });
 
     // Stamp / clear the covered jobs so they show as paid to the cleaner (and,
@@ -38,7 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         action: "CLEANER_INVOICE_STATUS_UPDATE",
         entity: "CleanerInvoiceSubmission",
         entityId: params.id,
-        after: { status: body.status } as any,
+        after: { status: body.status, ...paymentData } as any,
       },
     });
 

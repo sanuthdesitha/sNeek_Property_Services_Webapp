@@ -2196,6 +2196,11 @@ model CleanerInvoiceSubmission {
   status         String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED
   xeroBillId     String?
   xeroExportedAt DateTime?
+  // Payment settlement recorded by admin when the invoice is marked PAID.
+  paidAmount      Float? // amount actually paid (defaults to totalAmount)
+  paidBankAccount String? // which bank account it was paid to
+  paidNote        String?   @db.Text // optional comments about the payment
+  paidAt          DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
