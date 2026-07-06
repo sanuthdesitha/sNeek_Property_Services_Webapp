@@ -13,6 +13,7 @@ import {
   EStatCard,
   EThread,
 } from "@/components/v2/ui/primitives";
+import { LaundryRouteMap } from "@/components/v2/laundry/route-map";
 import { PackageCheck, Timer, Truck, Waves } from "lucide-react";
 
 export const metadata = { title: "Today · Estate laundry" };
@@ -140,6 +141,8 @@ export default async function LaundryTodayPage() {
           )}
         </ECardBody>
       </ECard>
+
+      <LaundryRouteMap />
     </div>
   );
 }
