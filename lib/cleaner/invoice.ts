@@ -192,7 +192,12 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     status: {
       in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
     },
-    assignments: { some: { userId: options.userId } },
+    // Only jobs this cleaner is CURRENTLY assigned to (removedAt: null). Without
+    // this, a job reassigned away from the cleaner (their assignment removed and
+    // given to someone else) still matched via the stale assignment row, so the
+    // cleaner kept invoicing another cleaner's job → duplicate payments. Matches
+    // the canonical `removedAt: null` filter used by payroll/finance.
+    assignments: { some: { userId: options.userId, removedAt: null } },
     ...(excludedJobIds.length > 0 ? { id: { notIn: excludedJobIds } } : {}),
   };
   if (options.excludePaidJobs) {
@@ -315,9 +320,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .map((job) => {
       const activeAssignments = job.assignments.filter((assignment) => !assignment.removedAt);
       const splitCount = Math.max(1, activeAssignments.length);
-      const cleanerAssignment =
-        activeAssignments.find((assignment) => assignment.userId === options.userId) ??
-        job.assignments.find((assignment) => assignment.userId === options.userId);
+      // Only an ACTIVE assignment for this cleaner earns a line. Do not fall back
+      // to a removed assignment — a cleaner reassigned off the job must not keep
+      // invoicing it (that caused cross-cleaner duplicate pay). The query already
+      // filters to active assignments; this is the matching in-memory guard.
+      const cleanerAssignment = activeAssignments.find(
+        (assignment) => assignment.userId === options.userId
+      );
 
       if (!cleanerAssignment) return null;
 
