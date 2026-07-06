@@ -21,7 +21,10 @@ export default withAuth(
       role = validation.role ?? role;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
-      const isOnboardingPage = pathname === "/onboarding";
+      // v2-context users get the Estate onboarding; v1 keeps the classic one.
+      const inV2 = pathname.startsWith("/v2");
+      const onboardingPath = inV2 ? "/v2/onboarding" : "/onboarding";
+      const isOnboardingPage = pathname === "/onboarding" || pathname === "/v2/onboarding";
       if (validation.valid !== "indeterminate" && validation.requiresPasswordReset && !isForcePasswordPage) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/force-password-reset", req.url)));
       }
@@ -31,10 +34,10 @@ export default withAuth(
 
       if (validation.valid !== "indeterminate" && !validation.requiresPasswordReset) {
         if (validation.requiresOnboarding && !isOnboardingPage) {
-          return applySecurityHeaders(NextResponse.redirect(new URL("/onboarding", req.url)));
+          return applySecurityHeaders(NextResponse.redirect(new URL(onboardingPath, req.url)));
         }
         if (!validation.requiresOnboarding && isOnboardingPage) {
-          return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
+          return applySecurityHeaders(NextResponse.redirect(new URL(inV2 ? v2PortalHome(role) : portalHome(role), req.url)));
         }
       }
     }
@@ -42,6 +45,46 @@ export default withAuth(
     // Redirect logged-in users away from auth pages
     if ((pathname === "/login" || pathname === "/register") && token) {
       return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
+    }
+
+    // v2 (Estate) portals. /v2 has its own Estate-themed login at /v2/login —
+    // same NextAuth credentials/2FA as v1 (shared session cookie), it only
+    // changes where the user lands afterwards. v1 logins/redirects untouched;
+    // v2 public pages stay unrouted pre-cutover.
+    if (pathname === "/v2/login") {
+      // Already signed in → straight to the role's v2 portal home.
+      if (token) {
+        return applySecurityHeaders(NextResponse.redirect(new URL(v2PortalHome(role), req.url)));
+      }
+      return applySecurityHeaders(NextResponse.next());
+    }
+    if (pathname.startsWith("/v2")) {
+      // Unauthenticated v2 traffic goes to the v2 login (not the v1 one).
+      if (!token) {
+        const login = new URL("/v2/login", req.url);
+        login.searchParams.set("callbackUrl", pathname);
+        return applySecurityHeaders(NextResponse.redirect(login));
+      }
+      // /v2 root → the signed-in role's portal home.
+      if (pathname === "/v2" || pathname === "/v2/") {
+        return applySecurityHeaders(NextResponse.redirect(new URL(v2PortalHome(role), req.url)));
+      }
+      // Shared v2 pages any signed-in role may reach (onboarding wizard).
+      if (pathname === "/v2/onboarding") {
+        return applySecurityHeaders(NextResponse.next());
+      }
+      const isAdminOps = role === Role.ADMIN || role === Role.OPS_MANAGER;
+      if (!isAdminOps) {
+        const ownsPortal =
+          (pathname.startsWith("/v2/client") && role === Role.CLIENT) ||
+          (pathname.startsWith("/v2/cleaner") && role === Role.CLEANER) ||
+          (pathname.startsWith("/v2/laundry") && role === Role.LAUNDRY) ||
+          (pathname.startsWith("/v2/qa") && role === Role.QA_INSPECTOR) ||
+          (pathname.startsWith("/v2/maintenance") && role === Role.MAINTENANCE);
+        if (!ownsPortal) {
+          return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+        }
+      }
     }
 
     // Admin routes
@@ -98,6 +141,7 @@ export default withAuth(
         // Public routes
         if (
           pathname === "/login" ||
+          pathname === "/v2/login" ||
           pathname === "/register" ||
           pathname === "/forgot-password" ||
           pathname === "/reset-password" ||
@@ -129,6 +173,11 @@ export default withAuth(
         ) {
           return true;
         }
+        // /v2/* must reach the middleware function even without a token so it
+        // can redirect to the Estate login (/v2/login) instead of the v1 one.
+        if (pathname.startsWith("/v2")) {
+          return true;
+        }
         return !!token;
       },
     },
@@ -147,6 +196,28 @@ function applySecurityHeaders(response: NextResponse) {
   );
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
   return response;
+}
+
+function v2PortalHome(role: Role | undefined): string {
+  switch (role) {
+    case Role.ADMIN:
+    case Role.OPS_MANAGER:
+      return "/v2/admin";
+    case Role.CLEANER:
+      return "/v2/cleaner";
+    case Role.CLIENT:
+      return "/v2/client";
+    case Role.LAUNDRY:
+      return "/v2/laundry";
+    case Role.QA_INSPECTOR:
+      return "/v2/qa";
+    case Role.MAINTENANCE:
+      return "/v2/maintenance";
+    default:
+      // Unresolvable role with a live token: fall back to the public home
+      // rather than /v2/login, which would redirect-loop for signed-in users.
+      return "/";
+  }
 }
 
 function portalHome(role: Role | undefined): string {
