@@ -9,6 +9,7 @@ import { getAdminImmediateAttention } from "@/lib/dashboard/immediate-attention"
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { LiveCleaners } from "@/components/v2/admin/ops/live-cleaners";
 import { ContinuationDecisions } from "@/components/v2/admin/ops/continuation-decisions";
+import { EstateOpsMap, type OpsMapProperty } from "@/components/v2/admin/ops/estate-ops-map";
 import {
   EBadge,
   EButton,
@@ -181,6 +182,23 @@ export default async function V2AdminOpsPage() {
       })
       .catch(() => []),
   ]);
+
+  // Geocoded properties for the live ops map — mirrors the classic ops page.
+  // Properties without lat/lng simply won't appear as pins.
+  const geocodedProperties = await db.property
+    .findMany({
+      where: { isActive: true, latitude: { not: null }, longitude: { not: null } },
+      select: { id: true, name: true, suburb: true, latitude: true, longitude: true },
+    })
+    .catch(() => []);
+  const opsMapProperties: OpsMapProperty[] = geocodedProperties
+    .filter((p) => p.latitude != null && p.longitude != null)
+    .map((p) => ({
+      name: p.name,
+      suburb: p.suburb,
+      lat: p.latitude as number,
+      lng: p.longitude as number,
+    }));
 
   const continuationJobIds = Array.from(new Set(continuationRequests.map((row) => row.jobId)));
   const continuationJobs = continuationJobIds.length
@@ -428,6 +446,23 @@ export default async function V2AdminOpsPage() {
           </ECardBody>
         </ECard>
       </div>
+
+      {/* Live ops map — native Estate map with streaming cleaner positions. */}
+      <ECard>
+        <ECardHeader>
+          <ECardTitle className="flex items-center gap-2">
+            <MapPinned className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" aria-hidden />
+            Live ops map
+          </ECardTitle>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Real-time positions for every active cleaner overlaid on every geocoded
+            property. Properties without a geocoded address won&apos;t appear.
+          </p>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          <EstateOpsMap properties={opsMapProperties} />
+        </ECardBody>
+      </ECard>
 
       {/* Live cleaners — Estate list off the same live-locations feed. The full
           Google-Maps view is now the native Estate map at /v2/admin/ops/map. */}

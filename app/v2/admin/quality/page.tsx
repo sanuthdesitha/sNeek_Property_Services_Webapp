@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
 import { QaAssignmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -66,7 +67,16 @@ export default async function AdminQualityPage() {
 
   return (
     <div className="space-y-6">
-      <EPageHeader eyebrow="Operations" title="Quality" description="QA queue, inspection templates, and reclean reviews." />
+      <EPageHeader
+        eyebrow="Operations"
+        title="Quality"
+        description="QA queue, inspection templates, and reclean reviews."
+        actions={
+          <EButton asChild variant="outline" size="sm">
+            <Link href="/v2/admin/qa-templates">QA templates</Link>
+          </EButton>
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <EStatCard label="Awaiting QA" value={String(awaiting)} delta="unpicked" deltaTone="neutral" icon={<ShieldCheck className="h-4 w-4" />} />

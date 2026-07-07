@@ -603,7 +603,7 @@ export function VisitWorkspace({
             <LifecycleStep done={false} timestamp={null} title="Finish & complete" hideConnector>
               <div className="space-y-4">
                 <EField label="Finish photos / video">
-                  <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple />
+                  <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple stamp={{ tag: "maintenance", address: fullAddress || undefined, reference: prop?.name ?? undefined, contextLabel: "Completion evidence" }} />
                 </EField>
 
                 {!showComplete ? (

@@ -66,6 +66,9 @@ import {
   type QaInspectionTools,
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
+import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
+import { prepareUploadFile } from "@/lib/uploads/compress";
+import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -406,10 +409,10 @@ function Thumb({
   );
 }
 
-/* ── A native file-input photo uploader (stamped server-side is skipped; the
- *    v1 evidence stamp uses a compress helper from components/* we can't import.
- *    We upload the raw file to the SAME endpoint; the server stores it and the
- *    downstream flow (cases/reclean) works identically). ─────────────────── */
+/* ── A native file-input photo uploader. Images get the same evidence stamp
+ *    v1 QA burns in (branding + timestamp + GPS via lib/uploads, merged with
+ *    the caller's `stamp` context — v1 QA stamps every image upload). Videos
+ *    and other files pass through untouched; upload endpoint is unchanged. ─ */
 function Uploader({
   jobId,
   folder,
@@ -417,6 +420,7 @@ function Uploader({
   label = "Add photos",
   onUploaded,
   onError,
+  stamp,
 }: {
   jobId?: string;
   folder: string;
@@ -424,6 +428,8 @@ function Uploader({
   label?: string;
   onUploaded: (key: string, url?: string) => void;
   onError?: (msg: string) => void;
+  /** Evidence-stamp context merged over the branding/GPS base; null disables. */
+  stamp?: StampOptions | null;
 }) {
   const [busy, setBusy] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -434,8 +440,16 @@ function Uploader({
     setBusy((b) => b + list.length);
     for (const file of list) {
       try {
+        let prepared = file;
+        if (stamp !== null && isStampableImage(file)) {
+          try {
+            prepared = await prepareUploadFile(file, await buildEvidenceStamp(stamp));
+          } catch {
+            prepared = file; // never lose the photo over a failed stamp
+          }
+        }
         const form = new FormData();
-        form.append("file", file);
+        form.append("file", prepared);
         form.append("folder", folder);
         if (jobId) form.append("jobId", jobId);
         const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
@@ -672,6 +686,35 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
 
   const template = payload?.template;
   const job = payload?.job;
+
+  // Base evidence-stamp context shared by every QA photo (v1 parity: inspector
+  // name, property address + name, "qa" tag). Branding + GPS are added by the
+  // shared buildEvidenceStamp helper inside the Uploader.
+  const qaStamp = useMemo<StampOptions>(() => {
+    const propertyName =
+      (typeof job?.property?.name === "string" && job.property.name.trim()) || "";
+    const addressParts = [
+      job?.property?.address,
+      job?.property?.suburb,
+      job?.property?.state,
+      job?.property?.postcode,
+    ]
+      .filter((v: unknown) => typeof v === "string" && (v as string).trim())
+      .map((v: string) => v.trim());
+    return {
+      capturerName: authSession?.user?.name?.trim() || "QA Inspector",
+      address: addressParts.join(", ") || undefined,
+      reference: propertyName || undefined,
+      tag: "qa",
+    };
+  }, [
+    authSession?.user?.name,
+    job?.property?.name,
+    job?.property?.address,
+    job?.property?.suburb,
+    job?.property?.state,
+    job?.property?.postcode,
+  ]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
   const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> = payload?.cleanerCandidates ?? [];
   const existingReworks: any[] = job?.qaReworkTransfers ?? [];
@@ -1193,6 +1236,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                     jobId={jobId}
                     folder="qa-damage"
                     label="Add damage photo"
+                    stamp={{ ...qaStamp, tag: "damage", contextLabel: "QA · Damage" }}
                     onUploaded={(key, url) => addDamagePhoto(entry.id, key, url)}
                     onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                   />
@@ -1402,6 +1446,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                         jobId={jobId}
                         folder="qa-damage"
                         label="Add photo of the problem"
+                        stamp={{ ...qaStamp, contextLabel: "QA · Flagged area" }}
                         onUploaded={(key, url) => addFlaggedAreaPhoto(area.id, key, url)}
                         onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                       />
@@ -1494,6 +1539,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                     folder="qa-section"
                     accept="image/*,video/*"
                     label="Capture evidence"
+                    stamp={{ ...qaStamp, contextLabel: ["QA", typeof section.title === "string" ? section.title : ""].filter(Boolean).join(" · ") }}
                     onUploaded={(key, url) => addSectionPhoto(section.id, key, url)}
                     onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                   />

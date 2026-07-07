@@ -648,6 +648,12 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                             mode="photo"
                             folder="evidence"
                             disabled={locked}
+                            stamp={{
+                              address: addressLine || undefined,
+                              reference: (property.name as string) || undefined,
+                              contextLabel: t.title || undefined,
+                              tag: "after",
+                            }}
                           />
                         </div>
                       ) : null}

@@ -411,11 +411,11 @@ export function LaundryActionModal({
         {action === "PICKED_UP" ? (
           <>
             <EField label="Key handling photo (optional)" hint="Proof of the key at pickup.">
-              <MediaCapture value={pickupKeyPhoto} onChange={setPickupKeyPhoto} mode="photo" folder="laundry/key" multiple={false} />
+              <MediaCapture value={pickupKeyPhoto} onChange={setPickupKeyPhoto} mode="photo" folder="laundry/key" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Key photo (pickup)" }} />
             </EField>
             {config.showPickupPhoto ? (
               <EField label="Pickup photo (optional)">
-                <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} mode="photo" folder="laundry/pickup" multiple={false} />
+                <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} mode="photo" folder="laundry/pickup" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Pickup photo" }} />
               </EField>
             ) : null}
           </>
@@ -423,7 +423,7 @@ export function LaundryActionModal({
 
         {action === "EDIT_COMPLETED" ? (
           <EField label="Pickup photo (optional replacement)" hint="Leave empty to keep the existing pickup photo.">
-            <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} mode="photo" folder="laundry/pickup" multiple={false} />
+            <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} mode="photo" folder="laundry/pickup" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Pickup photo" }} />
           </EField>
         ) : null}
 
@@ -468,7 +468,7 @@ export function LaundryActionModal({
 
             {action === "RETURNED" ? (
               <EField label="Key return photo (optional)" hint="Proof the key was returned.">
-                <MediaCapture value={dropoffKeyPhoto} onChange={setDropoffKeyPhoto} mode="photo" folder="laundry/key" multiple={false} />
+                <MediaCapture value={dropoffKeyPhoto} onChange={setDropoffKeyPhoto} mode="photo" folder="laundry/key" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Key photo (drop-off)" }} />
               </EField>
             ) : null}
 
@@ -481,7 +481,7 @@ export function LaundryActionModal({
                     : "Drop-off photo (optional)"
               }
             >
-              <MediaCapture value={dropoffPhoto} onChange={setDropoffPhoto} mode="photo" folder="laundry/dropoff" multiple={false} />
+              <MediaCapture value={dropoffPhoto} onChange={setDropoffPhoto} mode="photo" folder="laundry/dropoff" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Drop-off photo" }} />
             </EField>
 
             {config.showCostTracking ? (
@@ -514,7 +514,7 @@ export function LaundryActionModal({
               label="Receipt photo (optional)"
               hint={action === "EDIT_COMPLETED" && task.receiptImageUrl ? "Leave empty to keep the existing receipt image." : undefined}
             >
-              <MediaCapture value={receiptPhoto} onChange={setReceiptPhoto} mode="photo" folder="laundry/receipt" multiple={false} />
+              <MediaCapture value={receiptPhoto} onChange={setReceiptPhoto} mode="photo" folder="laundry/receipt" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Laundromat receipt" }} />
             </EField>
 
             {(earlyReturn && config.requireEarlyDropoffReason) || (action === "EDIT_COMPLETED" && completion.earlyDropoffReason) ? (

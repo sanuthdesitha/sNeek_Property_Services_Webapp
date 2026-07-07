@@ -42,6 +42,7 @@ import {
 import { EAvatar } from "@/components/v2/admin/estate-kit";
 import { AccountNotes } from "@/components/v2/admin/accounts/account-notes";
 import { AccountActivity } from "@/components/v2/admin/accounts/account-activity";
+import { ExtendedProfileEditor } from "@/components/v2/admin/accounts/extended-profile-editor";
 
 export const metadata = { title: "Account · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -366,17 +367,44 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
               extended?.businessName ||
               extended?.department ||
               extended?.baseLocation;
-            if (!hasAny) return null;
             return (
               <ECard>
-                <ECardHeader className="pb-2">
+                <ECardHeader className="flex-row items-center justify-between pb-2">
                   <ECardTitle className="text-[0.95rem]">
                     <span className="inline-flex items-center gap-2">
                       <IdCard className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Payroll &amp; identity
                     </span>
                   </ECardTitle>
+                  <ExtendedProfileEditor
+                    userId={user.id}
+                    role={user.role}
+                    initial={{
+                      businessName: extended?.businessName ?? null,
+                      abn: extended?.abn ?? user.abn ?? null,
+                      address: extended?.address ?? fullAddress ?? null,
+                      contactNumber: extended?.contactNumber ?? user.phone ?? null,
+                      jobTitle: extended?.jobTitle ?? null,
+                      department: extended?.department ?? null,
+                      baseLocation: extended?.baseLocation ?? null,
+                      bankDetails:
+                        extended?.bankDetails ??
+                        (user.bankAccountName || user.bankBsb || user.bankAccountNumber
+                          ? {
+                              accountName: user.bankAccountName ?? "",
+                              bankName: "",
+                              bsb: user.bankBsb ?? "",
+                              accountNumber: user.bankAccountNumber ?? "",
+                            }
+                          : null),
+                    }}
+                  />
                 </ECardHeader>
                 <ECardBody className="space-y-2.5 pt-0 text-[0.8125rem]">
+                  {!hasAny ? (
+                    <p className="text-[hsl(var(--e-muted-foreground))]">
+                      No payroll or identity details on file yet — use Edit to add them.
+                    </p>
+                  ) : null}
                   {extended?.businessName ? <Row label="Business name" value={extended.businessName} /> : null}
                   {user.abn ? (
                     <Row

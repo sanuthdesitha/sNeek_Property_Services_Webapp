@@ -11,7 +11,7 @@
  *   GET   /api/admin/invoices                       → { clients, properties, rates, invoices }
  *   GET   /api/admin/invoices/[id]                  → full invoice (with lines[])
  *   POST  /api/admin/invoices/generate              { clientId, propertyId?, periodStart?, periodEnd?, gstEnabled }
- *   PATCH /api/admin/invoices/[id]                  { status } | { updateLines[] } | { addLine } | { removeLineId }
+ *   PATCH /api/admin/invoices/[id]                  { status } | { updateLines[] } | { addLine } | { removeLineId } | { reorderLineIds[] }
  *   POST  /api/admin/invoices/[id]/send             { to? }
  *   POST  /api/admin/invoices/[id]/xero-push
  *   GET   /api/admin/invoices/[id]/pdf              (view / download)
@@ -19,6 +19,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
+  ArrowDown,
+  ArrowUp,
   Building2,
   Check,
   FileText,
@@ -399,6 +401,20 @@ export function EstateInvoices() {
     await patchInvoiceLines({ removeLineId: id }, "Line removed");
   }
 
+  // Reorder — same PATCH { reorderLineIds } the v1 drag editor persists
+  // (full ordered list of line ids → saved as 0-based sortOrder). Optimistic
+  // local swap so the row moves immediately; patchInvoiceLines re-fetches to
+  // stay in sync with the server order.
+  async function moveLine(index: number, direction: -1 | 1) {
+    if (!editInvoice) return;
+    const target = index + direction;
+    if (target < 0 || target >= editInvoice.lines.length) return;
+    const reordered = [...editInvoice.lines];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setEditInvoice({ ...editInvoice, lines: reordered });
+    await patchInvoiceLines({ reorderLineIds: reordered.map((l) => l.id) }, "Line order updated");
+  }
+
   const FILTERS = [
     { key: "active", label: "Active" },
     { key: "DRAFT", label: "Draft" },
@@ -717,13 +733,35 @@ export function EstateInvoices() {
                   No line items yet — add one below.
                 </p>
               ) : (
-                editInvoice.lines.map((line) => (
+                editInvoice.lines.map((line, index) => (
                   <div
                     key={line.id}
                     className="grid grid-cols-12 items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2"
                   >
+                    <div className="col-span-1 flex flex-col items-center">
+                      <EButton
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={editSaving || index === 0}
+                        onClick={() => moveLine(index, -1)}
+                        title="Move line up"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </EButton>
+                      <EButton
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={editSaving || index === editInvoice.lines.length - 1}
+                        onClick={() => moveLine(index, 1)}
+                        title="Move line down"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </EButton>
+                    </div>
                     <EInput
-                      className="col-span-5 h-9"
+                      className="col-span-4 h-9"
                       value={line.description}
                       placeholder="Description"
                       onChange={(e) => updateLineField(line.id, { description: e.target.value })}
@@ -845,7 +883,8 @@ export function EstateInvoices() {
               </div>
             </div>
             <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              Changes save per line (the ✓ button) and update totals immediately.
+              Changes save per line (the ✓ button) and update totals immediately. The arrows
+              reorder lines — the new order is saved straight away and flows to the PDF.
             </p>
           </div>
         )}

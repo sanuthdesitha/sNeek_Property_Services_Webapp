@@ -50,6 +50,7 @@ import {
   EModal,
 } from "@/components/v2/admin/estate-kit";
 import { PropertyBillingRates } from "./property-billing-rates";
+import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 
 type TabKey = "profile" | "jobs" | "checklist" | "inventory" | "billing";
 
@@ -661,6 +662,11 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
       {/* CHECKLIST */}
       {tab === "checklist" ? (
+        <div className="space-y-4">
+        {/* Per-property dynamic checklist: amenities → toggled sections/items →
+            live preview → approve generates this property's own form. */}
+        <PropertyChecklistProfile propertyId={propertyId} />
+        <PropertyFormOverrides propertyId={propertyId} />
         <ECard>
           <ECardHeader className="flex-row items-center justify-between pb-2">
             <ECardTitle className="text-[0.95rem]">Next-job checklist</ECardTitle>
@@ -713,6 +719,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             )}
           </ECardBody>
         </ECard>
+        </div>
       ) : null}
 
       {/* INVENTORY */}

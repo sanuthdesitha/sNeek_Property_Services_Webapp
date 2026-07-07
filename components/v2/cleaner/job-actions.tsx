@@ -466,7 +466,7 @@ function LaundryUpdate({
                   />
                 </EField>
                 <EField label="Laundry photo (required)">
-                  <MediaCapture value={photo} onChange={setPhoto} mode="photo" folder="laundry" />
+                  <MediaCapture value={photo} onChange={setPhoto} mode="photo" folder="laundry" stamp={{ tag: "laundry", contextLabel: "Laundry bags ready for pickup" }} />
                 </EField>
               </>
             ) : (
@@ -698,7 +698,7 @@ function DamageReport({ jobId, onChanged }: { jobId: string; onChanged?: () => v
               />
             </EField>
             <EField label="Evidence photos (required)">
-              <MediaCapture value={photos} onChange={setPhotos} mode="photo" folder="evidence" multiple />
+              <MediaCapture value={photos} onChange={setPhotos} mode="photo" folder="evidence" multiple stamp={{ tag: "damage", contextLabel: "Damage report" }} />
             </EField>
             <div className="flex gap-2">
               <EButton variant="danger" size="sm" disabled={busy} onClick={submit}>

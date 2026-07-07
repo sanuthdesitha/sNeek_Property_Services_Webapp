@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { CalendarPlus, Download, Send } from "lucide-react";
+import { CalendarPlus, Download, Eye, Loader2, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -181,6 +181,44 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
     }
   }
 
+  // Inline preview — same render endpoint as the PDF download; the blob is
+  // shown in an iframe (works for both application/pdf and the HTML fallback).
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) window.URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  async function openPreview() {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/pdf`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Could not render the quote preview.");
+      }
+      const blob = await res.blob();
+      setPreviewUrl((prev) => {
+        if (prev) window.URL.revokeObjectURL(prev);
+        return window.URL.createObjectURL(blob);
+      });
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err?.message ?? "Could not render preview.", variant: "destructive" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    setPreviewUrl((prev) => {
+      if (prev) window.URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
   async function downloadPdf() {
     const res = await fetch(`/api/admin/quotes/${quote.id}/pdf`);
     if (!res.ok) {
@@ -209,6 +247,9 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           <Link href="/v2/admin/quotes">Back to pipeline</Link>
         </EButton>
         <div className="flex flex-wrap items-center gap-2">
+          <EButton variant="ghost" size="sm" onClick={openPreview} disabled={previewLoading}>
+            {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />} Preview
+          </EButton>
           <EButton variant="ghost" size="sm" onClick={downloadPdf}>
             <Download className="h-3.5 w-3.5" /> PDF
           </EButton>
@@ -222,6 +263,17 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           ) : null}
         </div>
       </div>
+
+      {/* Inline document preview — same render as the emailed / downloaded quote */}
+      <EModal open={Boolean(previewUrl)} onClose={closePreview} eyebrow="Quotes" title="Quote preview" size="full">
+        {previewUrl ? (
+          <iframe
+            src={previewUrl}
+            title="Quote preview"
+            className="h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
+          />
+        ) : null}
+      </EModal>
 
       {/* Convert to job — same payload as the classic flow */}
       <EModal open={convertOpen} onClose={() => setConvertOpen(false)} eyebrow="Quotes" title="Convert to job">
