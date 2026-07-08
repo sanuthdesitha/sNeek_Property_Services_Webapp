@@ -132,11 +132,10 @@ export function PropertiesPortfolio({ rows }: { rows: EstatePropertyRow[] }) {
           </span>
           <p className="e-display-sm">Map view</p>
           <p className="max-w-sm text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-            {mapCount} of {rows.length} properties are geocoded. The interactive map lives in the classic
-            properties desk.
+            {mapCount} of {rows.length} properties are geocoded. See them live on the ops map.
           </p>
           <div className="mt-1">
-            <EClassicLink href="/admin/properties">Open map in classic view</EClassicLink>
+            <EClassicLink href="/v2/admin/ops/map">Open the ops map</EClassicLink>
           </div>
         </ECard>
       ) : filtered.length === 0 ? (

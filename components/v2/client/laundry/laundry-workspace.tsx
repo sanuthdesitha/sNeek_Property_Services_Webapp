@@ -7,6 +7,7 @@
  * Styled purely with `--e-*` tokens. No v1 UI imports (own inline media grid).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   endOfDay,
@@ -20,7 +21,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Shirt } from "lucide-react";
+import { ArrowLeft, Shirt } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from "@/lib/laundry/media";
@@ -295,6 +296,16 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
 
   return (
     <div className="space-y-6">
+      {/* Back to jobs */}
+      <div>
+        <Link
+          href="/v2/client/jobs"
+          className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-[hsl(var(--e-gold-ink))] hover:underline"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to jobs
+        </Link>
+      </div>
+
       {/* Summary */}
       <section className="grid gap-4 sm:grid-cols-3">
         {[

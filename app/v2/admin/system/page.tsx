@@ -25,6 +25,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Accounts", desc: "Staff & client overview", icon: Users, href: "/v2/admin/accounts" },
       { label: "Cleaners", desc: "Roster, rates, active jobs, owed", icon: Sparkles, href: "/v2/admin/cleaners" },
       { label: "Properties", desc: "Portfolio & job history", icon: Building2, href: "/v2/admin/properties" },
+      { label: "Property onboarding", desc: "Surveys, status & new contracts", icon: ClipboardList, href: "/v2/admin/onboarding" },
       { label: "Users & roles", desc: "Staff accounts and permissions", icon: Users, href: "/v2/admin/users" },
     ],
   },
@@ -46,6 +47,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
     items: [
       { label: "Settings", desc: "Brand & company · Integrations & billing · Ops defaults", icon: Cog, href: "/v2/admin/settings" },
       { label: "Checklists library", desc: "Modules, items & coverage", icon: ListChecks, href: "/v2/admin/checklists" },
+      { label: "QA templates", desc: "Inspection scoring forms per job type", icon: ClipboardCheck, href: "/v2/admin/qa-templates" },
       { label: "Forms & stats", desc: "Form builder, coverage, stats", icon: ClipboardList, href: "/v2/admin/forms" },
       { label: "Templates", desc: "Email, notification & message designer", icon: FileText, href: "/v2/admin/templates" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },

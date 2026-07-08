@@ -15,6 +15,7 @@ import {
   EPageHeader,
 } from "@/components/v2/ui/primitives";
 import { CalendarPlus, ChevronRight, MapPin, User } from "lucide-react";
+import { EstateCalendarGrid } from "@/components/v2/client/calendar-grid";
 
 export const metadata = { title: "Calendar · Estate client" };
 export const dynamic = "force-dynamic";
@@ -140,6 +141,19 @@ export default async function ClientCalendarPage() {
           </EButton>
         }
       />
+
+      {rows.length > 0 ? (
+        <EstateCalendarGrid
+          events={rows.map((item) => ({
+            id: item.id,
+            dayKey: item.dayKey,
+            title: item.propertyName,
+            status: item.status,
+            subtitle: titleCase(item.jobType),
+            href: `/v2/client/jobs/${item.id}`,
+          }))}
+        />
+      ) : null}
 
       {upcoming.length === 0 && past.length === 0 ? (
         <EEmptyState

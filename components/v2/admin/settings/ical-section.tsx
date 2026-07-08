@@ -380,9 +380,9 @@ export function IcalSection() {
       </ECard>
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Per-run revert and per-property sync options live in the{" "}
-        <Link href="/admin/settings?tab=ical-sync" className="text-[hsl(var(--e-gold-ink))] hover:underline">
-          classic iCal console
+        Per-property sync and undo live on each property&apos;s page under{" "}
+        <Link href="/v2/admin/properties" className="text-[hsl(var(--e-gold-ink))] hover:underline">
+          Properties
         </Link>
         .
       </p>

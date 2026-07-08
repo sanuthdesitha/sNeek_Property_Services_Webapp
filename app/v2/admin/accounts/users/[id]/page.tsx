@@ -17,6 +17,10 @@ import {
   Timer,
   Users as UsersIcon,
   Wallet,
+  Landmark,
+  ShieldAlert,
+  Building2,
+  IdCard,
 } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
@@ -38,6 +42,7 @@ import {
 import { EAvatar } from "@/components/v2/admin/estate-kit";
 import { AccountNotes } from "@/components/v2/admin/accounts/account-notes";
 import { AccountActivity } from "@/components/v2/admin/accounts/account-activity";
+import { ExtendedProfileEditor } from "@/components/v2/admin/accounts/extended-profile-editor";
 
 export const metadata = { title: "Account · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -85,7 +90,16 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
       employmentType: true,
       suburb: true,
       state: true,
+      postcode: true,
       address: true,
+      abn: true,
+      bankBsb: true,
+      bankAccountNumber: true,
+      bankAccountName: true,
+      preferredPayoutMethod: true,
+      emergencyContactName: true,
+      emergencyContactPhone: true,
+      emergencyContactRelation: true,
       notes: true,
       clientId: true,
     },
@@ -330,6 +344,112 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
             </ECardBody>
           </ECard>
 
+          {/* Payroll & identity — ABN, address, bank, payout, emergency contact */}
+          {(() => {
+            const fullAddress = [user.address, user.suburb, user.state, user.postcode]
+              .map((p) => (typeof p === "string" ? p.trim() : ""))
+              .filter(Boolean)
+              .join(", ");
+            const bankLine = [
+              user.bankAccountName,
+              user.bankBsb ? `BSB ${user.bankBsb}` : null,
+              user.bankAccountNumber ? `Acc ${user.bankAccountNumber}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            const hasAny =
+              user.abn ||
+              fullAddress ||
+              bankLine ||
+              user.preferredPayoutMethod ||
+              user.emergencyContactName ||
+              user.emergencyContactPhone ||
+              extended?.businessName ||
+              extended?.department ||
+              extended?.baseLocation;
+            return (
+              <ECard>
+                <ECardHeader className="flex-row items-center justify-between pb-2">
+                  <ECardTitle className="text-[0.95rem]">
+                    <span className="inline-flex items-center gap-2">
+                      <IdCard className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Payroll &amp; identity
+                    </span>
+                  </ECardTitle>
+                  <ExtendedProfileEditor
+                    userId={user.id}
+                    role={user.role}
+                    initial={{
+                      businessName: extended?.businessName ?? null,
+                      abn: extended?.abn ?? user.abn ?? null,
+                      address: extended?.address ?? fullAddress ?? null,
+                      contactNumber: extended?.contactNumber ?? user.phone ?? null,
+                      jobTitle: extended?.jobTitle ?? null,
+                      department: extended?.department ?? null,
+                      baseLocation: extended?.baseLocation ?? null,
+                      bankDetails:
+                        extended?.bankDetails ??
+                        (user.bankAccountName || user.bankBsb || user.bankAccountNumber
+                          ? {
+                              accountName: user.bankAccountName ?? "",
+                              bankName: "",
+                              bsb: user.bankBsb ?? "",
+                              accountNumber: user.bankAccountNumber ?? "",
+                            }
+                          : null),
+                    }}
+                  />
+                </ECardHeader>
+                <ECardBody className="space-y-2.5 pt-0 text-[0.8125rem]">
+                  {!hasAny ? (
+                    <p className="text-[hsl(var(--e-muted-foreground))]">
+                      No payroll or identity details on file yet — use Edit to add them.
+                    </p>
+                  ) : null}
+                  {extended?.businessName ? <Row label="Business name" value={extended.businessName} /> : null}
+                  {user.abn ? (
+                    <Row
+                      label={<span className="inline-flex items-center gap-1"><Building2 className="h-3.5 w-3.5" /> ABN</span>}
+                      value={user.abn}
+                    />
+                  ) : null}
+                  {fullAddress ? (
+                    <Row
+                      label={<span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Address</span>}
+                      value={<span className="text-right">{fullAddress}</span>}
+                    />
+                  ) : null}
+                  {bankLine ? (
+                    <Row
+                      label={<span className="inline-flex items-center gap-1"><Landmark className="h-3.5 w-3.5" /> Bank account</span>}
+                      value={<span className="text-right">{bankLine}</span>}
+                    />
+                  ) : null}
+                  {user.preferredPayoutMethod ? (
+                    <Row label="Payout method" value={prettify(user.preferredPayoutMethod)} />
+                  ) : null}
+                  {extended?.department ? <Row label="Department" value={extended.department} /> : null}
+                  {extended?.baseLocation ? <Row label="Base location" value={extended.baseLocation} /> : null}
+                  {user.emergencyContactName || user.emergencyContactPhone ? (
+                    <Row
+                      label={<span className="inline-flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" /> Emergency contact</span>}
+                      value={
+                        <span className="text-right">
+                          {[
+                            user.emergencyContactName,
+                            user.emergencyContactRelation ? `(${user.emergencyContactRelation})` : null,
+                            user.emergencyContactPhone,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      }
+                    />
+                  ) : null}
+                </ECardBody>
+              </ECard>
+            );
+          })()}
+
           {/* Documents */}
           {summary.documentsTotal > 0 ? (
             <ECard>
@@ -390,7 +510,7 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
   );
 }
 
-function Row({ label, value, warn }: { label: string; value: React.ReactNode; warn?: boolean }) {
+function Row({ label, value, warn }: { label: React.ReactNode; value: React.ReactNode; warn?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border)/0.7)] pb-2 last:border-b-0 last:pb-0">
       <span className="text-[hsl(var(--e-muted-foreground))]">{label}</span>

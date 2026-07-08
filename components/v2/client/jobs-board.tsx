@@ -9,19 +9,34 @@
  *   POST   /api/client/jobs/[id]/cancel-request      { reason }
  *   POST   /api/client/jobs/[id]/task-requests       { title, description?, requiresPhoto, requiresNote, attachmentKeys }
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import {
   ArrowRight,
   CalendarClock,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   MapPin,
   Search,
   Shirt,
   Star,
+  Upload,
   User,
+  X,
 } from "lucide-react";
 import {
   EBadge,
@@ -36,6 +51,10 @@ import { ECheckTile, EInlineNotice, EInput, ELabel, ESelect, ETextarea } from "@
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
+const STORAGE_KEY = "sneek_client_jobs_filter";
+
+type FilterMode = "all" | "today" | "tomorrow" | "week" | "date";
+type ViewMode = "list" | "calendar";
 
 type JobRow = {
   id: string;
@@ -66,6 +85,42 @@ function dayKey(value: Date | string) {
 }
 function titleCase(value: string) {
   return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function todayKeyOf() {
+  return format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
+}
+function tomorrowKeyOf() {
+  const base = toZonedTime(new Date(), TZ);
+  return format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1), "yyyy-MM-dd");
+}
+function withinNextWeek(value: Date | string) {
+  const today = new Date(`${todayKeyOf()}T00:00:00`);
+  const end = new Date(today);
+  end.setDate(end.getDate() + 6);
+  const current = new Date(`${dayKey(value)}T00:00:00`);
+  return current >= today && current <= end;
+}
+function matchesFilter(job: JobRow, mode: FilterMode, selectedDate: string) {
+  const key = dayKey(job.scheduledDate);
+  if (mode === "today") return key === todayKeyOf();
+  if (mode === "tomorrow") return key === tomorrowKeyOf();
+  if (mode === "week") return withinNextWeek(job.scheduledDate);
+  if (mode === "date") return selectedDate ? key === selectedDate : true;
+  return true;
+}
+
+type UploadedAttachment = { key: string; url: string; label: string };
+
+async function uploadTaskRequestFile(file: File): Promise<UploadedAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("folder", "client-job-task-requests");
+  const response = await fetch("/api/uploads/direct", { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error ?? "Could not upload file.");
+  }
+  return { key: String(body.key), url: String(body.url), label: file.name };
 }
 function statusTone(status: string): "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" {
   switch (status) {
@@ -106,6 +161,8 @@ function JobActionPanel({
   const [description, setDescription] = useState("");
   const [requiresPhoto, setRequiresPhoto] = useState(false);
   const [requiresNote, setRequiresNote] = useState(false);
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   // reschedule / cancel / skip fields
   const [requestedDate, setRequestedDate] = useState(dayKey(job.scheduledDate));
   const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
@@ -142,7 +199,7 @@ function JobActionPanel({
         description: description.trim() || undefined,
         requiresPhoto,
         requiresNote,
-        attachmentKeys: [],
+        attachmentKeys: attachments.map((item) => item.key),
       });
       if (ok) {
         setDone("Task request submitted — admin review happens before it reaches the cleaners.");
@@ -226,6 +283,73 @@ function JobActionPanel({
                   Require cleaner note
                 </ECheckTile>
               </div>
+              <div className="space-y-1.5">
+                <ELabel htmlFor={`task-files-${job.id}`}>Reference files</ELabel>
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] px-3 py-2.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-gold))]",
+                    uploading && "pointer-events-none opacity-60"
+                  )}
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>{uploading ? "Uploading…" : "Upload image or video references"}</span>
+                  <input
+                    id={`task-files-${job.id}`}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={async (e) => {
+                      const files = e.target.files;
+                      if (!files?.length) return;
+                      setUploading(true);
+                      setError(null);
+                      try {
+                        const uploaded: UploadedAttachment[] = [];
+                        for (const file of Array.from(files)) {
+                          uploaded.push(await uploadTaskRequestFile(file));
+                        }
+                        setAttachments((prev) => [...prev, ...uploaded]);
+                      } catch (err: any) {
+                        setError(err?.message ?? "Could not upload files.");
+                      } finally {
+                        setUploading(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+                {attachments.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {attachments.map((item) => (
+                      <span
+                        key={item.key}
+                        className="group relative inline-flex items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] py-1 pl-1 pr-2 text-[0.75rem]"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.url}
+                          alt={item.label}
+                          className="h-8 w-8 rounded-[3px] object-cover"
+                        />
+                        <span className="max-w-[8rem] truncate text-[hsl(var(--e-text-secondary))]">
+                          {item.label}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item.label}`}
+                          onClick={() =>
+                            setAttachments((prev) => prev.filter((a) => a.key !== item.key))
+                          }
+                          className="text-[hsl(var(--e-text-faint))] hover:text-[hsl(var(--e-danger))]"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </>
           ) : null}
 
@@ -283,7 +407,7 @@ function JobActionPanel({
             <EButton variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Cancel
             </EButton>
-            <EButton variant="gold" size="sm" onClick={submit} disabled={busy}>
+            <EButton variant="gold" size="sm" onClick={submit} disabled={busy || uploading}>
               {busy ? "Sending…" : "Send request"}
             </EButton>
           </div>
@@ -481,6 +605,38 @@ export function ClientJobsBoard({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [showPast, setShowPast] = useState(false);
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [calendarMonth, setCalendarMonth] = useState(() =>
+    startOfMonth(toZonedTime(new Date(), TZ))
+  );
+
+  // Restore the last-used filter/view (same key as the legacy workspace so
+  // preferences carry across the redesign).
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        filterMode?: FilterMode;
+        selectedDate?: string;
+        viewMode?: ViewMode;
+      };
+      if (parsed.filterMode) setFilterMode(parsed.filterMode);
+      if (parsed.selectedDate) setSelectedDate(parsed.selectedDate);
+      if (parsed.viewMode) setViewMode(parsed.viewMode);
+    } catch {
+      // ignore invalid local state
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ filterMode, selectedDate, viewMode })
+    );
+  }, [filterMode, selectedDate, viewMode]);
 
   const statuses = useMemo(
     () => Array.from(new Set(jobs.map((job) => job.status))).sort(),
@@ -489,9 +645,20 @@ export function ClientJobsBoard({
 
   const todayKey = format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
 
+  const jobDayKeys = useMemo(
+    () => new Set(jobs.map((job) => dayKey(job.scheduledDate))),
+    [jobs]
+  );
+  const calendarDays = useMemo(() => {
+    const start = startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 });
+    const end = endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 });
+    return eachDayOfInterval({ start, end });
+  }, [calendarMonth]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return jobs.filter((job) => {
+      if (!matchesFilter(job, filterMode, selectedDate)) return false;
       if (status !== "ALL" && job.status !== status) return false;
       if (!q) return true;
       return [job.property.name, job.property.suburb ?? "", job.jobNumber ?? "", titleCase(job.jobType)]
@@ -499,7 +666,7 @@ export function ClientJobsBoard({
         .toLowerCase()
         .includes(q);
     });
-  }, [jobs, query, status]);
+  }, [jobs, query, status, filterMode, selectedDate]);
 
   const upcoming = useMemo(
     () =>
@@ -518,7 +685,7 @@ export function ClientJobsBoard({
 
   return (
     <div className="space-y-8">
-      {/* Search + status filter */}
+      {/* Search + status filter + view toggle */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
@@ -543,7 +710,149 @@ export function ClientJobsBoard({
             </option>
           ))}
         </ESelect>
+        <div className="flex overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))]">
+          {(
+            [
+              { value: "list", label: "List", icon: null },
+              { value: "calendar", label: "Calendar", icon: <CalendarDays className="h-3.5 w-3.5" /> },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setViewMode(option.value)}
+              aria-pressed={viewMode === option.value}
+              className={cn(
+                "inline-flex h-10 items-center gap-1.5 px-4 text-[0.8125rem] font-[550] transition-colors duration-[160ms]",
+                viewMode === option.value
+                  ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]"
+                  : "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
+              )}
+            >
+              {option.icon}
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Quick date filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(
+          [
+            { value: "all", label: "All" },
+            { value: "today", label: "Today" },
+            { value: "tomorrow", label: "Tomorrow" },
+            { value: "week", label: "This week" },
+          ] as const
+        ).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => {
+              setFilterMode(option.value);
+              setSelectedDate("");
+            }}
+            aria-pressed={filterMode === option.value}
+            className={cn(
+              "rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms]",
+              filterMode === option.value
+                ? "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]"
+                : "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+        <label className="flex items-center gap-2 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3.5 py-1.5 text-[0.8125rem]">
+          <span className="text-[hsl(var(--e-muted-foreground))]">Pick date</span>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(event) => {
+              setSelectedDate(event.target.value);
+              setFilterMode(event.target.value ? "date" : "all");
+              if (event.target.value) {
+                setCalendarMonth(startOfMonth(new Date(`${event.target.value}T00:00:00`)));
+              }
+            }}
+            className="bg-transparent text-[hsl(var(--e-foreground))] outline-none"
+            aria-label="Filter by date"
+          />
+        </label>
+      </div>
+
+      {/* Calendar view */}
+      {viewMode === "calendar" ? (
+        <ECard>
+          <ECardBody className="space-y-4 pt-5">
+            <div className="flex items-center justify-between">
+              <EButton
+                variant="outline"
+                size="icon"
+                aria-label="Previous month"
+                onClick={() => setCalendarMonth((current) => subMonths(current, 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </EButton>
+              <p className="e-display-sm text-[1.0625rem]">{format(calendarMonth, "MMMM yyyy")}</p>
+              <div className="flex items-center gap-2">
+                <EButton
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCalendarMonth(startOfMonth(toZonedTime(new Date(), TZ)))}
+                >
+                  Today
+                </EButton>
+                <EButton
+                  variant="outline"
+                  size="icon"
+                  aria-label="Next month"
+                  onClick={() => setCalendarMonth((current) => addMonths(current, 1))}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </EButton>
+              </div>
+            </div>
+            <div className="grid grid-cols-7 gap-2 text-center text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-muted-foreground))]">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
+                <div key={label}>{label}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {calendarDays.map((day) => {
+                const key = format(day, "yyyy-MM-dd");
+                const isSelected = selectedDate === key;
+                const hasJobs = jobDayKeys.has(key);
+                const inMonth = isSameMonth(day, calendarMonth);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(key);
+                      setFilterMode("date");
+                    }}
+                    className={cn(
+                      "relative rounded-[var(--e-radius)] border px-2 py-3 text-[0.875rem] transition-colors duration-[160ms]",
+                      inMonth
+                        ? "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-gold))]"
+                        : "border-transparent bg-[hsl(var(--e-surface-sunken))] text-[hsl(var(--e-text-faint))]",
+                      isSelected &&
+                        "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-accent-portal-soft))] text-[hsl(var(--e-foreground))]"
+                    )}
+                  >
+                    <span className={cn(hasJobs && inMonth && "font-semibold")}>{format(day, "d")}</span>
+                    {hasJobs ? (
+                      <span className="absolute bottom-1.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[hsl(var(--e-gold))]" />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       {/* Upcoming */}
       <section className="space-y-3">

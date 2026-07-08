@@ -2,6 +2,7 @@ import { toZonedTime } from "date-fns-tz";
 import { LaundryStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { EBadge, EButton, ECard, ECardBody, EPageHeader, EStatCard, EEmptyState } from "@/components/v2/ui/primitives";
+import { LaundrySuppliers } from "@/components/v2/admin/laundry/laundry-suppliers";
 import { PackageCheck, Shirt, Truck } from "lucide-react";
 
 export const metadata = { title: "Laundry · Estate admin" };
@@ -118,6 +119,7 @@ export default async function AdminLaundryPage() {
           })
         )}
       </div>
+      <LaundrySuppliers />
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
     </div>
   );

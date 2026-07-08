@@ -117,6 +117,7 @@ function SectionBlock({
             <FieldBlock
               key={field.id}
               field={field}
+              section={section}
               answers={answers}
               uploads={uploads}
               property={property}
@@ -131,8 +132,44 @@ function SectionBlock({
   );
 }
 
+/**
+ * Derive the evidence-stamp tag for a photo field — same heuristics as the v1
+ * cleaner job page: explicit `stampTag` wins, then damage/before keywords in
+ * the section/field labels, defaulting to "after".
+ */
+function deriveStampTag(field: any, section: FormSection): string {
+  const explicit = typeof field?.stampTag === "string" ? field.stampTag.trim().toLowerCase() : "";
+  if (explicit && explicit !== "auto") return explicit;
+  const haystack = [
+    (section as any)?.title,
+    (section as any)?.label,
+    (section as any)?.description,
+    field?.label,
+    field?.locationTag,
+  ]
+    .filter((v: unknown) => typeof v === "string")
+    .join(" ")
+    .toLowerCase();
+  if (/\b(damage|broken|defect|fault)\b/.test(haystack)) return "damage";
+  if (/\b(before|arrival|arrive|pre-?clean|pre clean|start|check-?in|on arrival)\b/.test(haystack)) {
+    return "before";
+  }
+  return "after";
+}
+
+/** Property address + name for the stamp locator lines (same shape as v1). */
+function stampLocation(property: Record<string, unknown>): { address?: string; reference?: string } {
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+  const address = [property?.address, property?.suburb, property?.state, property?.postcode]
+    .map(str)
+    .filter(Boolean)
+    .join(", ");
+  return { address: address || undefined, reference: str(property?.name) || undefined };
+}
+
 function FieldBlock({
   field,
+  section,
   answers,
   uploads,
   property,
@@ -141,6 +178,7 @@ function FieldBlock({
   disabled,
 }: {
   field: FormField & { _isChild?: boolean };
+  section: FormSection;
   answers: AnswerMap;
   uploads: UploadMap;
   property: Record<string, unknown>;
@@ -226,7 +264,16 @@ function FieldBlock({
     <div className={cn("space-y-1.5", indent)}>
       {label}
       {references}
-      <FieldControl field={field} value={value} set={set} uploads={uploads} onUpload={onUpload} disabled={disabled} />
+      <FieldControl
+        field={field}
+        section={section}
+        value={value}
+        set={set}
+        uploads={uploads}
+        onUpload={onUpload}
+        disabled={disabled}
+        property={property}
+      />
       {/* yes/no detail note when answered "No" */}
       {field.type === "yesno" && field.detailsWhenNo && (value === "no" || value === false) ? (
         <ETextarea
@@ -244,18 +291,22 @@ function FieldBlock({
 
 function FieldControl({
   field,
+  section,
   value,
   set,
   uploads,
   onUpload,
   disabled,
+  property,
 }: {
   field: FormField;
+  section: FormSection;
   value: unknown;
   set: (v: unknown) => void;
   uploads: UploadMap;
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled: boolean;
+  property: Record<string, unknown>;
 }) {
   // Media/upload fields → native capture.
   if (isUploadFieldType(field.type)) {
@@ -267,6 +318,12 @@ function FieldControl({
           : field.type === "file"
             ? "file"
             : "photo";
+    const { address, reference } = stampLocation(property);
+    const sectionLabel =
+      (typeof (section as any)?.label === "string" && (section as any).label.trim()) ||
+      (typeof section?.title === "string" && section.title.trim()) ||
+      "";
+    const fieldLabel = (typeof field?.label === "string" && field.label.trim()) || "";
     return (
       <MediaCapture
         value={uploads[field.id] ?? []}
@@ -276,6 +333,12 @@ function FieldControl({
         multiple={(field.maxFiles ?? 10) !== 1}
         minPhotos={field.type === "photo" ? field.minPhotos : undefined}
         disabled={disabled}
+        stamp={{
+          address,
+          reference,
+          contextLabel: [sectionLabel, fieldLabel].filter(Boolean).join(" · ") || undefined,
+          tag: deriveStampTag(field, section),
+        }}
       />
     );
   }

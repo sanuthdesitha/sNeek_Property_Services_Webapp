@@ -18,6 +18,7 @@ import { Building2, ShieldCheck, ShieldOff, Smartphone, Mail, Loader2 } from "lu
 import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 import { EInput, ESelect, EField, ESwitch } from "@/components/v2/admin/estate-kit";
 import { EInlineNotice } from "@/components/v2/client/fields";
+import { EAddressInput } from "@/components/v2/client/address-input";
 import { useTheme, type ThemePreference } from "@/lib/theme/context";
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -205,12 +206,29 @@ function ContactForm({
 
         <SectionCard eyebrow="Billing" title="Billing address" description="Used on your invoices.">
           <div className="space-y-4">
-            <EField label="Address">
-              <EInput
+            <EField label="Address" hint="Search to autocomplete — suburb, state, and postcode fill in automatically.">
+              <EAddressInput
+                id="billing-address"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                onBlur={() => address !== (user.address ?? "") && patchProfile({ address })}
-                placeholder="Street address"
+                onChange={setAddress}
+                onResolved={(parts) => {
+                  const nextAddress = parts.formattedAddress || parts.address || address;
+                  setAddress(nextAddress);
+                  setSuburb(parts.suburb ?? "");
+                  setStateVal(parts.state ?? "");
+                  setPostcode(parts.postcode ?? "");
+                  patchProfile({
+                    address: nextAddress,
+                    suburb: parts.suburb ?? "",
+                    state: parts.state ?? "",
+                    postcode: parts.postcode ?? "",
+                    placeId: parts.placeId,
+                    latitude: parts.lat,
+                    longitude: parts.lng,
+                  });
+                }}
+                placeholder="Start typing your address…"
+                disabled={locked}
               />
             </EField>
             <div className="grid gap-4 sm:grid-cols-3">

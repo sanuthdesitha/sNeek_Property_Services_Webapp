@@ -52,6 +52,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EField, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
+import { EAccessInfo } from "@/components/v2/shared/access-info";
 
 /* ── Types (mirror the GET /api/maintenance/[id] contract) ─────────────────── */
 
@@ -472,12 +473,17 @@ export function VisitWorkspace({
         </ECardHeader>
         <ECardBody>
           {accessShared ? (
-            <dl className="space-y-2">
-              {cleanText(prop?.accessCode) ? <AccessRow label="Access code" value={cleanText(prop?.accessCode)} /> : null}
-              {cleanText(prop?.alarmCode) ? <AccessRow label="Alarm code" value={cleanText(prop?.alarmCode)} /> : null}
-              {cleanText(prop?.keyLocation) ? <AccessRow label="Key location" value={cleanText(prop?.keyLocation)} /> : null}
-              {cleanText(prop?.accessNotes) ? <AccessRow label="Access notes" value={cleanText(prop?.accessNotes)} /> : null}
-            </dl>
+            <div className="space-y-3">
+              <dl className="space-y-2">
+                {cleanText(prop?.accessCode) ? <AccessRow label="Access code" value={cleanText(prop?.accessCode)} /> : null}
+                {cleanText(prop?.alarmCode) ? <AccessRow label="Alarm code" value={cleanText(prop?.alarmCode)} /> : null}
+                {cleanText(prop?.keyLocation) ? <AccessRow label="Key location" value={cleanText(prop?.keyLocation)} /> : null}
+                {cleanText(prop?.accessNotes) ? <AccessRow label="Access notes" value={cleanText(prop?.accessNotes)} /> : null}
+              </dl>
+              {/* Full onboarding access instructions, incl. reference photos/PDF —
+                  parity with the v1 AccessInstructionsPanel. */}
+              <EAccessInfo accessInfo={prop?.accessInfo} defaultOpen />
+            </div>
           ) : (
             <div className="flex items-start gap-2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
               <Lock className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -597,7 +603,7 @@ export function VisitWorkspace({
             <LifecycleStep done={false} timestamp={null} title="Finish & complete" hideConnector>
               <div className="space-y-4">
                 <EField label="Finish photos / video">
-                  <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple />
+                  <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple stamp={{ tag: "maintenance", address: fullAddress || undefined, reference: prop?.name ?? undefined, contextLabel: "Completion evidence" }} />
                 </EField>
 
                 {!showComplete ? (

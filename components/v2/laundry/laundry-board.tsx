@@ -16,13 +16,18 @@
  * Everything is Estate-token styled; zero live-component imports.
  */
 import * as React from "react";
-import { addDays, format, isSameDay, startOfDay } from "date-fns";
+import { format, isSameDay, startOfDay } from "date-fns";
+import jsQR from "jsqr";
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  Copy,
+  FilePenLine,
   MapPin,
   Package,
+  QrCode,
   RefreshCw,
   RotateCcw,
   Truck,
@@ -34,7 +39,9 @@ import {
   ECardBody,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { EInput } from "@/components/v2/cleaner/fields";
+import { EAccessInfo } from "@/components/v2/shared/access-info";
+import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { toast } from "@/hooks/use-toast";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
@@ -46,7 +53,14 @@ export type LaundryStatus =
   | "FLAGGED"
   | "SKIPPED_PICKUP";
 
-type Confirmation = { laundryReady?: boolean; notes?: string | null; createdAt?: string };
+type Confirmation = {
+  id?: string;
+  laundryReady?: boolean;
+  notes?: string | null;
+  createdAt?: string;
+  photoUrl?: string | null;
+  bagLocation?: string | null;
+};
 
 export type BoardTask = {
   id: string;
@@ -59,12 +73,19 @@ export type BoardTask = {
   flagReason?: string | null;
   flagNotes?: string | null;
   noPickupRequired?: boolean;
+  skipReasonCode?: string | null;
+  skipReasonNote?: string | null;
+  adminOverrideNote?: string | null;
+  receiptImageUrl?: string | null;
+  supplierId?: string | null;
+  supplier?: { id: string; name: string | null } | null;
   property: {
     id?: string;
     name: string | null;
     suburb?: string | null;
     address?: string | null;
     linenBufferSets?: number | null;
+    accessInfo?: unknown;
   } | null;
   confirmations?: Confirmation[];
 };
@@ -110,6 +131,79 @@ function bagCountFor(task: BoardTask): number {
     }
   }
   return Math.max(1, task.property?.linenBufferSets ?? 1);
+}
+
+function parseNotes(notes: string | null | undefined): any {
+  if (!notes) return null;
+  try {
+    return JSON.parse(notes);
+  } catch {
+    return null;
+  }
+}
+
+function eventConfirmation(task: BoardTask, eventName: string): Confirmation | undefined {
+  const confirmations = Array.isArray(task.confirmations) ? [...task.confirmations] : [];
+  return confirmations.reverse().find((c) => parseNotes(c?.notes)?.event === eventName);
+}
+
+/** Evidence photos attached to a task (cleaner ready, pickup, drop-off, receipt). */
+function taskPhotos(task: BoardTask): Array<{ id: string; url: string; label: string }> {
+  const photos: Array<{ id: string; url: string; label: string }> = [];
+  const cleaner = (task.confirmations ?? []).find(
+    (c) => c?.laundryReady === true && Boolean(c?.photoUrl) && !parseNotes(c?.notes)?.event
+  );
+  if (cleaner?.photoUrl) photos.push({ id: cleaner.id ?? `${task.id}-cleaner`, url: cleaner.photoUrl, label: "Cleaner photo" });
+  const pickedUp = eventConfirmation(task, "PICKED_UP");
+  if (pickedUp?.photoUrl) photos.push({ id: pickedUp.id ?? `${task.id}-pickup`, url: pickedUp.photoUrl, label: "Pickup" });
+  const dropped = eventConfirmation(task, "DROPPED");
+  if (dropped?.photoUrl) photos.push({ id: dropped.id ?? `${task.id}-drop`, url: dropped.photoUrl, label: "Drop-off" });
+  if (task.receiptImageUrl) photos.push({ id: `${task.id}-receipt`, url: task.receiptImageUrl, label: "Receipt" });
+  return photos;
+}
+
+function pendingFailedPickupRequest(task: BoardTask): any | null {
+  const confirmations = Array.isArray(task.confirmations) ? [...task.confirmations] : [];
+  const row = confirmations.reverse().find((c) => {
+    const meta = parseNotes(c?.notes);
+    return meta?.event === "FAILED_PICKUP_REQUEST" && meta?.approvalStatus === "PENDING";
+  });
+  return row ? parseNotes(row.notes) : null;
+}
+
+function returnedEarly(task: BoardTask): boolean {
+  if (!task.droppedAt || !task.dropoffDate) return false;
+  return startOfDay(new Date(task.droppedAt)).getTime() < startOfDay(new Date(task.dropoffDate)).getTime();
+}
+
+function skipReasonLabel(code: string | null | undefined): string {
+  if (!code) return "Not set";
+  const match = LAUNDRY_SKIP_REASONS.find((r) => r.value === code);
+  return match?.label ?? String(code).replace(/_/g, " ");
+}
+
+function PhotoStrip({ photos }: { photos: Array<{ id: string; url: string; label: string }> }) {
+  if (photos.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {photos.map((p) => (
+        <a
+          key={p.id}
+          href={p.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block w-16 overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
+          title={p.label}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={p.url} alt={p.label} className="h-14 w-full object-cover" />
+          <span className="block truncate px-1 py-0.5 text-center text-[0.5625rem] text-[hsl(var(--e-muted-foreground))]">
+            {p.label}
+          </span>
+        </a>
+      ))}
+    </div>
+  );
 }
 
 /* ── Shared data hook: fetch the real week feed, refresh every 20s ──────── */
@@ -234,7 +328,15 @@ export function QueueBoard() {
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium">{propertyLabel(t)}</p>
-                  {t.flagNotes ? (
+                  {t.status === "SKIPPED_PICKUP" ? (
+                    <div className="mt-0.5 space-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      <p>
+                        <span className="font-[550]">Reason:</span> {skipReasonLabel(t.skipReasonCode)}
+                      </p>
+                      {t.skipReasonNote ? <p className="line-clamp-2">Cleaner note: {t.skipReasonNote}</p> : null}
+                      {t.adminOverrideNote ? <p className="line-clamp-2">Admin note: {t.adminOverrideNote}</p> : null}
+                    </div>
+                  ) : t.flagNotes ? (
                     <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-danger))]">{t.flagNotes}</p>
                   ) : null}
                 </div>
@@ -329,7 +431,8 @@ function classifyRuns(tasks: BoardTask[]) {
 }
 
 export function RunsBoard() {
-  const { tasks, loading, submittingId, load, act } = useLaundryFeed(2);
+  const { tasks, loading, submittingId, load } = useLaundryFeed(2);
+  const { openAction, modal } = useLaundryActionModal(() => void load({ silent: true }));
   const { pickups, dropoffs } = classifyRuns(tasks);
 
   const pickupsDone = pickups.filter((t) => Boolean(t.pickedUpAt) || t.status === "PICKED_UP" || t.status === "DROPPED").length;
@@ -352,7 +455,7 @@ export function RunsBoard() {
             done={pickupsDone}
             kind="pickup"
             submittingId={submittingId}
-            act={act}
+            openAction={openAction}
           />
           <RunColumn
             title="Drop-off loop"
@@ -361,10 +464,11 @@ export function RunsBoard() {
             done={dropsDone}
             kind="dropoff"
             submittingId={submittingId}
-            act={act}
+            openAction={openAction}
           />
         </div>
       )}
+      {modal}
     </div>
   );
 }
@@ -376,7 +480,7 @@ function RunColumn({
   done,
   kind,
   submittingId,
-  act,
+  openAction,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -384,7 +488,7 @@ function RunColumn({
   done: number;
   kind: "pickup" | "dropoff";
   submittingId: string | null;
-  act: (task: BoardTask, payload: Record<string, unknown>, successTitle: string) => Promise<boolean>;
+  openAction: (task: BoardTask, action: "PICKED_UP" | "RETURNED" | "FAILED_PICKUP") => void;
 }) {
   return (
     <ECard>
@@ -423,24 +527,20 @@ function RunColumn({
                   <div className="flex flex-shrink-0 items-center gap-2">
                     {overdue ? <EBadge tone="danger" soft>Overdue</EBadge> : null}
                     {canPickup ? (
-                      <EButton
-                        size="sm"
-                        disabled={submittingId === t.id}
-                        onClick={() => void act(t, { status: "PICKED_UP", bagCount: bagCountFor(t) }, "Pickup confirmed")}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        {submittingId === t.id ? "Saving…" : "Pickup"}
-                      </EButton>
+                      <>
+                        <EButton size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "PICKED_UP")}>
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Pickup
+                        </EButton>
+                        <EButton variant="ghost" size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "FAILED_PICKUP")}>
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          Failed
+                        </EButton>
+                      </>
                     ) : canDrop ? (
-                      <EButton
-                        size="sm"
-                        disabled={submittingId === t.id}
-                        onClick={() =>
-                          void act(t, { status: "RETURNED", dropoffLocation: "Cleaners cupboard" }, "Drop-off confirmed")
-                        }
-                      >
+                      <EButton size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "RETURNED")}>
                         <CheckCircle2 className="h-3.5 w-3.5" />
-                        {submittingId === t.id ? "Saving…" : "Return"}
+                        Return
                       </EButton>
                     ) : (
                       <EBadge tone={complete ? "success" : STATUS_TONE[t.status]} soft>
@@ -482,9 +582,34 @@ function stageIndex(status: LaundryStatus): number {
   }
 }
 
+async function decodeQrFromFile(file: File): Promise<string | null> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read QR image."));
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load QR image."));
+    img.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not open QR scanner.");
+  context.drawImage(image, 0, 0);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(imageData.data, imageData.width, imageData.height);
+  return result?.data?.trim() || null;
+}
+
 export function TrackingBoard() {
   const { tasks, loading, submittingId, load, act } = useLaundryFeed(14);
-  const [dropLocations, setDropLocations] = React.useState<Record<string, string>>({});
+  const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
+  const [scanningQr, setScanningQr] = React.useState(false);
 
   // Live tracking = everything currently moving through the pipeline (exclude
   // no-pickup + already-returned-and-old so the list stays actionable).
@@ -493,9 +618,83 @@ export function TrackingBoard() {
     .filter((t) => t.status !== "SKIPPED_PICKUP")
     .sort((a, b) => stageIndex(a.status) - stageIndex(b.status) || +new Date(a.pickupDate) - +new Date(b.pickupDate));
 
+  // Same "Scan bag QR" workflow as the v1 planner: decode a photo of the bag's
+  // QR label and jump straight to the task's next action.
+  async function handleQrScanSelection(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setScanningQr(true);
+    try {
+      const value = await decodeQrFromFile(file);
+      if (!value) {
+        toast({ title: "Scan failed", description: "No QR code was detected in that image.", variant: "destructive" });
+        return;
+      }
+      const target = tasks.find((t) => t.id === value);
+      if (!target) {
+        toast({ title: "QR code not recognised", description: "No laundry task matched that QR code.", variant: "destructive" });
+        return;
+      }
+      if (target.status === "CONFIRMED" || target.status === "PENDING") openAction(target, "PICKED_UP");
+      else if (target.status === "PICKED_UP") openAction(target, "RETURNED");
+      else if (target.status === "DROPPED") openAction(target, "EDIT_COMPLETED");
+      else {
+        toast({
+          title: "Task found",
+          description: `${propertyLabel(target)} is currently ${String(target.status).replace(/_/g, " ").toLowerCase()}.`,
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Scan failed", description: err?.message ?? "Could not scan the QR code.", variant: "destructive" });
+    } finally {
+      setScanningQr(false);
+    }
+  }
+
+  // Copyable schedule summary — same route-planning helper as the v1 planner.
+  async function copyScheduleSummary() {
+    const text =
+      tracked.length === 0
+        ? "No laundry schedule items in the selected range."
+        : tracked
+            .map(
+              (t) =>
+                `${format(new Date(t.pickupDate), "EEE dd MMM yyyy")} - ${propertyLabel(t)} | Pickup ${format(
+                  new Date(t.pickupDate),
+                  "dd MMM"
+                )} | Drop ${format(new Date(t.dropoffDate), "dd MMM")} | ${String(t.status).replace(/_/g, " ")}`
+            )
+            .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "Schedule summary copied" });
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))] transition-colors hover:bg-[hsl(var(--e-muted))]">
+          <QrCode className="h-3.5 w-3.5" />
+          {scanningQr ? "Scanning…" : "Scan bag QR"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={async (e) => {
+              const input = e.currentTarget;
+              await handleQrScanSelection(input.files);
+              input.value = "";
+            }}
+          />
+        </label>
+        <EButton variant="outline" size="sm" onClick={() => void copyScheduleSummary()}>
+          <Copy className="h-3.5 w-3.5" />
+          Copy summary
+        </EButton>
         <RefreshButton loading={loading} onClick={() => void load()} />
       </div>
 
@@ -509,6 +708,12 @@ export function TrackingBoard() {
             const canPickup = ["PENDING", "CONFIRMED"].includes(t.status);
             const canDrop = t.status === "PICKED_UP";
             const canRevert = ["PICKED_UP", "DROPPED"].includes(t.status);
+            const pendingRequest = pendingFailedPickupRequest(t);
+            const droppedEarly = returnedEarly(t);
+            const droppedMeta = parseNotes(eventConfirmation(t, "DROPPED")?.notes);
+            const earlyReason =
+              typeof droppedMeta?.earlyDropoffReason === "string" ? droppedMeta.earlyDropoffReason : "";
+            const photos = taskPhotos(t);
             return (
               <ECard key={t.id}>
                 <ECardBody className="space-y-4 pt-6">
@@ -578,76 +783,89 @@ export function TrackingBoard() {
                     </p>
                   ) : null}
 
-                  {/* Update actions */}
-                  {canPickup || canDrop || canRevert ? (
-                    <div className="flex flex-wrap items-end gap-2 border-t border-[hsl(var(--e-border))] pt-3">
-                      {canPickup ? (
-                        <EButton
-                          size="sm"
-                          disabled={submittingId === t.id}
-                          onClick={() => void act(t, { status: "PICKED_UP", bagCount: bags }, "Marked picked up")}
-                        >
-                          <ArrowRight className="h-3.5 w-3.5" />
-                          {submittingId === t.id ? "Saving…" : "Mark picked up"}
-                        </EButton>
-                      ) : null}
-
-                      {canDrop ? (
-                        <>
-                          <div className="min-w-[180px] flex-1">
-                            <EInput
-                              placeholder="Drop-off location (e.g. Cleaners cupboard)"
-                              value={dropLocations[t.id] ?? ""}
-                              onChange={(e) =>
-                                setDropLocations((p) => ({ ...p, [t.id]: e.target.value }))
-                              }
-                            />
-                          </div>
-                          <EButton
-                            size="sm"
-                            disabled={submittingId === t.id}
-                            onClick={() =>
-                              void act(
-                                t,
-                                {
-                                  status: "RETURNED",
-                                  dropoffLocation: (dropLocations[t.id] ?? "").trim() || "Cleaners cupboard",
-                                },
-                                "Marked returned"
-                              )
-                            }
-                          >
-                            <ChevronRight className="h-3.5 w-3.5" />
-                            {submittingId === t.id ? "Saving…" : "Mark returned"}
-                          </EButton>
-                        </>
-                      ) : null}
-
-                      {canRevert ? (
-                        <EButton
-                          variant="ghost"
-                          size="sm"
-                          disabled={submittingId === t.id}
-                          onClick={() =>
-                            void act(
-                              t,
-                              { status: t.status === "DROPPED" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED" },
-                              "Reverted"
-                            )
-                          }
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          Undo
-                        </EButton>
-                      ) : null}
-                    </div>
+                  {/* Pending failed-pickup approval */}
+                  {pendingRequest ? (
+                    <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.35)] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-danger))]">
+                      Awaiting admin approval to {String(pendingRequest.requestedAction ?? "SKIP").toLowerCase()} this pickup.
+                    </p>
                   ) : null}
+
+                  {/* Early return notice */}
+                  {droppedEarly ? (
+                    <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning)/0.08)] px-3 py-2 text-[0.75rem]">
+                      <span className="font-[600]">Early return.</span> Planned {format(new Date(t.dropoffDate), "dd MMM yyyy")},
+                      actual {t.droppedAt ? format(new Date(t.droppedAt), "dd MMM yyyy") : "—"}
+                      {earlyReason ? ` — ${earlyReason}` : ""}
+                    </p>
+                  ) : null}
+
+                  {/* Evidence photos + costs */}
+                  <PhotoStrip photos={photos} />
+                  {config.showCostTracking && droppedMeta?.totalPrice != null ? (
+                    <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))]">
+                      ${Number(droppedMeta.totalPrice).toFixed(2)}
+                      {droppedMeta?.loadWeightKg != null ? ` · ${Number(droppedMeta.loadWeightKg).toFixed(1)} kg` : ""}
+                      {t.supplier?.name ? ` · ${t.supplier.name}` : ""}
+                    </p>
+                  ) : null}
+
+                  {/* Property access instructions (same data the v1 planner showed) */}
+                  <EAccessInfo accessInfo={t.property?.accessInfo} />
+
+                  {/* Update actions */}
+                  <div className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--e-border))] pt-3">
+                    {canPickup ? (
+                      <>
+                        <EButton size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "PICKED_UP")}>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                          Mark picked up
+                        </EButton>
+                        <EButton variant="outline" size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "FAILED_PICKUP")}>
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          Failed pickup
+                        </EButton>
+                      </>
+                    ) : null}
+
+                    {canDrop ? (
+                      <EButton size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "RETURNED")}>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                        Mark returned
+                      </EButton>
+                    ) : null}
+
+                    {t.status === "DROPPED" ? (
+                      <EButton variant="outline" size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "EDIT_COMPLETED")}>
+                        <FilePenLine className="h-3.5 w-3.5" />
+                        Edit details
+                      </EButton>
+                    ) : null}
+
+                    {canRevert ? (
+                      <EButton
+                        variant="ghost"
+                        size="sm"
+                        disabled={submittingId === t.id}
+                        onClick={() =>
+                          void act(
+                            t,
+                            { status: t.status === "DROPPED" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED" },
+                            "Reverted"
+                          )
+                        }
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Undo
+                      </EButton>
+                    ) : null}
+                  </div>
                 </ECardBody>
               </ECard>
             );
           })}
         </div>
       )}
+      {modal}
     </div>
   );
 }

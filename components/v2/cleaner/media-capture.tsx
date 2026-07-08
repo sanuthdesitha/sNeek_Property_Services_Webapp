@@ -7,6 +7,17 @@
  * which is exactly what the job submit endpoint expects under
  * `data.uploads[fieldId]`.
  *
+ * Evidence stamping (parity with v1): photos taken with the in-app CAMERA are
+ * burned with the same `stampImage` overlay v1 uses (big time, date, weekday,
+ * address/GPS, company logo, context tag) via `prepareUploadFile` from
+ * `lib/uploads/compress`. GALLERY picks already carry their own timestamp, so
+ * they are compressed only — never stamped (v1's no-double-stamp rule).
+ * Branding (logo / company name / stamp format) comes from
+ * `GET /api/public/branding` (cached); the GPS fix is resolved lazily on the
+ * first camera capture and cached for a few minutes. Callers pass extra
+ * context (property address, job reference, tag) through the `stamp` prop;
+ * `stamp={null}` disables stamping for non-evidence uploads.
+ *
  * On mobile the `capture` attribute opens the camera directly; on desktop it
  * falls back to the file picker. Multiple files upload in parallel; each shows a
  * live thumbnail with a remove control. Zero dependency on v1 UI.
@@ -14,6 +25,9 @@
 import * as React from "react";
 import { Camera, Video, Upload, X, Loader2, FileText, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { prepareUploadFile } from "@/lib/uploads/compress";
+import { isStampableImage, type StampGps, type StampOptions } from "@/lib/uploads/stamp";
+import { getAccuratePosition } from "@/lib/geo/get-position";
 
 export interface CapturedMedia {
   key: string;
@@ -29,6 +43,94 @@ function kindForFile(file: File): CapturedMedia["kind"] {
   if (file.type.startsWith("image/") || IMAGE_RE.test(file.name)) return "image";
   if (file.type.startsWith("video/") || VIDEO_RE.test(file.name)) return "video";
   return "file";
+}
+
+/* ── Evidence-stamp plumbing (same sources as v1: /api/public/branding + GPS) ── */
+
+type Branding = {
+  companyName?: string;
+  logoUrl?: string;
+  evidenceStamp?: { dateFormat?: string; timeFormat?: string; showWeekday?: boolean };
+};
+
+let brandingPromise: Promise<Branding> | null = null;
+function getBranding(): Promise<Branding> {
+  if (!brandingPromise) {
+    brandingPromise = fetch("/api/public/branding", { cache: "force-cache" })
+      .then((res) => (res.ok ? res.json() : {}))
+      .catch(() => ({}));
+  }
+  return brandingPromise;
+}
+
+/** Cached GPS fix — reused across shots so a burst of captures shares one fix. */
+const GPS_TTL_MS = 5 * 60 * 1000;
+let gpsCache: { fix: StampGps | null; at: number } | null = null;
+let gpsPromise: Promise<StampGps | null> | null = null;
+function resolveStampGps(): Promise<StampGps | null> {
+  if (gpsCache && Date.now() - gpsCache.at < GPS_TTL_MS) return Promise.resolve(gpsCache.fix);
+  if (!gpsPromise) {
+    gpsPromise = getAccuratePosition()
+      .then((fix) => {
+        const value =
+          Number.isFinite(fix?.lat) && Number.isFinite(fix?.lng)
+            ? { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy ?? null }
+            : null;
+        gpsCache = { fix: value, at: Date.now() };
+        return value;
+      })
+      .catch(() => {
+        gpsCache = { fix: null, at: Date.now() };
+        return null;
+      })
+      .finally(() => {
+        gpsPromise = null;
+      });
+  }
+  return gpsPromise;
+}
+
+/**
+ * Base evidence-stamp options (branding + timestamp format + GPS), merged with
+ * caller context. Exported so other v2 capture paths (e.g. QA workspace) can
+ * stamp identically without duplicating the branding/GPS plumbing.
+ */
+export async function buildEvidenceStamp(extra?: StampOptions | null): Promise<StampOptions> {
+  const [branding, gps] = await Promise.all([getBranding(), resolveStampGps()]);
+  return {
+    companyName: branding.companyName?.trim() || "sNeek Property Services",
+    logoUrl: branding.logoUrl || "",
+    timezone: "Australia/Sydney",
+    dateFormat: branding.evidenceStamp?.dateFormat,
+    timeFormat: branding.evidenceStamp?.timeFormat,
+    showWeekday: typeof branding.evidenceStamp?.showWeekday === "boolean" ? branding.evidenceStamp.showWeekday : undefined,
+    gps,
+    ...(extra ?? {}),
+  };
+}
+
+type CaptureSource = "camera" | "gallery";
+
+/**
+ * v1-parity preprocessing: camera photos get the evidence stamp burnt in;
+ * gallery images are compressed only (they already carry their own timestamp);
+ * videos/documents pass through untouched. Never throws.
+ */
+async function prepareCapturedFile(
+  file: File,
+  source: CaptureSource,
+  stamp: StampOptions | null | undefined
+): Promise<File> {
+  if (!isStampableImage(file)) return file;
+  try {
+    if (source === "camera" && stamp !== null) {
+      return await prepareUploadFile(file, await buildEvidenceStamp(stamp));
+    }
+    // Uploaded image — don't double-stamp; just size it for upload.
+    return await prepareUploadFile(file, null);
+  } catch {
+    return file;
+  }
 }
 
 async function uploadOne(file: File, folder: string): Promise<CapturedMedia> {
@@ -52,6 +154,7 @@ export function MediaCapture({
   multiple = true,
   minPhotos,
   disabled = false,
+  stamp,
 }: {
   value: CapturedMedia[];
   onChange: (next: CapturedMedia[]) => void;
@@ -61,12 +164,18 @@ export function MediaCapture({
   multiple?: boolean;
   minPhotos?: number;
   disabled?: boolean;
+  /**
+   * Extra evidence-stamp context (address, reference, contextLabel, tag…)
+   * merged over the branding/GPS base. Omit for the default stamp; pass `null`
+   * to disable stamping (non-evidence uploads).
+   */
+  stamp?: StampOptions | null;
 }) {
   const [busy, setBusy] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
   const handleFiles = React.useCallback(
-    async (files: FileList | null) => {
+    async (files: FileList | null, source: CaptureSource) => {
       if (!files || files.length === 0) return;
       setError(null);
       const list = Array.from(files);
@@ -74,7 +183,8 @@ export function MediaCapture({
       const results: CapturedMedia[] = [];
       for (const file of list) {
         try {
-          results.push(await uploadOne(file, folder));
+          const prepared = await prepareCapturedFile(file, source, stamp);
+          results.push(await uploadOne(prepared, folder));
         } catch (e: any) {
           setError(e?.message || "Upload failed");
         } finally {
@@ -85,7 +195,7 @@ export function MediaCapture({
         onChange(multiple ? [...value, ...results] : results.slice(-1));
       }
     },
-    [folder, multiple, onChange, value]
+    [folder, multiple, onChange, value, stamp]
   );
 
   function remove(key: string) {
@@ -213,7 +323,7 @@ function CaptureButton({
   capture?: "environment" | "user";
   multiple?: boolean;
   disabled?: boolean;
-  onFiles: (files: FileList | null) => void;
+  onFiles: (files: FileList | null, source: CaptureSource) => void;
 }) {
   return (
     <label
@@ -232,7 +342,8 @@ function CaptureButton({
         disabled={disabled}
         className="hidden"
         onChange={(e) => {
-          onFiles(e.target.files);
+          // A `capture` input = fresh camera shot (stamped); plain picker = gallery.
+          onFiles(e.target.files, capture ? "camera" : "gallery");
           e.currentTarget.value = "";
         }}
       />

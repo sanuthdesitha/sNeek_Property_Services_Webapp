@@ -122,6 +122,20 @@ export function TeamHub() {
     void load();
   }, [load]);
 
+  // Feed read receipts — same endpoint the v1 hub fires when the feed is viewed:
+  // POST /api/admin/workforce/posts/[postId]/read for every unread post.
+  const markedReadRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (tab !== "feed" || !data) return;
+    const unread = (Array.isArray(data.posts) ? data.posts : []).filter(
+      (p: any) => p.isUnread === true && !markedReadRef.current.has(p.id)
+    );
+    for (const p of unread) {
+      markedReadRef.current.add(p.id);
+      void fetch(`/api/admin/workforce/posts/${p.id}/read`, { method: "POST" }).catch(() => null);
+    }
+  }, [tab, data]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-16 text-[hsl(var(--e-muted-foreground))]">
@@ -150,8 +164,16 @@ export function TeamHub() {
       ? board.recentRecognitions
       : [];
   const spotlight: Recognition | null = board?.spotlight ?? null;
-  const qaLeaderboard: BoardRow[] = Array.isArray(board?.qaLeaderboard) ? board.qaLeaderboard : [];
-  const completedLeaderboard: BoardRow[] = Array.isArray(board?.completedLeaderboard) ? board.completedLeaderboard : [];
+  // API shape parity with v1: recognitionBoard.leaderboard = { qa, completed, recognition }.
+  const qaLeaderboard: BoardRow[] = Array.isArray(board?.leaderboard?.qa) ? board.leaderboard.qa : [];
+  const completedLeaderboard: BoardRow[] = Array.isArray(board?.leaderboard?.completed)
+    ? board.leaderboard.completed
+    : [];
+  const recognitionLeaderboard: BoardRow[] = Array.isArray(board?.leaderboard?.recognition)
+    ? board.leaderboard.recognition
+    : [];
+  const me = data?.me ?? null;
+  const myRecognitions: any[] = Array.isArray(data?.recognitions) ? data.recognitions : [];
 
   return (
     <div className="space-y-5">
@@ -234,6 +256,61 @@ export function TeamHub() {
 
       {tab === "recognition" ? (
         <div className="space-y-3">
+          {/* Your recognition stats — QA average, month jobs, shout-outs (v1 parity) */}
+          {me ? (
+            <div className="grid grid-cols-3 gap-3">
+              <ECard>
+                <ECardBody className="pt-6 text-center">
+                  <p className="e-eyebrow">QA average</p>
+                  <p className="mt-1 text-[1.25rem] font-[600] tabular-nums">
+                    {me.qaAverage != null ? `${me.qaAverage}%` : "—"}
+                  </p>
+                </ECardBody>
+              </ECard>
+              <ECard>
+                <ECardBody className="pt-6 text-center">
+                  <p className="e-eyebrow">Jobs this month</p>
+                  <p className="mt-1 text-[1.25rem] font-[600] tabular-nums">{me.monthJobsCompleted ?? 0}</p>
+                </ECardBody>
+              </ECard>
+              <ECard>
+                <ECardBody className="pt-6 text-center">
+                  <p className="e-eyebrow">Shout-outs</p>
+                  <p className="mt-1 text-[1.25rem] font-[600] tabular-nums">{me.publicRecognitionCount ?? 0}</p>
+                </ECardBody>
+              </ECard>
+            </div>
+          ) : null}
+
+          {/* Recognition sent to YOU — badge history from admin */}
+          {myRecognitions.length > 0 ? (
+            <ECard>
+              <ECardBody className="space-y-3 pt-6">
+                <p className="e-eyebrow flex items-center gap-1.5">
+                  <Award className="h-3.5 w-3.5" /> Your recognition
+                </p>
+                {myRecognitions.map((r: any) => (
+                  <div key={r.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[0.875rem] font-[550]">{r.title}</p>
+                      {r.badgeKey ? (
+                        <EBadge tone="gold" soft>
+                          <span className="inline-flex items-center gap-1">
+                            <Sparkles className="h-3 w-3" /> {titleCase(String(r.badgeKey))}
+                          </span>
+                        </EBadge>
+                      ) : null}
+                    </div>
+                    {r.message ? (
+                      <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{r.message}</p>
+                    ) : null}
+                    <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-faint))]">{ago(r.createdAt)}</p>
+                  </div>
+                ))}
+              </ECardBody>
+            </ECard>
+          ) : null}
+
           {spotlight ? (
             <ECard variant="ceremony">
               <ECardBody className="space-y-2 pt-6">
@@ -282,6 +359,11 @@ export function TeamHub() {
             title="Jobs this month"
             rows={completedLeaderboard}
             metric={(r) => String(r.monthJobsCompleted ?? 0)}
+          />
+          <LeaderboardCard
+            title="Most recognised"
+            rows={recognitionLeaderboard}
+            metric={(r) => String(r.recognitionsReceived ?? 0)}
           />
         </div>
       ) : null}

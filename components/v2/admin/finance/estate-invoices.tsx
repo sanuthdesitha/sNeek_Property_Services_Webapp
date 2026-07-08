@@ -11,7 +11,7 @@
  *   GET   /api/admin/invoices                       → { clients, properties, rates, invoices }
  *   GET   /api/admin/invoices/[id]                  → full invoice (with lines[])
  *   POST  /api/admin/invoices/generate              { clientId, propertyId?, periodStart?, periodEnd?, gstEnabled }
- *   PATCH /api/admin/invoices/[id]                  { status } | { updateLines[] } | { addLine } | { removeLineId }
+ *   PATCH /api/admin/invoices/[id]                  { status } | { updateLines[] } | { addLine } | { removeLineId } | { reorderLineIds[] }
  *   POST  /api/admin/invoices/[id]/send             { to? }
  *   POST  /api/admin/invoices/[id]/xero-push
  *   GET   /api/admin/invoices/[id]/pdf              (view / download)
@@ -19,6 +19,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
+  ArrowDown,
+  ArrowUp,
   Building2,
   Check,
   FileText,
@@ -33,6 +35,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import {
+  EConfirmModal,
   EField,
   EInput,
   EModal,
@@ -75,6 +78,7 @@ type FullInvoice = {
   subtotal: number;
   gstAmount: number;
   totalAmount: number;
+  gstEnabled?: boolean;
   lines: InvoiceLine[];
 };
 
@@ -133,6 +137,10 @@ export function EstateInvoices() {
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [newLine, setNewLine] = useState({ description: "", quantity: "1", unitPrice: "0" });
+
+  // Delete confirm
+  const [deleteFor, setDeleteFor] = useState<Invoice | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -195,6 +203,24 @@ export function EstateInvoices() {
       await load();
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function deleteInvoice() {
+    if (!deleteFor) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/invoices/${deleteFor.id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Delete failed", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Invoice deleted" });
+      setDeleteFor(null);
+      await load();
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -375,6 +401,20 @@ export function EstateInvoices() {
     await patchInvoiceLines({ removeLineId: id }, "Line removed");
   }
 
+  // Reorder — same PATCH { reorderLineIds } the v1 drag editor persists
+  // (full ordered list of line ids → saved as 0-based sortOrder). Optimistic
+  // local swap so the row moves immediately; patchInvoiceLines re-fetches to
+  // stay in sync with the server order.
+  async function moveLine(index: number, direction: -1 | 1) {
+    if (!editInvoice) return;
+    const target = index + direction;
+    if (target < 0 || target >= editInvoice.lines.length) return;
+    const reordered = [...editInvoice.lines];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setEditInvoice({ ...editInvoice, lines: reordered });
+    await patchInvoiceLines({ reorderLineIds: reordered.map((l) => l.id) }, "Line order updated");
+  }
+
   const FILTERS = [
     { key: "active", label: "Active" },
     { key: "DRAFT", label: "Draft" },
@@ -526,6 +566,29 @@ export function EstateInvoices() {
                         {inv.xeroExportedAt ? "Xero ✓" : "Xero"}
                       </EButton>
                     ) : null}
+                    {inv.status === "SENT" || inv.status === "APPROVED" ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === inv.id}
+                        onClick={() => patchStatus(inv, "VOID", "Invoice voided")}
+                        title="Void this invoice"
+                      >
+                        Void
+                      </EButton>
+                    ) : null}
+                    {inv.status === "DRAFT" || inv.status === "VOID" ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        className="text-[hsl(var(--e-danger))]"
+                        disabled={busy === inv.id}
+                        onClick={() => setDeleteFor(inv)}
+                        title="Delete this invoice"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </EButton>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -670,13 +733,35 @@ export function EstateInvoices() {
                   No line items yet — add one below.
                 </p>
               ) : (
-                editInvoice.lines.map((line) => (
+                editInvoice.lines.map((line, index) => (
                   <div
                     key={line.id}
                     className="grid grid-cols-12 items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2"
                   >
+                    <div className="col-span-1 flex flex-col items-center">
+                      <EButton
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={editSaving || index === 0}
+                        onClick={() => moveLine(index, -1)}
+                        title="Move line up"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </EButton>
+                      <EButton
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={editSaving || index === editInvoice.lines.length - 1}
+                        onClick={() => moveLine(index, 1)}
+                        title="Move line down"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </EButton>
+                    </div>
                     <EInput
-                      className="col-span-5 h-9"
+                      className="col-span-4 h-9"
                       value={line.description}
                       placeholder="Description"
                       onChange={(e) => updateLineField(line.id, { description: e.target.value })}
@@ -764,6 +849,22 @@ export function EstateInvoices() {
               </div>
             </div>
 
+            {/* GST toggle — same PATCH { gstEnabled } as v1 */}
+            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+              <div>
+                <p className="text-[0.875rem] font-[550]">GST (10%)</p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Toggle whether GST is added on top of the subtotal.
+                </p>
+              </div>
+              <ESwitch
+                checked={editInvoice.gstEnabled !== false}
+                onCheckedChange={(v) =>
+                  patchInvoiceLines({ gstEnabled: v }, v ? "GST enabled" : "GST disabled")
+                }
+              />
+            </div>
+
             {/* Totals */}
             <div className="grid grid-cols-3 gap-3 border-t border-[hsl(var(--e-border))] pt-4">
               <div>
@@ -782,11 +883,23 @@ export function EstateInvoices() {
               </div>
             </div>
             <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              Changes save per line (the ✓ button) and update totals immediately.
+              Changes save per line (the ✓ button) and update totals immediately. The arrows
+              reorder lines — the new order is saved straight away and flows to the PDF.
             </p>
           </div>
         )}
       </EModal>
+
+      {/* Delete invoice */}
+      <EConfirmModal
+        open={Boolean(deleteFor)}
+        onClose={() => setDeleteFor(null)}
+        title={`Delete ${deleteFor?.invoiceNumber ?? "invoice"}?`}
+        description="This permanently removes the invoice and its line items."
+        confirmLabel="Delete invoice"
+        loading={deleting}
+        onConfirm={deleteInvoice}
+      />
     </div>
   );
 }

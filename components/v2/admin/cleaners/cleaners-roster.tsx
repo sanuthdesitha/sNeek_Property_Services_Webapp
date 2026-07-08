@@ -333,7 +333,7 @@ export function EstateCleanersRoster({ rows }: { rows: EstateCleanerRow[] }) {
                   </Link>
                 </EButton>
                 <EButton asChild size="sm" variant="outline">
-                  <Link href={`/admin/accounts/users/${r.id}`}>
+                  <Link href={`/v2/admin/accounts/users/${r.id}`}>
                     <UserCheck className="h-3.5 w-3.5" />
                     Profile
                   </Link>

@@ -6,15 +6,15 @@
  *   PATCH  /api/admin/quotes/[id]          { status | notes | validUntil | clientId }
  *   POST   /api/admin/quotes/[id]/send     { to? }
  *   GET    /api/admin/quotes/[id]/pdf      (download)
- * The deep line-item editor & conversion stay in the existing flows; conversion
- * links to the classic convert screen. Built on v2 primitives + estate-kit only.
+ *   POST   /api/admin/quotes/[id]/convert-to-job { propertyId, scheduledDate }
+ * Built on v2 primitives + estate-kit only.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Download, Send } from "lucide-react";
+import { CalendarPlus, Download, Eye, Loader2, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -26,7 +26,7 @@ import {
   EEyebrow,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admin/estate-kit";
 import { formatCurrency } from "@/lib/utils";
 
 type Tone = "neutral" | "info" | "success" | "danger" | "gold";
@@ -68,6 +68,50 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
   const [savingDetails, setSavingDetails] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [sending, setSending] = useState(false);
+
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; suburb?: string | null }>>([]);
+  const [convertPropertyId, setConvertPropertyId] = useState("");
+  const [convertDate, setConvertDate] = useState("");
+
+  useEffect(() => {
+    if (!convertOpen || properties.length > 0) return;
+    fetch("/api/admin/properties", { cache: "no-store" })
+      .then((res) => res.json().catch(() => []))
+      .then((rows) => setProperties(Array.isArray(rows) ? rows : Array.isArray(rows?.properties) ? rows.properties : []))
+      .catch(() => setProperties([]));
+  }, [convertOpen, properties.length]);
+
+  async function convertToJob() {
+    if (!convertPropertyId || !convertDate) {
+      toast({ title: "Property and date are required.", variant: "destructive" });
+      return;
+    }
+    setConverting(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/convert-to-job`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          propertyId: convertPropertyId,
+          scheduledDate: `${convertDate}T00:00:00.000Z`,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to convert quote.");
+      toast({ title: "Quote converted to job" });
+      setConvertOpen(false);
+      if (body.job?.id) {
+        router.push(`/v2/admin/jobs/${body.job.id}`);
+      }
+      router.refresh();
+    } catch (err: any) {
+      toast({ title: "Convert failed", description: err?.message ?? "Failed to convert quote.", variant: "destructive" });
+    } finally {
+      setConverting(false);
+    }
+  }
 
   async function patch(body: Record<string, unknown>): Promise<QuoteInitial | null> {
     const res = await fetch(`/api/admin/quotes/${quote.id}`, {
@@ -137,6 +181,44 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
     }
   }
 
+  // Inline preview — same render endpoint as the PDF download; the blob is
+  // shown in an iframe (works for both application/pdf and the HTML fallback).
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) window.URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  async function openPreview() {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/pdf`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Could not render the quote preview.");
+      }
+      const blob = await res.blob();
+      setPreviewUrl((prev) => {
+        if (prev) window.URL.revokeObjectURL(prev);
+        return window.URL.createObjectURL(blob);
+      });
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err?.message ?? "Could not render preview.", variant: "destructive" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    setPreviewUrl((prev) => {
+      if (prev) window.URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
   async function downloadPdf() {
     const res = await fetch(`/api/admin/quotes/${quote.id}/pdf`);
     if (!res.ok) {
@@ -165,6 +247,9 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           <Link href="/v2/admin/quotes">Back to pipeline</Link>
         </EButton>
         <div className="flex flex-wrap items-center gap-2">
+          <EButton variant="ghost" size="sm" onClick={openPreview} disabled={previewLoading}>
+            {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />} Preview
+          </EButton>
           <EButton variant="ghost" size="sm" onClick={downloadPdf}>
             <Download className="h-3.5 w-3.5" /> PDF
           </EButton>
@@ -172,12 +257,54 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
             <Send className="h-3.5 w-3.5" /> {sending ? "Sending…" : "Send"}
           </EButton>
           {quote.status !== "CONVERTED" ? (
-            <EButton asChild variant="primary" size="sm">
-              <Link href={`/admin/quotes/${quote.id}/convert`}>Convert to job</Link>
+            <EButton variant="primary" size="sm" onClick={() => setConvertOpen(true)}>
+              <CalendarPlus className="h-3.5 w-3.5" /> Convert to job
             </EButton>
           ) : null}
         </div>
       </div>
+
+      {/* Inline document preview — same render as the emailed / downloaded quote */}
+      <EModal open={Boolean(previewUrl)} onClose={closePreview} eyebrow="Quotes" title="Quote preview" size="full">
+        {previewUrl ? (
+          <iframe
+            src={previewUrl}
+            title="Quote preview"
+            className="h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
+          />
+        ) : null}
+      </EModal>
+
+      {/* Convert to job — same payload as the classic flow */}
+      <EModal open={convertOpen} onClose={() => setConvertOpen(false)} eyebrow="Quotes" title="Convert to job">
+        <div className="space-y-4">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            Creates a {prettify(quote.serviceType).toLowerCase() || "service"} job from this quote and marks the quote as converted.
+          </p>
+          <EField label="Property">
+            <ESelect value={convertPropertyId} onChange={(e) => setConvertPropertyId(e.target.value)}>
+              <option value="">Select property…</option>
+              {properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.suburb ? ` — ${p.suburb}` : ""}
+                </option>
+              ))}
+            </ESelect>
+          </EField>
+          <EField label="Scheduled date">
+            <EInput type="date" value={convertDate} onChange={(e) => setConvertDate(e.target.value)} />
+          </EField>
+          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+            <EButton variant="outline" size="sm" onClick={() => setConvertOpen(false)} disabled={converting}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" size="sm" onClick={convertToJob} disabled={converting || !convertPropertyId || !convertDate}>
+              {converting ? "Converting…" : "Create job"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
 
       {/* Summary */}
       <ECard>

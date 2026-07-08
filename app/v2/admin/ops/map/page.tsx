@@ -223,7 +223,7 @@ export default async function V2OpsMapPage({
                     </div>
                     <div className="flex flex-shrink-0 flex-wrap gap-2">
                       <EButton asChild size="sm" variant="ghost">
-                        <Link href={`/admin/jobs/${job.id}`}>Open job</Link>
+                        <Link href={`/v2/admin/jobs/${job.id}`}>Open job</Link>
                       </EButton>
                       {mapUrl ? (
                         <EButton asChild size="sm" variant="outline">

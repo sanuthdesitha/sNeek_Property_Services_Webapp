@@ -9,10 +9,10 @@
  * Built entirely on the v2 primitives + estate-kit; no components/ui/* imports.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { JobType } from "@prisma/client";
-import { Loader2, Plus, Send, Sparkles, Trash2 } from "lucide-react";
+import { Eye, Loader2, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 import { EXTRAS_CATALOG, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
@@ -24,7 +24,7 @@ import {
   ECardTitle,
   EEyebrow,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admin/estate-kit";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 interface Option {
@@ -218,6 +218,61 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     };
   }
 
+  // Draft preview — same render endpoint v1's /admin/quotes/preview download
+  // uses (POST /api/admin/quotes/preview-pdf with the create payload); the
+  // returned blob (PDF, or HTML fallback) is shown inline in a modal iframe.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) window.URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  async function openPreview() {
+    if (allLines.length === 0 || subtotal <= 0) {
+      toast({
+        title: "Add pricing first",
+        description: "Calculate from the rate card, add line items, or pick extras.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setPreviewing(true);
+    try {
+      // Recipient is irrelevant to the rendered preview (the endpoint renders
+      // client/lead as empty), so strip it — this also allows previewing
+      // before a recipient is chosen.
+      const { clientId: _c, leadId: _l, newLead: _n, ...payload } = buildPayload();
+      const res = await fetch("/api/admin/quotes/preview-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Could not render the quote preview.");
+      }
+      const blob = await res.blob();
+      setPreviewUrl((prev) => {
+        if (prev) window.URL.revokeObjectURL(prev);
+        return window.URL.createObjectURL(blob);
+      });
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  function closePreview() {
+    setPreviewUrl((prev) => {
+      if (prev) window.URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
   async function submit(send: boolean) {
     if (!recipientValid()) {
       toast({
@@ -278,6 +333,17 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
 
   return (
     <div className="space-y-6">
+      {/* Inline draft preview — exact render the recipient will receive */}
+      <EModal open={Boolean(previewUrl)} onClose={closePreview} eyebrow="Quotes" title="Quote preview" size="full">
+        {previewUrl ? (
+          <iframe
+            src={previewUrl}
+            title="Quote preview"
+            className="h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
+          />
+        ) : null}
+      </EModal>
+
       {/* Recipient */}
       <ECard>
         <ECardHeader>
@@ -562,6 +628,10 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
             />
           </EField>
           <div className="flex flex-wrap justify-end gap-2">
+            <EButton variant="ghost" onClick={openPreview} disabled={saving || previewing}>
+              {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+              {previewing ? "Rendering…" : "Preview"}
+            </EButton>
             <EButton variant="outline" onClick={() => submit(false)} disabled={saving}>
               {saving ? "Saving…" : "Create draft"}
             </EButton>

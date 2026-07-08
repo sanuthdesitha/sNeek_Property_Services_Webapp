@@ -15,12 +15,14 @@ import {
   EstatePayroll,
   type EstatePayrollRun,
 } from "@/components/v2/admin/finance/estate-payroll";
+import { EstatePayAdjustments } from "@/components/v2/admin/finance/pay-adjustments";
+import { EstateTimeAdjustments } from "@/components/v2/admin/finance/time-adjustments";
 
 export const metadata = { title: "Finance · Estate admin" };
 export const dynamic = "force-dynamic";
 
-type FinanceTabKey = "overview" | "invoices" | "payroll";
-const TAB_KEYS: FinanceTabKey[] = ["overview", "invoices", "payroll"];
+type FinanceTabKey = "overview" | "invoices" | "payroll" | "adjustments" | "time";
+const TAB_KEYS: FinanceTabKey[] = ["overview", "invoices", "payroll", "adjustments", "time"];
 
 function normalizeTab(value: string | undefined): FinanceTabKey {
   return (TAB_KEYS as string[]).includes(value ?? "") ? (value as FinanceTabKey) : "overview";
@@ -131,6 +133,8 @@ export default async function AdminFinancePage({
         {tab === "payroll" && payrollData ? (
           <EstatePayroll runs={payrollData.runs} cleaners={payrollData.cleaners} />
         ) : null}
+        {tab === "adjustments" ? <EstatePayAdjustments /> : null}
+        {tab === "time" ? <EstateTimeAdjustments /> : null}
       </div>
     </div>
   );

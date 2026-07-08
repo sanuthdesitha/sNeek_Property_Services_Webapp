@@ -30,6 +30,7 @@ import {
   scheduledLabel,
   statusLabel,
 } from "./job-row";
+import { JobManageModal } from "./job-manage";
 
 const TZ = "Australia/Sydney";
 const PAGE_SIZE = 50;
@@ -158,6 +159,7 @@ export function JobsWorkspace() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [assignJob, setAssignJob] = useState<any | null>(null);
+  const [manageJob, setManageJob] = useState<any | null>(null);
   const [assignSelected, setAssignSelected] = useState<string[]>([]);
   const [assignSubmitting, setAssignSubmitting] = useState(false);
 
@@ -517,6 +519,7 @@ export function JobsWorkspace() {
                 selected={selectedIds.includes(job.id)}
                 onToggleSelect={toggleSelect}
                 onQuickAssign={openAssign}
+                onManage={setManageJob}
               />
             ))}
           </div>
@@ -537,6 +540,7 @@ export function JobsWorkspace() {
                     selected={selectedIds.includes(job.id)}
                     onToggleSelect={toggleSelect}
                     onQuickAssign={openAssign}
+                    onManage={setManageJob}
                   />
                 ))}
                 {lane.jobs.length === 0 ? (
@@ -588,6 +592,14 @@ export function JobsWorkspace() {
           </EButton>
         </div>
       ) : null}
+
+      {/* ── Manage job (reschedule · pricing · skip · danger) ── */}
+      <JobManageModal
+        job={manageJob}
+        open={Boolean(manageJob)}
+        onClose={() => setManageJob(null)}
+        onChanged={() => loadJobs(pagination.page)}
+      />
 
       {/* ── Quick assign ── */}
       <EModal open={Boolean(assignJob)} title="Assign cleaners" onClose={() => setAssignJob(null)}>

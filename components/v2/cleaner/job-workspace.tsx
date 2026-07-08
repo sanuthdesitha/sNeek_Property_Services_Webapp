@@ -5,9 +5,12 @@
  *
  * Wires the SAME endpoints the v1 workspace uses:
  *   GET  /api/jobs/[id]/form                       → job, template, jobTasks, timeState
+ *   GET  /api/cleaner/jobs/[id]/briefing           → prior QA warning, rework notes, linen drop, access vault
+ *   GET/PATCH/DELETE /api/cleaner/jobs/[id]/draft  → shared cross-device job draft
  *   POST /api/cleaner/jobs/[id]/gps-checkin        → clock-in GPS capture
  *   POST /api/cleaner/jobs/[id]/start              → start (IN_PROGRESS) / clock-in
  *   POST /api/cleaner/jobs/[id]/stop               → pause clock (PAUSED)
+ *   POST /api/cleaner/jobs/[id]/clock-out-early    → clock out, finish form later (admin-allowlisted)
  *   POST /api/cleaner/jobs/[id]/gps-checkout       → clock-out GPS
  *   POST /api/cleaner/jobs/[id]/submit             → checklist + form submission
  *   POST /api/uploads/direct                       → per-field photo/video (via MediaCapture)
@@ -32,6 +35,9 @@ import {
   ListChecks,
   ClipboardCheck,
   AlertTriangle,
+  BookOpen,
+  Package,
+  Square,
 } from "lucide-react";
 import {
   EBadge,
@@ -98,6 +104,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [payload, setPayload] = React.useState<any>(null);
+  const [briefing, setBriefing] = React.useState<any>(null);
 
   const [answers, setAnswers] = React.useState<AnswerMap>({});
   const [uploads, setUploads] = React.useState<UploadMap>({});
@@ -105,6 +112,50 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
+
+  // Shared cross-device draft (same /draft endpoint + envelope as v1).
+  const editorSessionIdRef = React.useRef<string>(
+    `v2-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
+  );
+  const draftHydratedRef = React.useRef(false);
+  const draftTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [draftInfo, setDraftInfo] = React.useState<{ updatedAt: string | null; updatedByName: string | null }>({
+    updatedAt: null,
+    updatedByName: null,
+  });
+
+  const restoreDraftState = React.useCallback((state: Record<string, any>) => {
+    if (!state || typeof state !== "object") return;
+    if (state.answers && typeof state.answers === "object") setAnswers(state.answers as AnswerMap);
+    if (state.uploads && typeof state.uploads === "object") {
+      const next: UploadMap = {};
+      for (const [fieldId, media] of Object.entries(state.uploads as Record<string, unknown>)) {
+        if (Array.isArray(media)) {
+          next[fieldId] = media.filter(
+            (m: any) => m && typeof m === "object" && typeof m.key === "string"
+          ) as CapturedMedia[];
+        }
+      }
+      setUploads(next);
+    }
+    if (state.taskDrafts && typeof state.taskDrafts === "object") {
+      setTaskDrafts((prev) => {
+        const next = { ...prev };
+        for (const [taskId, raw] of Object.entries(state.taskDrafts as Record<string, any>)) {
+          if (!raw || typeof raw !== "object") continue;
+          next[taskId] = {
+            decision:
+              raw.decision === "COMPLETED" || raw.decision === "NOT_COMPLETED" ? raw.decision : "OPEN",
+            note: typeof raw.note === "string" ? raw.note : "",
+            proof: Array.isArray(raw.proof)
+              ? (raw.proof.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[])
+              : [],
+          };
+        }
+        return next;
+      });
+    }
+  }, []);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -123,12 +174,40 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         }
         return next;
       });
+      // Pre-start briefing — prior QA warning, rework notes, linen drop, access vault.
+      try {
+        const bRes = await fetch(`/api/cleaner/jobs/${jobId}/briefing`, { cache: "no-store" });
+        const bBody = await bRes.json().catch(() => null);
+        setBriefing(bRes.ok ? bBody : null);
+      } catch {
+        setBriefing(null);
+      }
+      // Restore the shared draft once (progress saved on this or another device).
+      if (!draftHydratedRef.current) {
+        draftHydratedRef.current = true;
+        try {
+          const dRes = await fetch(`/api/cleaner/jobs/${jobId}/draft`, { cache: "no-store" });
+          if (dRes.ok) {
+            const dBody = await dRes.json().catch(() => ({}));
+            const envelope = dBody?.draft;
+            if (envelope?.state && typeof envelope.state === "object") {
+              restoreDraftState(envelope.state as Record<string, any>);
+              setDraftInfo({
+                updatedAt: typeof envelope.updatedAt === "string" ? envelope.updatedAt : null,
+                updatedByName: typeof envelope.updatedByName === "string" ? envelope.updatedByName : null,
+              });
+            }
+          }
+        } catch {
+          /* draft restore is best-effort */
+        }
+      }
     } catch (e: any) {
       setError(e?.message || "Could not load job");
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, restoreDraftState]);
 
   React.useEffect(() => {
     void load();
@@ -162,6 +241,31 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           .join("\n")
       : "";
   const hasCheckin = Boolean(job?.gpsCheckInAt);
+
+  // Debounced shared-draft autosave — mirrors v1's PATCH /draft envelope
+  // ({ editorSessionId, state }) so a co-cleaner or another device can resume.
+  React.useEffect(() => {
+    if (!draftHydratedRef.current || loading || !job || locked) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const state = {
+        v2: true,
+        updatedAt: new Date().toISOString(),
+        answers,
+        uploads,
+        taskDrafts,
+      };
+      void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ editorSessionId: editorSessionIdRef.current, state }),
+      }).catch(() => {});
+    }, 1500);
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, uploads, taskDrafts, locked, loading, jobId]);
 
   function flash(tone: "success" | "danger" | "info", text: string) {
     setNotice({ tone, text });
@@ -230,6 +334,34 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     }
   }
 
+  // Clock out WITHOUT the form (admin-allowlisted): the clock stops but the job
+  // stays open — not counted as completed until the form is submitted.
+  async function clockOutEarly() {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Clock out and finish the form later?\n\nThe clock will stop, but this job stays open and is NOT counted as completed until you come back and submit the form."
+      )
+    )
+      return;
+    setBusy("clockout-early");
+    try {
+      await post(`/api/cleaner/jobs/${jobId}/clock-out-early`);
+      try {
+        const gps = await getGps();
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng });
+      } catch {
+        /* GPS optional */
+      }
+      flash("success", "Clocked out. Come back any time to finish the form — the job isn't complete until it's submitted.");
+      await load();
+    } catch (e: any) {
+      flash("danger", e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function clockOutGps() {
     setBusy("checkout");
     try {
@@ -274,6 +406,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         jobTasks: jobTasksPayload,
       };
       const data = await post(`/api/cleaner/jobs/${jobId}/submit`, body);
+      // The job is done — clear the shared draft so no one resumes stale state.
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      void fetch(`/api/cleaner/jobs/${jobId}/draft`, { method: "DELETE" }).catch(() => {});
       // Best-effort clock-out GPS after a successful submit.
       try {
         const gps = await getGps();
@@ -394,6 +529,24 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </ECardBody>
       </ECard>
 
+      {/* Job briefing — prior QA warning, rework notes, linen drop, access vault */}
+      {!locked && status !== "OFFERED" ? <BriefingCard briefing={briefing} /> : null}
+
+      {/* Shared draft resumed from another device / co-cleaner */}
+      {!locked && draftInfo.updatedAt ? (
+        <EAlert tone="info" title="Saved progress restored">
+          {draftInfo.updatedByName ? `Last saved by ${draftInfo.updatedByName}` : "Draft restored"}
+          {" · "}
+          {new Date(draftInfo.updatedAt).toLocaleString("en-AU", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          . Your checklist and form answers keep saving automatically.
+        </EAlert>
+      ) : null}
+
       {/* Clock / GPS control */}
       <ClockCard
         status={status}
@@ -406,6 +559,37 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         onPause={pauseClock}
         onCheckout={clockOutGps}
       />
+
+      {/* Form still pending after an early clock-out */}
+      {job?.formPendingAfterClockOut && !locked ? (
+        <EAlert tone="warning" title="Form still pending">
+          You clocked out without submitting the form. This job is not complete until the form below is submitted.
+        </EAlert>
+      ) : null}
+
+      {/* Clock out & finish the form later — only for admin-allowlisted cleaners */}
+      {payload?.canClockOutWithoutForm &&
+      (hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0) &&
+      !locked ? (
+        <ECard className="border-[hsl(var(--e-warning))]">
+          <ECardBody className="space-y-2 pt-6">
+            <p className="text-[0.875rem] font-[550]">Clock out &amp; finish the form later</p>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Stops your clock now. This job stays open and is <strong>not counted as completed</strong> until you
+              come back and submit the form.
+            </p>
+            <EButton
+              variant="outline"
+              className="w-full"
+              disabled={busy === "clockout-early"}
+              onClick={() => void clockOutEarly()}
+            >
+              {busy === "clockout-early" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+              Clock out (finish form later)
+            </EButton>
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       {/* Checklist — jobTasks (admin / carry-forward), per-item complete + note + photo */}
       {jobTasks.length > 0 ? (
@@ -464,6 +648,12 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                             mode="photo"
                             folder="evidence"
                             disabled={locked}
+                            stamp={{
+                              address: addressLine || undefined,
+                              reference: (property.name as string) || undefined,
+                              contextLabel: t.title || undefined,
+                              tag: "after",
+                            }}
                           />
                         </div>
                       ) : null}
@@ -649,6 +839,210 @@ function TaskChip({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Pre-start job briefing — parity with the v1 briefing step. Renders the prior
+ * QA warning at this property, confirmed QA rework notes, the previous linen
+ * drop (photo + where the bags were left), recent property photos, the access
+ * vault (codes / key location / notes) and previous QA flags — all from
+ * GET /api/cleaner/jobs/[id]/briefing.
+ */
+function BriefingCard({ briefing }: { briefing: any }) {
+  if (!briefing) return null;
+  const hasVault =
+    briefing.accessCode || briefing.alarmCode || briefing.keyLocation || briefing.accessNotes;
+  const reworkNotes: any[] = Array.isArray(briefing.qaReworkNotes) ? briefing.qaReworkNotes : [];
+  const flags: string[] = Array.isArray(briefing.previousFlags) ? briefing.previousFlags : [];
+  const lastPhotos: any[] = Array.isArray(briefing.lastPhotos) ? briefing.lastPhotos : [];
+  const drop = briefing.previousLaundryDrop;
+  const hasContent =
+    briefing.priorQaWarning || reworkNotes.length > 0 || drop || lastPhotos.length > 0 || hasVault || flags.length > 0 || briefing.laundryInstructions;
+  if (!hasContent) return null;
+
+  return (
+    <ECard>
+      <ECardBody className="space-y-4 pt-6">
+        <p className="e-eyebrow flex items-center gap-1.5">
+          <BookOpen className="h-3.5 w-3.5" /> Job briefing
+        </p>
+
+        {briefing.priorQaWarning ? (
+          <div
+            className={cn(
+              "rounded-[var(--e-radius)] border-l-[3px] p-3",
+              briefing.priorQaWarning.band === "FAIL"
+                ? "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
+                : "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
+            )}
+          >
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Previous QA at this property: {briefing.priorQaWarning.percent}% ({briefing.priorQaWarning.band})
+            </p>
+            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+              {briefing.priorQaWarning.cleanerFeedback ||
+                briefing.priorQaWarning.inspectorNotes ||
+                "Take extra care today — review the checklist carefully."}
+            </p>
+          </div>
+        ) : null}
+
+        {reworkNotes.length > 0 ? (
+          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+              <AlertTriangle className="h-4 w-4 shrink-0" /> QA had to redo work on this job
+            </p>
+            <div className="mt-2 space-y-2">
+              {reworkNotes.map((note: any) => (
+                <div key={note.id}>
+                  <p className="text-[0.75rem] font-[550]">
+                    {String(note.severity ?? "").charAt(0) + String(note.severity ?? "").slice(1).toLowerCase()}
+                    {note.qaUser?.name ? ` · ${note.qaUser.name}` : " · QA inspector"}
+                    {note.minutesFromCleaner > 0 ? ` · ${note.minutesFromCleaner} min` : ""}
+                  </p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{note.reason}</p>
+                  {Array.isArray(note.areas) && note.areas.length > 0 ? (
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      Areas: {note.areas.join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {drop ? (
+          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3">
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+              <Package className="h-4 w-4 shrink-0" /> Linen drop — where to find it
+            </p>
+            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+              Fresh linen from the last drop-off
+              {drop.droppedAt
+                ? ` on ${new Date(drop.droppedAt).toLocaleString("en-AU", {
+                    weekday: "short",
+                    day: "2-digit",
+                    month: "short",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+              . Use this to locate the bags before you start.
+            </p>
+            {drop.notes ? (
+              <p className="mt-2 whitespace-pre-wrap rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface))] px-2 py-1.5 text-[0.75rem]">
+                {drop.notes}
+              </p>
+            ) : null}
+            {drop.photo?.url ? (
+              <a href={drop.photo.url} target="_blank" rel="noreferrer" className="mt-2 block w-fit">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={drop.photo.url}
+                  alt={drop.photo.label || "Linen drop-off"}
+                  className="h-28 w-auto max-w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
+                />
+              </a>
+            ) : (
+              <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                No drop-off photo was captured — check the usual linen storage spot.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {lastPhotos.length > 0 ? (
+          <div>
+            <p className="text-[0.8125rem] font-[550]">Recent property photos</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {lastPhotos.slice(0, 6).map((photo: any) => (
+                <a key={photo.id ?? photo.url} href={photo.url} target="_blank" rel="noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt={photo.label || "Property photo"}
+                    className="h-20 w-20 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
+                  />
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+              <KeyRound className="h-3.5 w-3.5" /> Access details
+            </p>
+            {briefing.accessCode ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access code</p>
+                <p className="text-[0.875rem] font-[550]">{briefing.accessCode}</p>
+              </div>
+            ) : null}
+            {briefing.alarmCode ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Alarm code</p>
+                <p className="text-[0.875rem] font-[550]">{briefing.alarmCode}</p>
+              </div>
+            ) : null}
+            {briefing.keyLocation ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Key location</p>
+                <p className="text-[0.875rem]">{briefing.keyLocation}</p>
+              </div>
+            ) : null}
+            {briefing.accessNotes ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access notes</p>
+                <p className="whitespace-pre-wrap text-[0.8125rem]">{briefing.accessNotes}</p>
+              </div>
+            ) : null}
+            {!hasVault ? (
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                No extra access vault details saved for this property.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+            <p className="text-[0.8125rem] font-[550]">Operational notes</p>
+            {briefing.jobNotes ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Job notes</p>
+                <p className="whitespace-pre-wrap text-[0.8125rem]">{briefing.jobNotes}</p>
+              </div>
+            ) : null}
+            {flags.length > 0 ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Previous QA flags</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {flags.map((flag) => (
+                    <EBadge key={flag} tone="warning" soft>
+                      {flag}
+                    </EBadge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {briefing.laundryInstructions ? (
+              <div>
+                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Laundry</p>
+                <p className="text-[0.8125rem]">
+                  {String(briefing.laundryInstructions.status ?? "").replace(/_/g, " ")}
+                </p>
+              </div>
+            ) : null}
+            {!briefing.jobNotes && flags.length === 0 && !briefing.laundryInstructions ? (
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Nothing flagged for this visit.</p>
+            ) : null}
+          </div>
+        </div>
+      </ECardBody>
+    </ECard>
   );
 }
 

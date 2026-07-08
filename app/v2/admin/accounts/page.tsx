@@ -112,7 +112,7 @@ export default async function EstateAccountsPage({
         description="Staff and client accounts in one place — with a rich summary for every account."
         actions={
           tab === "clients" ? (
-            <EButton asChild variant="gold" size="sm"><Link href="/admin/clients/new">
+            <EButton asChild variant="gold" size="sm"><Link href="/v2/admin/clients/new">
                 <Plus className="mr-1 h-3.5 w-3.5" />
                 Add client
               </Link></EButton>

@@ -6,12 +6,14 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import {
   EBadge,
+  EButton,
   ECard,
   ECardBody,
   EPageHeader,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { ChevronRight, Clock } from "lucide-react";
+import { EInput } from "@/components/v2/cleaner/fields";
+import { ChevronRight, Clock, Search } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 
 export const metadata = { title: "Jobs · Estate cleaner" };
@@ -53,18 +55,45 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function parseDateValue(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 /**
- * The cleaner's upcoming / assigned jobs — mirrors the live cleaner jobs page
- * query (assignments scoped to the session user, removedAt null). Scoped so a
+ * The cleaner's jobs — mirrors the live cleaner jobs page query semantics
+ * (assignments scoped to the session user, removedAt null; `scope=history`
+ * lists SUBMITTED / QA_REVIEW / COMPLETED / INVOICED; `q` searches the
+ * property name/suburb; `from`/`to` filter the scheduled date). Scoped so a
  * cleaner only ever lists their own jobs.
  */
-async function getCleanerJobs(userId: string) {
+async function getCleanerJobs(
+  userId: string,
+  opts: { scope: "open" | "history"; q: string; from?: Date; to?: Date }
+) {
+  const where: any = {
+    assignments: { some: { userId, removedAt: null } },
+    status:
+      opts.scope === "history"
+        ? { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] }
+        : { notIn: ["COMPLETED", "INVOICED"] },
+  };
+  if (opts.from || opts.to) {
+    where.scheduledDate = {
+      ...(opts.from ? { gte: opts.from } : {}),
+      ...(opts.to ? { lte: opts.to } : {}),
+    };
+  }
+  if (opts.q) {
+    where.OR = [
+      { property: { name: { contains: opts.q, mode: "insensitive" } } },
+      { property: { suburb: { contains: opts.q, mode: "insensitive" } } },
+    ];
+  }
   return db.job
     .findMany({
-      where: {
-        assignments: { some: { userId, removedAt: null } },
-        status: { notIn: ["COMPLETED", "INVOICED"] },
-      },
+      where,
       select: {
         id: true,
         jobType: true,
@@ -74,20 +103,52 @@ async function getCleanerJobs(userId: string) {
         dueTime: true,
         property: { select: { name: true, suburb: true, address: true } },
       },
-      orderBy: [
-        { scheduledDate: "asc" },
-        { priorityBucket: "asc" },
-        { dueTime: "asc" },
-        { startTime: "asc" },
-      ],
-      take: 100,
+      orderBy:
+        opts.scope === "history"
+          ? [{ scheduledDate: "desc" as const }]
+          : [
+              { scheduledDate: "asc" as const },
+              { priorityBucket: "asc" as const },
+              { dueTime: "asc" as const },
+              { startTime: "asc" as const },
+            ],
+      take: opts.scope === "history" ? 200 : 100,
     })
     .catch(() => []);
 }
 
-export default async function CleanerJobsPage() {
+export default async function CleanerJobsPage({
+  searchParams,
+}: {
+  searchParams?: { scope?: string; q?: string; from?: string; to?: string };
+}) {
   const session = await requireRole([Role.CLEANER]);
-  const jobs = await getCleanerJobs(session.user.id);
+
+  const scope: "open" | "history" =
+    (searchParams?.scope ?? "open").toLowerCase() === "history" ? "history" : "open";
+  const q = (searchParams?.q ?? "").trim();
+  const from = parseDateValue(searchParams?.from);
+  const to = searchParams?.to ? new Date(`${searchParams.to}T23:59:59.999`) : undefined;
+  const toDate = to && !Number.isNaN(to.getTime()) ? to : undefined;
+
+  const jobs = await getCleanerJobs(session.user.id, { scope, q, from, to: toDate });
+
+  const keepParams = (nextScope: "open" | "history") => {
+    const params = new URLSearchParams();
+    if (nextScope === "history") params.set("scope", "history");
+    if (q) params.set("q", q);
+    if (searchParams?.from) params.set("from", searchParams.from);
+    if (searchParams?.to) params.set("to", searchParams.to);
+    const str = params.toString();
+    return str ? `/v2/cleaner/jobs?${str}` : "/v2/cleaner/jobs";
+  };
+
+  const tabClass = (active: boolean) =>
+    `rounded-[var(--e-radius-pill)] border px-3 py-1 text-[0.75rem] font-[550] tracking-[0.02em] transition-colors ${
+      active
+        ? "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-primary-soft))] text-[hsl(var(--e-foreground))]"
+        : "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+    }`;
 
   return (
     <div className="space-y-6">
@@ -95,17 +156,63 @@ export default async function CleanerJobsPage() {
         eyebrow="Your schedule"
         title="Jobs"
         description={
-          jobs.length === 0
-            ? "Nothing assigned right now."
-            : `${jobs.length} upcoming assignment${jobs.length === 1 ? "" : "s"}.`
+          scope === "history"
+            ? `${jobs.length} finished job${jobs.length === 1 ? "" : "s"} on record.`
+            : jobs.length === 0
+              ? "Nothing assigned right now."
+              : `${jobs.length} upcoming assignment${jobs.length === 1 ? "" : "s"}.`
         }
       />
 
+      {/* Scope tabs + search / date filters — server-driven (URL params) */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <Link href={keepParams("open")} className={tabClass(scope === "open")}>
+            Upcoming
+          </Link>
+          <Link href={keepParams("history")} className={tabClass(scope === "history")}>
+            History
+          </Link>
+        </div>
+        <form method="GET" className="flex flex-wrap items-end gap-2">
+          {scope === "history" ? <input type="hidden" name="scope" value="history" /> : null}
+          <div className="min-w-[12rem] flex-1">
+            <EInput name="q" defaultValue={q} placeholder="Search property or suburb" aria-label="Search jobs" />
+          </div>
+          <EInput
+            type="date"
+            name="from"
+            defaultValue={searchParams?.from ?? ""}
+            aria-label="From date"
+            className="w-auto"
+          />
+          <EInput
+            type="date"
+            name="to"
+            defaultValue={searchParams?.to ?? ""}
+            aria-label="To date"
+            className="w-auto"
+          />
+          <EButton type="submit" variant="outline" size="sm">
+            <Search className="h-4 w-4" /> Filter
+          </EButton>
+          {q || searchParams?.from || searchParams?.to ? (
+            <EButton asChild variant="ghost" size="sm">
+              <Link href={scope === "history" ? "/v2/cleaner/jobs?scope=history" : "/v2/cleaner/jobs"}>Clear</Link>
+            </EButton>
+          ) : null}
+        </form>
+      </div>
+
       {jobs.length === 0 ? (
         <EEmptyState
-          eyebrow="Clear"
-          title="No upcoming jobs"
-          description="When a job is assigned to you it will appear here."
+          eyebrow={scope === "history" ? "Nothing yet" : "Clear"}
+          title={scope === "history" ? "No finished jobs match" : "No upcoming jobs"}
+          description={
+            scope === "history"
+              ? "Submitted and completed jobs will appear here."
+              : "When a job is assigned to you it will appear here."
+          }
         />
       ) : (
         <div className="space-y-3">

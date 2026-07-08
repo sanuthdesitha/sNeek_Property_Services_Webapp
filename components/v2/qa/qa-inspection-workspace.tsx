@@ -66,6 +66,9 @@ import {
   type QaInspectionTools,
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
+import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
+import { prepareUploadFile } from "@/lib/uploads/compress";
+import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -101,6 +104,62 @@ function titleCase(value: string): string {
 
 const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
+
+/* Pass/Minor/Fail radio scoring — must match lib/qa/scoring.ts RADIO_SCORES. */
+const RADIO_SCORES: Record<string, number> = { Pass: 2, "Minor issues": 1, Fail: 0 };
+
+/** Field types the inspector answers with a numeric value (rating/scale style). */
+const NUMERIC_FIELD_TYPES = new Set(["rating", "slider", "scale", "counter", "number"]);
+/** Field types the inspector answers by picking one option string. */
+const CHOICE_FIELD_TYPES = new Set(["radio", "select"]);
+/** Field types that are display-only or captured elsewhere (never rendered as an answer input here). */
+const SKIP_FIELD_TYPES = new Set(["signature", "photo", "video", "file", "upload", "instruction", "inventory"]);
+
+/**
+ * Score a single answered field, mirroring lib/qa/scoring.ts computeQaScore.
+ * Returns { points, max } contribution, or null when the field isn't scorable
+ * or wasn't answered. Supports BOTH the seeded templates (field.scoring +
+ * radio/yesno/select) and the auto-generated default template (type:"rating"
+ * with a top-level field.max/field.weight and no field.scoring).
+ */
+function scoreField(field: any, value: unknown): { points: number; max: number } | null {
+  // Seeded templates carry an explicit scoring block.
+  if (field?.scoring && typeof field.scoring === "object") {
+    const weight = Number(field.scoring.weight ?? 1) || 1;
+    const scoreMax = Number(field.scoring.max ?? 0) || 0;
+    if (scoreMax <= 0) return null;
+    const fieldMax = scoreMax * weight;
+    if (CHOICE_FIELD_TYPES.has(field.type) && typeof value === "string" && value in RADIO_SCORES) {
+      return { points: RADIO_SCORES[value] * weight, max: fieldMax };
+    }
+    if (NUMERIC_FIELD_TYPES.has(field.type) && typeof value === "number" && Number.isFinite(value)) {
+      return { points: Math.max(0, Math.min(value, scoreMax)) * weight, max: fieldMax };
+    }
+    if (field.type === "checkbox") {
+      return { points: value ? scoreMax * weight : 0, max: fieldMax };
+    }
+    if (field.type === "yesno") {
+      const isYes = value === true || (typeof value === "string" && ["true", "yes"].includes(value.trim().toLowerCase()));
+      return { points: isYes ? scoreMax * weight : 0, max: fieldMax };
+    }
+    // Answered but of an unscored type, or unanswered → contributes its max only
+    // when we can tell it was answerable. Unanswered choice/rating → excluded.
+    if (value === undefined || value === null || value === "") return null;
+    return { points: 0, max: fieldMax };
+  }
+  // Legacy default template: type:"rating" with a top-level max/weight. Blank =
+  // "not assessed" (excluded), so area templates aren't penalised for N/A areas.
+  if (field?.type === "rating") {
+    if (value === undefined || value === null || value === "") return null;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    const max = Number(field.max ?? 5) || 5;
+    const weight = Number(field.weight ?? 1) || 1;
+    const clamped = Math.max(0, Math.min(max, num));
+    return { points: (clamped / max) * 100 * weight, max: 100 * weight };
+  }
+  return null;
+}
 
 type Toast = { id: string; title: string; description?: string; tone: "info" | "danger" };
 
@@ -151,6 +210,171 @@ function ERating({
   );
 }
 
+/* ── Estate segmented choice control (radio / select / yesno) ─────────── */
+function EChoice({
+  value,
+  options,
+  onChange,
+}: {
+  value: string | null;
+  options: string[];
+  onChange: (v: string | null) => void;
+}) {
+  // Colour Pass/Fail-style options so a failing answer reads at a glance.
+  const toneFor = (opt: string): { on: string; onFg: string } => {
+    if (opt === "Pass" || /^yes$/i.test(opt)) return { on: "hsl(var(--e-success))", onFg: "hsl(var(--e-success-foreground, 0 0% 100%))" };
+    if (opt === "Fail" || /^no$/i.test(opt)) return { on: "hsl(var(--e-danger))", onFg: "hsl(var(--e-danger-foreground))" };
+    if (opt === "Minor issues") return { on: "hsl(var(--e-warning))", onFg: "hsl(var(--e-warning-foreground, 0 0% 12%))" };
+    return { on: "hsl(var(--e-gold))", onFg: "hsl(var(--e-gold-foreground))" };
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((opt) => {
+        const active = value === opt;
+        const tone = toneFor(opt);
+        return (
+          <button
+            key={opt}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(active ? null : opt)}
+            className="rounded-[var(--e-radius-sm)] border px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors"
+            style={{
+              backgroundColor: active ? tone.on : "hsl(var(--e-surface))",
+              color: active ? tone.onFg : "hsl(var(--e-text-secondary))",
+              borderColor: active ? tone.on : "hsl(var(--e-border-strong))",
+            }}
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── A single scored/answered template field (radio, select, yesno, rating,
+ *    numeric, checkbox, text) rendered natively in the Estate skin. Signature +
+ *    media/upload/instruction types are skipped by the caller. Mirrors the value
+ *    shapes lib/qa/scoring.ts + the report generator expect: option STRING for
+ *    radio/select, boolean for checkbox, "Yes"/"No"/"N/A" string for yesno,
+ *    number for rating/numeric, string for text. ─────────────────────────── */
+function EFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: any;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const weightBadge =
+    field?.scoring?.weight && field.scoring.weight > 1 ? (
+      <span className="ml-1.5 text-[0.6875rem] text-[hsl(var(--e-gold-ink))]">×{field.scoring.weight}</span>
+    ) : field?.weight && field.weight > 1 ? (
+      <span className="ml-1.5 text-[0.6875rem] text-[hsl(var(--e-gold-ink))]">×{field.weight}</span>
+    ) : null;
+  const labelEl = (
+    <label className="text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">
+      {field.label}
+      {field.required ? <span className="ml-1 text-[hsl(var(--e-danger))]">*</span> : null}
+      {weightBadge}
+    </label>
+  );
+
+  if (CHOICE_FIELD_TYPES.has(field.type)) {
+    const options: string[] = Array.isArray(field.options) && field.options.length > 0 ? field.options : [];
+    if (options.length === 0) {
+      return (
+        <div className="space-y-1.5">
+          {labelEl}
+          <ETextarea value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder || field.label} />
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-1.5">
+        {labelEl}
+        <EChoice value={typeof value === "string" ? value : null} options={options} onChange={(v) => onChange(v)} />
+      </div>
+    );
+  }
+
+  if (field.type === "yesno") {
+    const options = field.includeNa || field.incNa ? ["Yes", "No", "N/A"] : ["Yes", "No"];
+    return (
+      <div className="space-y-1.5">
+        {labelEl}
+        <EChoice value={typeof value === "string" ? value : null} options={options} onChange={(v) => onChange(v)} />
+      </div>
+    );
+  }
+
+  if (field.type === "rating") {
+    const max = Number(field?.scoring?.max ?? field.max ?? 5) || 5;
+    return (
+      <div className="space-y-1.5">
+        {labelEl}
+        <ERating value={typeof value === "number" ? value : null} onChange={(v) => onChange(v)} max={max} />
+      </div>
+    );
+  }
+
+  if (NUMERIC_FIELD_TYPES.has(field.type)) {
+    // slider / scale / counter / number → numeric input (kept simple + native).
+    return (
+      <div className="space-y-1.5">
+        {labelEl}
+        <EInput
+          type="number"
+          min={field.min ?? 0}
+          max={field.max ?? undefined}
+          step={field.step ?? 1}
+          value={typeof value === "number" ? value : ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+          placeholder={field.placeholder || (field.unit ? String(field.unit) : "")}
+          className="max-w-[200px]"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === "checkbox") {
+    return (
+      <label className="flex items-center gap-2 text-[0.875rem]">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {field.label}
+        {weightBadge}
+      </label>
+    );
+  }
+
+  if (field.type === "text" || field.type === "email" || field.type === "phone" || field.type === "date" || field.type === "time") {
+    return (
+      <EField label={field.label}>
+        <EInput
+          type={field.type === "text" ? "text" : field.type}
+          value={typeof value === "string" ? value : ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder || field.label}
+        />
+      </EField>
+    );
+  }
+
+  // longtext + anything else answerable as free text.
+  return (
+    <EField label={field.label}>
+      <ETextarea value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder || field.label} />
+    </EField>
+  );
+}
+
 /* ── A photo thumbnail with remove control ────────────────────────────── */
 function Thumb({
   url,
@@ -185,10 +409,10 @@ function Thumb({
   );
 }
 
-/* ── A native file-input photo uploader (stamped server-side is skipped; the
- *    v1 evidence stamp uses a compress helper from components/* we can't import.
- *    We upload the raw file to the SAME endpoint; the server stores it and the
- *    downstream flow (cases/reclean) works identically). ─────────────────── */
+/* ── A native file-input photo uploader. Images get the same evidence stamp
+ *    v1 QA burns in (branding + timestamp + GPS via lib/uploads, merged with
+ *    the caller's `stamp` context — v1 QA stamps every image upload). Videos
+ *    and other files pass through untouched; upload endpoint is unchanged. ─ */
 function Uploader({
   jobId,
   folder,
@@ -196,6 +420,7 @@ function Uploader({
   label = "Add photos",
   onUploaded,
   onError,
+  stamp,
 }: {
   jobId?: string;
   folder: string;
@@ -203,6 +428,8 @@ function Uploader({
   label?: string;
   onUploaded: (key: string, url?: string) => void;
   onError?: (msg: string) => void;
+  /** Evidence-stamp context merged over the branding/GPS base; null disables. */
+  stamp?: StampOptions | null;
 }) {
   const [busy, setBusy] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -213,8 +440,16 @@ function Uploader({
     setBusy((b) => b + list.length);
     for (const file of list) {
       try {
+        let prepared = file;
+        if (stamp !== null && isStampableImage(file)) {
+          try {
+            prepared = await prepareUploadFile(file, await buildEvidenceStamp(stamp));
+          } catch {
+            prepared = file; // never lose the photo over a failed stamp
+          }
+        }
         const form = new FormData();
-        form.append("file", file);
+        form.append("file", prepared);
         form.append("folder", folder);
         if (jobId) form.append("jobId", jobId);
         const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
@@ -451,6 +686,35 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
 
   const template = payload?.template;
   const job = payload?.job;
+
+  // Base evidence-stamp context shared by every QA photo (v1 parity: inspector
+  // name, property address + name, "qa" tag). Branding + GPS are added by the
+  // shared buildEvidenceStamp helper inside the Uploader.
+  const qaStamp = useMemo<StampOptions>(() => {
+    const propertyName =
+      (typeof job?.property?.name === "string" && job.property.name.trim()) || "";
+    const addressParts = [
+      job?.property?.address,
+      job?.property?.suburb,
+      job?.property?.state,
+      job?.property?.postcode,
+    ]
+      .filter((v: unknown) => typeof v === "string" && (v as string).trim())
+      .map((v: string) => v.trim());
+    return {
+      capturerName: authSession?.user?.name?.trim() || "QA Inspector",
+      address: addressParts.join(", ") || undefined,
+      reference: propertyName || undefined,
+      tag: "qa",
+    };
+  }, [
+    authSession?.user?.name,
+    job?.property?.name,
+    job?.property?.address,
+    job?.property?.suburb,
+    job?.property?.state,
+    job?.property?.postcode,
+  ]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
   const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> = payload?.cleanerCandidates ?? [];
   const existingReworks: any[] = job?.qaReworkTransfers ?? [];
@@ -524,25 +788,19 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
   // ── live score preview (mirrors lib/qa/templates.scoreQaSubmission) ──
   const scorePreview = useMemo(() => {
     const sections = template?.schema?.sections ?? [];
-    let weighted = 0;
-    let weightTotal = 0;
+    let points = 0;
+    let maxPoints = 0;
     for (const section of sections) {
       for (const field of section.fields ?? []) {
-        if (field.type !== "rating") continue;
-        const raw = data[field.id];
-        if (raw === undefined || raw === null || raw === "") continue;
-        const num = Number(raw);
-        if (!Number.isFinite(num)) continue;
-        const max = Number(field.max ?? 5) || 5;
-        const weight = Number(field.weight ?? 1) || 1;
-        const value = Math.max(0, Math.min(max, num));
-        weighted += (value / max) * 100 * weight;
-        weightTotal += weight;
+        const contribution = scoreField(field, data[field.id]);
+        if (!contribution) continue;
+        points += contribution.points;
+        maxPoints += contribution.max;
       }
     }
-    const score = weightTotal > 0 ? Math.round(weighted / weightTotal) : 100;
+    const score = maxPoints > 0 ? Math.round((points / maxPoints) * 100) : 100;
     const reworkFlag = data.rework_required === true || Boolean(tools.rework?.enabled);
-    return { score, assessed: weightTotal, passed: score >= 80 && !reworkFlag };
+    return { score, assessed: maxPoints, passed: score >= 80 && !reworkFlag };
   }, [template, data, tools.rework?.enabled]);
 
   /* ── damage ── */
@@ -978,6 +1236,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                     jobId={jobId}
                     folder="qa-damage"
                     label="Add damage photo"
+                    stamp={{ ...qaStamp, tag: "damage", contextLabel: "QA · Damage" }}
                     onUploaded={(key, url) => addDamagePhoto(entry.id, key, url)}
                     onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                   />
@@ -1187,6 +1446,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                         jobId={jobId}
                         folder="qa-damage"
                         label="Add photo of the problem"
+                        stamp={{ ...qaStamp, contextLabel: "QA · Flagged area" }}
                         onUploaded={(key, url) => addFlaggedAreaPhoto(area.id, key, url)}
                         onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                       />
@@ -1279,39 +1539,16 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
                     folder="qa-section"
                     accept="image/*,video/*"
                     label="Capture evidence"
+                    stamp={{ ...qaStamp, contextLabel: ["QA", typeof section.title === "string" ? section.title : ""].filter(Boolean).join(" · ") }}
                     onUploaded={(key, url) => addSectionPhoto(section.id, key, url)}
                     onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                   />
 
                   {(section.fields ?? [])
-                    .filter((field: any) => field.type !== "signature" && field.type !== "upload")
+                    .filter((field: any) => !SKIP_FIELD_TYPES.has(field.type))
                     .map((field: any) => (
                       <div key={field.id} className="space-y-1.5">
-                        {field.type === "rating" ? (
-                          <div className="space-y-1.5">
-                            <label className="text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">
-                              {field.label}
-                              {field.weight && field.weight > 1 ? (
-                                <span className="ml-1.5 text-[0.6875rem] text-[hsl(var(--e-gold-ink))]">×{field.weight}</span>
-                              ) : null}
-                            </label>
-                            <ERating value={data[field.id] ?? null} onChange={(v) => setField(field.id, v)} max={Number(field.max ?? 5)} />
-                          </div>
-                        ) : field.type === "checkbox" ? (
-                          <label className="flex items-center gap-2 text-[0.875rem]">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 accent-[hsl(var(--e-primary))]"
-                              checked={data[field.id] === true}
-                              onChange={(e) => setField(field.id, e.target.checked)}
-                            />
-                            {field.label}
-                          </label>
-                        ) : (
-                          <EField label={field.label}>
-                            <ETextarea value={data[field.id] ?? ""} onChange={(e) => setField(field.id, e.target.value)} placeholder={field.label} />
-                          </EField>
-                        )}
+                        <EFieldInput field={field} value={data[field.id]} onChange={(v) => setField(field.id, v)} />
                       </div>
                     ))}
                 </div>

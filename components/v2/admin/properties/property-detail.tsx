@@ -49,8 +49,10 @@ import {
   EConfirmModal,
   EModal,
 } from "@/components/v2/admin/estate-kit";
+import { PropertyBillingRates } from "./property-billing-rates";
+import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 
-type TabKey = "profile" | "jobs" | "checklist" | "inventory";
+type TabKey = "profile" | "jobs" | "checklist" | "inventory" | "billing";
 
 const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
   SUCCESS: "success",
@@ -427,6 +429,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     { key: "jobs", label: "Jobs & history", icon: <FileText className="h-3.5 w-3.5" />, count: jobCount },
     { key: "checklist", label: "Checklist", icon: <ClipboardList className="h-3.5 w-3.5" />, count: pendingTasks.length },
     { key: "inventory", label: "Inventory", icon: <ClipboardList className="h-3.5 w-3.5" />, count: stockRows.length },
+    { key: "billing", label: "Billing rates", icon: <FileText className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -654,8 +657,16 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       {/* JOBS & HISTORY */}
       {tab === "jobs" ? <PropertyJobs propertyId={propertyId} /> : null}
 
+      {/* BILLING RATES */}
+      {tab === "billing" ? <PropertyBillingRates propertyId={propertyId} /> : null}
+
       {/* CHECKLIST */}
       {tab === "checklist" ? (
+        <div className="space-y-4">
+        {/* Per-property dynamic checklist: amenities → toggled sections/items →
+            live preview → approve generates this property's own form. */}
+        <PropertyChecklistProfile propertyId={propertyId} />
+        <PropertyFormOverrides propertyId={propertyId} />
         <ECard>
           <ECardHeader className="flex-row items-center justify-between pb-2">
             <ECardTitle className="text-[0.95rem]">Next-job checklist</ECardTitle>
@@ -708,6 +719,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             )}
           </ECardBody>
         </ECard>
+        </div>
       ) : null}
 
       {/* INVENTORY */}

@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { BarChart3, FileText, Wallet } from "lucide-react";
+import { BadgeDollarSign, BarChart3, Clock3, FileText, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { FinanceTabKey } from "@/components/admin/finance-tab-nav";
+
+export type FinanceTabKey = "overview" | "invoices" | "payroll" | "adjustments" | "time";
 
 const TABS: Array<{ key: FinanceTabKey; label: string; icon: React.ReactNode }> = [
   { key: "overview", label: "Overview", icon: <BarChart3 className="h-4 w-4" /> },
   { key: "invoices", label: "Invoices", icon: <FileText className="h-4 w-4" /> },
   { key: "payroll", label: "Payroll", icon: <Wallet className="h-4 w-4" /> },
+  { key: "adjustments", label: "Adjustments", icon: <BadgeDollarSign className="h-4 w-4" /> },
+  { key: "time", label: "Time", icon: <Clock3 className="h-4 w-4" /> },
 ];
 
 /**

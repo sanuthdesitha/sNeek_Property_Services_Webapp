@@ -16,7 +16,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard,
 } from "@/components/v2/ui/primitives";
-import { ETableShell, EModal, EConfirmModal } from "@/components/v2/admin/estate-kit";
+import {
+  ETableShell, EModal, EConfirmModal, EInput, ETextarea, EField,
+} from "@/components/v2/admin/estate-kit";
 
 type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; jobNumber?: string };
 type Submission = {
@@ -33,7 +35,25 @@ type Submission = {
   xeroExportedAt: string | null;
   lineData: any;
   createdAt: string;
+  paidAmount: number | null;
+  paidBankAccount: string | null;
+  paidNote: string | null;
+  paidAt: string | null;
 };
+
+/** Best-effort read of the cleaner's bank account from the snapshotted lineData. */
+function bankFromLineData(lineData: any): string {
+  if (!lineData || typeof lineData !== "object") return "";
+  const name = lineData.cleanerBankAccountName;
+  const bsb = lineData.cleanerBankBsb;
+  const acc = lineData.cleanerBankAccountNumber;
+  const parts = [
+    typeof name === "string" && name.trim() ? name.trim() : null,
+    typeof bsb === "string" && bsb.trim() ? `BSB ${bsb.trim()}` : null,
+    typeof acc === "string" && acc.trim() ? `Acc ${acc.trim()}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
 
 const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "danger"> = {
   SUBMITTED: "info",
@@ -68,6 +88,64 @@ export function CleanerInvoicesWorkspace() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Submission | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "void" | "delete"; row: Submission } | null>(null);
+  const [payFor, setPayFor] = useState<Submission | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payBank, setPayBank] = useState("");
+  const [payNote, setPayNote] = useState("");
+
+  function openPay(row: Submission) {
+    setPayAmount(String(Number(row.totalAmount ?? 0).toFixed(2)));
+    setPayBank(bankFromLineData(row.lineData));
+    setPayNote("");
+    setPayFor(row);
+  }
+
+  async function submitPayment() {
+    if (!payFor) return;
+    const id = payFor.id;
+    const amount = Number(payAmount);
+    if (payAmount.trim() && (Number.isNaN(amount) || amount < 0)) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "PAID",
+          paidAmount: payAmount.trim() ? amount : undefined,
+          paidBankAccount: payBank.trim() || undefined,
+          paidNote: payNote.trim() || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not mark paid", description: body.error, variant: "destructive" });
+        return;
+      }
+      const paidAmount = payAmount.trim() ? amount : Number(payFor.totalAmount ?? 0);
+      setRows((rs) =>
+        rs.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                status: "PAID",
+                paidAmount,
+                paidBankAccount: payBank.trim() || null,
+                paidNote: payNote.trim() || null,
+                paidAt: new Date().toISOString(),
+              }
+            : r
+        )
+      );
+      toast({ title: "Marked paid", description: `${money(paidAmount)}${payBank.trim() ? ` → ${payBank.trim()}` : ""}` });
+      setPayFor(null);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -239,7 +317,7 @@ export function CleanerInvoicesWorkspace() {
                       </EButton>
                     ) : null}
                     {r.status === "SUBMITTED" || r.status === "XERO_PUSHED" ? (
-                      <EButton variant="outline" size="sm" disabled={busy} onClick={() => patchStatus(r.id, "PAID", "Marked paid")}>
+                      <EButton variant="outline" size="sm" disabled={busy} onClick={() => openPay(r)}>
                         <CheckCircle2 className="h-3.5 w-3.5" /> Paid
                       </EButton>
                     ) : null}
@@ -276,6 +354,17 @@ export function CleanerInvoicesWorkspace() {
               <span><span className="text-[hsl(var(--e-muted-foreground))]">Submitted:</span> {fmt(detail.createdAt)}</span>
               {detail.xeroBillId ? <span className="flex items-center gap-1 text-[hsl(var(--e-gold-ink))]"><FileSpreadsheet className="h-3.5 w-3.5" /> Xero {detail.xeroBillId.slice(0, 8)}…</span> : null}
             </div>
+            {detail.status === "PAID" ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.35)] bg-[hsl(var(--e-success)/0.06)] p-3 text-[0.8125rem]">
+                <p className="mb-1 font-medium text-[hsl(var(--e-success))]">Payment recorded</p>
+                <div className="flex flex-wrap gap-4">
+                  <span><span className="text-[hsl(var(--e-muted-foreground))]">Amount paid:</span> <span className="e-serif">{money(detail.paidAmount ?? detail.totalAmount)}</span></span>
+                  {detail.paidBankAccount ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Bank account:</span> {detail.paidBankAccount}</span> : null}
+                  {detail.paidAt ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Paid on:</span> {fmt(detail.paidAt)}</span> : null}
+                </div>
+                {detail.paidNote ? <p className="mt-1.5 text-[hsl(var(--e-muted-foreground))]"><span className="text-[hsl(var(--e-foreground))]">Comments:</span> {detail.paidNote}</p> : null}
+              </div>
+            ) : null}
             <ETableShell headers={[{ label: "Description" }, { label: "Hours" }, { label: "Rate" }, { label: "Amount", align: "right" }]}>
               {(Array.isArray(detail.lineData?.lines) ? detail.lineData.lines : Array.isArray(detail.lineData) ? detail.lineData : []).map(
                 (l: LineRow, i: number) => (
@@ -314,6 +403,61 @@ export function CleanerInvoicesWorkspace() {
             else await del(row.id);
           }}
         />
+      ) : null}
+
+      {/* Mark paid — capture amount, bank account + comments */}
+      {payFor ? (
+        <EModal
+          open
+          onClose={() => setPayFor(null)}
+          size="md"
+          eyebrow={payFor.cleanerName}
+          title="Record payment"
+        >
+          <div className="space-y-4">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              Invoice total {money(payFor.totalAmount)} · {fmt(payFor.periodStart)} – {fmt(payFor.periodEnd)}
+            </p>
+            <EField label="Amount paid" hint="Defaults to the invoice total — edit if you paid a different amount.">
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">$</span>
+                <EInput
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  className="pl-6"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                />
+              </div>
+            </EField>
+            <EField label="Bank account paid to" hint="Which account the money was sent to (prefilled from the cleaner's details when available).">
+              <EInput
+                value={payBank}
+                onChange={(e) => setPayBank(e.target.value)}
+                placeholder="e.g. Jane Doe · BSB 062-000 · Acc 1234 5678"
+              />
+            </EField>
+            <EField label="Comments (optional)">
+              <ETextarea
+                rows={3}
+                value={payNote}
+                onChange={(e) => setPayNote(e.target.value)}
+                placeholder="Reference, part-payment note, etc."
+              />
+            </EField>
+            <div className="flex justify-end gap-2 pt-1">
+              <EButton variant="ghost" onClick={() => setPayFor(null)} disabled={busyId === payFor.id}>
+                Cancel
+              </EButton>
+              <EButton variant="gold" onClick={submitPayment} disabled={busyId === payFor.id}>
+                {busyId === payFor.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Mark paid
+              </EButton>
+            </div>
+          </div>
+        </EModal>
       ) : null}
     </div>
   );
