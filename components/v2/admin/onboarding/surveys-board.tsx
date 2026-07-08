@@ -7,8 +7,9 @@
  * Same endpoints as v1:
  *   GET    /api/admin/onboarding/surveys?status=&search=
  *   DELETE /api/admin/onboarding/surveys/[id]
- * The survey wizard + detail review still live at /admin/onboarding/new and
- * /admin/onboarding/[id] (linked by URL — no v1 component imports).
+ * The v2-native survey wizard + detail review live at /v2/admin/onboarding/new
+ * (components/v2/admin/onboarding/wizard.tsx) and /v2/admin/onboarding/[id]
+ * (components/v2/admin/onboarding/survey-detail.tsx).
  */
 
 import * as React from "react";
@@ -115,7 +116,7 @@ export function OnboardingSurveysBoard() {
         description="Survey new properties and onboard cleaning contracts."
         actions={
           <EButton asChild variant="gold" size="sm">
-            <Link href="/admin/onboarding/new">
+            <Link href="/v2/admin/onboarding/new">
               <Plus className="h-3.5 w-3.5" /> New survey
             </Link>
           </EButton>
@@ -159,7 +160,7 @@ export function OnboardingSurveysBoard() {
               description="Create your first property onboarding survey to capture rooms, appliances, and access details."
               action={
                 <EButton asChild variant="outline" size="sm">
-                  <Link href="/admin/onboarding/new">Create your first survey</Link>
+                  <Link href="/v2/admin/onboarding/new">Create your first survey</Link>
                 </EButton>
               }
             />
@@ -174,7 +175,7 @@ export function OnboardingSurveysBoard() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        href={`/admin/onboarding/${survey.id}`}
+                        href={`/v2/admin/onboarding/${survey.id}`}
                         className="inline-flex items-center gap-1.5 text-[0.875rem] font-[600] hover:underline"
                       >
                         <ClipboardCheck className="h-3.5 w-3.5 text-[hsl(var(--e-accent-portal))]" />
@@ -205,13 +206,13 @@ export function OnboardingSurveysBoard() {
                     </p>
                     <div className="flex items-center gap-1">
                       <EButton asChild variant="ghost" size="icon" aria-label="View survey">
-                        <Link href={`/admin/onboarding/${survey.id}`}>
+                        <Link href={`/v2/admin/onboarding/${survey.id}`}>
                           <Eye className="h-4 w-4" />
                         </Link>
                       </EButton>
                       {survey.status === "DRAFT" ? (
                         <EButton asChild variant="ghost" size="icon" aria-label="Edit survey">
-                          <Link href={`/admin/onboarding/new?edit=${survey.id}`}>
+                          <Link href={`/v2/admin/onboarding/new?edit=${survey.id}`}>
                             <Pencil className="h-4 w-4" />
                           </Link>
                         </EButton>

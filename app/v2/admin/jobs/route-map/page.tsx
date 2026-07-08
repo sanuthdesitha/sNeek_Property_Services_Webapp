@@ -152,7 +152,7 @@ export default async function V2RouteMapPage({
                         </div>
                         <div className="flex flex-shrink-0 flex-wrap gap-2">
                           <EButton asChild size="sm" variant="ghost">
-                            <Link href={`/admin/jobs/${stop.jobId}`}>Open job</Link>
+                            <Link href={`/v2/admin/jobs/${stop.jobId}`}>Open job</Link>
                           </EButton>
                           {propertyMapUrl ? (
                             <EButton asChild size="sm" variant="outline">

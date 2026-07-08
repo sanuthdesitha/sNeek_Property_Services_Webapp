@@ -111,8 +111,27 @@ const CHECKBOX_CLASS =
   "h-4 w-4 shrink-0 accent-[hsl(var(--e-primary))] rounded border-[hsl(var(--e-border-strong))]";
 
 /* ── Checklist profile builder (amenities → sections → preview → approve) ── */
-export function PropertyChecklistProfile({ propertyId }: { propertyId: string }) {
-  const apiBase = `/api/admin/properties/${propertyId}/checklist-profile`;
+export function PropertyChecklistProfile({
+  propertyId,
+  apiBase: apiBaseOverride,
+  mode = "property",
+}: {
+  propertyId: string;
+  /**
+   * Override the endpoint base. The onboarding wizard points this at
+   * /api/admin/onboarding/surveys/[id]/checklist — that route mirrors the
+   * property checklist-profile response shape (GET editor state, PUT
+   * { selections, features? }, POST <base>/preview) so one builder drives both.
+   */
+  apiBase?: string;
+  /**
+   * "survey" hides the approve action: survey checklists are materialised into
+   * real form templates when the onboarding survey itself is approved.
+   */
+  mode?: "property" | "survey";
+}) {
+  const apiBase = apiBaseOverride ?? `/api/admin/properties/${propertyId}/checklist-profile`;
+  const isSurvey = mode === "survey";
   const [data, setData] = useState<BuilderData | null>(null);
   const [selections, setSelections] = useState<Selections>({ modules: {}, customItems: [] });
   const [features, setFeatures] = useState<Record<string, boolean>>({});
@@ -138,10 +157,15 @@ export function PropertyChecklistProfile({ propertyId }: { propertyId: string })
       setData(body);
       setSelections(body.selections ?? { modules: {}, customItems: [] });
       setFeatures(body.features ?? {});
+      // Survey mode: the wizard's Cleaning Types step is the source of truth
+      // for which job types the checklist targets.
+      const surveyJobTypes: string[] = Array.isArray(body.selectedJobTypes) ? body.selectedJobTypes : [];
       const firstJobTypes: string[] =
-        Object.keys(body.profile?.generatedTemplateIds ?? {}).length > 0
-          ? Object.keys(body.profile.generatedTemplateIds)
-          : ["AIRBNB_TURNOVER"];
+        isSurvey && surveyJobTypes.length > 0
+          ? surveyJobTypes
+          : Object.keys(body.profile?.generatedTemplateIds ?? {}).length > 0
+            ? Object.keys(body.profile.generatedTemplateIds)
+            : ["AIRBNB_TURNOVER"];
       setApproveJobTypes(firstJobTypes.filter((jt) => body.jobTypes.includes(jt)));
       setPreviewJobType(
         firstJobTypes[0] && body.jobTypes.includes(firstJobTypes[0]) ? firstJobTypes[0] : "AIRBNB_TURNOVER",
@@ -152,7 +176,7 @@ export function PropertyChecklistProfile({ propertyId }: { propertyId: string })
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, [apiBase, isSurvey]);
 
   useEffect(() => {
     void load();
@@ -363,22 +387,27 @@ export function PropertyChecklistProfile({ propertyId }: { propertyId: string })
             </ECardTitle>
             <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
               {enabledCounts.modules} sections · {enabledCounts.items} tasks selected. Toggle amenities and items,
-              preview the exact cleaner form, then approve to generate this property&apos;s own form.
+              preview the exact cleaner form,{" "}
+              {isSurvey
+                ? "then save — forms are generated when the onboarding survey is approved."
+                : "then approve to generate this property's own form."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <EButton size="sm" variant="outline" onClick={() => void save()} disabled={saving || !dirty}>
               <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save draft"}
             </EButton>
-            <EButton size="sm" variant="gold" onClick={() => void approve()} disabled={approving}>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {approving ? "Approving…" : "Approve & generate form"}
-            </EButton>
+            {!isSurvey ? (
+              <EButton size="sm" variant="gold" onClick={() => void approve()} disabled={approving}>
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {approving ? "Approving…" : "Approve & generate form"}
+              </EButton>
+            ) : null}
           </div>
         </ECardHeader>
         <ECardBody className="pt-0">
           <p className="mb-1.5 text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">
-            Generate for job types
+            {isSurvey ? "Job types for this checklist" : "Generate for job types"}
           </p>
           <div className="flex flex-wrap gap-2">
             {data.jobTypes.map((jobType) => {

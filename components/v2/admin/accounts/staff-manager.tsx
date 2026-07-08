@@ -34,7 +34,6 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
 import {
   EAvatar,
-  EClassicLink,
   EConfirmModal,
   EField,
   EInput,
@@ -520,9 +519,8 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             <KeyRound className="h-3 w-3" />
-            Extended profile, bank details & permission overrides:
+            Extended profile &amp; bank details: open an account and edit its Payroll &amp; identity card.
           </span>
-          <EClassicLink href="/admin/accounts?tab=staff">classic accounts workspace</EClassicLink>
         </div>
       </div>
 
@@ -594,8 +592,7 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
             <ESwitch checked={form.isActive} onCheckedChange={(v) => setForm((p) => ({ ...p, isActive: v }))} />
           </div>
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            Extended profile, bank details and edit-permission overrides live in the{" "}
-            <EClassicLink href="/admin/accounts?tab=staff">classic workspace</EClassicLink>.
+            Extended profile and bank details are edited on the account&apos;s page (Payroll &amp; identity card).
           </p>
           <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
             <EButton variant="outline" size="sm" onClick={() => setEditing(null)}>

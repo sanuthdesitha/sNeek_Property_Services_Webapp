@@ -443,7 +443,7 @@ export function QuotesPipeline() {
                         </EButton>
                         {quote.status !== "CONVERTED" ? (
                           <EButton asChild variant="outline" size="sm">
-                            <Link href={`/admin/quotes/${quote.id}/convert`}>Convert</Link>
+                            <Link href={`/v2/admin/quotes/${quote.id}`}>Convert</Link>
                           </EButton>
                         ) : null}
                         <EButton
