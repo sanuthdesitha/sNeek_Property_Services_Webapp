@@ -787,7 +787,7 @@ ${c.headTags}
 </head>
 <body>
 ${c.showHeader ? `<div class="brand">
-  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="background:#ffffff;border-radius:8px;padding:6px;" />` : ""}
+  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="border:0;" />` : ""}
   <h1>${escapeHtml(c.renderedTitle)}</h1>
 </div>` : ""}
 ${c.showSummary ? c.summaryInnerHtml : ""}
@@ -868,7 +868,7 @@ ${c.headTags}
 </head>
 <body>
 ${c.showHeader ? `<div class="lux-hero">
-  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="background:#ffffff;border-radius:8px;padding:6px;" />` : `<p class="eyebrow">${escapeHtml(c.companyName)}</p>`}
+  ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="border:0;" />` : `<p class="eyebrow">${escapeHtml(c.companyName)}</p>`}
   <h1>${escapeHtml(c.job?.property?.name || c.renderedTitle)}</h1>
   <p class="sub">${escapeHtml(c.renderedTitle)}</p>
 </div>` : ""}

@@ -192,7 +192,10 @@ function applySecurityHeaders(response: NextResponse) {
     "Content-Security-Policy",
     // script/style/font/worker allowances for the Google Maps JS API
     // (live ops map, route map, address autocomplete).
-    "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:; connect-src 'self' https: wss:;"
+    // frame-src/object-src allow blob: so the app can preview its own generated
+    // PDFs (quote preview, checklist, reports) in an inline iframe — without it
+    // they fall back to default-src 'self' and the blob: frame is blocked.
+    "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; frame-src 'self' blob:; object-src 'self' blob:; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:; connect-src 'self' https: wss:;"
   );
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
   return response;

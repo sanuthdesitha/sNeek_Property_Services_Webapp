@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 import { publicUrl } from "@/lib/s3";
+import { renderBrandLogo } from "@/lib/branding/logo-html";
 
 /** Make a logo value loadable by the server-side PDF renderer: pass absolute
  *  URLs / data URIs straight through; turn an S3 key or bare path into an
@@ -114,12 +115,8 @@ export function buildQuoteHtml(
       <td style="padding:4px 0 4px 28px;text-align:right;font-size:13px;color:${ink};white-space:nowrap;">${escapeHtml(value)}</td>
     </tr>`;
 
-  // Logo always sits on a clean white, bordered chip — never an ugly dark box.
-  const logoBox = logoUrl
-    ? `<div style="display:inline-block;border:1px solid ${hair};border-radius:10px;background:#ffffff;padding:16px 22px;">
-        <img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(companyName)}" style="display:block;height:46px;max-width:210px;object-fit:contain;background:#ffffff;" />
-      </div>`
-    : `<div style="display:inline-block;border:1px solid ${hair};border-radius:10px;padding:24px 34px;color:${muted};font-size:14px;font-weight:600;background:#ffffff;">${escapeHtml(companyName)}</div>`;
+  // Clean, box-free premium mark (shared treatment across every document).
+  const logoBox = renderBrandLogo(logoUrl, companyName, { height: 56, align: "right", wordmarkColor: slate });
 
   return `<!doctype html>
 <html lang="en">

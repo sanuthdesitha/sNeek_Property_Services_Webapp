@@ -227,7 +227,7 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: 40px; }
   .qa-header { display:flex; align-items:center; gap:16px; padding-bottom:16px; border-bottom:3px solid var(--qa-primary); margin-bottom:20px; }
-  .qa-header img { max-width:160px; max-height:60px; object-fit:contain; background:#ffffff; border-radius:8px; padding:5px; }
+  .qa-header img { max-width:210px; max-height:60px; object-fit:contain; border:0; }
   .qa-header h1 { margin:0; font-size:24px; color:var(--qa-primary); }
   .qa-header p { margin:2px 0 0; font-size:13px; color:#64748b; }
   .qa-summary { display:grid; grid-template-columns:1fr 1fr; gap:10px 24px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:22px; }
