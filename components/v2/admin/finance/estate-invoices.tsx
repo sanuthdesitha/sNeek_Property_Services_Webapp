@@ -27,10 +27,12 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Receipt,
   RefreshCw,
   Search,
   Send,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
@@ -42,9 +44,10 @@ import {
   ESelect,
   ESwitch,
   ETableShell,
+  ETextarea,
 } from "@/components/v2/admin/estate-kit";
 
-type InvoiceStatus = "DRAFT" | "APPROVED" | "SENT" | "PAID" | "VOID";
+type InvoiceStatus = "DRAFT" | "APPROVED" | "SENT" | "PART_PAID" | "PAID" | "VOID";
 
 type Invoice = {
   id: string;
@@ -55,10 +58,35 @@ type Invoice = {
   periodEnd: string | null;
   sentAt: string | null;
   paidAt: string | null;
+  paidAmount?: number | null;
+  paymentMethod?: string | null;
+  paymentReference?: string | null;
+  paidDate?: string | null;
   createdAt: string;
   xeroExportedAt?: string | null;
   client: { id: string; name: string; email: string };
 };
+
+type PaymentLedgerEntry = {
+  amount: number;
+  method: string;
+  reference: string | null;
+  paidDate: string;
+  recordedAt: string;
+  recordedById?: string;
+  recordedByName?: string;
+};
+
+const PAY_METHODS = [
+  { value: "BANK_TRANSFER", label: "Bank transfer" },
+  { value: "CARD", label: "Card" },
+  { value: "CASH", label: "Cash" },
+  { value: "STRIPE", label: "Stripe" },
+  { value: "OTHER", label: "Other" },
+];
+const PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
+  PAY_METHODS.map((m) => [m.value, m.label]),
+);
 
 type Client = { id: string; name: string; email: string };
 type Property = { id: string; name: string; suburb: string; clientId: string };
@@ -80,12 +108,19 @@ type FullInvoice = {
   totalAmount: number;
   gstEnabled?: boolean;
   lines: InvoiceLine[];
+  paidAmount?: number | null;
+  paymentMethod?: string | null;
+  paymentReference?: string | null;
+  paidDate?: string | null;
+  paidAt?: string | null;
+  metadata?: { payments?: PaymentLedgerEntry[] } | null;
 };
 
-const STATUS_TONE: Record<InvoiceStatus, "warning" | "info" | "primary" | "success" | "neutral"> = {
+const STATUS_TONE: Record<InvoiceStatus, "warning" | "info" | "primary" | "success" | "neutral" | "gold"> = {
   DRAFT: "warning",
   APPROVED: "info",
   SENT: "primary",
+  PART_PAID: "gold",
   PAID: "success",
   VOID: "neutral",
 };
@@ -93,6 +128,7 @@ const STATUS_LABEL: Record<InvoiceStatus, string> = {
   DRAFT: "Draft",
   APPROVED: "Approved",
   SENT: "Sent",
+  PART_PAID: "Part paid",
   PAID: "Paid",
   VOID: "Void",
 };
@@ -141,6 +177,19 @@ export function EstateInvoices() {
   // Delete confirm
   const [deleteFor, setDeleteFor] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Record-payment modal
+  const [payFor, setPayFor] = useState<Invoice | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("BANK_TRANSFER");
+  const [payDate, setPayDate] = useState("");
+  const [payRef, setPayRef] = useState("");
+  const [paySaving, setPaySaving] = useState(false);
+
+  // Payment-record (receipt) viewer
+  const [receiptFor, setReceiptFor] = useState<Invoice | null>(null);
+  const [receipt, setReceipt] = useState<FullInvoice | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -203,6 +252,66 @@ export function EstateInvoices() {
       await load();
     } finally {
       setBusy(null);
+    }
+  }
+
+  /* ── Record payment (proper procedure) ─────────────────────────────────── */
+  function openPay(inv: Invoice) {
+    const outstanding = Math.max(0, Number(inv.totalAmount ?? 0) - Number(inv.paidAmount ?? 0));
+    setPayAmount(outstanding.toFixed(2));
+    setPayMethod("BANK_TRANSFER");
+    setPayDate(format(new Date(), "yyyy-MM-dd"));
+    setPayRef("");
+    setPayFor(inv);
+  }
+
+  async function submitPayment() {
+    if (!payFor) return;
+    const amount = Number(payAmount);
+    if (!payAmount.trim() || Number.isNaN(amount) || amount <= 0) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    setPaySaving(true);
+    try {
+      const res = await fetch(`/api/admin/invoices/${payFor.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordPayment: {
+            amount,
+            method: payMethod,
+            paidDate: payDate ? `${payDate}T00:00:00.000Z` : undefined,
+            reference: payRef.trim() || undefined,
+          },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not record payment", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: body.status === "PAID" ? "Payment recorded — invoice paid" : "Partial payment recorded",
+        description: `${money(amount)} · ${PAY_METHOD_LABEL[payMethod] ?? payMethod}`,
+      });
+      setPayFor(null);
+      await load();
+    } finally {
+      setPaySaving(false);
+    }
+  }
+
+  async function openReceipt(inv: Invoice) {
+    setReceiptFor(inv);
+    setReceipt(null);
+    setReceiptLoading(true);
+    try {
+      const res = await fetch(`/api/admin/invoices/${inv.id}`);
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) setReceipt(body as FullInvoice);
+    } finally {
+      setReceiptLoading(false);
     }
   }
 
@@ -420,6 +529,7 @@ export function EstateInvoices() {
     { key: "DRAFT", label: "Draft" },
     { key: "APPROVED", label: "Approved" },
     { key: "SENT", label: "Sent" },
+    { key: "PART_PAID", label: "Part paid" },
     { key: "PAID", label: "Paid" },
     { key: "all", label: "All" },
   ];
@@ -540,14 +650,25 @@ export function EstateInvoices() {
                         <Send className="h-3.5 w-3.5" /> Send
                       </EButton>
                     ) : null}
-                    {inv.status === "SENT" ? (
+                    {inv.status === "SENT" || inv.status === "PART_PAID" ? (
                       <EButton
                         size="sm"
                         variant="outline"
                         disabled={busy === inv.id}
-                        onClick={() => patchStatus(inv, "PAID", "Marked as paid")}
+                        onClick={() => openPay(inv)}
+                        title="Record a payment against this invoice"
                       >
-                        <Check className="h-3.5 w-3.5" /> Mark paid
+                        <Wallet className="h-3.5 w-3.5" /> Record payment
+                      </EButton>
+                    ) : null}
+                    {inv.status === "PAID" || inv.status === "PART_PAID" ? (
+                      <EButton
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openReceipt(inv)}
+                        title="View the payment record"
+                      >
+                        <Receipt className="h-3.5 w-3.5" /> Payment
                       </EButton>
                     ) : null}
                     {inv.status !== "VOID" ? (
@@ -886,6 +1007,165 @@ export function EstateInvoices() {
               Changes save per line (the ✓ button) and update totals immediately. The arrows
               reorder lines — the new order is saved straight away and flows to the PDF.
             </p>
+          </div>
+        )}
+      </EModal>
+
+      {/* Record payment */}
+      <EModal
+        open={Boolean(payFor)}
+        onClose={() => setPayFor(null)}
+        eyebrow="Commercial"
+        title={`Record payment · ${payFor?.invoiceNumber ?? ""}`}
+      >
+        {payFor ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+              <div>
+                <EEyebrow>Invoice total</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none">{money(payFor.totalAmount)}</p>
+              </div>
+              <div>
+                <EEyebrow>Already paid</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none">{money(payFor.paidAmount ?? 0)}</p>
+              </div>
+              <div>
+                <EEyebrow>Outstanding</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none text-[hsl(var(--e-gold-ink))]">
+                  {money(Math.max(0, Number(payFor.totalAmount ?? 0) - Number(payFor.paidAmount ?? 0)))}
+                </p>
+              </div>
+            </div>
+            <EField
+              label="Amount received"
+              hint="Defaults to the outstanding balance. A smaller amount records a partial payment (status stays Part paid)."
+            >
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                  $
+                </span>
+                <EInput
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  className="pl-6"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                />
+              </div>
+            </EField>
+            <div className="grid grid-cols-2 gap-3">
+              <EField label="Payment method">
+                <ESelect value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                  {PAY_METHODS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </ESelect>
+              </EField>
+              <EField label="Paid date">
+                <EInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+              </EField>
+            </div>
+            <EField label="Reference / notes" hint="e.g. bank reference, receipt number, part-payment note.">
+              <ETextarea rows={2} value={payRef} onChange={(e) => setPayRef(e.target.value)} />
+            </EField>
+            <div className="flex justify-end gap-2 pt-1">
+              <EButton variant="ghost" onClick={() => setPayFor(null)} disabled={paySaving}>
+                Cancel
+              </EButton>
+              <EButton variant="gold" onClick={submitPayment} disabled={paySaving}>
+                {paySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+                Record payment
+              </EButton>
+            </div>
+          </div>
+        ) : null}
+      </EModal>
+
+      {/* Payment record (receipt) viewer */}
+      <EModal
+        open={Boolean(receiptFor)}
+        onClose={() => {
+          setReceiptFor(null);
+          setReceipt(null);
+        }}
+        eyebrow="Commercial"
+        title={`Payment record · ${receiptFor?.invoiceNumber ?? ""}`}
+        wide
+      >
+        {receiptLoading || !receipt ? (
+          <p className="py-10 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+            Loading payment record…
+          </p>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <EEyebrow>Status</EEyebrow>
+                <div className="mt-1">
+                  <EBadge tone={STATUS_TONE[receipt.status]} soft>
+                    {STATUS_LABEL[receipt.status]}
+                  </EBadge>
+                </div>
+              </div>
+              <div>
+                <EEyebrow>Invoice total</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none">{money(receipt.totalAmount)}</p>
+              </div>
+              <div>
+                <EEyebrow>Amount paid</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none">{money(receipt.paidAmount ?? 0)}</p>
+              </div>
+              <div>
+                <EEyebrow>Outstanding</EEyebrow>
+                <p className="e-numeral mt-1 text-[1rem] leading-none">
+                  {money(Math.max(0, Number(receipt.totalAmount ?? 0) - Number(receipt.paidAmount ?? 0)))}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <EEyebrow>Payment history</EEyebrow>
+              {Array.from(receipt.metadata?.payments ?? []).length === 0 ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                  {receipt.paidAt
+                    ? `Marked paid on ${fmtDate(receipt.paidAt)}${
+                        receipt.paymentMethod ? ` · ${PAY_METHOD_LABEL[receipt.paymentMethod] ?? receipt.paymentMethod}` : ""
+                      } — no itemised payment record (legacy one-click paid).`
+                    : "No payment record captured yet."}
+                </p>
+              ) : (
+                <ETableShell
+                  headers={[
+                    { label: "Paid date" },
+                    { label: "Method" },
+                    { label: "Reference" },
+                    { label: "Recorded by" },
+                    { label: "Amount", align: "right" },
+                  ]}
+                >
+                  {Array.from(receipt.metadata?.payments ?? []).map((p, i) => (
+                    <tr key={i} className="border-t border-[hsl(var(--e-border))]">
+                      <td className="px-4 py-2 text-[0.8125rem]">{fmtDate(p.paidDate)}</td>
+                      <td className="px-4 py-2 text-[0.8125rem]">{PAY_METHOD_LABEL[p.method] ?? p.method}</td>
+                      <td className="px-4 py-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                        {p.reference || "—"}
+                      </td>
+                      <td className="px-4 py-2 text-[0.8125rem]">
+                        {p.recordedByName || "—"}
+                        <span className="block text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                          {fmtDate(p.recordedAt)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-[0.8125rem] e-tnum">{money(p.amount)}</td>
+                    </tr>
+                  ))}
+                </ETableShell>
+              )}
+            </div>
           </div>
         )}
       </EModal>

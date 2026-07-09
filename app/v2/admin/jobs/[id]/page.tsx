@@ -5,6 +5,7 @@ import { JobStatus, JobTaskSource, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import {
   EBadge,
   EButton,
@@ -19,14 +20,17 @@ import {
   ClipboardList,
   Clock,
   History,
+  Link2,
   ListChecks,
   MapPin,
+  Receipt,
   RefreshCw,
   Shirt,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
 import { QuickQaReview } from "@/components/v2/admin/jobs/quick-qa-review";
+import { JobAssignPanel } from "@/components/v2/admin/jobs/job-assign-panel";
 import {
   JobContinuationReviews,
   JobDetailManage,
@@ -132,7 +136,33 @@ async function getJob(id: string) {
             id: true,
             isPrimary: true,
             responseStatus: true,
-            user: { select: { name: true, email: true } },
+            userId: true,
+            payRate: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+        issueTickets: {
+          orderBy: { createdAt: "desc" },
+          take: 8,
+          select: {
+            id: true,
+            title: true,
+            caseType: true,
+            severity: true,
+            state: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+        invoiceLines: {
+          orderBy: { createdAt: "desc" },
+          take: 12,
+          select: {
+            id: true,
+            description: true,
+            lineTotal: true,
+            category: true,
+            invoice: { select: { invoiceNumber: true, status: true, totalAmount: true } },
           },
         },
         qaReviews: {
@@ -360,6 +390,54 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
   const pendingTaskCount = taskRows.filter((t) => t.approvalStatus === "PENDING_APPROVAL").length;
   const pendingContinuations = continuationRows.filter((r) => r.status === "PENDING").length;
 
+  /* ── Assign panel + money transparency ────────────────────────────────── */
+
+  const panelAssignments = job.assignments.map((a) => ({
+    id: a.id,
+    isPrimary: a.isPrimary,
+    responseStatus: String(a.responseStatus),
+    userId: a.userId,
+    name: a.user?.name ?? a.user?.email ?? "Cleaner",
+    email: a.user?.email ?? null,
+  }));
+
+  // Per-cleaner pay: custom payout overrides the hours × rate estimate; transport
+  // is added on top. Same inputs the payroll + v1 billing panel read from.
+  const jobMeta = parseJobInternalNotes(job.internalNotes);
+  const payHours = job.actualHours ?? job.estimatedHours ?? null;
+  const payRows = job.assignments.map((a) => {
+    const custom = jobMeta.cleanerPayouts[a.userId];
+    const transport = jobMeta.transportAllowances[a.userId] ?? 0;
+    const base =
+      custom != null
+        ? custom
+        : a.payRate != null && payHours != null
+          ? a.payRate * payHours
+          : null;
+    const total = (base ?? 0) + transport;
+    return {
+      id: a.id,
+      name: a.user?.name ?? a.user?.email ?? "Cleaner",
+      isPrimary: a.isPrimary,
+      rate: a.payRate,
+      custom: custom ?? null,
+      transport,
+      base,
+      total,
+      estimated: base == null,
+    };
+  });
+  const cleanerCost = payRows.reduce((sum, row) => sum + row.total, 0);
+  const anyEstimated = payRows.some((row) => row.estimated);
+  const clientCharge = job.fixedPrice;
+  const margin = clientCharge != null ? clientCharge - cleanerCost : null;
+  const marginPct =
+    clientCharge != null && clientCharge > 0 ? Math.round(((margin ?? 0) / clientCharge) * 100) : null;
+
+  const linkedCases = job.issueTickets ?? [];
+  const linkedInvoiceLines = job.invoiceLines ?? [];
+  const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -415,33 +493,69 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
-        {/* Assigned cleaners */}
+        {/* Assigned cleaners — inline dispatch */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Assigned cleaners</ECardTitle></ECardHeader>
           <ECardBody className="pt-0">
-            {job.assignments.length === 0 ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No cleaners assigned yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {job.assignments.map((a) => (
-                  <li key={a.id} className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
-                    {a.isPrimary ? <EBadge tone="primary" soft>Primary</EBadge> : null}
-                    <span className="font-[550]">{a.user?.name ?? a.user?.email ?? "Cleaner"}</span>
-                    <EBadge tone={a.responseStatus === "PENDING" ? "warning" : "neutral"} soft>{titleCase(String(a.responseStatus))}</EBadge>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <JobAssignPanel
+              jobId={job.id}
+              jobLabel={propLabel}
+              jobSubLabel={`${titleCase(job.jobType)} · ${scheduledLabel}${job.startTime ? ` · ${job.startTime}` : ""}`}
+              assignments={panelAssignments}
+            />
           </ECardBody>
         </ECard>
 
-        {/* Money */}
+        {/* Money — client charge vs cleaner pay vs margin */}
         <ECard>
-          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><Wallet className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Money</ECardTitle></ECardHeader>
-          <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
-            <p className="text-[hsl(var(--e-muted-foreground))]">Client charge</p>
-            <p className="e-numeral text-[1.25rem] leading-none">{job.fixedPrice != null ? money(job.fixedPrice) : "Rate card"}</p>
-            {job.invoiceNote ? <p className="pt-1 text-[hsl(var(--e-text-faint))]">{job.invoiceNote}</p> : null}
+          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><Wallet className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Money &amp; margin</ECardTitle></ECardHeader>
+          <ECardBody className="space-y-3 pt-0 text-[0.8125rem]">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2.5 py-2">
+                <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Client charge</p>
+                <p className="e-numeral mt-0.5 text-[1.05rem] leading-none">{clientCharge != null ? money(clientCharge) : "Rate card"}</p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2.5 py-2">
+                <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Cleaner pay</p>
+                <p className="e-numeral mt-0.5 text-[1.05rem] leading-none">{payRows.length > 0 ? money(cleanerCost) : "—"}</p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2.5 py-2">
+                <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Margin</p>
+                <p className={`e-numeral mt-0.5 text-[1.05rem] leading-none ${margin != null && margin < 0 ? "text-[hsl(var(--e-danger))]" : ""}`}>
+                  {margin != null ? money(margin) : "—"}
+                  {marginPct != null ? <span className="ml-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{marginPct}%</span> : null}
+                </p>
+              </div>
+            </div>
+            {payRows.length > 0 ? (
+              <ul className="space-y-1 border-t border-[hsl(var(--e-border))] pt-2">
+                {payRows.map((row) => (
+                  <li key={row.id} className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="font-[550]">{row.name}</span>
+                      {row.isPrimary ? <span className="ml-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">(primary)</span> : null}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[hsl(var(--e-muted-foreground))]">
+                      <span className="e-numeral">{money(row.total)}</span>
+                      <EBadge tone={row.custom != null ? "aubergine" : row.estimated ? "warning" : "neutral"} soft>
+                        {row.custom != null
+                          ? "Custom payout"
+                          : row.rate != null && payHours != null
+                            ? `${money(row.rate)}/h × ${payHours}h`
+                            : "Rate pending"}
+                      </EBadge>
+                      {row.transport > 0 ? <EBadge tone="info" soft>+{money(row.transport)} transport</EBadge> : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {anyEstimated ? (
+              <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                Pay shown is an estimate (hours × rate); actuals settle at payroll from clocked time.
+              </p>
+            ) : null}
+            {job.invoiceNote ? <p className="pt-1 text-[hsl(var(--e-text-faint))]">Invoice note: {job.invoiceNote}</p> : null}
           </ECardBody>
         </ECard>
 
@@ -629,6 +743,62 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
       </div>
+
+      {hasLinkedRefs ? (
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+              <Link2 className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Linked records
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="grid gap-4 pt-0 md:grid-cols-2">
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-[0.75rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                <ShieldCheck className="h-3.5 w-3.5" /> Cases
+              </p>
+              {linkedCases.length === 0 ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No linked cases.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {linkedCases.map((c) => (
+                    <li key={c.id} className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
+                      <Link href={`/v2/admin/cases`} className="min-w-0 truncate font-[550] text-[hsl(var(--e-accent-portal))] hover:underline">
+                        {c.title}
+                      </Link>
+                      <EBadge tone="neutral" soft>{titleCase(c.caseType)}</EBadge>
+                      <EBadge tone={c.severity === "CRITICAL" || c.severity === "HIGH" ? "danger" : "warning"} soft>{titleCase(c.severity)}</EBadge>
+                      <EBadge tone={String(c.state) === "RESOLVED" || c.status === "RESOLVED" ? "success" : "info"} soft>{titleCase(String(c.state ?? c.status))}</EBadge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-[0.75rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                <Receipt className="h-3.5 w-3.5" /> Invoice lines
+              </p>
+              {linkedInvoiceLines.length === 0 ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not invoiced yet.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {linkedInvoiceLines.map((line) => (
+                    <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem]">
+                      <span className="min-w-0">
+                        <span className="font-[550]">{line.invoice?.invoiceNumber ?? "Invoice"}</span>
+                        <span className="text-[hsl(var(--e-muted-foreground))]"> · {line.description}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="e-numeral tabular-nums">{money(line.lineTotal)}</span>
+                        {line.invoice?.status ? <EBadge tone="neutral" soft>{titleCase(String(line.invoice.status))}</EBadge> : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       {job.notes ? (
         <ECard>

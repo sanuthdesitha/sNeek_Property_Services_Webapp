@@ -1,6 +1,7 @@
 "use client";
 
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
 import {
   Home,
   CalendarDays,
@@ -39,6 +40,9 @@ const NAV: NavItem[] = [
 export default function V2CleanerLayout({ children }: { children: React.ReactNode }) {
   return (
     <div data-skin="estate" data-portal-accent="cleaner">
+      {/* Background live-location tracker — persists for the whole active-job
+          window regardless of which screen is open. Renders nothing. */}
+      <LocationTracker />
       <PortalShell accent="cleaner" wordmark="sNeek" nav={NAV} roleLabel="Cleaner">
         {children}
       </PortalShell>

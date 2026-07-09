@@ -67,6 +67,9 @@ export type BoardTask = {
   status: LaundryStatus;
   pickupDate: string;
   dropoffDate: string;
+  createdAt?: string | null;
+  confirmedAt?: string | null;
+  updatedAt?: string | null;
   pickedUpAt?: string | null;
   droppedAt?: string | null;
   bagWeightKg?: number | null;
@@ -86,6 +89,7 @@ export type BoardTask = {
     address?: string | null;
     linenBufferSets?: number | null;
     accessInfo?: unknown;
+    client?: { id?: string; name: string | null; email?: string | null } | null;
   } | null;
   confirmations?: Confirmation[];
 };
@@ -180,6 +184,104 @@ function skipReasonLabel(code: string | null | undefined): string {
   if (!code) return "Not set";
   const match = LAUNDRY_SKIP_REASONS.find((r) => r.value === code);
   return match?.label ?? String(code).replace(/_/g, " ");
+}
+
+/** Full chronological activity log — Estate port of the v1 planner's task timeline. */
+function buildTimeline(task: BoardTask): Array<{ at: Date; label: string }> {
+  const events: Array<{ at: Date; label: string }> = [];
+  if (task.createdAt) events.push({ at: new Date(task.createdAt), label: "Task created" });
+  if (task.confirmedAt) events.push({ at: new Date(task.confirmedAt), label: "Laundry confirmed by cleaner" });
+
+  for (const c of Array.isArray(task.confirmations) ? task.confirmations : []) {
+    if (!c?.createdAt) continue;
+    const at = new Date(c.createdAt);
+    const meta = parseNotes(c.notes);
+    if (meta?.event === "PICKED_UP") {
+      events.push({
+        at,
+        label: `Picked up${meta.bagCount ? ` (${meta.bagCount} bag${meta.bagCount > 1 ? "s" : ""})` : ""}`,
+      });
+      continue;
+    }
+    if (meta?.event === "DROPPED") {
+      const early =
+        meta?.actualDroppedAt && meta?.intendedDropoffDate
+          ? startOfDay(new Date(meta.actualDroppedAt)).getTime() < startOfDay(new Date(meta.intendedDropoffDate)).getTime()
+          : false;
+      events.push({
+        at,
+        label: `${early ? "Returned early" : "Returned"}${meta.dropoffLocation ? ` to ${meta.dropoffLocation}` : ""}${
+          typeof meta.totalPrice === "number" ? ` ($${Number(meta.totalPrice).toFixed(2)})` : ""
+        }${typeof meta.loadWeightKg === "number" ? ` (${Number(meta.loadWeightKg).toFixed(1)} kg)` : ""}`,
+      });
+      continue;
+    }
+    if (meta?.event === "EDIT_COMPLETED") {
+      const changed = Array.isArray(meta.changedFields) ? meta.changedFields.length : 0;
+      events.push({ at, label: `Completion details edited${changed > 0 ? ` (${changed} fields)` : ""}` });
+      continue;
+    }
+    if (meta?.event === "REVERT_TO_CONFIRMED") {
+      events.push({ at, label: "Reverted back to Confirmed" });
+      continue;
+    }
+    if (meta?.event === "REVERT_TO_PICKED_UP") {
+      events.push({ at, label: "Reverted back to Picked Up" });
+      continue;
+    }
+    if (meta?.event === "FAILED_PICKUP_RESCHEDULE") {
+      events.push({
+        at,
+        label: `Failed pickup rescheduled${
+          meta.rescheduledPickupDate ? ` to ${format(new Date(meta.rescheduledPickupDate), "dd MMM")}` : ""
+        }${meta.reason ? ` (${meta.reason})` : ""}`,
+      });
+      continue;
+    }
+    if (meta?.event === "FAILED_PICKUP_REQUEST") {
+      events.push({
+        at,
+        label: `Failed pickup approval requested for ${String(meta.requestedAction ?? "SKIP").toLowerCase()}${
+          meta.reason ? ` (${meta.reason})` : ""
+        }`,
+      });
+      continue;
+    }
+    events.push({
+      at,
+      label: c.laundryReady
+        ? `Cleaner marked ready${c.bagLocation ? ` (${c.bagLocation})` : ""}`
+        : "Cleaner marked not ready",
+    });
+  }
+
+  if (task.pickedUpAt) events.push({ at: new Date(task.pickedUpAt), label: "Picked up" });
+  if (task.droppedAt) events.push({ at: new Date(task.droppedAt), label: "Returned" });
+  return events.sort((a, b) => a.at.getTime() - b.at.getTime());
+}
+
+function ActivityTimeline({ events }: { events: Array<{ at: Date; label: string }> }) {
+  if (events.length === 0) return null;
+  return (
+    <details className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2">
+      <summary className="cursor-pointer select-none text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
+        Activity ({events.length})
+      </summary>
+      <ol className="mt-2 space-y-1.5">
+        {events.map((e, i) => (
+          <li key={`${e.at.getTime()}-${i}`} className="flex gap-2 text-[0.75rem]">
+            <span className="mt-[0.3rem] h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--e-border-strong))]" />
+            <span className="text-[hsl(var(--e-muted-foreground))]">
+              <span className="tabular-nums text-[hsl(var(--e-text-faint))]">
+                {format(e.at, "d MMM HH:mm")}
+              </span>{" "}
+              — <span className="text-[hsl(var(--e-foreground))]">{e.label}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 function PhotoStrip({ photos }: { photos: Array<{ id: string; url: string; label: string }> }) {
@@ -610,6 +712,7 @@ export function TrackingBoard() {
   const { tasks, loading, submittingId, load, act } = useLaundryFeed(14);
   const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
   const [scanningQr, setScanningQr] = React.useState(false);
+  const [highlightId, setHighlightId] = React.useState<string | null>(null);
 
   // Live tracking = everything currently moving through the pipeline (exclude
   // no-pickup + already-returned-and-old so the list stays actionable).
@@ -617,6 +720,31 @@ export function TrackingBoard() {
     .filter((t) => !t.noPickupRequired)
     .filter((t) => t.status !== "SKIPPED_PICKUP")
     .sort((a, b) => stageIndex(a.status) - stageIndex(b.status) || +new Date(a.pickupDate) - +new Date(b.pickupDate));
+
+  // Deep-link support: the calendar (and any `…/tracking#task-<id>` link) jumps
+  // to a specific set. Because the feed loads async, native hash-scroll fires
+  // before the cards exist — so we scroll + briefly highlight once data is in,
+  // and again whenever the hash changes while already on this page.
+  const jumpToHash = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    const match = /^#task-(.+)$/.exec(window.location.hash);
+    if (!match) return;
+    const taskId = decodeURIComponent(match[1]);
+    const el = document.getElementById(`task-${taskId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(taskId);
+    window.setTimeout(() => setHighlightId((cur) => (cur === taskId ? null : cur)), 2400);
+  }, []);
+
+  React.useEffect(() => {
+    if (!loading && tasks.length > 0) jumpToHash();
+  }, [loading, tasks, jumpToHash]);
+
+  React.useEffect(() => {
+    window.addEventListener("hashchange", jumpToHash);
+    return () => window.removeEventListener("hashchange", jumpToHash);
+  }, [jumpToHash]);
 
   // Same "Scan bag QR" workflow as the v1 planner: decode a photo of the bag's
   // QR label and jump straight to the task's next action.
@@ -714,29 +842,65 @@ export function TrackingBoard() {
             const earlyReason =
               typeof droppedMeta?.earlyDropoffReason === "string" ? droppedMeta.earlyDropoffReason : "";
             const photos = taskPhotos(t);
+            const overdue =
+              t.status === "PICKED_UP" &&
+              startOfDay(new Date(t.dropoffDate)).getTime() < startOfDay(new Date()).getTime();
+            const timeline = buildTimeline(t);
+            const clientName = t.property?.client?.name ?? null;
+            const supplierName = t.supplier?.name ?? null;
+            const bufferSets = t.property?.linenBufferSets ?? null;
+            const isHighlighted = highlightId === t.id;
             return (
-              <ECard key={t.id}>
+              <ECard
+                key={t.id}
+                id={`task-${t.id}`}
+                variant={isHighlighted ? "ceremony" : "default"}
+                className="scroll-mt-24 transition-shadow duration-300"
+              >
                 <ECardBody className="space-y-4 pt-6">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-[0.9375rem] font-semibold">{propertyLabel(t)}</p>
-                      <p className="mt-0.5 inline-flex items-center gap-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {clientName ? (
+                        <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                          Client · {clientName}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         {t.property?.suburb ? (
                           <span className="inline-flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
                             {t.property.suburb}
                           </span>
                         ) : null}
-                        <span>Pickup {format(new Date(t.pickupDate), "d MMM")}</span>
-                        <span>Return {format(new Date(t.dropoffDate), "d MMM")}</span>
+                        <span>Pickup {format(new Date(t.pickupDate), "d MMM · HH:mm")}</span>
+                        <span>Return {format(new Date(t.dropoffDate), "d MMM · HH:mm")}</span>
                         <span>
                           {bags} bag{bags === 1 ? "" : "s"}
                         </span>
+                        {bufferSets != null ? (
+                          <span>
+                            Buffer {bufferSets} set{bufferSets === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                        {supplierName ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Truck className="h-3 w-3" />
+                            {supplierName}
+                          </span>
+                        ) : null}
                       </p>
                     </div>
-                    <EBadge tone={STATUS_TONE[t.status]} soft>
-                      {STATUS_LABEL[t.status]}
-                    </EBadge>
+                    <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+                      {overdue ? (
+                        <EBadge tone="danger" soft>
+                          Overdue
+                        </EBadge>
+                      ) : null}
+                      <EBadge tone={STATUS_TONE[t.status]} soft>
+                        {STATUS_LABEL[t.status]}
+                      </EBadge>
+                    </div>
                   </div>
 
                   {/* Timeline */}
@@ -811,6 +975,9 @@ export function TrackingBoard() {
 
                   {/* Property access instructions (same data the v1 planner showed) */}
                   <EAccessInfo accessInfo={t.property?.accessInfo} />
+
+                  {/* Full activity timeline (same event log as the v1 planner) */}
+                  <ActivityTimeline events={timeline} />
 
                   {/* Update actions */}
                   <div className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--e-border))] pt-3">
