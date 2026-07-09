@@ -29,6 +29,47 @@ async function checklistForService(serviceType: unknown): Promise<ClientChecklis
   }
 }
 
+/**
+ * Per-quote checklist override from the notes META (set by the admin in the quote
+ * builder). Returns the client-safe trimmed shape, or null when there's no
+ * override → caller falls back to the base service checklist (backward-compatible).
+ */
+function checklistOverrideFromNotes(notes: string | null): ClientChecklist | null {
+  if (!notes) return null;
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return null;
+  try {
+    const meta = JSON.parse(match[1]) as { checklist?: unknown };
+    const ov = meta.checklist as
+      | { summary?: unknown; sections?: unknown; notCovered?: unknown }
+      | undefined;
+    if (!ov || !Array.isArray(ov.sections)) return null;
+    const included: string[] = [];
+    const excludedItems: string[] = [];
+    for (const rawSection of ov.sections) {
+      const s = (rawSection ?? {}) as { items?: unknown };
+      if (!Array.isArray(s.items)) continue;
+      for (const rawItem of s.items) {
+        const it = (rawItem ?? {}) as { label?: unknown; covered?: unknown };
+        const label = typeof it.label === "string" ? it.label.trim() : "";
+        if (!label) continue;
+        (it.covered ? included : excludedItems).push(label);
+      }
+    }
+    const notCovered = Array.isArray(ov.notCovered)
+      ? ov.notCovered.filter((n): n is string => typeof n === "string" && n.trim().length > 0)
+      : [];
+    if (included.length === 0 && excludedItems.length === 0 && notCovered.length === 0) return null;
+    return {
+      summary: typeof ov.summary === "string" && ov.summary.trim() ? ov.summary.trim() : null,
+      included,
+      notIncluded: [...notCovered, ...excludedItems],
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Strip the internal [[META:...]] marker from notes before showing a client. */
 function cleanNotes(notes: string | null): string | null {
   if (!notes) return null;
@@ -89,7 +130,10 @@ export async function GET() {
       quotes: quotes.map((q) => ({
         ...q,
         notes: cleanNotes(q.notes),
-        checklist: checklistByService.get(String(q.serviceType)) ?? null,
+        // Per-quote override wins over the base service checklist (backward-compat:
+        // no override → the base template, exactly as before).
+        checklist:
+          checklistOverrideFromNotes(q.notes) ?? checklistByService.get(String(q.serviceType)) ?? null,
       })),
     });
   } catch (err: any) {

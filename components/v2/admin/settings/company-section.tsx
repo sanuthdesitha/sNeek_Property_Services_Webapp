@@ -16,12 +16,20 @@ export type CompanySettings = {
   companyName: string;
   projectName: string;
   logoUrl: string;
+  logoDarkBgUrl: string;
   reportLogoUrl: string;
   accountsEmail: string;
   timezone: string;
   gstEnabled: boolean;
   quoteDefaultEmailSubject: string;
   quoteDefaultValidityDays: number;
+};
+
+type LogoKind = "logo" | "logoDarkBg" | "reportLogo";
+const LOGO_FIELD: Record<LogoKind, keyof CompanySettings> = {
+  logo: "logoUrl",
+  logoDarkBg: "logoDarkBgUrl",
+  reportLogo: "reportLogoUrl",
 };
 
 /**
@@ -31,9 +39,10 @@ export type CompanySettings = {
 export function CompanySection({ initial, readOnly }: { initial: CompanySettings; readOnly: boolean }) {
   const [form, setForm] = useState<CompanySettings>(initial);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState<"logo" | "reportLogo" | null>(null);
+  const [uploading, setUploading] = useState<LogoKind | null>(null);
   const { status, flash } = useSaveStatus();
   const logoInput = useRef<HTMLInputElement>(null);
+  const logoDarkInput = useRef<HTMLInputElement>(null);
   const reportLogoInput = useRef<HTMLInputElement>(null);
 
   function set<K extends keyof CompanySettings>(key: K, value: CompanySettings[K]) {
@@ -51,6 +60,7 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
           companyName: form.companyName,
           projectName: form.projectName,
           logoUrl: form.logoUrl,
+          logoDarkBgUrl: form.logoDarkBgUrl,
           reportLogoUrl: form.reportLogoUrl,
           accountsEmail: form.accountsEmail,
           timezone: form.timezone,
@@ -72,7 +82,7 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
     }
   }
 
-  async function upload(kind: "logo" | "reportLogo", file: File) {
+  async function upload(kind: LogoKind, file: File) {
     if (readOnly) return;
     setUploading(kind);
     try {
@@ -85,7 +95,7 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
         flash("error", body.error ?? "Logo upload failed.");
         return;
       }
-      set(kind === "logo" ? "logoUrl" : "reportLogoUrl", body.url);
+      set(LOGO_FIELD[kind], body.url as CompanySettings[keyof CompanySettings]);
       flash("saved", "Logo uploaded — remember to save");
     } catch {
       flash("error", "Logo upload failed.");
@@ -94,23 +104,32 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
     }
   }
 
-  function logoTile(kind: "logo" | "reportLogo") {
-    const url = kind === "logo" ? form.logoUrl : form.reportLogoUrl;
-    const ref = kind === "logo" ? logoInput : reportLogoInput;
+  /**
+   * One upload tile per logo. The preview sits on the background the logo is
+   * actually used against (white for light-bg, charcoal for dark-bg) so you can
+   * see exactly how it will render on documents and emails.
+   */
+  function logoTile(kind: LogoKind) {
+    const url = String(form[LOGO_FIELD[kind]] ?? "");
+    const ref = kind === "logo" ? logoInput : kind === "logoDarkBg" ? logoDarkInput : reportLogoInput;
+    const previewBg = kind === "logoDarkBg" ? "#23211c" : "#ffffff";
     return (
       <div className="flex items-center gap-4">
-        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))]">
+        <div
+          className="flex h-20 w-28 flex-shrink-0 items-center justify-center overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
+          style={{ background: previewBg }}
+        >
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="" className="max-h-full max-w-full object-contain" />
+            <img src={url} alt="" className="max-h-[68px] max-w-[100px] object-contain" />
           ) : (
-            <span className="text-[0.625rem] uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">None</span>
+            <span className="text-[0.625rem] uppercase tracking-[0.14em]" style={{ color: kind === "logoDarkBg" ? "#8a8579" : "hsl(var(--e-text-faint))" }}>None</span>
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
           <EInput
             value={url}
-            onChange={(e) => set(kind === "logo" ? "logoUrl" : "reportLogoUrl", e.target.value)}
+            onChange={(e) => set(LOGO_FIELD[kind], e.target.value as CompanySettings[keyof CompanySettings])}
             placeholder="https://…"
             disabled={readOnly}
           />
@@ -184,14 +203,35 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
       </ECard>
 
       <ECard className="p-6">
+        <div className="mb-4">
+          <p className="text-[0.9375rem] font-[550]">Logos</p>
+          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Upload once here — every quote, invoice, checklist, report and email uses these marks. Provide a
+            version for each background; the right one is picked automatically.
+          </p>
+        </div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <EField label="Primary logo" hint="Shown across the portals and public site.">
+          <EField
+            label="Logo — for light backgrounds"
+            hint="Your coloured/dark artwork. Used on quotes, invoices, checklists, reports and email headers (all white/ivory)."
+          >
             {logoTile("logo")}
           </EField>
-          <EField label="Report logo" hint="Optional light variant used on PDF reports and invoices; falls back to the primary logo.">
-            {logoTile("reportLogo")}
+          <EField
+            label="Logo — for dark backgrounds"
+            hint="A white / inverse version, shown on any dark surface. Falls back to the light-background logo if left empty."
+          >
+            {logoTile("logoDarkBg")}
           </EField>
         </div>
+        <details className="mt-4 text-[0.8125rem]">
+          <summary className="cursor-pointer text-[hsl(var(--e-muted-foreground))]">Advanced: separate report/invoice logo</summary>
+          <div className="mt-3 max-w-md">
+            <EField label="Report logo (optional)" hint="Overrides the light-background logo on PDF reports and cleaner invoices only. Leave empty to use the light-background logo.">
+              {logoTile("reportLogo")}
+            </EField>
+          </div>
+        </details>
       </ECard>
 
       <ECard className="p-6">
