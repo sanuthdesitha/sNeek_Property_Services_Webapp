@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { enqueuePing, drainQueue, clearQueue } from "./queue";
 
 const FLUSH_INTERVAL_MS = 30_000;
+// Re-emit the last known fix on this cadence even when the device hasn't moved.
+// watchPosition only fires on movement, so a cleaner standing still on-site
+// would otherwise stop producing pings and the admin map would show them as
+// stale mid-job. The heartbeat keeps the server's "last seen" fresh.
+const HEARTBEAT_INTERVAL_MS = 45_000;
 
 export type GpsPermission = "prompt" | "granted" | "denied";
 
@@ -31,11 +36,61 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
   const [lastFix, setLastFix] = useState<GpsLastFix | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const firstFixLoggedRef = useRef(false);
+  // Last raw coordinates + when we last enqueued anything — shared with the
+  // heartbeat so it can re-emit a stationary position and avoid double-emitting
+  // right after a real fix.
+  const lastCoordsRef = useRef<{ lat: number; lng: number; accuracy: number | null } | null>(null);
+  const lastEnqueueAtRef = useRef(0);
 
   useEffect(() => {
     if (!enabled || typeof navigator === "undefined" || !navigator.geolocation) {
       return;
     }
+
+    const recordFix = async (
+      coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null },
+    ) => {
+      lastCoordsRef.current = { lat: coords.lat, lng: coords.lng, accuracy: coords.accuracy };
+      lastEnqueueAtRef.current = Date.now();
+      try {
+        await enqueuePing({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          jobId,
+          lat: coords.lat,
+          lng: coords.lng,
+          accuracy: coords.accuracy ?? undefined,
+          heading: coords.heading ?? undefined,
+          speed: coords.speed ?? undefined,
+          timestamp: new Date().toISOString(),
+        });
+      } catch {
+        // IndexedDB unavailable / quota exceeded — best-effort.
+      }
+    };
+
+    // Seed an immediate one-shot fix so the cleaner appears on the map fast,
+    // without waiting for watchPosition's first movement-triggered callback.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setPermission("granted");
+        const fix: GpsLastFix = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? null,
+          timestamp: new Date().toISOString(),
+        };
+        setLastFix(fix);
+        void recordFix({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? null,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+    );
 
     const id = navigator.geolocation.watchPosition(
       async (pos) => {
@@ -56,20 +111,13 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
             `[gps] first fix accuracy=${Math.round(fix.accuracy ?? -1)}m lat=${fix.lat.toFixed(5)} lng=${fix.lng.toFixed(5)}`,
           );
         }
-        try {
-          await enqueuePing({
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            jobId,
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-            heading: pos.coords.heading ?? undefined,
-            speed: pos.coords.speed ?? undefined,
-            timestamp: fix.timestamp,
-          });
-        } catch {
-          // IndexedDB unavailable / quota exceeded — best-effort.
-        }
+        await recordFix({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? null,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+        });
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) setPermission("denied");
@@ -131,6 +179,33 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
       }
     };
   }, [enabled]);
+
+  // Heartbeat: while enabled, re-emit the last known coordinates if the watch
+  // hasn't produced anything recently (stationary cleaner). This keeps the
+  // admin live map "fresh" for the whole active-job window even when the phone
+  // isn't moving. It piggybacks on the same IndexedDB queue + flusher.
+  useEffect(() => {
+    if (!enabled) return;
+    const beat = setInterval(async () => {
+      const coords = lastCoordsRef.current;
+      if (!coords) return;
+      if (Date.now() - lastEnqueueAtRef.current < HEARTBEAT_INTERVAL_MS) return;
+      lastEnqueueAtRef.current = Date.now();
+      try {
+        await enqueuePing({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          jobId,
+          lat: coords.lat,
+          lng: coords.lng,
+          accuracy: coords.accuracy ?? undefined,
+          timestamp: new Date().toISOString(),
+        });
+      } catch {
+        // best-effort
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(beat);
+  }, [enabled, jobId]);
 
   return { permission, lastFix };
 }

@@ -17,8 +17,19 @@ import {
   EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard,
 } from "@/components/v2/ui/primitives";
 import {
-  ETableShell, EModal, EConfirmModal, EInput, ETextarea, EField,
+  ETableShell, EModal, EConfirmModal, EInput, ETextarea, EField, ESelect,
 } from "@/components/v2/admin/estate-kit";
+
+const CLEANER_PAY_METHODS = [
+  { value: "BANK_TRANSFER", label: "Bank transfer" },
+  { value: "CARD", label: "Card" },
+  { value: "CASH", label: "Cash" },
+  { value: "XERO", label: "Xero" },
+  { value: "OTHER", label: "Other" },
+];
+const CLEANER_PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
+  CLEANER_PAY_METHODS.map((m) => [m.value, m.label]),
+);
 
 type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; jobNumber?: string };
 type Submission = {
@@ -38,6 +49,8 @@ type Submission = {
   paidAmount: number | null;
   paidBankAccount: string | null;
   paidNote: string | null;
+  paymentMethod: string | null;
+  paidDate: string | null;
   paidAt: string | null;
 };
 
@@ -92,11 +105,15 @@ export function CleanerInvoicesWorkspace() {
   const [payAmount, setPayAmount] = useState("");
   const [payBank, setPayBank] = useState("");
   const [payNote, setPayNote] = useState("");
+  const [payMethod, setPayMethod] = useState("BANK_TRANSFER");
+  const [payDate, setPayDate] = useState("");
 
   function openPay(row: Submission) {
     setPayAmount(String(Number(row.totalAmount ?? 0).toFixed(2)));
     setPayBank(bankFromLineData(row.lineData));
     setPayNote("");
+    setPayMethod("BANK_TRANSFER");
+    setPayDate(format(new Date(), "yyyy-MM-dd"));
     setPayFor(row);
   }
 
@@ -118,6 +135,8 @@ export function CleanerInvoicesWorkspace() {
           paidAmount: payAmount.trim() ? amount : undefined,
           paidBankAccount: payBank.trim() || undefined,
           paidNote: payNote.trim() || undefined,
+          paymentMethod: payMethod,
+          paidDate: payDate ? `${payDate}T00:00:00.000Z` : undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -135,12 +154,14 @@ export function CleanerInvoicesWorkspace() {
                 paidAmount,
                 paidBankAccount: payBank.trim() || null,
                 paidNote: payNote.trim() || null,
+                paymentMethod: payMethod,
+                paidDate: payDate ? `${payDate}T00:00:00.000Z` : new Date().toISOString(),
                 paidAt: new Date().toISOString(),
               }
             : r
         )
       );
-      toast({ title: "Marked paid", description: `${money(paidAmount)}${payBank.trim() ? ` → ${payBank.trim()}` : ""}` });
+      toast({ title: "Marked paid", description: `${money(paidAmount)} · ${CLEANER_PAY_METHOD_LABEL[payMethod] ?? payMethod}${payBank.trim() ? ` → ${payBank.trim()}` : ""}` });
       setPayFor(null);
     } finally {
       setBusyId(null);
@@ -359,8 +380,10 @@ export function CleanerInvoicesWorkspace() {
                 <p className="mb-1 font-medium text-[hsl(var(--e-success))]">Payment recorded</p>
                 <div className="flex flex-wrap gap-4">
                   <span><span className="text-[hsl(var(--e-muted-foreground))]">Amount paid:</span> <span className="e-serif">{money(detail.paidAmount ?? detail.totalAmount)}</span></span>
+                  {detail.paymentMethod ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Method:</span> {CLEANER_PAY_METHOD_LABEL[detail.paymentMethod] ?? detail.paymentMethod}</span> : null}
                   {detail.paidBankAccount ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Bank account:</span> {detail.paidBankAccount}</span> : null}
-                  {detail.paidAt ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Paid on:</span> {fmt(detail.paidAt)}</span> : null}
+                  {detail.paidDate ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Paid on:</span> {fmt(detail.paidDate)}</span> : null}
+                  {detail.paidAt ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Recorded:</span> {fmt(detail.paidAt)}</span> : null}
                 </div>
                 {detail.paidNote ? <p className="mt-1.5 text-[hsl(var(--e-muted-foreground))]"><span className="text-[hsl(var(--e-foreground))]">Comments:</span> {detail.paidNote}</p> : null}
               </div>
@@ -432,6 +455,20 @@ export function CleanerInvoicesWorkspace() {
                 />
               </div>
             </EField>
+            <div className="grid grid-cols-2 gap-3">
+              <EField label="Payment method">
+                <ESelect value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                  {CLEANER_PAY_METHODS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </ESelect>
+              </EField>
+              <EField label="Paid date">
+                <EInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+              </EField>
+            </div>
             <EField label="Bank account paid to" hint="Which account the money was sent to (prefilled from the cleaner's details when available).">
               <EInput
                 value={payBank}

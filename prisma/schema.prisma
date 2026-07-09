@@ -251,6 +251,7 @@ enum ClientInvoiceStatus {
   DRAFT
   APPROVED
   SENT
+  PART_PAID
   PAID
   VOID
 }
@@ -2168,6 +2169,15 @@ model ClientInvoice {
   xeroInvoiceId         String?
   sentAt                DateTime?
   paidAt                DateTime?
+  // Manual payment-recording procedure (admin marks a client invoice paid).
+  // paidAmount is the cumulative amount received; supports partial payments
+  // (status PART_PAID until paidAmount >= totalAmount). paidDate is the date the
+  // money was actually received; paidAt stays the system record timestamp. A
+  // full per-payment ledger is appended to metadata.payments[].
+  paidAmount            Float?
+  paymentMethod         String?
+  paymentReference      String?
+  paidDate              DateTime?
   stripePaymentIntentId String?
   metadata              Json?
   createdAt             DateTime            @default(now())
@@ -2200,6 +2210,8 @@ model CleanerInvoiceSubmission {
   paidAmount      Float? // amount actually paid (defaults to totalAmount)
   paidBankAccount String? // which bank account it was paid to
   paidNote        String?   @db.Text // optional comments about the payment
+  paymentMethod   String? // how it was paid: BANK_TRANSFER | CARD | CASH | XERO | OTHER
+  paidDate        DateTime? // date the money was actually sent (vs paidAt = record timestamp)
   paidAt          DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

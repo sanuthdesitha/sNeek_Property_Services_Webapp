@@ -4,6 +4,7 @@ import { toZonedTime } from "date-fns-tz";
 import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
+import { getAdminAttentionSummary } from "@/lib/dashboard/immediate-attention";
 import {
   EBadge,
   EButton,
@@ -19,9 +20,14 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
+  CheckCircle2,
   ClipboardCheck,
   MapPin,
-  Users,
+  MapPinned,
+  Navigation,
+  Radio,
+  Shirt,
+  Star,
   Wallet,
 } from "lucide-react";
 
@@ -69,10 +75,27 @@ function money(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-AU");
 }
 
-async function getTodayDispatch() {
+const ACTIVE_JOB_STATUSES: JobStatus[] = [
+  JobStatus.UNASSIGNED,
+  JobStatus.OFFERED,
+  JobStatus.ASSIGNED,
+  JobStatus.EN_ROUTE,
+  JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
+  JobStatus.SUBMITTED,
+  JobStatus.QA_REVIEW,
+];
+
+function sydToday() {
   const nowSyd = toZonedTime(new Date(), TZ);
   const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
   const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  return { todayStart, todayEnd };
+}
+
+async function getTodayDispatch() {
+  const { todayStart, todayEnd } = sydToday();
   return db.job
     .findMany({
       where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
@@ -90,10 +113,78 @@ async function getTodayDispatch() {
     .catch(() => []);
 }
 
+/** Cleaners on the move right this second — drives the "Live now" strip. */
+async function getLiveNow() {
+  const [enRouteJobs, onSiteJobs, runningTimers] = await Promise.all([
+    db.job.count({ where: { status: JobStatus.EN_ROUTE } }).catch(() => 0),
+    db.job.count({ where: { status: { in: [JobStatus.IN_PROGRESS, JobStatus.PAUSED] } } }).catch(() => 0),
+    db.timeLog.count({ where: { stoppedAt: null } }).catch(() => 0),
+  ]);
+  return { enRouteJobs, onSiteJobs, runningTimers };
+}
+
+async function getTodayStatusCounts() {
+  const { todayStart, todayEnd } = sydToday();
+  try {
+    const grouped = await db.job.groupBy({
+      by: ["status"],
+      where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
+      _count: { _all: true },
+    });
+    const map = new Map<JobStatus, number>();
+    for (const row of grouped) map.set(row.status, row._count._all);
+    return map;
+  } catch {
+    return new Map<JobStatus, number>();
+  }
+}
+
+async function getLaundryDueToday() {
+  const { todayStart, todayEnd } = sydToday();
+  return db.laundryTask
+    .count({
+      where: {
+        OR: [
+          { pickupDate: { gte: todayStart, lt: todayEnd } },
+          { dropoffDate: { gte: todayStart, lt: todayEnd } },
+        ],
+      },
+    })
+    .catch(() => 0);
+}
+
+async function getUpcomingJobs() {
+  const { todayEnd } = sydToday();
+  const weekEnd = new Date(todayEnd.getTime() + 6 * 86_400_000);
+  return db.job
+    .findMany({
+      where: {
+        scheduledDate: { gte: todayEnd, lt: weekEnd },
+        status: { in: ACTIVE_JOB_STATUSES },
+      },
+      orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+      take: 6,
+      select: {
+        id: true,
+        jobType: true,
+        status: true,
+        startTime: true,
+        scheduledDate: true,
+        property: { select: { name: true, suburb: true } },
+      },
+    })
+    .catch(() => []);
+}
+
 export default async function AdminCommandPage() {
-  const [metrics, dispatch] = await Promise.all([
+  const [metrics, dispatch, attention, liveNow, statusCounts, laundryDue, upcoming] = await Promise.all([
     getDashboardMetrics().catch(() => null),
     getTodayDispatch(),
+    getAdminAttentionSummary().catch(() => null),
+    getLiveNow(),
+    getTodayStatusCounts(),
+    getLaundryDueToday(),
+    getUpcomingJobs(),
   ]);
 
   const nowSyd = toZonedTime(new Date(), TZ);
@@ -103,10 +194,22 @@ export default async function AdminCommandPage() {
   const unassigned = dispatch.filter((j) => j.status === JobStatus.UNASSIGNED).length;
   const revenue = metrics?.today.revenueAud ?? 0;
   const qaPending = metrics?.qaPending ?? 0;
-  const enRoute = metrics?.enRouteCount ?? 0;
-  const activeCleaners = metrics?.tomorrow.total ?? 0;
+  const invoicesOutstanding = metrics?.invoices.outstandingCount ?? 0;
+  const cleanersLiveNow = liveNow.enRouteJobs + liveNow.onSiteJobs;
 
-  // Build the "needs attention" list from live signals, best-effort.
+  // Today jobs-by-status breakdown for the command summary strip.
+  const statusBreakdown: { status: JobStatus; label: string }[] = [
+    { status: JobStatus.UNASSIGNED, label: "Unassigned" },
+    { status: JobStatus.ASSIGNED, label: "Assigned" },
+    { status: JobStatus.EN_ROUTE, label: "En route" },
+    { status: JobStatus.IN_PROGRESS, label: "In progress" },
+    { status: JobStatus.SUBMITTED, label: "Submitted" },
+    { status: JobStatus.QA_REVIEW, label: "QA review" },
+    { status: JobStatus.COMPLETED, label: "Completed" },
+  ];
+
+  // "Needs attention" — richer, sourced from the shared admin attention summary
+  // so the count matches the rest of the app.
   const attentionItems: { tone: Tone; label: string; text: string; href: string }[] = [];
   if (unassigned > 0) {
     attentionItems.push({
@@ -116,7 +219,38 @@ export default async function AdminCommandPage() {
       href: "/v2/admin/jobs",
     });
   }
-  const invoicesOutstanding = metrics?.invoices.outstandingCount ?? 0;
+  if (attention?.overdueCases) {
+    attentionItems.push({
+      tone: "danger",
+      label: "Cases",
+      text: `${attention.overdueCases} overdue case${attention.overdueCases === 1 ? "" : "s"} past SLA`,
+      href: "/v2/admin/cases",
+    });
+  }
+  if (attention?.pendingContinuations) {
+    attentionItems.push({
+      tone: "warning",
+      label: "Approvals",
+      text: `${attention.pendingContinuations} pause/continue request${attention.pendingContinuations === 1 ? "" : "s"} waiting`,
+      href: "/v2/admin/ops",
+    });
+  }
+  if (attention?.pendingClientApprovals) {
+    attentionItems.push({
+      tone: "warning",
+      label: "Client",
+      text: `${attention.pendingClientApprovals} client approval${attention.pendingClientApprovals === 1 ? "" : "s"} outstanding`,
+      href: "/v2/admin/approvals",
+    });
+  }
+  if (attention?.pendingPayRequests) {
+    attentionItems.push({
+      tone: "info",
+      label: "Pay",
+      text: `${attention.pendingPayRequests} cleaner pay request${attention.pendingPayRequests === 1 ? "" : "s"} pending`,
+      href: "/v2/admin/pay-adjustments",
+    });
+  }
   if (invoicesOutstanding > 0) {
     attentionItems.push({
       tone: "warning",
@@ -133,6 +267,14 @@ export default async function AdminCommandPage() {
       href: "/v2/admin/quality",
     });
   }
+  if (attention?.flaggedLaundry) {
+    attentionItems.push({
+      tone: "warning",
+      label: "Laundry",
+      text: `${attention.flaggedLaundry} flagged laundry task${attention.flaggedLaundry === 1 ? "" : "s"}`,
+      href: "/v2/admin/laundry",
+    });
+  }
   if (metrics?.lowStockCount) {
     attentionItems.push({
       tone: "warning",
@@ -141,7 +283,8 @@ export default async function AdminCommandPage() {
       href: "/v2/admin/system",
     });
   }
-  const attentionTotal = attentionItems.length;
+  const attentionTotal = attention?.attentionCount ?? attentionItems.length;
+  const recentFeedback = metrics?.recentFeedback ?? [];
 
   return (
     <div className="space-y-8">
@@ -181,12 +324,67 @@ export default async function AdminCommandPage() {
           icon={<ClipboardCheck className="h-4 w-4" />}
         />
         <EStatCard
-          label="On the move"
-          value={String(enRoute)}
-          delta={`${activeCleaners} cleaners active`}
+          label="Live now"
+          value={String(cleanersLiveNow)}
+          delta={`${liveNow.enRouteJobs} en route · ${liveNow.onSiteJobs} on site`}
           deltaTone="neutral"
-          icon={<Users className="h-4 w-4" />}
+          icon={<Radio className="h-4 w-4" />}
         />
+      </section>
+
+      {/* Live-now band + today status breakdown */}
+      <section className="grid gap-4 lg:grid-cols-3">
+        <ECard className="lg:col-span-1">
+          <ECardHeader className="flex-row items-center justify-between">
+            <ECardTitle className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> On shift now
+            </ECardTitle>
+            <EButton asChild variant="outline" size="sm">
+              <Link href="/v2/admin/ops/map"><MapPinned className="h-3.5 w-3.5" /> Live map</Link>
+            </EButton>
+          </ECardHeader>
+          <ECardBody className="grid grid-cols-3 gap-2 pt-0">
+            {[
+              { label: "En route", value: liveNow.enRouteJobs, icon: <Navigation className="h-3.5 w-3.5" /> },
+              { label: "On site", value: liveNow.onSiteJobs, icon: <MapPin className="h-3.5 w-3.5" /> },
+              { label: "Clocked in", value: liveNow.runningTimers, icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
+            ].map((s) => (
+              <div key={s.label} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-center">
+                <div className="mb-1 flex justify-center text-[hsl(var(--e-accent-portal))]">{s.icon}</div>
+                <p className="e-numeral text-[1.375rem] leading-none">{s.value}</p>
+                <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{s.label}</p>
+              </div>
+            ))}
+          </ECardBody>
+        </ECard>
+
+        <ECard className="lg:col-span-2">
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Today by status
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <div className="flex flex-wrap gap-2">
+              {statusBreakdown.map((s) => {
+                const count = statusCounts.get(s.status) ?? 0;
+                return (
+                  <div
+                    key={s.status}
+                    className={`flex items-center gap-2 rounded-[var(--e-radius-pill)] border px-3 py-1.5 text-[0.8125rem] ${
+                      count > 0
+                        ? "border-[hsl(var(--e-border-strong))]"
+                        : "border-[hsl(var(--e-border))] text-[hsl(var(--e-text-faint))]"
+                    }`}
+                  >
+                    <EBadge tone={statusTone(s.status)} soft>{count}</EBadge>
+                    {s.label}
+                  </div>
+                );
+              })}
+            </div>
+          </ECardBody>
+        </ECard>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -227,7 +425,7 @@ export default async function AdminCommandPage() {
             <ECardHeader className="flex-row items-center justify-between">
               <ECardTitle>Today&apos;s dispatch</ECardTitle>
               <div className="flex gap-2">
-                <EButton variant="outline" size="sm"><MapPin className="h-3.5 w-3.5" /> Map</EButton>
+                <EButton asChild variant="outline" size="sm"><Link href="/v2/admin/ops/map"><MapPin className="h-3.5 w-3.5" /> Map</Link></EButton>
                 <EButton asChild variant="primary" size="sm"><Link href="/v2/admin/jobs">Open board</Link></EButton>
               </div>
             </ECardHeader>
@@ -265,6 +463,113 @@ export default async function AdminCommandPage() {
             </ECardBody>
           </ECard>
         </section>
+      </div>
+
+      {/* Money · Laundry · Upcoming · Recent activity */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Money snapshot */}
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Money snapshot
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-3 pt-0">
+            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Revenue today</span>
+              <span className="e-numeral text-[1.125rem]">{money(revenue)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Completed today</span>
+              <span className="e-numeral text-[1.125rem]">{metrics?.today.completed ?? 0}</span>
+            </div>
+            <Link
+              href="/v2/admin/finance"
+              className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 transition-colors hover:bg-[hsl(var(--e-muted))]"
+            >
+              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Invoices outstanding</span>
+              <span className="flex items-center gap-2">
+                <span className="e-numeral text-[1.125rem]">{money(metrics?.invoices.outstandingAud ?? 0)}</span>
+                {invoicesOutstanding > 0 ? <EBadge tone="warning" soft>{invoicesOutstanding}</EBadge> : null}
+              </span>
+            </Link>
+            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+              <span className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                <Shirt className="h-3.5 w-3.5" /> Laundry due today
+              </span>
+              <span className="e-numeral text-[1.125rem]">{laundryDue}</span>
+            </div>
+          </ECardBody>
+        </ECard>
+
+        {/* Upcoming (next 6 days) */}
+        <ECard>
+          <ECardHeader className="flex-row items-center justify-between">
+            <ECardTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Upcoming
+            </ECardTitle>
+            <EBadge tone="neutral" soft>{metrics?.tomorrow.scheduled ?? 0} cleaners tmrw</EBadge>
+          </ECardHeader>
+          <ECardBody className="space-y-2 pt-0">
+            {upcoming.length === 0 ? (
+              <EEmptyState eyebrow="Clear" title="Nothing scheduled ahead" description="No upcoming jobs in the next six days." />
+            ) : (
+              upcoming.map((job) => (
+                <Link
+                  key={job.id}
+                  href={`/v2/admin/jobs/${job.id}`}
+                  className="flex items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 transition-colors hover:bg-[hsl(var(--e-muted))]"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[0.8125rem] font-[550]">{job.property?.name ?? "Property"}</p>
+                    <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {format(new Date(job.scheduledDate), "EEE d MMM")}
+                      {job.startTime ? ` · ${job.startTime}` : ""} · {titleCase(job.jobType)}
+                    </p>
+                  </div>
+                  <EBadge tone={statusTone(job.status)} soft>{titleCase(job.status)}</EBadge>
+                </Link>
+              ))
+            )}
+          </ECardBody>
+        </ECard>
+
+        {/* Recent activity — latest client feedback */}
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <Star className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Recent feedback
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-2 pt-0">
+            {recentFeedback.length === 0 ? (
+              <EEmptyState eyebrow="Quiet" title="No recent feedback" description="No client ratings in the last week." />
+            ) : (
+              recentFeedback.map((fb) => (
+                <div key={fb.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-[0.8125rem] font-[550]">{fb.client?.name ?? "Client"}</p>
+                    <span className="flex items-center gap-0.5 text-[hsl(var(--e-gold-ink))]">
+                      {fb.rating != null ? (
+                        <>
+                          <Star className="h-3.5 w-3.5 fill-current" />
+                          <span className="e-tnum text-[0.8125rem]">{fb.rating.toFixed(1)}</span>
+                        </>
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                    </span>
+                  </div>
+                  {fb.comment ? (
+                    <p className="mt-1 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      &ldquo;{fb.comment}&rdquo;
+                    </p>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </ECardBody>
+        </ECard>
       </div>
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">

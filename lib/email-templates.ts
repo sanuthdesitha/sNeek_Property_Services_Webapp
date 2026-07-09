@@ -829,15 +829,13 @@ export function sanitizeEmailTemplates(input: unknown, fallback: AppEmailTemplat
 export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }, innerHtml: string, actionLink?: { url: string; label: string } | null) {
   const companyName = escapeHtml(settings.companyName);
 
-  // Logo-on-dark fix: the header band is ivory (light), and the logo always
-  // sits inside a white, rounded, padded "chip" so it stays visible regardless
-  // of the source artwork (transparent / dark / light) or the client's
-  // rendering. Falls back to a monogram chip when no logo is configured.
+  // Clean, box-free mark on the ivory header band — a premium letterhead look
+  // that matches every PDF document. Falls back to a spaced wordmark.
   const logoInner = settings.logoUrl
-    ? `<img src="${escapeAttribute(settings.logoUrl)}" alt="${companyName}" style="max-height:46px;max-width:170px;display:block;height:auto;width:auto;" />`
-    : `<div style="font-family:${SERIF_STACK};font-size:22px;font-weight:600;letter-spacing:0.04em;color:${BRAND.teal};">${companyName.slice(0, 2).toUpperCase()}</div>`;
+    ? `<img src="${escapeAttribute(settings.logoUrl)}" alt="${companyName}" style="max-height:52px;max-width:200px;display:block;height:auto;width:auto;object-fit:contain;border:0;" />`
+    : `<div style="font-family:${SERIF_STACK};font-size:20px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.charcoal};">${companyName}</div>`;
 
-  const logoChip = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="background:#ffffff;border:1px solid ${BRAND.line};border-radius:14px;padding:14px 22px;box-shadow:0 2px 10px rgba(35,33,28,0.06);">${logoInner}</td></tr></table>`;
+  const logoChip = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="padding:2px 0;">${logoInner}</td></tr></table>`;
 
   const actionButtonHtml = actionLink
     ? `

@@ -13,11 +13,21 @@ const lineUpdateSchema = z.object({
   unitPrice: z.number().min(0).optional(),
 });
 
+const recordPaymentSchema = z.object({
+  amount: z.number().positive(),
+  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "OTHER"]),
+  paidDate: z.string().optional().nullable(),
+  reference: z.string().trim().max(500).optional().nullable(),
+});
+
 const patchSchema = z.object({
   status: z.nativeEnum(ClientInvoiceStatus).optional(),
   dueDate: z.string().optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   gstEnabled: z.boolean().optional(),
+  // Proper payment-recording procedure — amount received + method + date +
+  // reference. Supports partial payments (status PART_PAID until fully settled).
+  recordPayment: recordPaymentSchema.optional(),
   updateLines: z.array(lineUpdateSchema).optional(),
   addLine: z.object({
     description: z.string().trim().min(1),
@@ -51,7 +61,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
 
     const existing = await db.clientInvoice.findUnique({
@@ -128,34 +138,101 @@ export async function PATCH(
     const statusData: Record<string, unknown> = {};
     if (body.status === ClientInvoiceStatus.PAID && existing.status !== ClientInvoiceStatus.PAID) {
       statusData.paidAt = new Date();
+      // Direct status→PAID (legacy one-click flip): record the full amount as
+      // settled so the paid figure is never left blank.
+      if (existing.paidAmount == null) statusData.paidAmount = existing.totalAmount;
     }
     if (body.status === ClientInvoiceStatus.SENT && existing.status !== ClientInvoiceStatus.SENT) {
       statusData.sentAt = new Date();
     }
 
-    // Merge dueDate + notes into ONE metadata object. Previously each was its
-    // own `metadata: {...existing, X}` spread, so a PATCH sending both fields
-    // had the second spread overwrite the first (dropping dueDate or notes).
-    const metadataChanged = body.dueDate !== undefined || body.notes !== undefined;
+    // ── Payment-recording procedure ──────────────────────────────────────
+    // Reuses ClientInvoice columns + a metadata.payments[] ledger. (ClientPayment
+    // is gateway-bound — requires a PaymentGateway row — so it can't represent a
+    // manually recorded bank/cash/card payment.) Supports partial payments:
+    // paidAmount accumulates and the status stays PART_PAID until it reaches the
+    // total, then flips to PAID.
+    let paymentUpdate: Record<string, unknown> = {};
+    let paymentStatus: ClientInvoiceStatus | undefined;
+    let paymentLedger: Array<Record<string, unknown>> | undefined;
+    if (body.recordPayment) {
+      const rp = body.recordPayment;
+      const prevPaid = Number(existing.paidAmount ?? 0);
+      const newPaid = Number((prevPaid + rp.amount).toFixed(2));
+      const fullySettled = newPaid + 0.005 >= Number(existing.totalAmount ?? 0);
+      paymentStatus = fullySettled ? ClientInvoiceStatus.PAID : ClientInvoiceStatus.PART_PAID;
+      const paidDate = rp.paidDate ? new Date(rp.paidDate) : new Date();
+      const priorLedger = Array.isArray((existing.metadata as any)?.payments)
+        ? ((existing.metadata as any).payments as Array<Record<string, unknown>>)
+        : [];
+      paymentLedger = [
+        ...priorLedger,
+        {
+          amount: rp.amount,
+          method: rp.method,
+          reference: rp.reference?.trim() || null,
+          paidDate: paidDate.toISOString(),
+          recordedAt: new Date().toISOString(),
+          recordedById: session.user.id,
+          recordedByName: session.user.name || session.user.email || "Admin",
+        },
+      ];
+      paymentUpdate = {
+        paidAmount: newPaid,
+        paymentMethod: rp.method,
+        paymentReference: rp.reference?.trim() || null,
+        paidDate,
+        ...(fullySettled ? { paidAt: existing.paidAt ?? new Date() } : {}),
+      };
+    }
+
+    // Merge dueDate + notes + payment ledger into ONE metadata object. Previously
+    // each was its own `metadata: {...existing, X}` spread, so a PATCH sending
+    // both fields had the second spread overwrite the first (dropping data).
+    const metadataChanged =
+      body.dueDate !== undefined || body.notes !== undefined || paymentLedger !== undefined;
     const mergedMetadata = metadataChanged
       ? {
           ...((existing.metadata as object) ?? {}),
           ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
           ...(body.notes !== undefined ? { notes: body.notes } : {}),
+          ...(paymentLedger !== undefined ? { payments: paymentLedger } : {}),
         }
       : undefined;
 
+    const effectiveStatus = paymentStatus ?? body.status;
     const updated = await db.clientInvoice.update({
       where: { id: params.id },
       data: {
-        ...(body.status ? { status: body.status, ...statusData } : {}),
-        ...(mergedMetadata !== undefined ? { metadata: mergedMetadata } : {}),
+        ...(effectiveStatus ? { status: effectiveStatus } : {}),
+        ...(body.status ? statusData : {}),
+        ...paymentUpdate,
+        ...(mergedMetadata !== undefined ? { metadata: mergedMetadata as any } : {}),
         ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
         subtotal,
         gstAmount,
         totalAmount,
       },
     });
+
+    if (body.recordPayment) {
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "CLIENT_INVOICE_PAYMENT_RECORD",
+          entity: "ClientInvoice",
+          entityId: params.id,
+          after: {
+            amount: body.recordPayment.amount,
+            method: body.recordPayment.method,
+            reference: body.recordPayment.reference ?? null,
+            paidAmount: (paymentUpdate as any).paidAmount,
+            status: updated.status,
+          } as any,
+        },
+      });
+    }
+
     return NextResponse.json(updated);
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not update invoice." }, { status: 400 });

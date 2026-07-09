@@ -4,6 +4,30 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { getChecklist } from "@/lib/checklists/store";
+
+type ClientChecklist = { summary: string | null; included: string[]; notIncluded: string[] };
+
+/** Best-effort trimmed checklist for a service type — client-safe (no admin call). */
+async function checklistForService(serviceType: unknown): Promise<ClientChecklist | null> {
+  try {
+    const checklist = await getChecklist(String(serviceType));
+    if (!checklist) return null;
+    const included = checklist.sections.flatMap((s) =>
+      s.items.filter((i) => i.covered).map((i) => i.label),
+    );
+    const excludedItems = checklist.sections.flatMap((s) =>
+      s.items.filter((i) => !i.covered).map((i) => i.label),
+    );
+    return {
+      summary: checklist.summary?.trim() || null,
+      included,
+      notIncluded: [...(checklist.notCovered ?? []), ...excludedItems],
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** Strip the internal [[META:...]] marker from notes before showing a client. */
 function cleanNotes(notes: string | null): string | null {
@@ -52,8 +76,21 @@ export async function GET() {
         .catch(() => undefined);
     }
 
+    // Attach the matching service checklist per quote (best-effort, non-fatal).
+    const checklistByService = new Map<string, ClientChecklist | null>();
+    for (const q of quotes) {
+      const key = String(q.serviceType);
+      if (!checklistByService.has(key)) {
+        checklistByService.set(key, await checklistForService(q.serviceType));
+      }
+    }
+
     return NextResponse.json({
-      quotes: quotes.map((q) => ({ ...q, notes: cleanNotes(q.notes) })),
+      quotes: quotes.map((q) => ({
+        ...q,
+        notes: cleanNotes(q.notes),
+        checklist: checklistByService.get(String(q.serviceType)) ?? null,
+      })),
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

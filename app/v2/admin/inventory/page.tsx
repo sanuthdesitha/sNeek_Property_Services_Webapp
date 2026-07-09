@@ -21,13 +21,13 @@ import { EstateSuppliers } from "@/components/v2/admin/inventory/estate-supplier
 import { EstateOnHand } from "@/components/v2/admin/inventory/estate-on-hand";
 import { EstateStockRuns } from "@/components/v2/admin/inventory/estate-stock-runs";
 import { EstateShoppingRuns } from "@/components/v2/admin/inventory/estate-shopping-runs";
+import { EstatePropertyMatrix } from "@/components/v2/admin/inventory/estate-property-matrix";
 import {
-  EstatePropertyMatrix,
   STALE_RESTOCK_DAYS,
   normalizePropertyInventoryFilter,
   type EstatePropertyInventoryRow,
   type EstatePropertyInventoryTotals,
-} from "@/components/v2/admin/inventory/estate-property-matrix";
+} from "@/components/v2/admin/inventory/property-matrix-shared";
 
 export const metadata = { title: "Inventory · Estate admin" };
 export const dynamic = "force-dynamic";

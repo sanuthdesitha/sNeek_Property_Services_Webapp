@@ -4,13 +4,21 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
-const patchSchema = z.object({
-  status: z.enum(["SUBMITTED", "XERO_PUSHED", "PAID", "VOID"]),
-  // Payment settlement — supplied when status === "PAID".
-  paidAmount: z.number().nonnegative().optional(),
-  paidBankAccount: z.string().trim().max(200).optional(),
-  paidNote: z.string().trim().max(2000).optional(),
-});
+const patchSchema = z
+  .object({
+    status: z.enum(["SUBMITTED", "XERO_PUSHED", "PAID", "VOID"]),
+    // Payment settlement — supplied when status === "PAID".
+    paidAmount: z.number().nonnegative().optional(),
+    paidBankAccount: z.string().trim().max(200).optional(),
+    paidNote: z.string().trim().max(2000).optional(),
+    paymentMethod: z.enum(["BANK_TRANSFER", "CARD", "CASH", "XERO", "OTHER"]).optional(),
+    paidDate: z.string().optional(),
+  })
+  // A proper procedure requires HOW it was paid when marking it paid.
+  .refine((v) => v.status !== "PAID" || Boolean(v.paymentMethod), {
+    message: "A payment method is required when marking an invoice paid.",
+    path: ["paymentMethod"],
+  });
 
 /** Update a cleaner invoice submission's status (e.g. mark it paid). */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -24,6 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       paidAmount: number | null;
       paidBankAccount: string | null;
       paidNote: string | null;
+      paymentMethod: string | null;
+      paidDate: Date | null;
     };
     if (body.status === "PAID") {
       const existing = await db.cleanerInvoiceSubmission.findUnique({
@@ -35,9 +45,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         paidAmount: body.paidAmount ?? existing?.totalAmount ?? 0,
         paidBankAccount: body.paidBankAccount || null,
         paidNote: body.paidNote || null,
+        paymentMethod: body.paymentMethod || null,
+        paidDate: body.paidDate ? new Date(body.paidDate) : new Date(),
       };
     } else {
-      paymentData = { paidAt: null, paidAmount: null, paidBankAccount: null, paidNote: null };
+      paymentData = {
+        paidAt: null,
+        paidAmount: null,
+        paidBankAccount: null,
+        paidNote: null,
+        paymentMethod: null,
+        paidDate: null,
+      };
     }
 
     const updated = await db.cleanerInvoiceSubmission.update({

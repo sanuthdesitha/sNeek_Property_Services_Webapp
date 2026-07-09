@@ -3,7 +3,7 @@ import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/compon
 import {
   Activity, Boxes, Building2, CalendarRange, ChevronRight, ClipboardCheck, ClipboardList,
   Cog, FileText, Inbox, Map, ShieldCheck, Sparkles, Users, Wallet,
-  Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase, ReceiptText,
+  Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase, ReceiptText, UsersRound,
 } from "lucide-react";
 
 export const metadata = { title: "System · Estate admin" };
@@ -24,6 +24,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
     items: [
       { label: "Accounts", desc: "Staff & client overview", icon: Users, href: "/v2/admin/accounts" },
       { label: "Cleaners", desc: "Roster, rates, active jobs, owed", icon: Sparkles, href: "/v2/admin/cleaners" },
+      { label: "Workforce", desc: "Roster health, compliance & recognition", icon: UsersRound, href: "/v2/admin/workforce" },
       { label: "Properties", desc: "Portfolio & job history", icon: Building2, href: "/v2/admin/properties" },
       { label: "Property onboarding", desc: "Surveys, status & new contracts", icon: ClipboardList, href: "/v2/admin/onboarding" },
       { label: "Users & roles", desc: "Staff accounts and permissions", icon: Users, href: "/v2/admin/users" },

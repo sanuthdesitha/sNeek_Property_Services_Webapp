@@ -78,7 +78,7 @@ export function buildChecklistHtml(
   <head><meta charset="utf-8" /><title>${esc(companyName)} — ${esc(serviceLabel)} checklist</title></head>
   <body style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:820px;margin:0 auto;padding:32px;">
     <div style="display:flex;align-items:center;gap:12px;border-bottom:2px solid #e5e7eb;padding-bottom:14px;">
-      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(companyName)}" style="height:46px;object-fit:contain;background:#fff;" />` : ""}
+      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(companyName)}" style="display:block;height:52px;width:auto;max-width:210px;object-fit:contain;border:0;" />` : ""}
       <div>
         <p style="margin:0;font-size:18px;font-weight:700;">${esc(companyName)}</p>
         <p style="margin:2px 0 0 0;color:#6b7280;font-size:13px;">Service checklist</p>

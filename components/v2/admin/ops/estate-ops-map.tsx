@@ -34,10 +34,14 @@ export type OpsMapProperty = {
 type RawPing = {
   userId: string;
   user?: { name?: string | null } | null;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   accuracy?: number | null;
-  timestamp: string;
+  timestamp: string | null;
+  lastPingAt?: string | null;
+  positionSource?: "gps" | "property" | "none";
+  stale?: boolean;
+  pingAgeMinutes?: number | null;
   liveStatus?: "EN_ROUTE" | "ON_SITE" | "IDLE";
   activeJob?: {
     id: string;
@@ -58,9 +62,16 @@ const STALE_TIERS = [
   { maxSeconds: Infinity, color: "#b4472e", label: "Stale (10 min +)" },
 ] as const;
 
-function staleTier(timestamp: string) {
-  const s = (Date.now() - new Date(timestamp).getTime()) / 1000;
+function staleTier(timestamp: string | null | undefined) {
+  if (!timestamp) return STALE_TIERS[STALE_TIERS.length - 1];
+  const ms = new Date(timestamp).getTime();
+  if (!Number.isFinite(ms)) return STALE_TIERS[STALE_TIERS.length - 1];
+  const s = (Date.now() - ms) / 1000;
   return STALE_TIERS.find((t) => s < t.maxSeconds) ?? STALE_TIERS[STALE_TIERS.length - 1];
+}
+
+function hasPosition(ping: RawPing): boolean {
+  return typeof ping.lat === "number" && typeof ping.lng === "number";
 }
 
 function escapeHtml(value: string): string {
@@ -111,8 +122,11 @@ function formatEta(etaMinutes: number | null): string | null {
   return `ETA ${Math.round(etaMinutes)} min · ~${time}`;
 }
 
-function relativePing(iso: string): string {
-  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+function relativePing(iso: string | null | undefined): string {
+  if (!iso) return "no GPS fix yet";
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "no GPS fix yet";
+  const seconds = Math.floor((Date.now() - ms) / 1000);
   if (seconds < 60) return `${Math.max(0, seconds)}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -168,9 +182,15 @@ function cleanerInfoHtml(ping: RawPing): string {
   if (!ping.activeJob && !ping.timer) {
     rows.push(`<div style="font:400 12px system-ui;color:#8a7f70;margin-top:4px">No active job or running timer.</div>`);
   }
-  rows.push(
-    `<div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">Last ping ${escapeHtml(relativePing(ping.timestamp))}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}</div>`,
-  );
+  if (ping.positionSource === "property") {
+    rows.push(
+      `<div style="font:500 11px system-ui;color:#b4472e;margin-top:4px">No GPS yet — shown at job address</div>`,
+    );
+  } else {
+    rows.push(
+      `<div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">Last ping ${escapeHtml(relativePing(ping.timestamp))}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}${ping.stale ? " · stale" : ""}</div>`,
+    );
+  }
   return `<div style="max-width:240px">${rows.join("")}</div>`;
 }
 
@@ -306,6 +326,9 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
             lng: incoming.lng,
             accuracy: incoming.accuracy ?? next[idx].accuracy,
             timestamp: incoming.timestamp,
+            lastPingAt: incoming.timestamp,
+            positionSource: "gps",
+            stale: false,
           };
           return next;
         });
@@ -326,8 +349,20 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
 
     const seen = new Set<string>();
     for (const ping of pings) {
+      // A cleaner with an active job but no GPS + no geocoded property has no
+      // plottable position — they still show in the side panel, just not as a
+      // pin. Skip marker creation and clean up any stale marker for them.
+      if (!hasPosition(ping)) {
+        const orphan = cleanerMarkersRef.current.get(ping.userId);
+        if (orphan) {
+          orphan.info.close();
+          orphan.marker.setMap(null);
+          cleanerMarkersRef.current.delete(ping.userId);
+        }
+        continue;
+      }
       seen.add(ping.userId);
-      const pos = { lat: ping.lat, lng: ping.lng };
+      const pos = { lat: ping.lat as number, lng: ping.lng as number };
       const icon = {
         path: google.maps.SymbolPath.CIRCLE,
         scale: 8,
@@ -377,13 +412,31 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
       }
     });
 
-    if (!fittedRef.current && pings.length > 0) {
+    if (!fittedRef.current && pings.some(hasPosition)) {
       const bounds = new google.maps.LatLngBounds();
-      for (const ping of pings) bounds.extend({ lat: ping.lat, lng: ping.lng });
+      for (const ping of pings) {
+        if (hasPosition(ping)) bounds.extend({ lat: ping.lat as number, lng: ping.lng as number });
+      }
       map.fitBounds(bounds, 56);
       fittedRef.current = true;
     }
   }, [mapReady, pings]);
+
+  // Manual "fit all live cleaners" recenter — handy after panning/zooming away.
+  const fitAll = useCallback(() => {
+    const map = mapRef.current;
+    const google = (window as any).google;
+    if (!map || !google?.maps) return;
+    const bounds = new google.maps.LatLngBounds();
+    let any = false;
+    for (const ping of pings) {
+      if (hasPosition(ping)) {
+        bounds.extend({ lat: ping.lat as number, lng: ping.lng as number });
+        any = true;
+      }
+    }
+    if (any) map.fitBounds(bounds, 56);
+  }, [pings]);
 
   // ── Panel row → pan/zoom to that cleaner + open their info window ──────
   const focusCleaner = useCallback((userId: string) => {
@@ -430,6 +483,16 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
                 ? ` · updated ${lastUpdated.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`
                 : ""}
             </div>
+          ) : null}
+          {mapReady && pings.some(hasPosition) ? (
+            <button
+              type="button"
+              onClick={fitAll}
+              className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.92)] px-3 py-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)] backdrop-blur transition-colors hover:bg-[hsl(var(--e-muted))]"
+              title="Fit all live cleaners in view"
+            >
+              <Crosshair className="h-3.5 w-3.5" aria-hidden /> Fit all
+            </button>
           ) : null}
         </div>
 
@@ -498,10 +561,17 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
                           {formatElapsed(elapsedFromStart(ping.timer.startedAt, ping.timer.elapsedMinutes))}
                         </p>
                       ) : null}
-                      <p className="e-tnum mt-0.5 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                        Last ping {relativePing(ping.timestamp)}
-                        {ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}
-                      </p>
+                      {ping.positionSource === "property" ? (
+                        <p className="e-tnum mt-0.5 text-[0.6875rem] font-[550] text-[hsl(var(--e-danger))]">
+                          No GPS yet · shown at job address
+                        </p>
+                      ) : (
+                        <p className="e-tnum mt-0.5 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                          Last ping {relativePing(ping.timestamp)}
+                          {ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}
+                          {ping.stale ? " · stale" : ""}
+                        </p>
+                      )}
                     </button>
                   );
                 })}

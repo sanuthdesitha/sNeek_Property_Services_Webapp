@@ -12,10 +12,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { JobType } from "@prisma/client";
-import { Eye, Loader2, Plus, Send, Sparkles, Trash2 } from "lucide-react";
+import { Check, Eye, Loader2, ListChecks, Plus, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
-import { EXTRAS_CATALOG, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
+import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
+import type { ServiceChecklist } from "@/lib/checklists/types";
 import {
   EButton,
   ECard,
@@ -27,6 +28,7 @@ import {
 import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admin/estate-kit";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
+type CustomExtra = { id: string; label: string; price: number; instructions: string };
 interface Option {
   id: string;
   name: string;
@@ -74,25 +76,129 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
 
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+  const [customExtras, setCustomExtras] = useState<CustomExtra[]>([]);
+  const [customLabel, setCustomLabel] = useState("");
+  const [customPrice, setCustomPrice] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
   const [pricing, setPricing] = useState(false);
   const [notes, setNotes] = useState("");
+  const [notesTouched, setNotesTouched] = useState(false);
   const [validUntilDate, setValidUntilDate] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // "What's included" checklist for the selected service (display-only preview).
+  const [checklist, setChecklist] = useState<ServiceChecklist | null>(null);
+  const [checklistLoading, setChecklistLoading] = useState(false);
 
   const service = useMemo(
     () => services.find((s) => s.jobType === serviceType) ?? services[0],
     [services, serviceType],
   );
 
-  const extraLines = useMemo<LineItem[]>(
-    () =>
-      selectedExtras
+  const serviceLabel = service?.label ?? String(serviceType).replace(/_/g, " ");
+
+  // Selected extras resolved to a common shape — catalog picks + custom special
+  // requests. Custom ids (e.g. "custom:deep-fridge") are NOT in EXTRAS_BY_ID, so
+  // they are carried through their own store rather than being dropped.
+  const selectedExtraDetails = useMemo(
+    () => [
+      ...selectedExtras
         .map((id) => EXTRAS_BY_ID[id])
         .filter(Boolean)
-        .map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
-    [selectedExtras],
+        .map((e) => ({ id: e.id, label: e.label, price: e.price, instructions: e.instructions })),
+      ...customExtras.map((c) => ({ id: c.id, label: c.label, price: c.price, instructions: c.instructions })),
+    ],
+    [selectedExtras, customExtras],
+  );
+
+  const extraLines = useMemo<LineItem[]>(
+    () => selectedExtraDetails.map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
+    [selectedExtraDetails],
   );
   const allLines = useMemo(() => [...lineItems, ...extraLines], [lineItems, extraLines]);
+
+  // Included / not-included preview derived from the fetched checklist.
+  const includedItems = useMemo(
+    () =>
+      checklist
+        ? checklist.sections.flatMap((s) => s.items.filter((i) => i.covered).map((i) => i.label))
+        : [],
+    [checklist],
+  );
+  const notIncludedItems = useMemo(() => {
+    if (!checklist) return [];
+    const excludedItems = checklist.sections.flatMap((s) =>
+      s.items.filter((i) => !i.covered).map((i) => i.label),
+    );
+    return [...(checklist.notCovered ?? []), ...excludedItems];
+  }, [checklist]);
+
+  // Fetch the checklist whenever the service changes (admin-gated endpoint).
+  useEffect(() => {
+    let cancelled = false;
+    setChecklistLoading(true);
+    setChecklist(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/checklists?jobType=${encodeURIComponent(serviceType)}`, {
+          cache: "no-store",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setChecklist((body?.checklist as ServiceChecklist | null) ?? null);
+      } catch {
+        // preview is non-essential — never block the builder
+      } finally {
+        if (!cancelled) setChecklistLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceType]);
+
+  // Human-readable, client-facing notes auto-drafted from the service + checklist
+  // summary + selected extras. Prose only — the [[META]] block is appended
+  // separately in buildPayload() and is never part of this text.
+  function buildAutoNotes() {
+    const sentences: string[] = [];
+    if (checklist?.summary?.trim()) {
+      sentences.push(checklist.summary.trim().replace(/\s+$/, ""));
+    }
+    sentences.push(
+      `${serviceLabel} for your property. This quote includes the standard ${serviceLabel.toLowerCase()} checklist (see the attached "What's included" list).`,
+    );
+    const extraLabels = selectedExtraDetails.map((e) => e.label);
+    if (extraLabels.length > 0) {
+      sentences.push(`Added on this quote: ${extraLabels.join(", ")}.`);
+    }
+    if (validUntilDate) {
+      sentences.push(`This quote is valid until ${validUntilDate}.`);
+    }
+    return sentences.join(" ");
+  }
+
+  // Keep notes in sync with the auto-draft until the admin edits them by hand.
+  useEffect(() => {
+    if (notesTouched) return;
+    setNotes(buildAutoNotes());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceType, serviceLabel, selectedExtraDetails, checklist, validUntilDate, notesTouched]);
+
+  function addCustomRequest() {
+    const label = customLabel.trim();
+    if (!label) {
+      toast({ title: "Add a label", description: "Describe the special request first.", variant: "destructive" });
+      return;
+    }
+    const slug =
+      label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ||
+      Math.random().toString(36).slice(2, 8);
+    const id = `custom:${slug}-${Date.now().toString(36)}`;
+    setCustomExtras((prev) => [...prev, { id, label, price: Number(customPrice) || 0, instructions: customInstructions.trim() }]);
+    setCustomLabel("");
+    setCustomPrice("");
+    setCustomInstructions("");
+  }
 
   const { subtotal, gstAmount, totalAmount } = useMemo(() => {
     const sum = allLines.reduce((acc, li) => acc + (Number(li.total) || 0), 0);
@@ -187,10 +293,11 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     } else if (m === "AREA") {
       base.sqm = Number(sqm) || 0;
     }
-    base.extras = selectedExtras
-      .map((id) => EXTRAS_BY_ID[id])
-      .filter(Boolean)
-      .map((e) => ({ id: e.id, label: e.label, instructions: e.instructions }));
+    base.extras = selectedExtraDetails.map((e) => ({
+      id: e.id,
+      label: e.label,
+      instructions: e.instructions,
+    }));
     return base;
   }
 
@@ -488,7 +595,7 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
         </ECardBody>
       </ECard>
 
-      {/* Extras / add-ons */}
+      {/* Extras / add-ons — grouped by category */}
       <ECard>
         <ECardHeader>
           <ECardTitle>Extras / add-ons</ECardTitle>
@@ -497,33 +604,184 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
             extra work was quoted.
           </p>
         </ECardHeader>
-        <ECardBody className="pt-0">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {EXTRAS_CATALOG.map((e) => {
-              const checked = selectedExtras.includes(e.id);
-              return (
-                <label
-                  key={e.id}
-                  className="flex cursor-pointer items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-2.5 text-[0.8125rem] transition-colors hover:border-[hsl(var(--e-border-strong))]"
-                >
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-[hsl(var(--e-primary))]"
-                      checked={checked}
-                      onChange={(ev) =>
-                        setSelectedExtras((prev) =>
-                          ev.target.checked ? [...prev, e.id] : prev.filter((id) => id !== e.id),
-                        )
-                      }
-                    />
-                    {e.label}
-                  </span>
-                  <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
-                </label>
-              );
-            })}
+        <ECardBody className="space-y-5 pt-0">
+          {EXTRAS_BY_CATEGORY.map((group) => (
+            <div key={group.id} className="space-y-2">
+              <EEyebrow>{group.label}</EEyebrow>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {group.options.map((e) => {
+                  const checked = selectedExtras.includes(e.id);
+                  return (
+                    <label
+                      key={e.id}
+                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-[var(--e-radius)] border p-2.5 text-[0.8125rem] transition-colors ${
+                        checked
+                          ? "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-gold-soft))]"
+                          : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+                          checked={checked}
+                          onChange={(ev) =>
+                            setSelectedExtras((prev) =>
+                              ev.target.checked ? [...prev, e.id] : prev.filter((id) => id !== e.id),
+                            )
+                          }
+                        />
+                        {e.label}
+                      </span>
+                      <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Custom "special request" line */}
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <EEyebrow>Special request</EEyebrow>
+            <div className="grid gap-2 sm:grid-cols-[1fr_7rem_auto]">
+              <EInput
+                value={customLabel}
+                placeholder="e.g. Deep-clean garden shed"
+                onChange={(e) => setCustomLabel(e.target.value)}
+              />
+              <EInput
+                type="number"
+                step="0.01"
+                min="0"
+                value={customPrice}
+                placeholder="Price"
+                onChange={(e) => setCustomPrice(e.target.value)}
+              />
+              <EButton type="button" variant="outline" onClick={addCustomRequest}>
+                <Plus className="h-4 w-4" /> Add request
+              </EButton>
+            </div>
+            <EInput
+              value={customInstructions}
+              placeholder="Instructions for the cleaner (optional)"
+              onChange={(e) => setCustomInstructions(e.target.value)}
+            />
+            {customExtras.length > 0 ? (
+              <div className="space-y-1.5 pt-1">
+                {customExtras.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2.5 py-2 text-[0.8125rem]"
+                  >
+                    <span className="min-w-0 truncate">
+                      {c.label}
+                      {c.instructions ? (
+                        <span className="text-[hsl(var(--e-muted-foreground))]"> — {c.instructions}</span>
+                      ) : null}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">{money(c.price)}</span>
+                      <EButton
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => setCustomExtras((prev) => prev.filter((x) => x.id !== c.id))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
+                      </EButton>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
+        </ECardBody>
+      </ECard>
+
+      {/* What's included — checklist preview for the selected service */}
+      <ECard>
+        <ECardHeader>
+          <ECardTitle className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
+            What&apos;s included
+          </ECardTitle>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            This checklist is emailed with the quote so the client can see exactly what&apos;s covered and request
+            add-ons.
+          </p>
+        </ECardHeader>
+        <ECardBody className="space-y-4 pt-0">
+          {checklistLoading ? (
+            <div className="flex items-center gap-2 py-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading the {serviceLabel.toLowerCase()} checklist…
+            </div>
+          ) : !checklist ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              No checklist is configured for this service yet.
+            </p>
+          ) : (
+            <>
+              {checklist.summary ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{checklist.summary}</p>
+              ) : null}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <EEyebrow>Included</EEyebrow>
+                  {includedItems.length === 0 ? (
+                    <p className="mt-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No items listed.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {includedItems.map((label, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[0.8125rem]">
+                          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-success))]" />
+                          <span>{label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <EEyebrow>Not included</EEyebrow>
+                  {notIncludedItems.length === 0 ? (
+                    <p className="mt-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                      Nothing specifically excluded.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {notIncludedItems.map((label, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
+                        >
+                          <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-danger))]" />
+                          <span>{label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {selectedExtraDetails.length > 0 ? (
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
+              <EEyebrow>Added on this quote</EEyebrow>
+              <ul className="mt-2 space-y-1.5">
+                {selectedExtraDetails.map((e) => (
+                  <li key={e.id} className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                    <span className="flex items-start gap-2">
+                      <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
+                      <span>{e.label}</span>
+                    </span>
+                    <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">{money(e.price)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </ECardBody>
       </ECard>
 
@@ -620,10 +878,29 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
               <EInput type="date" value={validUntilDate} onChange={(e) => setValidUntilDate(e.target.value)} />
             </EField>
           </div>
-          <EField label="Notes (optional)">
+          <EField
+            label={
+              <span className="flex items-center justify-between gap-2">
+                <span>Notes (auto-drafted — editable)</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotesTouched(false);
+                    setNotes(buildAutoNotes());
+                  }}
+                  className="inline-flex items-center gap-1 text-[0.6875rem] font-medium normal-case tracking-normal text-[hsl(var(--e-gold-ink))] hover:underline"
+                >
+                  <RotateCcw className="h-3 w-3" /> Regenerate
+                </button>
+              </span>
+            }
+          >
             <ETextarea
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                setNotesTouched(true);
+                setNotes(e.target.value);
+              }}
               placeholder="Scope, inclusions, exclusions…"
             />
           </EField>

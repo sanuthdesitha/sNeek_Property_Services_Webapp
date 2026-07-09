@@ -15,37 +15,24 @@ import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowRight, Boxes, Building2, ShoppingCart } from "lucide-react";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import { EChipTabs, ETableShell } from "@/components/v2/admin/estate-kit";
+import {
+  STALE_RESTOCK_DAYS,
+  normalizePropertyInventoryFilter,
+  type EstatePropertyInventoryRow,
+  type EstatePropertyInventoryTotals,
+  type PropertyInventoryFilter,
+} from "@/components/v2/admin/inventory/property-matrix-shared";
 
-export type PropertyInventoryFilter = "all" | "low" | "pending" | "stale";
-
-export type EstatePropertyInventoryRow = {
-  id: string;
-  name: string;
-  address: string;
-  suburb: string;
-  inventoryEnabled: boolean;
-  client: { name: string };
-  trackedItems: number;
-  lowStockItems: Array<{ id: string; name: string; onHand: number; reorderThreshold: number }>;
-  pendingShoppingRuns: number;
-  pendingShoppingRunsList: Array<{ id: string; title: string; status: string }>;
-  openStockRuns: number;
-  lastRestockAt: Date | string | null;
+// Re-export the server-safe contract so existing consumers that reach for these
+// through the matrix module keep working (the runtime values themselves are
+// defined in the non-client shared module — see its header for why).
+export {
+  STALE_RESTOCK_DAYS,
+  normalizePropertyInventoryFilter,
+  type EstatePropertyInventoryRow,
+  type EstatePropertyInventoryTotals,
+  type PropertyInventoryFilter,
 };
-
-export type EstatePropertyInventoryTotals = {
-  properties: number;
-  lowStock: number;
-  pendingShopping: number;
-  stale: number;
-};
-
-export const STALE_RESTOCK_DAYS = 30;
-
-export function normalizePropertyInventoryFilter(value: string | undefined): PropertyInventoryFilter {
-  if (value === "low" || value === "pending" || value === "stale") return value;
-  return "all";
-}
 
 function toDate(v: Date | string | null): Date | null {
   if (!v) return null;

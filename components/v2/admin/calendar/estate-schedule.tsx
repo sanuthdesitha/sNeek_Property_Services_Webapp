@@ -10,8 +10,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, RefreshCw, Shirt, User2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Shirt, User2, UserPlus } from "lucide-react";
 import { EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
+import {
+  AssignCleanersModal,
+  type AssignCleaner,
+} from "@/components/v2/admin/jobs/assign-cleaners-modal";
 
 const SYDNEY_TZ = "Australia/Sydney";
 
@@ -38,10 +42,14 @@ type JobEntry = {
   status: string;
   day: string; // yyyy-MM-dd
   startTime?: string | null;
+  scheduledDate: string;
   propertyName: string;
   suburb: string;
+  jobType: string;
   jobTypeLabel: string;
   cleanerName?: string;
+  assignedIds: string[];
+  primaryId: string | null;
 };
 
 type LaundryEntry = {
@@ -91,9 +99,12 @@ export function EstateSchedule() {
   const [jobs, setJobs] = useState<JobEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [showLaundry, setShowLaundry] = useState(false);
   const [laundry, setLaundry] = useState<LaundryEntry[]>([]);
   const [laundryLoadedKey, setLaundryLoadedKey] = useState("");
+  const [cleaners, setCleaners] = useState<AssignCleaner[]>([]);
+  const [assignJob, setAssignJob] = useState<JobEntry | null>(null);
 
   function loadJobs() {
     setLoading(true);
@@ -105,16 +116,26 @@ export function EstateSchedule() {
           return;
         }
         setJobs(
-          data.map((job) => ({
-            id: job.id,
-            status: String(job.status ?? ""),
-            day: isoDay(job.scheduledDate),
-            startTime: job.startTime ?? null,
-            propertyName: job.property?.name ?? "Property",
-            suburb: job.property?.suburb ?? "",
-            jobTypeLabel: String(job.jobType ?? "").replace(/_/g, " "),
-            cleanerName: cleanerLabel(job),
-          }))
+          data.map((job) => {
+            const assignments = Array.isArray(job?.assignments) ? job.assignments : [];
+            return {
+              id: job.id,
+              status: String(job.status ?? ""),
+              day: isoDay(job.scheduledDate),
+              startTime: job.startTime ?? null,
+              scheduledDate: String(job.scheduledDate ?? ""),
+              propertyName: job.property?.name ?? "Property",
+              suburb: job.property?.suburb ?? "",
+              jobType: String(job.jobType ?? ""),
+              jobTypeLabel: String(job.jobType ?? "").replace(/_/g, " "),
+              cleanerName: cleanerLabel(job),
+              assignedIds: assignments.map((a: any) => String(a?.user?.id ?? a?.userId ?? "")).filter(Boolean),
+              primaryId:
+                assignments.find((a: any) => a?.isPrimary)?.user?.id ??
+                assignments.find((a: any) => a?.isPrimary)?.userId ??
+                null,
+            };
+          })
         );
       })
       .finally(() => setLoading(false));
@@ -122,6 +143,25 @@ export function EstateSchedule() {
 
   useEffect(() => {
     loadJobs();
+  }, []);
+
+  /* Active cleaner accounts for the assign popover. */
+  useEffect(() => {
+    fetch("/api/admin/users?role=CLEANER")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        const next: AssignCleaner[] = Array.isArray(rows)
+          ? rows
+              .map((row: any) => ({
+                id: String(row.id ?? ""),
+                name: String(row.name ?? row.email ?? "").trim(),
+                email: String(row.email ?? "").trim(),
+              }))
+              .filter((row: AssignCleaner) => row.id)
+          : [];
+        setCleaners(next);
+      })
+      .catch(() => setCleaners([]));
   }, []);
 
   /* Laundry overlay — same /api/admin/laundry/calendar source as v1. */
@@ -161,9 +201,16 @@ export function EstateSchedule() {
     }, {});
   }, [jobs]);
 
+  const unassignedCount = useMemo(() => jobs.filter((job) => job.assignedIds.length === 0).length, [jobs]);
+
   const visibleJobs = useMemo(
-    () => (statusFilter === "ALL" ? jobs : jobs.filter((job) => job.status === statusFilter)),
-    [jobs, statusFilter]
+    () =>
+      jobs.filter(
+        (job) =>
+          (statusFilter === "ALL" || job.status === statusFilter) &&
+          (!unassignedOnly || job.assignedIds.length === 0)
+      ),
+    [jobs, statusFilter, unassignedOnly]
   );
 
   const jobsByDay = useMemo(() => {
@@ -264,6 +311,19 @@ export function EstateSchedule() {
               </button>
             ) : null
           )}
+          <span className="mx-1 hidden h-4 w-px bg-[hsl(var(--e-border))] sm:block" aria-hidden />
+          <button
+            type="button"
+            onClick={() => setUnassignedOnly((current) => !current)}
+            className={`inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] border px-2.5 py-1 text-[0.6875rem] font-[550] transition-colors ${
+              unassignedOnly
+                ? "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] text-[hsl(var(--e-warning))]"
+                : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+            }`}
+          >
+            <UserPlus className="h-3 w-3" aria-hidden />
+            Unassigned ({unassignedCount})
+          </button>
           <span className="mx-1 hidden h-4 w-px bg-[hsl(var(--e-border))] sm:block" aria-hidden />
           <button
             type="button"
@@ -378,18 +438,39 @@ export function EstateSchedule() {
                     </p>
                     {dayJobs.slice(0, 3).map((job) => {
                       const meta = STATUS_META[job.status] ?? FALLBACK_META;
+                      const unassigned = job.assignedIds.length === 0;
                       return (
-                        <Link
+                        <div
                           key={job.id}
-                          href={`/v2/admin/jobs/${job.id}`}
-                          className={chipCls}
+                          className="flex items-center gap-0.5 rounded-[var(--e-radius-sm)] border transition-colors hover:bg-[hsl(var(--e-muted))]"
                           style={{ borderColor: `color-mix(in srgb, ${meta.color} 45%, transparent)`, backgroundColor: `color-mix(in srgb, ${meta.color} 10%, transparent)` }}
-                          title={`${job.propertyName} · ${job.jobTypeLabel} · ${meta.label}${job.cleanerName ? ` · ${job.cleanerName}` : " · Unassigned"}`}
                         >
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
-                          {job.startTime ? <span className="e-tnum shrink-0 text-[hsl(var(--e-text-faint))]">{job.startTime}</span> : null}
-                          <span className="min-w-0 truncate font-[550]">{job.propertyName}</span>
-                        </Link>
+                          <Link
+                            href={`/v2/admin/jobs/${job.id}`}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 text-left text-[0.6875rem] leading-tight"
+                            title={`${job.propertyName} · ${job.jobTypeLabel} · ${meta.label}${job.cleanerName ? ` · ${job.cleanerName}` : " · Unassigned"}`}
+                          >
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
+                            {job.startTime ? <span className="e-tnum shrink-0 text-[hsl(var(--e-text-faint))]">{job.startTime}</span> : null}
+                            <span className="min-w-0 truncate font-[550]">{job.propertyName}</span>
+                            {job.cleanerName ? (
+                              <span className="min-w-0 shrink truncate text-[hsl(var(--e-text-faint))]">· {job.cleanerName}</span>
+                            ) : null}
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setAssignJob(job)}
+                            aria-label={unassigned ? "Assign cleaner" : "Reassign cleaner"}
+                            title={unassigned ? "Assign cleaner" : "Reassign cleaner"}
+                            className={`mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--e-radius-xs)] transition-colors ${
+                              unassigned
+                                ? "text-[hsl(var(--e-warning))] hover:bg-[hsl(var(--e-warning-soft))]"
+                                : "text-[hsl(var(--e-text-faint))] hover:bg-[hsl(var(--e-muted))] hover:text-[hsl(var(--e-foreground))]"
+                            }`}
+                          >
+                            <UserPlus className="h-3 w-3" aria-hidden />
+                          </button>
+                        </div>
                       );
                     })}
                     {overflow > 0 ? (
@@ -447,34 +528,44 @@ export function EstateSchedule() {
                   </div>
                   {dayJobs.map((job) => {
                     const meta = STATUS_META[job.status] ?? FALLBACK_META;
+                    const unassigned = job.assignedIds.length === 0;
                     return (
-                      <Link
+                      <div
                         key={job.id}
-                        href={`/v2/admin/jobs/${job.id}`}
                         className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[hsl(var(--e-muted))]"
                       >
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
-                        <span className="e-tnum w-14 shrink-0 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                          {job.startTime || "—"}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[0.8125rem] font-[550]">{job.propertyName}</span>
-                          <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            {job.jobTypeLabel}
-                            {job.suburb ? ` · ${job.suburb}` : ""}
+                        <Link href={`/v2/admin/jobs/${job.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
+                          <span className="e-tnum w-14 shrink-0 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                            {job.startTime || "—"}
                           </span>
-                        </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[0.8125rem] font-[550]">{job.propertyName}</span>
+                            <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                              {job.jobTypeLabel}
+                              {job.suburb ? ` · ${job.suburb}` : ""}
+                            </span>
+                          </span>
+                        </Link>
                         <span className="flex shrink-0 items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
                           <User2 className="h-3 w-3 text-[hsl(var(--e-text-faint))]" aria-hidden />
                           {job.cleanerName ?? <span className="text-[hsl(var(--e-warning))]">Unassigned</span>}
                         </span>
                         <span
-                          className="shrink-0 rounded-[var(--e-radius-pill)] px-2 py-0.5 text-[0.6875rem] font-[550]"
+                          className="hidden shrink-0 rounded-[var(--e-radius-pill)] px-2 py-0.5 text-[0.6875rem] font-[550] sm:inline"
                           style={{ backgroundColor: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
                         >
                           {meta.label}
                         </span>
-                      </Link>
+                        <EButton
+                          variant={unassigned ? "gold" : "outline"}
+                          size="sm"
+                          onClick={() => setAssignJob(job)}
+                        >
+                          <UserPlus className="mr-1 h-3 w-3" aria-hidden />
+                          {unassigned ? "Assign" : "Reassign"}
+                        </EButton>
+                      </div>
                     );
                   })}
                 </div>
@@ -483,6 +574,22 @@ export function EstateSchedule() {
           </div>
         )}
       </ECard>
+
+      <AssignCleanersModal
+        open={Boolean(assignJob)}
+        onClose={() => setAssignJob(null)}
+        jobId={assignJob?.id ?? null}
+        jobLabel={assignJob?.propertyName ?? "Job"}
+        jobSubLabel={
+          assignJob
+            ? `${assignJob.jobTypeLabel}${assignJob.suburb ? ` · ${assignJob.suburb}` : ""} · ${assignJob.day}${assignJob.startTime ? ` · ${assignJob.startTime}` : ""}`
+            : undefined
+        }
+        cleaners={cleaners}
+        initialAssignedIds={assignJob?.assignedIds ?? []}
+        initialPrimaryId={assignJob?.primaryId ?? null}
+        onAssigned={loadJobs}
+      />
     </div>
   );
 }
