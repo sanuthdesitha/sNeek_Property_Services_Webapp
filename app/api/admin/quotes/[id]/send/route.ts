@@ -8,6 +8,7 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
 import { getChecklist } from "@/lib/checklists/store";
 import { buildChecklistHtml, type ChecklistPdfExtra } from "@/lib/checklists/checklist-pdf";
+import type { ServiceChecklist } from "@/lib/checklists/types";
 import { z } from "zod";
 
 const schema = z.object({
@@ -33,6 +34,60 @@ function extrasFromNotes(notes: string | null | undefined): ChecklistPdfExtra[] 
     return out;
   } catch {
     return [];
+  }
+}
+
+/**
+ * If the admin edited the checklist for this quote, a `checklist` override lives
+ * in the notes META. Rebuild a full ServiceChecklist from it so it can be passed
+ * to buildChecklistHtml in place of the base template. Returns null when there is
+ * no override (→ caller falls back to the base template — backward-compatible).
+ */
+function checklistOverrideFromNotes(
+  notes: string | null | undefined,
+  jobType: string,
+): ServiceChecklist | null {
+  if (!notes) return null;
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return null;
+  try {
+    const meta = JSON.parse(match[1]) as { checklist?: unknown };
+    const ov = meta.checklist as
+      | {
+          summary?: unknown;
+          sections?: unknown;
+          notCovered?: unknown;
+        }
+      | undefined;
+    if (!ov || !Array.isArray(ov.sections)) return null;
+    const sections = ov.sections
+      .map((rawSection, si) => {
+        const s = (rawSection ?? {}) as { title?: unknown; items?: unknown };
+        const items = Array.isArray(s.items)
+          ? s.items
+              .map((rawItem, ii) => {
+                const it = (rawItem ?? {}) as { label?: unknown; covered?: unknown };
+                const label = typeof it.label === "string" ? it.label.trim() : "";
+                if (!label) return null;
+                return { id: `ov-${si}-${ii}`, label, covered: Boolean(it.covered) };
+              })
+              .filter((x): x is { id: string; label: string; covered: boolean } => x !== null)
+          : [];
+        return { id: `ov-sec-${si}`, title: typeof s.title === "string" ? s.title : "", items };
+      })
+      .filter((s) => s.items.length > 0);
+    if (sections.length === 0) return null;
+    const notCovered = Array.isArray(ov.notCovered)
+      ? ov.notCovered.filter((n): n is string => typeof n === "string" && n.trim().length > 0)
+      : [];
+    return {
+      jobType,
+      summary: typeof ov.summary === "string" && ov.summary.trim() ? ov.summary.trim() : undefined,
+      notCovered,
+      sections,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -96,7 +151,9 @@ export async function POST(
     // as a PDF. Never blocks the quote email if PDF rendering is unavailable.
     const attachments: Array<{ filename: string; content: Buffer }> = [];
     try {
-      const checklist = await getChecklist(String(quote.serviceType));
+      const checklist =
+        checklistOverrideFromNotes(quote.notes, String(quote.serviceType)) ??
+        (await getChecklist(String(quote.serviceType)));
       if (checklist) {
         const checklistHtml = buildChecklistHtml(checklist, {
           companyName: settings.companyName,

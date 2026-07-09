@@ -238,10 +238,14 @@ export type PortalTheme = "dark" | "light" | "public";
 export interface AppSettings {
   companyName: string;
   projectName: string;
+  // Primary logo, for LIGHT backgrounds (white/ivory) — quotes, invoices,
+  // checklists, reports, emails. Should be the coloured/dark artwork.
   logoUrl: string;
-  // Optional separate logo used on PDF reports and cleaner invoices. Falls back
-  // to logoUrl when empty. Lets admins use a light/transparent variant that
-  // looks clean on the white report background.
+  // Logo for DARK backgrounds (a white/inverse variant) — used on any dark
+  // surface. Falls back to logoUrl when empty.
+  logoDarkBgUrl: string;
+  // Legacy: an optional light-background logo override just for PDF reports /
+  // cleaner invoices. Falls back to logoUrl when empty.
   reportLogoUrl: string;
   accountsEmail: string;
   timezone: string;
@@ -382,6 +386,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
   projectName: "sneek-ops-dashboard",
   logoUrl: "",
+  logoDarkBgUrl: "",
   reportLogoUrl: "",
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
@@ -1108,6 +1113,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       typeof (parsed as any).logoUrl === "string"
         ? (parsed as any).logoUrl.trim()
         : DEFAULT_SETTINGS.logoUrl,
+    logoDarkBgUrl:
+      typeof (parsed as any).logoDarkBgUrl === "string"
+        ? (parsed as any).logoDarkBgUrl.trim()
+        : DEFAULT_SETTINGS.logoDarkBgUrl,
     reportLogoUrl:
       typeof (parsed as any).reportLogoUrl === "string"
         ? (parsed as any).reportLogoUrl.trim()

@@ -126,6 +126,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
             companyName: appSettings.companyName,
             projectName: appSettings.projectName,
             logoUrl: appSettings.logoUrl,
+            logoDarkBgUrl: appSettings.logoDarkBgUrl,
             reportLogoUrl: appSettings.reportLogoUrl,
             accountsEmail: appSettings.accountsEmail,
             timezone: appSettings.timezone,

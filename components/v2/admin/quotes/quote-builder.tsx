@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { JobType } from "@prisma/client";
-import { Check, Eye, Loader2, ListChecks, Plus, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Eye, Loader2, ListChecks, Pencil, Plus, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
@@ -29,6 +29,31 @@ import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admi
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 type CustomExtra = { id: string; label: string; price: number; instructions: string };
+
+// Editable per-quote checklist working model (seeded from the service default).
+type EditItem = { id: string; label: string; covered: boolean };
+type EditSection = { id: string; title: string; items: EditItem[] };
+type EditChecklist = { summary: string; sections: EditSection[]; notCovered: string[] };
+
+let checklistUid = 0;
+const nextUid = () => `ck-${Date.now().toString(36)}-${(checklistUid++).toString(36)}`;
+
+/** Seed the editable model from a fetched service checklist. */
+function editableFromChecklist(c: ServiceChecklist): EditChecklist {
+  return {
+    summary: c.summary ?? "",
+    sections: c.sections.map((s, si) => ({
+      id: s.id || `sec-${si}`,
+      title: s.title,
+      items: s.items.map((it, ii) => ({
+        id: it.id || `it-${si}-${ii}`,
+        label: it.label,
+        covered: it.covered,
+      })),
+    })),
+    notCovered: [...(c.notCovered ?? [])],
+  };
+}
 interface Option {
   id: string;
   name: string;
@@ -86,9 +111,18 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
   const [validUntilDate, setValidUntilDate] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // "What's included" checklist for the selected service (display-only preview).
+  // "What's included" checklist for the selected service (base default, fetched).
   const [checklist, setChecklist] = useState<ServiceChecklist | null>(null);
   const [checklistLoading, setChecklistLoading] = useState(false);
+
+  // Per-quote editable override, seeded from the fetched base. `checklistTouched`
+  // gates whether an override is written into the notes META (backward-compat:
+  // untouched → no override → send route uses the base template).
+  const [editChecklist, setEditChecklist] = useState<EditChecklist | null>(null);
+  const [checklistTouched, setChecklistTouched] = useState(false);
+  const [editingChecklist, setEditingChecklist] = useState(false);
+  const [newItemLabels, setNewItemLabels] = useState<Record<string, string>>({});
+  const [newExclusion, setNewExclusion] = useState("");
 
   const service = useMemo(
     () => services.find((s) => s.jobType === serviceType) ?? services[0],
@@ -117,21 +151,106 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
   );
   const allLines = useMemo(() => [...lineItems, ...extraLines], [lineItems, extraLines]);
 
-  // Included / not-included preview derived from the fetched checklist.
+  // Seed / reset the editable model whenever the base checklist changes (i.e. on
+  // service switch). A fresh base clears any per-quote edits.
+  useEffect(() => {
+    setEditChecklist(checklist ? editableFromChecklist(checklist) : null);
+    setChecklistTouched(false);
+    setNewItemLabels({});
+    setNewExclusion("");
+  }, [checklist]);
+
+  // Included / not-included preview derived from the EDITABLE model — this panel
+  // is exactly what the client will receive, reflecting every edit live.
   const includedItems = useMemo(
     () =>
-      checklist
-        ? checklist.sections.flatMap((s) => s.items.filter((i) => i.covered).map((i) => i.label))
+      editChecklist
+        ? editChecklist.sections.flatMap((s) => s.items.filter((i) => i.covered).map((i) => i.label))
         : [],
-    [checklist],
+    [editChecklist],
   );
   const notIncludedItems = useMemo(() => {
-    if (!checklist) return [];
-    const excludedItems = checklist.sections.flatMap((s) =>
+    if (!editChecklist) return [];
+    const excludedItems = editChecklist.sections.flatMap((s) =>
       s.items.filter((i) => !i.covered).map((i) => i.label),
     );
-    return [...(checklist.notCovered ?? []), ...excludedItems];
-  }, [checklist]);
+    return [...editChecklist.notCovered, ...excludedItems];
+  }, [editChecklist]);
+
+  // ─── Checklist edit helpers (all flag the override as touched) ───────────────
+  function touchChecklist(next: EditChecklist) {
+    setEditChecklist(next);
+    setChecklistTouched(true);
+  }
+  function toggleItem(sid: string, iid: string) {
+    if (!editChecklist) return;
+    touchChecklist({
+      ...editChecklist,
+      sections: editChecklist.sections.map((s) =>
+        s.id !== sid
+          ? s
+          : { ...s, items: s.items.map((it) => (it.id !== iid ? it : { ...it, covered: !it.covered })) },
+      ),
+    });
+  }
+  function renameItem(sid: string, iid: string, label: string) {
+    if (!editChecklist) return;
+    touchChecklist({
+      ...editChecklist,
+      sections: editChecklist.sections.map((s) =>
+        s.id !== sid ? s : { ...s, items: s.items.map((it) => (it.id !== iid ? it : { ...it, label })) },
+      ),
+    });
+  }
+  function removeItem(sid: string, iid: string) {
+    if (!editChecklist) return;
+    touchChecklist({
+      ...editChecklist,
+      sections: editChecklist.sections.map((s) =>
+        s.id !== sid ? s : { ...s, items: s.items.filter((it) => it.id !== iid) },
+      ),
+    });
+  }
+  function addItem(sid: string) {
+    if (!editChecklist) return;
+    const label = (newItemLabels[sid] ?? "").trim();
+    if (!label) return;
+    touchChecklist({
+      ...editChecklist,
+      sections: editChecklist.sections.map((s) =>
+        s.id !== sid ? s : { ...s, items: [...s.items, { id: nextUid(), label, covered: true }] },
+      ),
+    });
+    setNewItemLabels((prev) => ({ ...prev, [sid]: "" }));
+  }
+  function updateSummary(summary: string) {
+    if (!editChecklist) return;
+    touchChecklist({ ...editChecklist, summary });
+  }
+  function addExclusion() {
+    if (!editChecklist) return;
+    const line = newExclusion.trim();
+    if (!line) return;
+    touchChecklist({ ...editChecklist, notCovered: [...editChecklist.notCovered, line] });
+    setNewExclusion("");
+  }
+  function updateExclusion(idx: number, value: string) {
+    if (!editChecklist) return;
+    touchChecklist({
+      ...editChecklist,
+      notCovered: editChecklist.notCovered.map((n, i) => (i === idx ? value : n)),
+    });
+  }
+  function removeExclusion(idx: number) {
+    if (!editChecklist) return;
+    touchChecklist({ ...editChecklist, notCovered: editChecklist.notCovered.filter((_, i) => i !== idx) });
+  }
+  function resetChecklist() {
+    setEditChecklist(checklist ? editableFromChecklist(checklist) : null);
+    setChecklistTouched(false);
+    setNewItemLabels({});
+    setNewExclusion("");
+  }
 
   // Fetch the checklist whenever the service changes (admin-gated endpoint).
   useEffect(() => {
@@ -298,6 +417,20 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
       label: e.label,
       instructions: e.instructions,
     }));
+    // Per-quote checklist override — only when the admin actually edited it, so
+    // untouched quotes stay on the base template (backward-compatible).
+    if (checklistTouched && editChecklist) {
+      base.checklist = {
+        summary: editChecklist.summary.trim() || undefined,
+        sections: editChecklist.sections.map((s) => ({
+          title: s.title,
+          items: s.items
+            .filter((it) => it.label.trim())
+            .map((it) => ({ label: it.label.trim(), covered: it.covered })),
+        })),
+        notCovered: editChecklist.notCovered.map((n) => n.trim()).filter(Boolean),
+      };
+    }
     return base;
   }
 
@@ -700,31 +833,171 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
         </ECardBody>
       </ECard>
 
-      {/* What's included — checklist preview for the selected service */}
+      {/* What's included — editable per-quote checklist (this panel IS the preview) */}
       <ECard>
-        <ECardHeader>
-          <ECardTitle className="flex items-center gap-2">
-            <ListChecks className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
-            What&apos;s included
-          </ECardTitle>
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            This checklist is emailed with the quote so the client can see exactly what&apos;s covered and request
-            add-ons.
-          </p>
+        <ECardHeader className="flex-row items-start justify-between gap-3">
+          <div>
+            <ECardTitle className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
+              What&apos;s included
+              {checklistTouched ? (
+                <span className="rounded-full bg-[hsl(var(--e-gold-soft))] px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.1em] text-[hsl(var(--e-gold-ink))]">
+                  Customised
+                </span>
+              ) : null}
+            </ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              This is what the client will receive — edit it for this quote before sending.
+            </p>
+          </div>
+          {editChecklist ? (
+            <div className="flex shrink-0 items-center gap-2">
+              {checklistTouched ? (
+                <EButton type="button" size="sm" variant="ghost" onClick={resetChecklist}>
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset
+                </EButton>
+              ) : null}
+              <EButton
+                type="button"
+                size="sm"
+                variant={editingChecklist ? "primary" : "outline"}
+                onClick={() => setEditingChecklist((v) => !v)}
+              >
+                {editingChecklist ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                {editingChecklist ? "Done editing" : "Edit checklist"}
+              </EButton>
+            </div>
+          ) : null}
         </ECardHeader>
         <ECardBody className="space-y-4 pt-0">
           {checklistLoading ? (
             <div className="flex items-center gap-2 py-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading the {serviceLabel.toLowerCase()} checklist…
             </div>
-          ) : !checklist ? (
+          ) : !editChecklist ? (
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               No checklist is configured for this service yet.
             </p>
+          ) : editingChecklist ? (
+            /* ─── Edit mode: section-grouped editor ─── */
+            <div className="space-y-4">
+              <EField label="Summary (shown at the top of the checklist)">
+                <ETextarea
+                  value={editChecklist.summary}
+                  onChange={(e) => updateSummary(e.target.value)}
+                  rows={2}
+                  placeholder="One-line description of this service…"
+                />
+              </EField>
+
+              {editChecklist.sections.map((section) => (
+                <div
+                  key={section.id}
+                  className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
+                >
+                  <EEyebrow>{section.title}</EEyebrow>
+                  <div className="space-y-2">
+                    {section.items.length === 0 ? (
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">No items.</p>
+                    ) : (
+                      section.items.map((it) => (
+                        <div key={it.id} className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            title={it.covered ? "Included — click to exclude" : "Excluded — click to include"}
+                            onClick={() => toggleItem(section.id, it.id)}
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--e-radius)] border transition-colors ${
+                              it.covered
+                                ? "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success)/0.12)] text-[hsl(var(--e-success))]"
+                                : "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.1)] text-[hsl(var(--e-danger))]"
+                            }`}
+                          >
+                            {it.covered ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+                          </button>
+                          <EInput
+                            value={it.label}
+                            onChange={(e) => renameItem(section.id, it.id, e.target.value)}
+                            className={it.covered ? "" : "line-through opacity-70"}
+                          />
+                          <EButton
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => removeItem(section.id, it.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
+                          </EButton>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <EInput
+                      value={newItemLabels[section.id] ?? ""}
+                      placeholder={`Add an item to ${section.title}…`}
+                      onChange={(e) =>
+                        setNewItemLabels((prev) => ({ ...prev, [section.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addItem(section.id);
+                        }
+                      }}
+                    />
+                    <EButton type="button" variant="outline" onClick={() => addItem(section.id)}>
+                      <Plus className="h-4 w-4" /> Add item
+                    </EButton>
+                  </div>
+                </div>
+              ))}
+
+              {/* Not included / exclusions editor */}
+              <div className="space-y-2 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] p-3">
+                <EEyebrow>Not included</EEyebrow>
+                {editChecklist.notCovered.length > 0 ? (
+                  <div className="space-y-2">
+                    {editChecklist.notCovered.map((line, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <X className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-danger))]" />
+                        <EInput value={line} onChange={(e) => updateExclusion(i, e.target.value)} />
+                        <EButton
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => removeExclusion(i)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
+                        </EButton>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <EInput
+                    value={newExclusion}
+                    placeholder="Add an exclusion the client should know about…"
+                    onChange={(e) => setNewExclusion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addExclusion();
+                      }
+                    }}
+                  />
+                  <EButton type="button" variant="outline" onClick={addExclusion}>
+                    <Plus className="h-4 w-4" /> Add exclusion
+                  </EButton>
+                </div>
+              </div>
+            </div>
           ) : (
+            /* ─── Preview mode: what the client sees ─── */
             <>
-              {checklist.summary ? (
-                <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{checklist.summary}</p>
+              {editChecklist.summary ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{editChecklist.summary}</p>
               ) : null}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
