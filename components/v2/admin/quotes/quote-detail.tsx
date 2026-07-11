@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { CalendarPlus, Download, Eye, Loader2, Send } from "lucide-react";
+import { CalendarPlus, Copy, Download, Eye, Loader2, Mail, Paperclip, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -26,7 +26,7 @@ import {
   EEyebrow,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
 import { formatCurrency } from "@/lib/utils";
 
 type Tone = "neutral" | "info" | "success" | "danger" | "gold";
@@ -40,6 +40,7 @@ const QUOTE_TONES: Record<string, Tone> = {
 const STATUSES = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CONVERTED"];
 
 type Party = { id: string; name: string; email: string };
+type ReferenceImage = { key: string; url: string; label?: string };
 type QuoteInitial = {
   id: string;
   status: string;
@@ -53,6 +54,10 @@ type QuoteInitial = {
   clientId: string | null;
   client: Party | null;
   lead: Party | null;
+  publicToken?: string | null;
+  showAddOnPrices?: boolean;
+  referenceImages?: ReferenceImage[];
+  serviceContext?: Record<string, string | number | boolean> | null;
 };
 
 const prettify = (v?: string | null) => String(v ?? "").replace(/_/g, " ").trim();
@@ -159,25 +164,112 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
     }
   }
 
+  // ── Send with an email preview step (render first, confirm, then send) ────
+  type EmailPreview = {
+    to: string;
+    subject: string;
+    html: string;
+    attachments: Array<{ filename: string; size?: number }>;
+    publicUrl?: string;
+  };
+  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null);
+  const [sendingNow, setSendingNow] = useState(false);
+
   async function sendQuote() {
     const recipient = window.prompt("Send quote to email:", quote.client?.email ?? quote.lead?.email ?? "");
     if (!recipient) return;
     setSending(true);
     try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/send?preview=1`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: recipient, preview: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Preview failed", description: body.error ?? "Could not render the email.", variant: "destructive" });
+        return;
+      }
+      setEmailPreview({
+        to: recipient,
+        subject: String(body.subject ?? ""),
+        html: String(body.html ?? ""),
+        attachments: Array.isArray(body.attachments) ? body.attachments : [],
+        publicUrl: typeof body.publicUrl === "string" ? body.publicUrl : undefined,
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function confirmSend() {
+    if (!emailPreview) return;
+    setSendingNow(true);
+    try {
       const res = await fetch(`/api/admin/quotes/${quote.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: recipient }),
+        body: JSON.stringify({ to: emailPreview.to }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast({ title: "Send failed", description: body.error ?? "Could not send quote.", variant: "destructive" });
         return;
       }
-      toast({ title: "Quote sent", description: `Sent to ${recipient}` });
+      toast({
+        title: "Quote sent",
+        description: `Sent to ${emailPreview.to} with ${
+          Array.isArray(body.attachments) ? body.attachments.length : 0
+        } attachment(s).`,
+      });
+      setEmailPreview(null);
       router.refresh();
     } finally {
-      setSending(false);
+      setSendingNow(false);
+    }
+  }
+
+  // ── Shareable public link (mint the token on first copy) ──────────────────
+  const [copyingLink, setCopyingLink] = useState(false);
+
+  async function copyPublicLink() {
+    setCopyingLink(true);
+    try {
+      let token = quote.publicToken ?? null;
+      if (!token) {
+        const updated = await patch({ generatePublicToken: true });
+        if (!updated) return;
+        token = (updated as QuoteInitial).publicToken ?? null;
+        setQuote((q) => ({ ...q, ...updated }));
+      }
+      if (!token) {
+        toast({ title: "Could not create the public link.", variant: "destructive" });
+        return;
+      }
+      const url = `${window.location.origin}/q/${token}`;
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Public link copied", description: url });
+    } catch {
+      toast({ title: "Could not copy the link.", variant: "destructive" });
+    } finally {
+      setCopyingLink(false);
+    }
+  }
+
+  // ── Add-on price visibility (persists immediately) ────────────────────────
+  const [addOnPricesVisible, setAddOnPricesVisible] = useState(Boolean(initial.showAddOnPrices));
+
+  async function toggleAddOnPrices(value: boolean) {
+    setAddOnPricesVisible(value);
+    const updated = await patch({ showAddOnPrices: value });
+    if (!updated) {
+      setAddOnPricesVisible(!value); // revert on failure
+    } else {
+      setQuote((q) => ({ ...q, ...updated }));
+      toast({
+        title: value ? "Add-on prices shown to client" : "Add-on prices hidden",
+        description: "Applies to the attached add-on list and the online quote.",
+      });
     }
   }
 
@@ -253,8 +345,12 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           <EButton variant="ghost" size="sm" onClick={downloadPdf}>
             <Download className="h-3.5 w-3.5" /> PDF
           </EButton>
+          <EButton variant="ghost" size="sm" onClick={copyPublicLink} disabled={copyingLink}>
+            {copyingLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+            Copy public link
+          </EButton>
           <EButton variant="outline-gold" size="sm" onClick={sendQuote} disabled={sending}>
-            <Send className="h-3.5 w-3.5" /> {sending ? "Sending…" : "Send"}
+            <Send className="h-3.5 w-3.5" /> {sending ? "Preparing…" : "Send"}
           </EButton>
           {quote.status !== "CONVERTED" ? (
             <EButton variant="primary" size="sm" onClick={() => setConvertOpen(true)}>
@@ -272,6 +368,69 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
             title="Quote preview"
             className="h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
           />
+        ) : null}
+      </EModal>
+
+      {/* Email preview — the exact email + attachments, confirmed before sending */}
+      <EModal
+        open={Boolean(emailPreview)}
+        onClose={() => setEmailPreview(null)}
+        eyebrow="Quotes"
+        title="Review before sending"
+        size="full"
+      >
+        {emailPreview ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <EEyebrow>To</EEyebrow>
+                <p className="mt-1 text-[0.8125rem]">{emailPreview.to}</p>
+                <EEyebrow className="mt-3">Subject</EEyebrow>
+                <p className="mt-1 text-[0.8125rem]">{emailPreview.subject}</p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <EEyebrow className="flex items-center gap-1.5">
+                  <Paperclip className="h-3 w-3" /> Attachments
+                </EEyebrow>
+                {emailPreview.attachments.length === 0 ? (
+                  <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">None</p>
+                ) : (
+                  <ul className="mt-1 space-y-1">
+                    {emailPreview.attachments.map((a, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                        <span className="min-w-0 truncate">{a.filename}</span>
+                        {typeof a.size === "number" ? (
+                          <span className="e-tnum shrink-0 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                            {(a.size / 1024).toFixed(0)} KB
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {emailPreview.publicUrl ? (
+                  <p className="mt-3 min-w-0 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    Online: {emailPreview.publicUrl}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <iframe
+              srcDoc={emailPreview.html}
+              sandbox=""
+              title="Quote email preview"
+              className="h-[52vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
+            />
+            <div className="flex flex-wrap justify-end gap-2">
+              <EButton variant="outline" onClick={() => setEmailPreview(null)} disabled={sendingNow}>
+                Cancel
+              </EButton>
+              <EButton variant="gold" onClick={confirmSend} disabled={sendingNow}>
+                {sendingNow ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {sendingNow ? "Sending…" : "Send now"}
+              </EButton>
+            </div>
+          </div>
         ) : null}
       </EModal>
 
@@ -343,6 +502,64 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
         </ECardBody>
       </ECard>
 
+      {/* Reference photos + client-facing options */}
+      {(quote.referenceImages?.length ?? 0) > 0 ||
+      (quote.serviceContext && Object.keys(quote.serviceContext).length > 0) ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle>Quote context</ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Reference photos and the pricing selections captured when this quote was built.
+            </p>
+          </ECardHeader>
+          <ECardBody className="space-y-4 pt-0">
+            {(quote.referenceImages?.length ?? 0) > 0 ? (
+              <div>
+                <EEyebrow>Client reference photos</EEyebrow>
+                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {(quote.referenceImages ?? []).map((img, idx) => (
+                    <a
+                      key={img.key}
+                      href={img.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-1.5 transition-colors hover:border-[hsl(var(--e-border-gold)/0.5)]"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.url}
+                        alt={img.label || `Reference ${idx + 1}`}
+                        className="h-24 w-full rounded-[var(--e-radius)] object-cover"
+                      />
+                      {img.label ? (
+                        <p className="truncate px-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                          {img.label}
+                        </p>
+                      ) : null}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {quote.serviceContext && Object.keys(quote.serviceContext).length > 0 ? (
+              <div>
+                <EEyebrow>Pricing selections</EEyebrow>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Array.from(Object.entries(quote.serviceContext)).map(([key, value]) => (
+                    <span
+                      key={key}
+                      className="rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-2.5 py-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]"
+                    >
+                      {prettify(key)}: <span className="font-[550]">{prettify(String(value))}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
       {/* Manage */}
       <div className="grid gap-6 lg:grid-cols-2">
         <ECard>
@@ -365,6 +582,11 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
             <EField label="Notes">
               <ETextarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Scope, inclusions…" />
             </EField>
+            <ESwitch
+              checked={addOnPricesVisible}
+              onCheckedChange={toggleAddOnPrices}
+              label="Show add-on prices to client"
+            />
             <EThread />
             <div className="flex justify-end">
               <EButton variant="primary" size="sm" onClick={saveDetails} disabled={savingDetails}>

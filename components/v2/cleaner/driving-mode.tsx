@@ -29,7 +29,12 @@ import {
   TrafficCone,
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
-import type { RouteStop } from "@/components/v2/cleaner/route-timeline";
+import {
+  applyStoredOrder,
+  isoDay,
+  loadStoredOrder,
+  type RouteStop,
+} from "@/components/v2/cleaner/route-timeline";
 import { cn } from "@/lib/utils";
 
 const PING_INTERVAL_MS = 12_000;
@@ -43,12 +48,27 @@ function navUrl(s: RouteStop) {
   return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(dest)}`;
 }
 
-export function DrivingMode({ initialStops }: { initialStops: RouteStop[] }) {
+export function DrivingMode({
+  initialStops,
+  userId,
+}: {
+  initialStops: RouteStop[];
+  /** Cleaner id — reads the SAME saved per-day order the timeline writes. */
+  userId?: string;
+}) {
   const [stops, setStops] = React.useState<RouteStop[]>(initialStops);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reason, setReason] = React.useState("Traffic");
   const [lastPingAt, setLastPingAt] = React.useState<number | null>(null);
+
+  // Consume the cleaner's saved order for today so Drive mode and the Timeline
+  // walk the SAME sequence. Applied after mount (localStorage is client-only).
+  React.useEffect(() => {
+    if (!userId) return;
+    setStops((cur) => applyStoredOrder(cur, loadStoredOrder(userId, isoDay(0))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The active en-route stop (the one being driven to), else the next actionable stop.
   const activeStop = stops.find((s) => s.status === "EN_ROUTE") ?? null;
@@ -65,7 +85,9 @@ export function DrivingMode({ initialStops }: { initialStops: RouteStop[] }) {
       const res = await fetch("/api/cleaner/today-route", { cache: "no-store", headers: { "x-progress-toast": "off" } });
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.stops)) setStops(data.stops);
+        if (Array.isArray(data.stops)) {
+          setStops(applyStoredOrder(data.stops, userId ? loadStoredOrder(userId, isoDay(0)) : null));
+        }
       }
     } catch {
       /* keep last */

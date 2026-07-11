@@ -12,6 +12,12 @@ export interface ChecklistItem {
   covered: boolean;
   /** How-to cleaning instructions shown in the reveal popup. */
   instructions?: string;
+  /**
+   * When true, the composed cleaner-form field requires a proof photo before the
+   * job can be submitted (reuses the form engine's required-upload mechanism).
+   * Absent/false = today's behaviour (no photo required).
+   */
+  requiresPhoto?: boolean;
   /** Optional reference image URL. */
   imageUrl?: string;
   /** Optional how-to video — an uploaded file URL or an external link (YouTube etc.). */

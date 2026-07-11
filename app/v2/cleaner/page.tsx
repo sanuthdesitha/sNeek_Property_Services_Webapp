@@ -15,6 +15,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock, MapPin, BellRing, Megaphone, Pin } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import { DailyBriefing } from "@/components/v2/cleaner/daily-briefing";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
@@ -141,6 +142,9 @@ export default async function CleanerTodayPage() {
             : `${jobCount} job${jobCount === 1 ? "" : "s"} today.`}
         </p>
       </header>
+
+      {/* Cleaner daily briefing — concise plan-your-day panel (Today | Tomorrow) */}
+      <DailyBriefing />
 
       <section className="grid grid-cols-3 gap-3">
         <EStatCard label="Today" value={String(jobCount)} />

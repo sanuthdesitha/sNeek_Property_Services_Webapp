@@ -18,6 +18,8 @@ export interface ProfileItemSelection {
   enabled: boolean;
   /** Optional per-item override of which job types include it (default = library). */
   jobTypes?: JobType[];
+  /** When true, the cleaner must attach a proof photo for this task before submit. */
+  requiresPhoto?: boolean;
 }
 
 export interface ProfileModuleSelection {
@@ -33,6 +35,10 @@ export interface ProfileCustomItem {
   instructions?: string;
   fieldType?: string;
   jobTypes?: JobType[];
+  /** When true, the cleaner must attach a proof photo for this task before submit. */
+  requiresPhoto?: boolean;
+  /** Optional reference image (shown to the cleaner as a thumbnail + lightbox). */
+  imageUrl?: string;
 }
 
 export interface ProfileSelections {
@@ -57,7 +63,11 @@ export function sanitizeSelections(raw: unknown): ProfileSelections {
           const jobTypes = Array.isArray(item.jobTypes)
             ? (item.jobTypes.filter((jt) => Object.values(JobType).includes(jt as JobType)) as JobType[])
             : undefined;
-          items[itemKey] = { enabled: item.enabled === true, ...(jobTypes ? { jobTypes } : {}) };
+          items[itemKey] = {
+            enabled: item.enabled === true,
+            ...(jobTypes ? { jobTypes } : {}),
+            ...(item.requiresPhoto === true ? { requiresPhoto: true } : {}),
+          };
         }
       }
       out.modules[moduleKey] = { enabled: sel.enabled === true, items };
@@ -79,6 +89,10 @@ export function sanitizeSelections(raw: unknown): ProfileSelections {
         instructions: typeof item.instructions === "string" ? item.instructions.trim() || undefined : undefined,
         fieldType: typeof item.fieldType === "string" ? item.fieldType : undefined,
         ...(jobTypes ? { jobTypes } : {}),
+        ...(item.requiresPhoto === true ? { requiresPhoto: true } : {}),
+        ...(typeof item.imageUrl === "string" && item.imageUrl.trim()
+          ? { imageUrl: item.imageUrl.trim() }
+          : {}),
       });
     }
   }
@@ -142,6 +156,61 @@ function itemIncludesJobType(
 }
 
 /**
+ * A required proof-photo sub-field for a task flagged `requiresPhoto`. Attached
+ * as a child of the task's checkbox field and shown + required only once the
+ * task is ticked done — reusing the form engine's conditional-visibility +
+ * required-upload validation (collectRequiredUploadFields) rather than inventing
+ * a new mechanism.
+ */
+function proofPhotoChildField(parentId: string, label: string) {
+  return {
+    id: `${parentId}__proof`,
+    type: "photo",
+    label: `Proof photo — ${label}`,
+    required: true,
+    minPhotos: 1,
+    stampTag: "after",
+    conditional: { fieldId: parentId, operator: "equals", value: true },
+  };
+}
+
+/**
+ * Append a signature "Sign-off" section to a checklist→form composition unless
+ * one already exists. Only ever adds to freshly generated schemas (skipped when
+ * there are no real sections), so existing/hand-built templates are untouched.
+ */
+export function withSignoffSection(sections: unknown[]): unknown[] {
+  if (sections.length === 0) return sections;
+  const hasSignature = sections.some(
+    (section: any) =>
+      Array.isArray(section?.fields) &&
+      section.fields.some(
+        (field: any) =>
+          field?.type === "signature" ||
+          (Array.isArray(field?.children) &&
+            field.children.some((child: any) => child?.type === "signature"))
+      )
+  );
+  if (hasSignature) return sections;
+  return [
+    ...sections,
+    {
+      id: "sign-off",
+      title: "Sign-off",
+      description: "Confirm the work above has been completed to standard.",
+      fields: [
+        {
+          id: "signoff-signature",
+          type: "signature",
+          label: "Cleaner sign-off signature",
+          required: true,
+        },
+      ],
+    },
+  ];
+}
+
+/**
  * Compose the final FormSchema for one job type from the library + selections.
  * Emits the same section/field shape the existing form engine consumes
  * (checkbox items with reveal instructions, photo items with stamp tags, etc.).
@@ -160,9 +229,14 @@ export function composeFormSchema(
       const itemSel = moduleSel.items[item.key];
       if (!itemSel?.enabled) continue;
       if (!itemIncludesJobType(item.jobTypes, itemSel.jobTypes, jobType)) continue;
+      const fieldType = item.fieldType || "checkbox";
+      // A proof photo only makes sense to append when the task itself isn't
+      // already a media/upload field.
+      const wantsProofPhoto =
+        itemSel.requiresPhoto === true && fieldType !== "photo" && fieldType !== "video" && fieldType !== "file";
       fields.push({
         id: item.key,
-        type: item.fieldType || "checkbox",
+        type: fieldType,
         label: item.label,
         required: item.required,
         instructions: item.instructions || undefined,
@@ -171,24 +245,19 @@ export function composeFormSchema(
         ...(item.imageUrl || item.videoUrl
           ? {
               references: [
-                ...(item.imageUrl ? [{ type: "image", url: item.imageUrl }] : []),
-                ...(item.videoUrl ? [{ type: "video", url: item.videoUrl }] : []),
+                ...(item.imageUrl ? [{ kind: "image", url: item.imageUrl }] : []),
+                ...(item.videoUrl ? [{ kind: "video", url: item.videoUrl }] : []),
               ],
             }
           : {}),
+        ...(wantsProofPhoto ? { children: [proofPhotoChildField(item.key, item.label)] } : {}),
       });
     }
     // Custom items attached to this module.
     for (const custom of selections.customItems) {
       if (custom.moduleKey !== module.key) continue;
       if (custom.jobTypes && custom.jobTypes.length > 0 && !custom.jobTypes.includes(jobType)) continue;
-      fields.push({
-        id: `custom.${custom.id}`,
-        type: custom.fieldType || "checkbox",
-        label: custom.label,
-        required: false,
-        instructions: custom.instructions || undefined,
-      });
+      fields.push(customItemField(custom));
     }
     if (fields.length === 0) continue;
     sections.push({
@@ -210,17 +279,28 @@ export function composeFormSchema(
       id: "property-custom",
       title: "Property-specific tasks",
       description: "Extra tasks defined for this property.",
-      fields: looseCustom.map((custom) => ({
-        id: `custom.${custom.id}`,
-        type: custom.fieldType || "checkbox",
-        label: custom.label,
-        required: false,
-        instructions: custom.instructions || undefined,
-      })),
+      fields: looseCustom.map((custom) => customItemField(custom)),
     });
   }
 
-  return { sections };
+  return { sections: withSignoffSection(sections) };
+}
+
+/** A custom checklist item → form field, with optional proof photo + reference image. */
+function customItemField(custom: ProfileCustomItem) {
+  const id = `custom.${custom.id}`;
+  const fieldType = custom.fieldType || "checkbox";
+  const wantsProofPhoto =
+    custom.requiresPhoto === true && fieldType !== "photo" && fieldType !== "video" && fieldType !== "file";
+  return {
+    id,
+    type: fieldType,
+    label: custom.label,
+    required: false,
+    instructions: custom.instructions || undefined,
+    ...(custom.imageUrl ? { references: [{ kind: "image", url: custom.imageUrl }] } : {}),
+    ...(wantsProofPhoto ? { children: [proofPhotoChildField(id, custom.label)] } : {}),
+  };
 }
 
 // ── Materialise: profile → FormTemplate(s) + property override registration ─

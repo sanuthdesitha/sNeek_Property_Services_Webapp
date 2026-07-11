@@ -117,4 +117,20 @@ export const createQuoteSchema = z.object({
   totalAmount: z.number(),
   notes: z.string().optional(),
   validUntil: z.string().datetime().optional(),
+  // Pricing-variable selections chosen in the builder (variable id → option id
+  // / quantity / boolean / free-typed custom value). Snapshotted on the quote.
+  serviceContext: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+  // Client reference photos uploaded in the builder: [{ key, url, label }].
+  referenceImages: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1),
+        url: z.string().trim().url(),
+        label: z.string().trim().max(160).optional(),
+      })
+    )
+    .max(12)
+    .optional(),
+  // When true, add-on prices are shown to the client (email + online).
+  showAddOnPrices: z.boolean().optional(),
 });

@@ -40,6 +40,7 @@ import {
   ESwitch,
   EModal,
 } from "@/components/v2/admin/estate-kit";
+import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
 interface FeatureDef {
   key: string;
@@ -51,6 +52,7 @@ interface LibraryItem {
   key: string;
   label: string;
   instructions: string | null;
+  imageUrl?: string | null;
   fieldType: string;
   required: boolean;
   defaultOn: boolean;
@@ -440,6 +442,7 @@ function ItemModal({
 }) {
   const [label, setLabel] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [fieldType, setFieldType] = useState("checkbox");
   const [required, setRequired] = useState(false);
   const [defaultOn, setDefaultOn] = useState(true);
@@ -450,6 +453,7 @@ function ItemModal({
     if (!open) return;
     setLabel(initial?.label ?? "");
     setInstructions(initial?.instructions ?? "");
+    setImageUrl(initial?.imageUrl ?? undefined);
     setFieldType(initial?.fieldType ?? "checkbox");
     setRequired(initial?.required ?? false);
     setDefaultOn(initial?.defaultOn ?? true);
@@ -464,6 +468,7 @@ function ItemModal({
     void onSave({
       label: label.trim(),
       instructions: instructions.trim() || null,
+      imageUrl: imageUrl ?? null,
       fieldType,
       required,
       defaultOn,
@@ -485,6 +490,9 @@ function ItemModal({
         </EField>
         <EField label="How-to instructions (reveal popup)">
           <ETextarea rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+        </EField>
+        <EField label="Reference image (shown to the cleaner)">
+          <TaskImageUpload imageUrl={imageUrl} onChange={setImageUrl} />
         </EField>
         <div className="grid gap-3 sm:grid-cols-2">
           <EField label="Field type">

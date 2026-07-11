@@ -322,8 +322,18 @@ function useLaundryFeed(days: number) {
         const res = await fetch(`/api/laundry/week?start=${start}&days=${days}`, {
           cache: "no-store",
         });
-        const data = await res.json();
-        setTasks(Array.isArray(data) ? data : []);
+        const data = await res.json().catch(() => null);
+        // A failed refetch (e.g. this network's intermittent DNS drop, or a
+        // transient 5xx) must NOT wipe the board to empty — that would hide a
+        // status the user just saved and read as "the update didn't stick".
+        // Only replace the list when the response is a genuine task array.
+        if (!res.ok || !Array.isArray(data)) {
+          const message =
+            (data && typeof data === "object" && "error" in data && (data as any).error) ||
+            `Request failed (${res.status})`;
+          throw new Error(String(message));
+        }
+        setTasks(data);
       } catch (err: any) {
         if (!opts?.silent) {
           toast({

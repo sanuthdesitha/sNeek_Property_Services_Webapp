@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role, QuoteStatus } from "@prisma/client";
+import { Prisma, Role, QuoteStatus } from "@prisma/client";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -10,7 +11,32 @@ const updateQuoteSchema = z.object({
   validUntil: z.string().datetime().optional().nullable(),
   // Assign/reassign the quote to a client (null to unassign).
   clientId: z.string().trim().min(1).optional().nullable(),
+  // Pricing-variable selections snapshot (variable id → option/qty/custom).
+  serviceContext: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().nullable(),
+  // Client reference photos: [{ key, url, label }] (null/[] clears them).
+  referenceImages: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1),
+        url: z.string().trim().url(),
+        label: z.string().trim().max(160).optional(),
+      })
+    )
+    .max(12)
+    .optional()
+    .nullable(),
+  // Show add-on prices to the client (email + online).
+  showAddOnPrices: z.boolean().optional(),
+  // When true, mint the shareable /q/<token> public token if one doesn't exist
+  // yet (idempotent — an existing token is never rotated).
+  generatePublicToken: z.boolean().optional(),
 });
+
+/** 32-char URL-safe token for the public /q/<token> quote page. (Not exported —
+ *  route files may only export HTTP handlers; the send route has its own.) */
+function newPublicToken(): string {
+  return randomBytes(24).toString("base64url");
+}
 
 export async function GET(
   _req: NextRequest,
@@ -60,6 +86,21 @@ export async function PATCH(
     }
     if (body.notes !== undefined) data.notes = body.notes || null;
     if (body.validUntil !== undefined) data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
+    if (body.serviceContext !== undefined) {
+      data.serviceContext = body.serviceContext === null ? Prisma.JsonNull : body.serviceContext;
+    }
+    if (body.referenceImages !== undefined) {
+      data.referenceImages = body.referenceImages === null ? Prisma.JsonNull : body.referenceImages;
+    }
+    if (body.showAddOnPrices !== undefined) data.showAddOnPrices = body.showAddOnPrices;
+    if (body.generatePublicToken) {
+      const existing = await db.quote.findUnique({
+        where: { id: params.id },
+        select: { publicToken: true },
+      });
+      if (!existing) return NextResponse.json({ error: "Quote not found." }, { status: 404 });
+      if (!existing.publicToken) data.publicToken = newPublicToken();
+    }
     if (body.clientId !== undefined) {
       if (body.clientId) {
         const client = await db.client.findUnique({ where: { id: body.clientId }, select: { id: true, isActive: true } });

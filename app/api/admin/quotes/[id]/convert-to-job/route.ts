@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { Role, QuoteStatus } from "@prisma/client";
+import { Role, QuoteStatus, FormKind, type JobType } from "@prisma/client";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
-import { serializeJobInternalNotes, type JobAdditional } from "@/lib/jobs/meta";
+import {
+  serializeJobInternalNotes,
+  type JobAdditional,
+  type JobQuoteReferenceImage,
+} from "@/lib/jobs/meta";
+import { getAppSettings, saveAppSettings } from "@/lib/settings";
 
 const schema = z.object({
   propertyId: z.string().min(1),
@@ -35,6 +40,93 @@ function extrasFromQuoteNotes(notes: string | null | undefined): JobAdditional[]
   } catch {
     return [];
   }
+}
+
+interface QuoteChecklistOverride {
+  summary?: string;
+  sections: Array<{ title: string; items: Array<{ label: string; covered: boolean }> }>;
+}
+
+/**
+ * If the admin edited the checklist for this quote, a `checklist` override
+ * lives in the notes META (same shape the send route reads). Returns null when
+ * there is no override — the job then keeps the generic property/job-type form.
+ */
+function checklistOverrideFromNotes(notes: string | null | undefined): QuoteChecklistOverride | null {
+  if (!notes) return null;
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return null;
+  try {
+    const meta = JSON.parse(match[1]) as { checklist?: unknown };
+    const ov = meta.checklist as { summary?: unknown; sections?: unknown } | undefined;
+    if (!ov || !Array.isArray(ov.sections)) return null;
+    const sections = ov.sections
+      .map((rawSection) => {
+        const s = (rawSection ?? {}) as { title?: unknown; items?: unknown };
+        const items = Array.isArray(s.items)
+          ? s.items
+              .map((rawItem) => {
+                const it = (rawItem ?? {}) as { label?: unknown; covered?: unknown };
+                const label = typeof it.label === "string" ? it.label.trim() : "";
+                if (!label) return null;
+                return { label, covered: Boolean(it.covered) };
+              })
+              .filter((x): x is { label: string; covered: boolean } => x !== null)
+          : [];
+        return { title: typeof s.title === "string" ? s.title : "", items };
+      })
+      .filter((s) => s.items.length > 0);
+    if (sections.length === 0) return null;
+    return {
+      summary: typeof ov.summary === "string" && ov.summary.trim() ? ov.summary.trim() : undefined,
+      sections,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Reference images attached to the quote ([{key,url,label}]) → job meta shape. */
+function referenceImagesFromQuote(raw: unknown): JobQuoteReferenceImage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: JobQuoteReferenceImage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const img = item as Record<string, unknown>;
+    const url = typeof img.url === "string" ? img.url.trim() : "";
+    if (!url) continue;
+    const label = typeof img.label === "string" ? img.label.trim() : "";
+    out.push({ url, ...(label ? { label } : {}) });
+  }
+  return out;
+}
+
+/**
+ * Build the cleaner-form schema for the AGREED SCOPE: every covered item on the
+ * quote's checklist override becomes a checkbox, grouped by its section. Same
+ * section/field shape composeFormSchema emits, so the existing form engine and
+ * QA pipeline consume it unchanged. Not-covered items are simply omitted.
+ */
+function buildAgreedScopeSchema(override: QuoteChecklistOverride): { sections: unknown[] } {
+  const sections: unknown[] = [];
+  override.sections.forEach((section, si) => {
+    const fields = section.items
+      .filter((item) => item.covered)
+      .map((item, ii) => ({
+        id: `quote-scope-${si}-${ii}`,
+        type: "checkbox",
+        label: item.label,
+        required: false,
+      }));
+    if (fields.length === 0) return;
+    sections.push({
+      id: `quote-scope-sec-${si}`,
+      title: section.title || `Agreed scope ${si + 1}`,
+      ...(si === 0 && override.summary ? { description: override.summary } : {}),
+      fields,
+    });
+  });
+  return { sections };
 }
 
 export async function POST(
@@ -78,6 +170,18 @@ export async function POST(
 
     const jobNumber = await reserveJobNumber(db);
     const additionals = extrasFromQuoteNotes(quote.notes);
+
+    // Carry quote context onto the job meta for transparency: the pricing-variable
+    // selections the quote was priced on, and any client reference images.
+    const quoteServiceContext =
+      quote.serviceContext && typeof quote.serviceContext === "object" && !Array.isArray(quote.serviceContext)
+        ? (quote.serviceContext as Record<string, unknown>)
+        : undefined;
+    const quoteReferenceImages = referenceImagesFromQuote(quote.referenceImages);
+
+    const hasMeta =
+      additionals.length > 0 || quoteServiceContext !== undefined || quoteReferenceImages.length > 0;
+
     const job = await db.job.create({
       data: {
         jobNumber,
@@ -86,10 +190,54 @@ export async function POST(
         scheduledDate: new Date(scheduledDate),
         notes: `Converted from quote #${params.id}`,
         // Carry the quoted extras onto the job so the cleaner's form shows them
-        // as an "Additionals" section with how-to instructions.
-        internalNotes: additionals.length > 0 ? serializeJobInternalNotes({ additionals }) : undefined,
+        // as an "Additionals" section with how-to instructions, plus the quote's
+        // pricing-variable snapshot and reference images for transparency.
+        internalNotes: hasMeta
+          ? serializeJobInternalNotes({
+              additionals,
+              quoteServiceContext,
+              quoteReferenceImages: quoteReferenceImages.length > 0 ? quoteReferenceImages : undefined,
+            })
+          : undefined,
       },
     });
+
+    // SPECIAL CHECKLIST: when the quote carries a per-quote checklist override
+    // (the "agreed scope" the client accepted), materialise a one-off
+    // FormTemplate from its covered items and register it as this property's
+    // form override for the job type — the same attachment path
+    // generatePropertyTemplates uses, which the job-form pipeline resolves.
+    // Quotes without an override keep the generic property/job-type template.
+    const checklistOverride = checklistOverrideFromNotes(quote.notes);
+    let agreedScopeTemplateId: string | null = null;
+    if (checklistOverride) {
+      const scopeSchema = buildAgreedScopeSchema(checklistOverride);
+      if (scopeSchema.sections.length > 0) {
+        const quoteRef = params.id.slice(-6).toUpperCase();
+        const template = await db.formTemplate.create({
+          data: {
+            name: `Quote ${quoteRef} — agreed scope`,
+            serviceType: quote.serviceType,
+            kind: FormKind.CUSTOM,
+            version: 1,
+            isActive: true,
+            schema: scopeSchema as any,
+            publishedAt: new Date(),
+          },
+          select: { id: true },
+        });
+        agreedScopeTemplateId = template.id;
+
+        const settings = await getAppSettings();
+        const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
+        const forProperty: Partial<Record<JobType, string>> = {
+          ...(overrides[propertyId] ?? {}),
+        };
+        forProperty[quote.serviceType] = template.id;
+        overrides[propertyId] = forProperty;
+        await saveAppSettings({ propertyFormTemplateOverrides: overrides });
+      }
+    }
 
     await db.quote.update({
       where: { id: params.id },
@@ -101,7 +249,7 @@ export async function POST(
       jobType: job.jobType,
     });
 
-    return NextResponse.json({ job });
+    return NextResponse.json({ job, agreedScopeTemplateId });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

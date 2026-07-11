@@ -151,6 +151,22 @@ export async function GET(
       settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
     let templateSource: "property_override" | "global_latest" = "global_latest";
 
+    // Every template that has been generated/registered as SOME property's
+    // per-job-type override. These are property-specific (e.g. approving a
+    // property's checklist profile mints a high-version active FormTemplate and
+    // registers it here) and must NEVER be picked by the global fallback below —
+    // otherwise one property's newly-generated form, being the newest active
+    // template for its job type, would resolve as the default for every other
+    // property that has no override of its own ("new form for one property
+    // replaces it for all"). The global fallback only considers genuinely global
+    // templates (seeded / builder-published), which are not in this set.
+    const propertyScopedTemplateIds = new Set<string>();
+    for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
+      for (const templateId of Object.values(perProperty ?? {})) {
+        if (typeof templateId === "string" && templateId) propertyScopedTemplateIds.add(templateId);
+      }
+    }
+
     let template = configuredPropertyTemplateId
       ? await db.formTemplate.findFirst({
           where: {
@@ -165,7 +181,13 @@ export async function GET(
       templateSource = "property_override";
     } else {
       template = await db.formTemplate.findFirst({
-        where: { serviceType: job.jobType, isActive: true },
+        where: {
+          serviceType: job.jobType,
+          isActive: true,
+          ...(propertyScopedTemplateIds.size > 0
+            ? { id: { notIn: Array.from(propertyScopedTemplateIds) } }
+            : {}),
+        },
         orderBy: { version: "desc" },
       });
     }

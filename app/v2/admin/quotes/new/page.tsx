@@ -58,6 +58,7 @@ export default async function V2NewQuotePage() {
         clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "" }))}
         services={serviceOptions}
         gstEnabled={settings.pricing.gstEnabled}
+        pricingVariables={settings.pricingVariables}
       />
     </div>
   );

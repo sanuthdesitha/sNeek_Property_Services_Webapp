@@ -23,6 +23,7 @@ import {
   Link2,
   ListChecks,
   MapPin,
+  PackagePlus,
   Receipt,
   RefreshCw,
   Shirt,
@@ -39,6 +40,7 @@ import {
   type TaskRequestRow,
 } from "@/components/v2/admin/jobs/job-detail-reviews";
 import { SubmissionReview, type SubmissionRow } from "@/components/v2/admin/jobs/submission-review";
+import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -600,6 +602,19 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
       </div>
+
+      {/* Extras & scope changes — add quote-style extras anytime; the client is
+          emailed the updated total automatically. */}
+      <ECard>
+        <ECardHeader className="pb-2">
+          <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+            <PackagePlus className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Extras &amp; scope changes
+          </ECardTitle>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          <JobExtrasPanel jobId={job.id} fixedPrice={job.fixedPrice} />
+        </ECardBody>
+      </ECard>
 
       {/* ── Review surfaces ─────────────────────────────────────────────── */}
 

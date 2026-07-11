@@ -18,6 +18,8 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  CheckSquare,
+  X,
 } from "lucide-react";
 import type { FormField, FormSchema, FormSection } from "@/lib/forms/types";
 import {
@@ -29,6 +31,7 @@ import {
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { cn } from "@/lib/utils";
 import { EInput, ETextarea, ESelect, ECheckbox } from "@/components/v2/cleaner/fields";
+import { EButton } from "@/components/v2/ui/primitives";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 
 export type AnswerMap = Record<string, unknown>;
@@ -92,6 +95,18 @@ function SectionBlock({
 
   const fields = flattenFieldsOneLevel(section.fields);
 
+  // Select-all / Clear affordance for sections made of checkbox tasks: toggles
+  // every visible checkbox field in this section at once.
+  const checkboxFields = fields.filter(
+    (field: any) => field?.type === "checkbox" && isFlattenedFieldVisible(field, answers, property)
+  );
+  const allChecked =
+    checkboxFields.length > 0 && checkboxFields.every((field: any) => answers[field.id] === true);
+  const toggleAll = () => {
+    const next = !allChecked;
+    for (const field of checkboxFields) onAnswer(field.id, next);
+  };
+
   return (
     <section className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <button
@@ -113,6 +128,20 @@ function SectionBlock({
       </button>
       {open ? (
         <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
+          {checkboxFields.length > 1 ? (
+            <div className="flex justify-end">
+              <EButton
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={toggleAll}
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                {allChecked ? "Clear all" : "Select all"}
+              </EButton>
+            </div>
+          ) : null}
           {fields.map((field: any) => (
             <FieldBlock
               key={field.id}
@@ -235,29 +264,7 @@ function FieldBlock({
 
   const references =
     Array.isArray(field.references) && field.references.length > 0 ? (
-      <div className="flex flex-wrap gap-2">
-        {field.references.map((ref, i) =>
-          ref.kind === "image" && ref.url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={ref.url}
-              alt={ref.caption || "reference"}
-              className="h-16 w-16 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
-            />
-          ) : ref.url ? (
-            <a
-              key={i}
-              href={ref.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[0.75rem] underline"
-            >
-              {ref.caption || ref.kind}
-            </a>
-          ) : null
-        )}
-      </div>
+      <ReferenceThumbs references={field.references} />
     ) : null;
 
   return (
@@ -573,6 +580,93 @@ function FieldControl({
         />
       );
   }
+}
+
+/**
+ * Reference/example media shown next to a task: small image thumbnails that open
+ * an enlarged lightbox on tap, plus plain links for videos/URLs.
+ */
+function ReferenceThumbs({ references }: { references: any[] }) {
+  const [lightbox, setLightbox] = React.useState<{ url: string; caption?: string } | null>(null);
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {references.map((ref, i) =>
+          ref?.kind === "image" && ref.url ? (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setLightbox({ url: ref.url, caption: ref.caption })}
+              className="group relative h-16 w-16 overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
+              aria-label={ref.caption ? `View ${ref.caption}` : "View reference image"}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={ref.url}
+                alt={ref.caption || "reference"}
+                className="h-full w-full object-cover transition-transform duration-150 group-hover:scale-105"
+              />
+            </button>
+          ) : ref?.url ? (
+            <a
+              key={i}
+              href={ref.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[0.75rem] underline"
+            >
+              {ref.caption || ref.kind}
+            </a>
+          ) : null
+        )}
+      </div>
+      {lightbox ? <Lightbox {...lightbox} onClose={() => setLightbox(null)} /> : null}
+    </>
+  );
+}
+
+function Lightbox({
+  url,
+  caption,
+  onClose,
+}: {
+  url: string;
+  caption?: string;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <figure className="flex max-h-full max-w-full flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={caption || "reference"}
+          className="max-h-[80vh] max-w-full rounded-[var(--e-radius)] object-contain"
+        />
+        {caption ? <figcaption className="text-[0.8125rem] text-white/80">{caption}</figcaption> : null}
+      </figure>
+    </div>
+  );
 }
 
 function OptionChip({
