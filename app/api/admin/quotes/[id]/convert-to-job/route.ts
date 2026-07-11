@@ -11,6 +11,7 @@ import {
   type JobQuoteReferenceImage,
 } from "@/lib/jobs/meta";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
+import { withSignoffSection } from "@/lib/checklists/compose";
 
 const schema = z.object({
   propertyId: z.string().min(1),
@@ -126,7 +127,9 @@ function buildAgreedScopeSchema(override: QuoteChecklistOverride): { sections: u
       fields,
     });
   });
-  return { sections };
+  // Every generated cleaner form carries a sign-off section by default
+  // (matches composeFormSchema / checklistToFormSchema behaviour).
+  return { sections: withSignoffSection(sections) };
 }
 
 export async function POST(
