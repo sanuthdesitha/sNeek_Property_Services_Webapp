@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
+import { PropertyAccessGuide } from "@/components/cleaner/property-access-guide";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
 import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
@@ -4696,6 +4697,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       <AccessInstructionsPanel accessInfo={accessInfo} title="Property Access Instructions" />
+
+      <PropertyAccessGuide propertyId={job?.property?.id ?? job?.propertyId} />
 
       {hasServiceContext ? (
         <Card className="border-border/70">

@@ -38,6 +38,8 @@ import {
   BookOpen,
   Package,
   Square,
+  LogOut,
+  Megaphone,
 } from "lucide-react";
 import {
   EBadge,
@@ -46,16 +48,19 @@ import {
   ECardBody,
   EAlert,
 } from "@/components/v2/ui/primitives";
+import { EModal } from "@/components/v2/admin/estate-kit";
 import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { JobActions } from "@/components/v2/cleaner/job-actions";
+import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import {
   FormRenderer,
   type AnswerMap,
   type UploadMap,
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
+import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { cn } from "@/lib/utils";
 import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
 
@@ -97,6 +102,13 @@ interface TaskDraft {
   decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED";
   note: string;
   proof: CapturedMedia[];
+}
+/** A client- or admin-flagged request the cleaner must not miss on this job. */
+interface ImportantRequest {
+  key: string;
+  title: string;
+  detail?: string;
+  source: string;
 }
 
 const LOCKED = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"];
@@ -242,6 +254,68 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           .join("\n")
       : "";
   const hasCheckin = Boolean(job?.gpsCheckInAt);
+  const propertyId: string | null = job?.propertyId ?? (property as any)?.id ?? null;
+
+  // Client / admin-flagged requests for THIS job — sourced from the same jobTasks
+  // the checklist uses (source CLIENT / ADMIN) plus the quote's client-requested
+  // additionals (payload.jobMeta.additionals — the form's "Additionals
+  // (client-requested)" section). These are the things the cleaner must not miss.
+  const importantRequests = React.useMemo<ImportantRequest[]>(() => {
+    const out: ImportantRequest[] = [];
+    for (const t of jobTasks) {
+      const s = String(t.source ?? "").toUpperCase();
+      if (s !== "CLIENT" && s !== "ADMIN") continue;
+      out.push({
+        key: `task-${t.id}`,
+        title: t.title,
+        detail: t.description ?? undefined,
+        source: s === "CLIENT" ? "Client request" : "Admin request",
+      });
+    }
+    const additionals = Array.isArray(payload?.jobMeta?.additionals) ? payload.jobMeta.additionals : [];
+    for (const a of additionals) {
+      if (!a || typeof a !== "object") continue;
+      const title = typeof a.label === "string" ? a.label.trim() : "";
+      if (!title) continue;
+      out.push({
+        key: `additional-${a.id ?? title}`,
+        title,
+        detail: typeof a.instructions === "string" && a.instructions.trim() ? a.instructions : undefined,
+        source: "Client-requested extra",
+      });
+    }
+    return out;
+  }, [jobTasks, payload]);
+
+  // One-time attention popup on open (per job, remembered in localStorage).
+  const ackKey = `sneek-v2-important-ack-${jobId}`;
+  const [importantAck, setImportantAck] = React.useState(false);
+  const [importantOpen, setImportantOpen] = React.useState(false);
+  const importantShownRef = React.useRef(false);
+  React.useEffect(() => {
+    if (importantShownRef.current || loading) return;
+    if (locked || status === "OFFERED") return;
+    if (importantRequests.length === 0) return;
+    importantShownRef.current = true;
+    let acked = false;
+    try {
+      acked = typeof window !== "undefined" && window.localStorage.getItem(ackKey) === "1";
+    } catch {
+      /* private mode — treat as not yet acknowledged */
+    }
+    setImportantAck(acked);
+    if (!acked) setImportantOpen(true);
+  }, [loading, locked, status, importantRequests.length, ackKey]);
+
+  function acknowledgeImportant() {
+    try {
+      window.localStorage.setItem(ackKey, "1");
+    } catch {
+      /* best-effort */
+    }
+    setImportantAck(true);
+    setImportantOpen(false);
+  }
 
   // Debounced shared-draft autosave — mirrors v1's PATCH /draft envelope
   // ({ editorSessionId, state }) so a co-cleaner or another device can resume.
@@ -382,6 +456,22 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   }
 
   async function submit() {
+    // Client-side validation gate (mirrors the server's required-field rules):
+    // reveal inline errors + scroll to the first, and block the submit so the
+    // cleaner sees exactly what's missing instead of a bare server rejection.
+    if (schema) {
+      const uploadCounts: Record<string, number> = {};
+      for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
+      const formErrors = collectFormErrors(schema, answers, uploadCounts, property ?? {});
+      if (formErrors.length > 0) {
+        if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
+        flash(
+          "danger",
+          `${formErrors.length} required item${formErrors.length > 1 ? "s" : ""} incomplete — please review the highlighted fields.`
+        );
+        return;
+      }
+    }
     setBusy("submit");
     setNotice(null);
     try {
@@ -474,6 +564,97 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           {notice.text}
         </EAlert>
       ) : null}
+
+      {/* Property access guide — self-fetching; renders nothing when the property
+          has no guide, so mounting it is always safe. */}
+      {propertyId ? <PropertyAccessGuide propertyId={propertyId} /> : null}
+
+      {/* Client / admin requests — a loud, always-visible callout so the specific
+          asks for this job stay front-of-mind even after the popup is dismissed. */}
+      {importantRequests.length > 0 ? (
+        <ECard className="border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]">
+          <ECardBody className="space-y-3 pt-6">
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600] text-[hsl(var(--e-foreground))]">
+                <Megaphone className="h-4 w-4 text-[hsl(var(--e-gold))]" /> Client requests
+              </p>
+              <EBadge tone="gold" soft>
+                {importantRequests.length}
+              </EBadge>
+            </div>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              Specific requests the client or admin flagged for this job — make sure every one is handled.
+            </p>
+            <ul className="space-y-2">
+              {importantRequests.map((r) => (
+                <li
+                  key={r.key}
+                  className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-surface))] p-3"
+                >
+                  <p className="text-[0.875rem] font-[550]">{r.title}</p>
+                  {r.detail ? (
+                    <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                      {r.detail}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-[0.625rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">
+                    {r.source}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            {importantAck ? (
+              <button
+                type="button"
+                onClick={() => setImportantOpen(true)}
+                className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] underline-offset-2 hover:underline"
+              >
+                Show the full requests reminder again
+              </button>
+            ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {/* One-time attention popup for client / admin requests on this job. */}
+      <EModal
+        open={importantOpen}
+        onClose={() => setImportantOpen(false)}
+        size="wide"
+        eyebrow="Please read"
+        title={
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-[hsl(var(--e-gold))]" /> Important requests for this job
+          </span>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            The client and admin flagged these specific requests for this job. Please read them before you begin.
+          </p>
+          <ul className="space-y-3">
+            {importantRequests.map((r) => (
+              <li
+                key={r.key}
+                className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3"
+              >
+                <p className="text-[0.9375rem] font-[600]">{r.title}</p>
+                {r.detail ? (
+                  <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                    {r.detail}
+                  </p>
+                ) : null}
+                <p className="mt-1.5 text-[0.625rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">
+                  {r.source}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <EButton variant="gold" className="w-full" onClick={acknowledgeImportant}>
+            <CheckCircle2 className="h-4 w-4" /> I&apos;ve read these
+          </EButton>
+        </div>
+      </EModal>
 
       {/* Offer — accept or decline before starting */}
       {status === "OFFERED" ? (
@@ -827,9 +1008,14 @@ function ClockCard({
             </EButton>
           ) : null}
           {hasCheckin && !locked ? (
-            <EButton variant="ghost" size="sm" disabled={busy === "checkout"} onClick={onCheckout}>
-              {busy === "checkout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
-              Record check-out GPS
+            <EButton
+              variant="primary"
+              className="w-full sm:w-auto"
+              disabled={busy === "checkout"}
+              onClick={onCheckout}
+            >
+              {busy === "checkout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+              Check out
             </EButton>
           ) : null}
         </div>
