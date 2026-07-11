@@ -8,9 +8,12 @@
  *
  * Answer values are stored by fieldId in `answers`; media uploads are stored by
  * fieldId in `uploads` as arrays of S3 keys — exactly the shape the submit
- * endpoint reads (`data.uploads[fieldId]`).
+ * endpoint reads (`data.uploads[fieldId]`). Stock/consumables used are stored
+ * under the reserved `inventoryUsage` answer key (itemId → quantity), which the
+ * submit endpoint reads via `data.inventoryUsage` → `deductStockFromSubmission`.
  */
 import * as React from "react";
+import { usePathname } from "next/navigation";
 import {
   Info,
   Star,
@@ -19,7 +22,9 @@ import {
   ChevronDown,
   ChevronRight,
   CheckSquare,
-  X,
+  Camera,
+  Package,
+  AlertTriangle,
 } from "lucide-react";
 import type { FormField, FormSchema, FormSection } from "@/lib/forms/types";
 import {
@@ -28,20 +33,55 @@ import {
   isFlattenedFieldVisible,
   fieldDetailsKey,
 } from "@/lib/forms/visibility";
+import { collectFormErrors, type FormFieldError } from "@/lib/forms/validate-submission";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import type { StampOptions } from "@/lib/uploads/stamp";
 import { cn } from "@/lib/utils";
 import { EInput, ETextarea, ESelect, ECheckbox } from "@/components/v2/cleaner/fields";
 import { EButton } from "@/components/v2/ui/primitives";
-import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
+import {
+  MediaCapture,
+  MediaLightbox,
+  type CapturedMedia,
+  type LightboxItem,
+} from "@/components/v2/cleaner/media-capture";
+import { GuidedCapture, type GuidedCaptureTarget } from "@/components/v2/cleaner/guided-capture";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;
+
+export interface PropertyStockRow {
+  onHand?: number;
+  item: {
+    id: string;
+    name: string;
+    sku?: string | null;
+    category?: string | null;
+    location?: string | null;
+    unit?: string | null;
+  };
+}
+
+/* ── Validation context (errors + reveal + scroll anchors) ──────────────────── */
+
+type ValidationCtx = {
+  errorFor: (fieldId: string) => string | undefined;
+  isRevealed: (fieldId: string) => boolean;
+  registerAnchor: (fieldId: string, el: HTMLElement | null) => void;
+};
+
+const ValidationContext = React.createContext<ValidationCtx>({
+  errorFor: () => undefined,
+  isRevealed: () => false,
+  registerAnchor: () => {},
+});
 
 export function FormRenderer({
   schema,
   answers,
   uploads,
   property,
+  inventoryStock,
   onAnswer,
   onUpload,
   disabled = false,
@@ -50,28 +90,172 @@ export function FormRenderer({
   answers: AnswerMap;
   uploads: UploadMap;
   property: Record<string, unknown>;
+  /** Property stock items (from GET /api/jobs/[id]/form). Self-fetched when omitted. */
+  inventoryStock?: PropertyStockRow[];
   onAnswer: (fieldId: string, value: unknown) => void;
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled?: boolean;
 }) {
   const sections = Array.isArray(schema?.sections) ? schema.sections : [];
+
+  // Track which fields the cleaner has touched so inline errors don't scream
+  // before they've had a chance to fill anything in.
+  const [touched, setTouched] = React.useState<Set<string>>(() => new Set());
+  const [revealAll, setRevealAll] = React.useState(false);
+
+  const markTouched = React.useCallback((fieldId: string) => {
+    setTouched((prev) => {
+      if (prev.has(fieldId)) return prev;
+      const next = new Set(prev);
+      next.add(fieldId);
+      return next;
+    });
+  }, []);
+
+  const handleAnswer = React.useCallback(
+    (fieldId: string, value: unknown) => {
+      markTouched(fieldId);
+      onAnswer(fieldId, value);
+    },
+    [markTouched, onAnswer]
+  );
+
+  const handleUpload = React.useCallback(
+    (fieldId: string, media: CapturedMedia[]) => {
+      markTouched(fieldId);
+      onUpload(fieldId, media);
+    },
+    [markTouched, onUpload]
+  );
+
+  // Live validation — mirrors the submit endpoint's required-field rules.
+  const uploadCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [fieldId, media] of Object.entries(uploads)) counts[fieldId] = media?.length ?? 0;
+    return counts;
+  }, [uploads]);
+
+  const errors = React.useMemo<FormFieldError[]>(
+    () => collectFormErrors(schema, answers, uploadCounts, property),
+    [schema, answers, uploadCounts, property]
+  );
+  const errorMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const err of errors) map.set(err.fieldId, err.message);
+    return map;
+  }, [errors]);
+
+  // Scroll anchors so the summary banner (and an external "validate" signal) can
+  // jump to the first offending field.
+  const anchorsRef = React.useRef<Map<string, HTMLElement>>(new Map());
+  const registerAnchor = React.useCallback((fieldId: string, el: HTMLElement | null) => {
+    if (el) anchorsRef.current.set(fieldId, el);
+    else anchorsRef.current.delete(fieldId);
+  }, []);
+
+  const scrollToField = React.useCallback((fieldId: string) => {
+    const el = anchorsRef.current.get(fieldId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.focus?.();
+    }
+  }, []);
+
+  // External integration point: any submit flow can dispatch
+  // `window.dispatchEvent(new CustomEvent("sneek:validate-form"))` to force every
+  // error visible and jump to the first one. Live validation works without it.
+  React.useEffect(() => {
+    const onValidate = () => {
+      setRevealAll(true);
+      const first = errors[0];
+      if (first) requestAnimationFrame(() => scrollToField(first.fieldId));
+    };
+    window.addEventListener("sneek:validate-form", onValidate as EventListener);
+    return () => window.removeEventListener("sneek:validate-form", onValidate as EventListener);
+  }, [errors, scrollToField]);
+
+  const validation = React.useMemo<ValidationCtx>(
+    () => ({
+      errorFor: (fieldId: string) => errorMap.get(fieldId),
+      isRevealed: (fieldId: string) => revealAll || touched.has(fieldId),
+      registerAnchor,
+    }),
+    [errorMap, revealAll, touched, registerAnchor]
+  );
+
+  // Show the summary once errors exist AND the cleaner has engaged (revealed all,
+  // or touched at least one field) — avoids a scary banner on a pristine form.
+  const visibleErrors = revealAll
+    ? errors
+    : errors.filter((e) => touched.has(e.fieldId));
+
   return (
-    <div className="space-y-5">
-      {sections.map((section) => (
-        <SectionBlock
-          key={section.id}
-          section={section}
-          answers={answers}
-          uploads={uploads}
+    <ValidationContext.Provider value={validation}>
+      <div className="space-y-5">
+        {visibleErrors.length > 0 ? (
+          <ValidationSummary errors={visibleErrors} onJump={scrollToField} />
+        ) : null}
+
+        {sections.map((section) => (
+          <SectionBlock
+            key={section.id}
+            section={section}
+            answers={answers}
+            uploads={uploads}
+            property={property}
+            onAnswer={handleAnswer}
+            onUpload={handleUpload}
+            disabled={disabled}
+          />
+        ))}
+
+        <StockUsageSection
           property={property}
-          onAnswer={onAnswer}
-          onUpload={onUpload}
+          inventoryStock={inventoryStock}
+          answers={answers}
+          onAnswer={handleAnswer}
           disabled={disabled}
         />
-      ))}
+      </div>
+    </ValidationContext.Provider>
+  );
+}
+
+/* ── Validation summary banner ──────────────────────────────────────────────── */
+
+function ValidationSummary({
+  errors,
+  onJump,
+}: {
+  errors: FormFieldError[];
+  onJump: (fieldId: string) => void;
+}) {
+  return (
+    <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-4">
+      <p className="flex items-center gap-1.5 text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))]">
+        <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-danger))]" />
+        {errors.length} required item{errors.length === 1 ? "" : "s"} incomplete
+      </p>
+      <ul className="mt-2 space-y-1">
+        {errors.map((err) => (
+          <li key={err.fieldId}>
+            <button
+              type="button"
+              onClick={() => onJump(err.fieldId)}
+              className="text-left text-[0.8125rem] text-[hsl(var(--e-danger))] underline-offset-2 hover:underline"
+            >
+              {err.sectionLabel && err.sectionLabel !== err.label
+                ? `${err.sectionLabel}: ${err.label}`
+                : err.label}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
+
+/* ── Section ────────────────────────────────────────────────────────────────── */
 
 function SectionBlock({
   section,
@@ -91,6 +275,7 @@ function SectionBlock({
   disabled: boolean;
 }) {
   const [open, setOpen] = React.useState(true);
+  const [guided, setGuided] = React.useState(false);
   if (!isTemplateNodeVisible(section as any, answers, property)) return null;
 
   const fields = flattenFieldsOneLevel(section.fields);
@@ -106,6 +291,22 @@ function SectionBlock({
     const next = !allChecked;
     for (const field of checkboxFields) onAnswer(field.id, next);
   };
+
+  // Photo capture targets for the guided flow: visible photo / photo+video
+  // upload fields in this section.
+  const photoTargets = fields.filter(
+    (field: any) =>
+      isFlattenedFieldVisible(field, answers, property) &&
+      isUploadFieldType(field?.type) &&
+      (field?.type === "photo" || field?.mediaMode === "both")
+  );
+
+  const guidedTargets: GuidedCaptureTarget[] = photoTargets.map((field: any) => ({
+    fieldId: String(field.id),
+    label: typeof field.label === "string" && field.label.trim() ? field.label.trim() : String(field.id),
+    minPhotos: field.type === "photo" ? field.minPhotos : undefined,
+    maxFiles: field.maxFiles,
+  }));
 
   return (
     <section className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
@@ -128,6 +329,21 @@ function SectionBlock({
       </button>
       {open ? (
         <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
+          {guidedTargets.length > 0 ? (
+            <EButton
+              type="button"
+              variant="outline-gold"
+              size="md"
+              disabled={disabled}
+              className="w-full"
+              onClick={() => setGuided(true)}
+            >
+              <Camera className="h-4 w-4" />
+              Capture / Add photos
+              {guidedTargets.length > 1 ? ` (${guidedTargets.length} spots)` : ""}
+            </EButton>
+          ) : null}
+
           {checkboxFields.length > 1 ? (
             <div className="flex justify-end">
               <EButton
@@ -157,9 +373,169 @@ function SectionBlock({
           ))}
         </div>
       ) : null}
+
+      {guided ? (
+        <GuidedCapture
+          targets={guidedTargets}
+          sectionLabel={section.title}
+          folder="forms"
+          stampFor={(fieldId) => {
+            const field = photoTargets.find((f: any) => String(f.id) === fieldId);
+            return field ? stampForField(field, section, property) : null;
+          }}
+          counts={Object.fromEntries(
+            guidedTargets.map((t) => [t.fieldId, uploads[t.fieldId]?.length ?? 0])
+          )}
+          thumbnails={Object.fromEntries(
+            guidedTargets.map((t) => [
+              t.fieldId,
+              (uploads[t.fieldId] ?? []).filter((m) => m.kind === "image").map((m) => m.url),
+            ])
+          )}
+          onCommit={(fieldId, media) => onUpload(fieldId, [...(uploads[fieldId] ?? []), ...media])}
+          onClose={() => setGuided(false)}
+        />
+      ) : null}
     </section>
   );
 }
+
+/* ── Stock / consumables used ───────────────────────────────────────────────── */
+
+function StockUsageSection({
+  property,
+  inventoryStock,
+  answers,
+  onAnswer,
+  disabled,
+}: {
+  property: Record<string, unknown>;
+  inventoryStock?: PropertyStockRow[];
+  answers: AnswerMap;
+  onAnswer: (fieldId: string, value: unknown) => void;
+  disabled: boolean;
+}) {
+  const pathname = usePathname();
+  const [fetched, setFetched] = React.useState<PropertyStockRow[] | null>(null);
+
+  // Self-fetch the property's tracked stock when the parent didn't pass it (the
+  // list rides on GET /api/jobs/[id]/form under `inventoryStock`). Only when the
+  // property actually tracks inventory, so nothing runs otherwise.
+  React.useEffect(() => {
+    if (inventoryStock || property?.inventoryEnabled !== true) return;
+    const jobId = pathname?.match(/\/jobs\/([^/?#]+)/)?.[1];
+    if (!jobId) return;
+    let cancelled = false;
+    fetch(`/api/jobs/${jobId}/form`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && Array.isArray(d?.inventoryStock)) setFetched(d.inventoryStock);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [inventoryStock, property, pathname]);
+
+  const stock = inventoryStock ?? fetched ?? [];
+  if (property?.inventoryEnabled !== true || stock.length === 0) return null;
+
+  const usage = (answers.inventoryUsage as Record<string, unknown> | undefined) ?? {};
+  const valueFor = (itemId: string) => {
+    const raw = usage[itemId];
+    const n = typeof raw === "number" ? raw : Number(raw ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const setUsage = (itemId: string, qty: number) => {
+    const next = { ...(answers.inventoryUsage as Record<string, unknown> | undefined) };
+    if (qty > 0) next[itemId] = qty;
+    else delete next[itemId];
+    onAnswer("inventoryUsage", next);
+  };
+
+  // Group by storage location for a tidy, scannable list.
+  const groups = new Map<string, PropertyStockRow[]>();
+  for (const row of stock) {
+    const loc = (row.item?.location || row.item?.category || "General").toString();
+    if (!groups.has(loc)) groups.set(loc, []);
+    groups.get(loc)!.push(row);
+  }
+
+  return (
+    <section className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <div className="p-4">
+        <p className="e-eyebrow flex items-center gap-1.5">
+          <Package className="h-3.5 w-3.5" /> Stock &amp; consumables used
+        </p>
+        <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          Record how many of each item you used — this is deducted from the property&apos;s on-hand
+          count.
+        </p>
+      </div>
+      <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
+        {Array.from(groups.entries()).map(([location, rows]) => (
+          <div key={location} className="space-y-2">
+            <p className="text-[0.6875rem] font-[550] uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))]">
+              {location}
+            </p>
+            {rows.map((row) => {
+              const itemId = String(row.item.id);
+              const qty = valueFor(itemId);
+              const onHand = Number(row.onHand ?? 0);
+              return (
+                <div
+                  key={itemId}
+                  className="flex items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">
+                      {row.item.name}
+                    </p>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                      {onHand} on hand{row.item.unit ? ` · ${row.item.unit}` : ""}
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={disabled || qty <= 0}
+                      onClick={() => setUsage(itemId, Math.max(0, qty - 1))}
+                      aria-label={`Less ${row.item.name}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] disabled:opacity-50"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={qty === 0 ? "" : String(qty)}
+                      disabled={disabled}
+                      placeholder="0"
+                      onChange={(e) => setUsage(itemId, Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                      className="h-9 w-14 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-center text-[0.9375rem] font-semibold tabular-nums text-[hsl(var(--e-foreground))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[hsl(var(--e-ring))]"
+                    />
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setUsage(itemId, qty + 1)}
+                      aria-label={`More ${row.item.name}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] disabled:opacity-50"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Stamp helpers ──────────────────────────────────────────────────────────── */
 
 /**
  * Derive the evidence-stamp tag for a photo field — same heuristics as the v1
@@ -196,6 +572,24 @@ function stampLocation(property: Record<string, unknown>): { address?: string; r
   return { address: address || undefined, reference: str(property?.name) || undefined };
 }
 
+/** Full evidence-stamp options for a field's captures (address/ref/context/tag). */
+function stampForField(field: any, section: FormSection, property: Record<string, unknown>): StampOptions {
+  const { address, reference } = stampLocation(property);
+  const sectionLabel =
+    (typeof (section as any)?.label === "string" && (section as any).label.trim()) ||
+    (typeof section?.title === "string" && section.title.trim()) ||
+    "";
+  const fieldLabel = (typeof field?.label === "string" && field.label.trim()) || "";
+  return {
+    address,
+    reference,
+    contextLabel: [sectionLabel, fieldLabel].filter(Boolean).join(" · ") || undefined,
+    tag: deriveStampTag(field, section),
+  };
+}
+
+/* ── Field block ────────────────────────────────────────────────────────────── */
+
 function FieldBlock({
   field,
   section,
@@ -215,6 +609,20 @@ function FieldBlock({
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled: boolean;
 }) {
+  const validation = React.useContext(ValidationContext);
+  const anchorRef = React.useRef<HTMLDivElement | null>(null);
+
+  const detailsKey = fieldDetailsKey(field.id);
+  const fieldError = validation.errorFor(field.id);
+  const detailsError = validation.errorFor(detailsKey);
+  const showFieldError = Boolean(fieldError) && validation.isRevealed(field.id);
+  const showDetailsError = Boolean(detailsError) && validation.isRevealed(field.id);
+
+  React.useEffect(() => {
+    validation.registerAnchor(field.id, anchorRef.current);
+    return () => validation.registerAnchor(field.id, null);
+  }, [field.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!isFlattenedFieldVisible(field as any, answers, property)) return null;
 
   const value = answers[field.id];
@@ -232,6 +640,11 @@ function FieldBlock({
           <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
             {field.helpText}
           </p>
+        ) : null}
+        {Array.isArray(field.references) && field.references.length > 0 ? (
+          <div className="mt-2">
+            <ReferenceThumbs references={field.references} />
+          </div>
         ) : null}
       </div>
     );
@@ -268,7 +681,16 @@ function FieldBlock({
     ) : null;
 
   return (
-    <div className={cn("space-y-1.5", indent)}>
+    <div
+      ref={anchorRef}
+      tabIndex={-1}
+      className={cn(
+        "space-y-1.5 scroll-mt-24 outline-none",
+        indent,
+        showFieldError &&
+          "rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft)/0.35)] p-2.5"
+      )}
+    >
       {label}
       {references}
       <FieldControl
@@ -280,15 +702,23 @@ function FieldBlock({
         onUpload={onUpload}
         disabled={disabled}
         property={property}
+        error={showFieldError}
       />
       {/* yes/no detail note when answered "No" */}
       {field.type === "yesno" && field.detailsWhenNo && (value === "no" || value === false) ? (
         <ETextarea
           placeholder="Add details (required)"
-          value={String(answers[fieldDetailsKey(field.id)] ?? "")}
+          value={String(answers[detailsKey] ?? "")}
           disabled={disabled}
-          onChange={(e) => onAnswer(fieldDetailsKey(field.id), e.target.value)}
+          className={showDetailsError ? "border-[hsl(var(--e-danger))]" : undefined}
+          onChange={(e) => onAnswer(detailsKey, e.target.value)}
         />
+      ) : null}
+      {showDetailsError ? (
+        <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{detailsError}</p>
+      ) : null}
+      {showFieldError ? (
+        <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{fieldError}</p>
       ) : null}
       {help}
       {instructions}
@@ -305,6 +735,7 @@ function FieldControl({
   onUpload,
   disabled,
   property,
+  error,
 }: {
   field: FormField;
   section: FormSection;
@@ -314,6 +745,7 @@ function FieldControl({
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled: boolean;
   property: Record<string, unknown>;
+  error?: boolean;
 }) {
   // Media/upload fields → native capture.
   if (isUploadFieldType(field.type)) {
@@ -325,12 +757,6 @@ function FieldControl({
           : field.type === "file"
             ? "file"
             : "photo";
-    const { address, reference } = stampLocation(property);
-    const sectionLabel =
-      (typeof (section as any)?.label === "string" && (section as any).label.trim()) ||
-      (typeof section?.title === "string" && section.title.trim()) ||
-      "";
-    const fieldLabel = (typeof field?.label === "string" && field.label.trim()) || "";
     return (
       <MediaCapture
         value={uploads[field.id] ?? []}
@@ -340,15 +766,13 @@ function FieldControl({
         multiple={(field.maxFiles ?? 10) !== 1}
         minPhotos={field.type === "photo" ? field.minPhotos : undefined}
         disabled={disabled}
-        stamp={{
-          address,
-          reference,
-          contextLabel: [sectionLabel, fieldLabel].filter(Boolean).join(" · ") || undefined,
-          tag: deriveStampTag(field, section),
-        }}
+        error={error}
+        stamp={stampForField(field, section, property)}
       />
     );
   }
+
+  const errCls = error ? "border-[hsl(var(--e-danger))]" : undefined;
 
   switch (field.type) {
     case "longtext":
@@ -357,6 +781,7 @@ function FieldControl({
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
+          className={errCls}
           onChange={(e) => set(e.target.value)}
         />
       );
@@ -375,6 +800,7 @@ function FieldControl({
             placeholder={field.placeholder}
             value={value === undefined || value === null ? "" : String(value)}
             disabled={disabled}
+            className={errCls}
             onChange={(e) => set(e.target.value === "" ? "" : Number(e.target.value))}
           />
           {field.unit ? (
@@ -393,6 +819,7 @@ function FieldControl({
           type={field.type === "datetime" ? "datetime-local" : field.type}
           value={String(value ?? "")}
           disabled={disabled}
+          className={errCls}
           onChange={(e) => set(e.target.value)}
         />
       );
@@ -405,13 +832,19 @@ function FieldControl({
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
+          className={errCls}
           onChange={(e) => set(e.target.value)}
         />
       );
 
     case "select":
       return (
-        <ESelect value={String(value ?? "")} disabled={disabled} onChange={(e) => set(e.target.value)}>
+        <ESelect
+          value={String(value ?? "")}
+          disabled={disabled}
+          className={errCls}
+          onChange={(e) => set(e.target.value)}
+        >
           <option value="">Select…</option>
           {(field.options ?? []).map((opt) => (
             <option key={opt} value={opt}>
@@ -565,6 +998,7 @@ function FieldControl({
           placeholder="Scan or type code"
           value={String(value ?? "")}
           disabled={disabled}
+          className={errCls}
           onChange={(e) => set(e.target.value)}
         />
       );
@@ -576,6 +1010,7 @@ function FieldControl({
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
+          className={errCls}
           onChange={(e) => set(e.target.value)}
         />
       );
@@ -584,30 +1019,37 @@ function FieldControl({
 
 /**
  * Reference/example media shown next to a task: small image thumbnails that open
- * an enlarged lightbox on tap, plus plain links for videos/URLs.
+ * a swipeable lightbox (prev/next) on tap, plus plain links for videos/URLs.
  */
 function ReferenceThumbs({ references }: { references: any[] }) {
-  const [lightbox, setLightbox] = React.useState<{ url: string; caption?: string } | null>(null);
+  const [lightbox, setLightbox] = React.useState<number | null>(null);
+  const imageRefs = references.filter((r) => r?.kind === "image" && r?.url);
+  const items: LightboxItem[] = imageRefs.map((r) => ({ url: r.url, kind: "image", caption: r.caption }));
+
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {references.map((ref, i) =>
-          ref?.kind === "image" && ref.url ? (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setLightbox({ url: ref.url, caption: ref.caption })}
-              className="group relative h-16 w-16 overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
-              aria-label={ref.caption ? `View ${ref.caption}` : "View reference image"}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={ref.url}
-                alt={ref.caption || "reference"}
-                className="h-full w-full object-cover transition-transform duration-150 group-hover:scale-105"
-              />
-            </button>
-          ) : ref?.url ? (
+        {references.map((ref, i) => {
+          if (ref?.kind === "image" && ref.url) {
+            const idx = imageRefs.indexOf(ref);
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setLightbox(idx)}
+                className="group relative h-16 w-16 overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
+                aria-label={ref.caption ? `View ${ref.caption}` : "View reference image"}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={ref.url}
+                  alt={ref.caption || "reference"}
+                  className="h-full w-full object-cover transition-transform duration-150 group-hover:scale-105"
+                />
+              </button>
+            );
+          }
+          return ref?.url ? (
             <a
               key={i}
               href={ref.url}
@@ -617,55 +1059,18 @@ function ReferenceThumbs({ references }: { references: any[] }) {
             >
               {ref.caption || ref.kind}
             </a>
-          ) : null
-        )}
+          ) : null;
+        })}
       </div>
-      {lightbox ? <Lightbox {...lightbox} onClose={() => setLightbox(null)} /> : null}
-    </>
-  );
-}
-
-function Lightbox({
-  url,
-  caption,
-  onClose,
-}: {
-  url: string;
-  caption?: string;
-  onClose: () => void;
-}) {
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <figure className="flex max-h-full max-w-full flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={url}
-          alt={caption || "reference"}
-          className="max-h-[80vh] max-w-full rounded-[var(--e-radius)] object-contain"
+      {lightbox != null && items.length > 0 ? (
+        <MediaLightbox
+          items={items}
+          index={lightbox}
+          onIndexChange={setLightbox}
+          onClose={() => setLightbox(null)}
         />
-        {caption ? <figcaption className="text-[0.8125rem] text-white/80">{caption}</figcaption> : null}
-      </figure>
-    </div>
+      ) : null}
+    </>
   );
 }
 

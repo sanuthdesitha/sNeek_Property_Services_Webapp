@@ -23,6 +23,7 @@ import {
   Camera,
   ClipboardList,
   FileText,
+  KeyRound,
   Plus,
   RefreshCw,
   Save,
@@ -51,8 +52,9 @@ import {
 } from "@/components/v2/admin/estate-kit";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
+import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
 
-type TabKey = "profile" | "jobs" | "checklist" | "inventory" | "billing";
+type TabKey = "profile" | "jobs" | "checklist" | "access" | "inventory" | "billing";
 
 const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
   SUCCESS: "success",
@@ -428,6 +430,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     { key: "profile", label: "Profile & edit", icon: <Building2 className="h-3.5 w-3.5" /> },
     { key: "jobs", label: "Jobs & history", icon: <FileText className="h-3.5 w-3.5" />, count: jobCount },
     { key: "checklist", label: "Checklist", icon: <ClipboardList className="h-3.5 w-3.5" />, count: pendingTasks.length },
+    { key: "access", label: "Access guide", icon: <KeyRound className="h-3.5 w-3.5" /> },
     { key: "inventory", label: "Inventory", icon: <ClipboardList className="h-3.5 w-3.5" />, count: stockRows.length },
     { key: "billing", label: "Billing rates", icon: <FileText className="h-3.5 w-3.5" /> },
   ];
@@ -656,6 +659,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
       {/* JOBS & HISTORY */}
       {tab === "jobs" ? <PropertyJobs propertyId={propertyId} /> : null}
+
+      {/* ACCESS GUIDE */}
+      {tab === "access" ? <PropertyAccessGuideEditor propertyId={propertyId} /> : null}
 
       {/* BILLING RATES */}
       {tab === "billing" ? <PropertyBillingRates propertyId={propertyId} /> : null}

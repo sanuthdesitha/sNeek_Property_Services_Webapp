@@ -15,6 +15,7 @@ import {
   Boxes,
   Megaphone,
   Settings,
+  PackageSearch,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -26,6 +27,7 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/clients", label: "Clients", icon: Users },
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck },
   { href: "/v2/admin/cases", label: "Cases", icon: ClipboardCheck },
+  { href: "/v2/admin/lost-found", label: "Lost & found", icon: PackageSearch },
   { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt },
   { href: "/v2/admin/inventory", label: "Inventory", icon: Boxes },
   { href: "/v2/admin/finance", label: "Finance", icon: Wallet },

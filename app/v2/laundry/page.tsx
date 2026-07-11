@@ -67,6 +67,15 @@ async function getLaundry() {
   const todayEnd = new Date(todayStart.getTime() + 86_400_000);
 
   // Mirrors app/v2/admin/laundry/page.tsx getLaundry().
+  //
+  // A set the laundry team already returned in the v1 portal is written as
+  // status=DROPPED with a `droppedAt` timestamp (see the RETURNED→DROPPED map in
+  // app/api/laundry/[taskId]/status/route.ts). Early returns — a first-class flow
+  // here — leave the *scheduled* `dropoffDate` in the future, so filtering the
+  // "today" board on `dropoffDate` alone dropped those sets entirely: v2 showed
+  // them as un-returned (or missing) even though v1 marked them done. Match on the
+  // canonical `droppedAt` as well so anything actually delivered today shows and
+  // is counted as Delivered, regardless of its scheduled drop-off date.
   const tasks = await db.laundryTask
     .findMany({
       where: {
@@ -74,6 +83,7 @@ async function getLaundry() {
         OR: [
           { pickupDate: { gte: todayStart, lt: todayEnd } },
           { dropoffDate: { gte: todayStart, lt: todayEnd } },
+          { droppedAt: { gte: todayStart, lt: todayEnd } },
           { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] } },
         ],
       },
@@ -82,15 +92,22 @@ async function getLaundry() {
       select: {
         id: true,
         status: true,
+        droppedAt: true,
         bagWeightKg: true,
         property: { select: { name: true, suburb: true } },
       },
     })
-    .catch(() => [] as Array<{ id: string; status: LaundryStatus; bagWeightKg: number | null; property: { name: string | null; suburb: string | null } | null }>);
+    .catch(() => [] as Array<{ id: string; status: LaundryStatus; droppedAt: Date | null; bagWeightKg: number | null; property: { name: string | null; suburb: string | null } | null }>);
+
+  const deliveredToday = (t: { status: LaundryStatus; droppedAt: Date | null }) =>
+    t.status === LaundryStatus.DROPPED &&
+    t.droppedAt != null &&
+    t.droppedAt >= todayStart &&
+    t.droppedAt < todayEnd;
 
   const inQueue = tasks.filter((t) => t.status === LaundryStatus.PENDING || t.status === LaundryStatus.CONFIRMED).length;
   const inTransit = tasks.filter((t) => t.status === LaundryStatus.PICKED_UP).length;
-  const ready = tasks.filter((t) => t.status === LaundryStatus.DROPPED).length;
+  const ready = tasks.filter(deliveredToday).length;
 
   return { tasks, inQueue, inTransit, ready };
 }

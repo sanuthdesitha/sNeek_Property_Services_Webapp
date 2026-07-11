@@ -376,17 +376,17 @@ model VerificationToken {
 /// user sign in on a trusted device without a password. credentialId/publicKey
 /// are base64url strings; counter guards against cloned-authenticator replay.
 model WebAuthnCredential {
-  id            String    @id @default(cuid())
-  userId        String
-  credentialId  String    @unique
-  publicKey     String    @db.Text
-  counter       BigInt    @default(0)
-  transports    String?
-  deviceType    String?
-  backedUp      Boolean   @default(false)
-  deviceName    String?
-  createdAt     DateTime  @default(now())
-  lastUsedAt    DateTime?
+  id           String    @id @default(cuid())
+  userId       String
+  credentialId String    @unique
+  publicKey    String    @db.Text
+  counter      BigInt    @default(0)
+  transports   String?
+  deviceType   String?
+  backedUp     Boolean   @default(false)
+  deviceName   String?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -395,7 +395,7 @@ model WebAuthnCredential {
 
 /// How a user receives their second-factor code.
 enum TwoFactorMethod {
-  TOTP  // authenticator app (Google Authenticator / Authy)
+  TOTP // authenticator app (Google Authenticator / Authy)
   EMAIL // one-time code emailed at sign-in
 }
 
@@ -442,28 +442,28 @@ model PushSubscription {
 /// quality. Reported by cleaners, clients, or QA inspectors (and admins), and
 /// worked down to resolution. Scoped to Airbnb-style properties in app logic.
 model PropertyMaintenanceItem {
-  id               String                  @id @default(cuid())
-  propertyId       String
-  jobId            String?
-  reportedByUserId String
-  source           MaintenanceSource
-  category         MaintenanceCategory     @default(OTHER)
-  area             String?
-  title            String
-  description      String?                 @db.Text
-  recommendedAction MaintenanceAction      @default(REPLACE)
-  priority         MaintenancePriority     @default(MEDIUM)
-  status           MaintenanceStatus       @default(OPEN)
-  photoKeys        Json?
-  estimatedCost    Float?
+  id                 String              @id @default(cuid())
+  propertyId         String
+  jobId              String?
+  reportedByUserId   String
+  source             MaintenanceSource
+  category           MaintenanceCategory @default(OTHER)
+  area               String?
+  title              String
+  description        String?             @db.Text
+  recommendedAction  MaintenanceAction   @default(REPLACE)
+  priority           MaintenancePriority @default(MEDIUM)
+  status             MaintenanceStatus   @default(OPEN)
+  photoKeys          Json?
+  estimatedCost      Float?
   // Client-facing cost quote + approval (Phase 3 of the client maintenance epic).
-  quotedCost          Float?
-  costApprovalStatus  String? // null | PENDING | APPROVED | DECLINED
-  costDecidedAt       DateTime?
-  clientVisible    Boolean                 @default(true)
-  resolvedByUserId String?
-  resolvedAt       DateTime?
-  resolutionNote   String?                 @db.Text
+  quotedCost         Float?
+  costApprovalStatus String? // null | PENDING | APPROVED | DECLINED
+  costDecidedAt      DateTime?
+  clientVisible      Boolean             @default(true)
+  resolvedByUserId   String?
+  resolvedAt         DateTime?
+  resolutionNote     String?             @db.Text
 
   // ── Assignment + worker visit lifecycle ──
   assignedWorkerId    String?
@@ -482,8 +482,8 @@ model PropertyMaintenanceItem {
   issuesNote          String?             @db.Text
   finishPhotoKeys     Json?
 
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   property       Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   job            Job?                       @relation(fields: [jobId], references: [id], onDelete: SetNull)
@@ -547,13 +547,13 @@ model MaintenanceLocationPing {
 /// Lifecycle/audit trail for a maintenance item (status changes, notes), so the
 /// list stays automatically tracked over time.
 model PropertyMaintenanceEvent {
-  id         String            @id @default(cuid())
+  id         String             @id @default(cuid())
   itemId     String
   userId     String?
   fromStatus MaintenanceStatus?
   toStatus   MaintenanceStatus
-  note       String?           @db.Text
-  createdAt  DateTime          @default(now())
+  note       String?            @db.Text
+  createdAt  DateTime           @default(now())
 
   item PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user User?                   @relation("MaintenanceEventBy", fields: [userId], references: [id], onDelete: SetNull)
@@ -642,16 +642,16 @@ model User {
   // Optional two-factor authentication (per-user opt-in).
   twoFactorEnabled     Boolean          @default(false)
   twoFactorMethod      TwoFactorMethod?
-  totpSecret           String?          // base32 secret (TOTP method only)
-  twoFactorBackupCodes String?          // JSON array of sha256-hashed one-time codes
+  totpSecret           String? // base32 secret (TOTP method only)
+  twoFactorBackupCodes String? // JSON array of sha256-hashed one-time codes
 
-  profileEditingEnabled Boolean @default(true)
-  bankBsb           String?
-  bankAccountNumber   String?
-  bankAccountName     String?
-  stripeAccountId     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  profileEditingEnabled Boolean  @default(true)
+  bankBsb               String?
+  bankAccountNumber     String?
+  bankAccountName       String?
+  stripeAccountId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   accounts                     Account[]
   sessions                     Session[]
@@ -743,16 +743,16 @@ model User {
   invitation                   UserInvitation?
   invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
 
-  latitude     Float?
-  longitude    Float?
-  placeId      String?
-  suburb       String?
-  state        String?
-  postcode     String?
-  uiDensity    UiDensity   @default(DEFAULT)
+  latitude        Float?
+  longitude       Float?
+  placeId         String?
+  suburb          String?
+  state           String?
+  postcode        String?
+  uiDensity       UiDensity       @default(DEFAULT)
   themePreference ThemePreference @default(SYSTEM)
-  emailStatus  EmailStatus @default(OK)
-  lastSeenAt   DateTime?
+  emailStatus     EmailStatus     @default(OK)
+  lastSeenAt      DateTime?
 
   invoicingCadence       InvoicingCadence @default(ON_COMPLETION)
   invoiceDayOfWeek       Int?
@@ -768,21 +768,21 @@ model User {
   emergencyContactRelation String?
 
   // Identity (cleaner-specific)
-  visaStatus               VisaStatus?
+  visaStatus          VisaStatus?
   // TODO: encrypt at rest if we ever store the actual TFN
-  taxFileNumberOnFile      Boolean    @default(false)
+  taxFileNumberOnFile Boolean     @default(false)
 
   // Employment
-  employmentType           EmploymentType?
-  abn                      String?
-  hireDate                 DateTime?
+  employmentType EmploymentType?
+  abn            String?
+  hireDate       DateTime?
 
   // Skills
-  languages                String[]   @default([])
-  hasVehicle               Boolean    @default(false)
-  vehicleRegoExpiry        DateTime?
-  driverLicenseExpiry      DateTime?
-  notes                    String?    @db.Text
+  languages           String[]  @default([])
+  hasVehicle          Boolean   @default(false)
+  vehicleRegoExpiry   DateTime?
+  driverLicenseExpiry DateTime?
+  notes               String?   @db.Text
 
   @@index([emailStatus])
   @@index([lastSeenAt])
@@ -793,14 +793,14 @@ model User {
 // ─────────────────────────────────────────────
 
 model Client {
-  id                        String   @id @default(cuid())
+  id                        String    @id @default(cuid())
   name                      String
   email                     String?
   phone                     String?
   address                   String?
-  notes                     String?  @db.Text
+  notes                     String?   @db.Text
   portalVisibilityOverrides Json?
-  isActive                  Boolean  @default(true)
+  isActive                  Boolean   @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
   latitude                  Float?
@@ -809,57 +809,61 @@ model Client {
   suburb                    String?
   state                     String?
   postcode                  String?
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
-  properties           Property[]
-  users                User[]
-  quotes               Quote[]
-  jobTasks             JobTask[]
-  leads                QuoteLead[]
-  cases                IssueTicket[]
-  shoppingRuns         ShoppingRun[]
-  invoices             ClientInvoice[]
-  loyaltyAccount       LoyaltyAccount?
-  referralsMade        Referral[]                 @relation("ReferralReferrer")
-  referralsConverted   Referral[]                 @relation("ReferralReferee")
-  satisfactionRatings  ClientSatisfactionRating[]
-  messages             ClientMessage[]
-  notificationPref     ClientNotificationPreference?
-  automationRules      ClientAutomationRule[]
-  jobFeedback          JobFeedback[]
-  lastReviewRequestSentAt DateTime?
-  onboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingExistingClient")
-  createdOnboardingSurveys PropertyOnboardingSurvey[] @relation("OnboardingCreatedClient")
+  properties               Property[]
+  users                    User[]
+  quotes                   Quote[]
+  jobTasks                 JobTask[]
+  leads                    QuoteLead[]
+  cases                    IssueTicket[]
+  shoppingRuns             ShoppingRun[]
+  invoices                 ClientInvoice[]
+  loyaltyAccount           LoyaltyAccount?
+  referralsMade            Referral[]                    @relation("ReferralReferrer")
+  referralsConverted       Referral[]                    @relation("ReferralReferee")
+  satisfactionRatings      ClientSatisfactionRating[]
+  messages                 ClientMessage[]
+  notificationPref         ClientNotificationPreference?
+  automationRules          ClientAutomationRule[]
+  jobFeedback              JobFeedback[]
+  lastReviewRequestSentAt  DateTime?
+  onboardingSurveys        PropertyOnboardingSurvey[]    @relation("OnboardingExistingClient")
+  createdOnboardingSurveys PropertyOnboardingSurvey[]    @relation("OnboardingCreatedClient")
 }
 
 model Property {
-  id                     String   @id @default(cuid())
-  clientId               String
-  name                   String
-  address                String
-  suburb                 String
-  state                  String   @default("NSW")
-  postcode               String?
-  imageUrl               String?  // optional cover photo shown on the properties grid
-  notes                  String?  @db.Text
-  accessInfo             Json? // { lockbox, codes, parking, other }
-  linenBufferSets        Int      @default(0)
-  inventoryEnabled       Boolean  @default(false)
-  defaultCheckinTime     String   @default("14:00") // HH:mm
-  defaultCheckoutTime    String   @default("10:00") // HH:mm
+  id                         String   @id @default(cuid())
+  clientId                   String
+  name                       String
+  address                    String
+  suburb                     String
+  state                      String   @default("NSW")
+  postcode                   String?
+  imageUrl                   String? // optional cover photo shown on the properties grid
+  notes                      String?  @db.Text
+  accessInfo                 Json? // { lockbox, codes, parking, other }
+  linenBufferSets            Int      @default(0)
+  inventoryEnabled           Boolean  @default(false)
+  defaultCheckinTime         String   @default("14:00") // HH:mm
+  defaultCheckoutTime        String   @default("10:00") // HH:mm
   // Where job start/due times come from: the property's configured default
   // times ("PROPERTY") or the imported iCal/reservation event times ("ICAL").
-  jobTimeSource          String   @default("PROPERTY")
-  hasBalcony             Boolean  @default(false)
-  bedrooms               Int      @default(1)
-  bathrooms              Int      @default(1)
-  latitude               Float?
-  longitude              Float?
-  accessCode             String?  @db.Text
-  alarmCode              String?  @db.Text
-  keyLocation            String?
-  accessNotes            String?  @db.Text
+  jobTimeSource              String   @default("PROPERTY")
+  hasBalcony                 Boolean  @default(false)
+  bedrooms                   Int      @default(1)
+  bathrooms                  Int      @default(1)
+  latitude                   Float?
+  longitude                  Float?
+  accessCode                 String?  @db.Text
+  alarmCode                  String?  @db.Text
+  keyLocation                String?
+  accessNotes                String?  @db.Text
+  // Rich, image-backed access guide shown to cleaners (v1 + v2):
+  // [{ id, kind: LOCKBOX|KEYS|ENTRY|ALARM|PARKING|BIN_ROOM|SUPPLIES_CUPBOARD|WIFI|OTHER,
+  //    label, instructions, images: [{ url, key, caption? }] }]
+  accessGuide                Json?
   preferredCleanerUserId     String?
   showCleanerContactToClient Boolean  @default(false)
   laundryEnabled             Boolean  @default(true) // false = no laundry service for this property
@@ -872,26 +876,26 @@ model Property {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
-  placeId          String?
+  placeId String?
 
-  client           Client                 @relation(fields: [clientId], references: [id])
-  preferredCleaner User?                  @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
-  integration      Integration?
-  reservations     Reservation[]
-  jobs             Job[]
-  propertyStock    PropertyStock[]
-  laundryTasks     LaundryTask[]
-  icalSyncRuns     IcalSyncRun[]
-  cases            IssueTicket[]
-  stockRuns        StockRun[]
-  shoppingRunLines ShoppingRunLine[]
-  clientRates      PropertyClientRate[]
-  payAdjustments   CleanerPayAdjustment[]
-  jobTasks         JobTask[]
-  qaFormTemplates  QaFormTemplate[]
-  maintenanceItems PropertyMaintenanceItem[]
+  client              Client                    @relation(fields: [clientId], references: [id])
+  preferredCleaner    User?                     @relation("PropertyPreferredCleaner", fields: [preferredCleanerUserId], references: [id])
+  integration         Integration?
+  reservations        Reservation[]
+  jobs                Job[]
+  propertyStock       PropertyStock[]
+  laundryTasks        LaundryTask[]
+  icalSyncRuns        IcalSyncRun[]
+  cases               IssueTicket[]
+  stockRuns           StockRun[]
+  shoppingRunLines    ShoppingRunLine[]
+  clientRates         PropertyClientRate[]
+  payAdjustments      CleanerPayAdjustment[]
+  jobTasks            JobTask[]
+  qaFormTemplates     QaFormTemplate[]
+  maintenanceItems    PropertyMaintenanceItem[]
   heldStockDeliveries HeldStockDelivery[]
-  checklistProfile PropertyChecklistProfile?
+  checklistProfile    PropertyChecklistProfile?
 
   @@index([placeId])
   @@index([suburb])
@@ -931,29 +935,29 @@ model ChecklistModule {
 }
 
 model ChecklistModuleItem {
-  id           String  @id @default(cuid())
+  id           String    @id @default(cuid())
   moduleId     String
   /// Stable key doubling as the generated form-field id, e.g. "kitchen.benchtops".
   key          String
   label        String
-  instructions String? @db.Text
-  imageUrl     String? @db.Text
-  videoUrl     String? @db.Text
+  instructions String?   @db.Text
+  imageUrl     String?   @db.Text
+  videoUrl     String?   @db.Text
   /// checkbox (default) | yesno | photo | video — maps to the form field type.
-  fieldType    String  @default("checkbox")
-  required     Boolean @default(false)
+  fieldType    String    @default("checkbox")
+  required     Boolean   @default(false)
   minPhotos    Int?
   /// Evidence stamp tag for photo/video items: before | after | damage.
   stampTag     String?
   /// Ticked by default when the module applies (admin can still turn off).
-  defaultOn    Boolean @default(true)
+  defaultOn    Boolean   @default(true)
   /// Which job types include this item (empty = all job types).
   jobTypes     JobType[]
   /// Optional per-item auto-apply rule (same shape as the module rule) for
   /// items inside a broader module, e.g. the dishwasher line in "Kitchen".
   appliesWhen  Json?
-  sortOrder    Int     @default(0)
-  isActive     Boolean @default(true)
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
 
   module ChecklistModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
@@ -969,17 +973,17 @@ model ChecklistModuleItem {
 /// FormTemplate linkage. Approving materialises FormTemplate(s) and registers
 /// them in AppSettings.propertyFormTemplateOverrides for this property only.
 model PropertyChecklistProfile {
-  id         String @id @default(cuid())
-  propertyId String @unique
+  id                   String    @id @default(cuid())
+  propertyId           String    @unique
   /// {
   ///   modules: { [moduleKey]: { enabled: bool, items: { [itemKey]: { enabled: bool, jobTypes?: JobType[] } } } },
   ///   customItems: [{ id, moduleKey?, label, instructions?, fieldType?, jobTypes?: JobType[] }]
   /// }
-  selections Json
+  selections           Json
   /// DRAFT | APPROVED | STALE (STALE = features/library changed since approval).
-  status     String @default("DRAFT")
-  approvedById String?
-  approvedAt   DateTime?
+  status               String    @default("DRAFT")
+  approvedById         String?
+  approvedAt           DateTime?
   /// { [jobType]: generatedFormTemplateId } — the materialised per-property forms.
   generatedTemplateIds Json?
 
@@ -1068,37 +1072,37 @@ model Reservation {
 // ─────────────────────────────────────────────
 
 model Job {
-  id                    String    @id @default(cuid())
-  jobNumber             String    @unique
-  propertyId            String
-  reservationId         String?   @unique
-  jobType               JobType
-  status                JobStatus @default(UNASSIGNED)
-  scheduledDate         DateTime // date of cleaning (UTC start of day)
-  startTime             String? // HH:mm (property local)
-  endTime               String? // HH:mm (property local)
-  dueTime               String? // latest completion HH:mm
-  estimatedHours        Float?
-  actualHours           Float?
-  notes                 String?   @db.Text
-  internalNotes         String?   @db.Text
+  id                        String    @id @default(cuid())
+  jobNumber                 String    @unique
+  propertyId                String
+  reservationId             String?   @unique
+  jobType                   JobType
+  status                    JobStatus @default(UNASSIGNED)
+  scheduledDate             DateTime // date of cleaning (UTC start of day)
+  startTime                 String? // HH:mm (property local)
+  endTime                   String? // HH:mm (property local)
+  dueTime                   String? // latest completion HH:mm
+  estimatedHours            Float?
+  actualHours               Float?
+  notes                     String?   @db.Text
+  internalNotes             String?   @db.Text
   // Agreed/negotiated fixed client price for this job. When set, it overrides
   // the property/job-type PropertyClientRate on the client invoice and lets the
   // job be invoiced even if no standard rate exists. null = use the rate table.
-  fixedPrice            Float?
+  fixedPrice                Float?
   // Note printed on the client invoice line (and shown in the admin invoicing UI).
-  invoiceNote           String?   @db.Text
+  invoiceNote               String?   @db.Text
   // Actual completion date/time. Drives which payroll + client-invoice period the
   // job falls into (falls back to scheduledDate when null). Stamped on QA pass and
   // editable by admins for next-day / custom completion dates.
-  completedAt           DateTime?
+  completedAt               DateTime?
   // Set when this job's cleaner pay has been included in a payroll run. Prevents
   // the same job being paid again in a later/overlapping run (payroll idempotency).
-  payrollRunId          String?
+  payrollRunId              String?
   // Set when the cleaner's invoice covering this job has been marked PAID by admin
   // (parallel to payrollRunId — the cleaner-invoice payment path). Cleared if the
   // invoice is reversed/deleted so the job can be re-invoiced + re-paid.
-  cleanerPaidAt         DateTime?
+  cleanerPaidAt             DateTime?
   // ── Rework / reclean ──────────────────────────────────────────────────────
   // A rework job is a distinct Job created when QA fails a clean. It carries the
   // QA-flagged areas (+ the photos QA captured) so the cleaner sees exactly what
@@ -1120,48 +1124,48 @@ model Job {
   // until the form is submitted (which then flows through SUBMITTED → QA).
   formPendingAfterClockOut  Boolean   @default(false)
   clockedOutEarlyAt         DateTime?
-  priorityBucket        Int       @default(4)
-  priorityReason        String?
-  sameDayCheckin        Boolean   @default(false)
-  sameDayCheckinTime    String?
+  priorityBucket            Int       @default(4)
+  priorityReason            String?
+  sameDayCheckin            Boolean   @default(false)
+  sameDayCheckinTime        String?
   // reminder overrides (null = use system defaults)
-  reminder24hSent       Boolean   @default(false)
-  reminder2hSent        Boolean   @default(false)
-  gpsCheckInLat         Float?
-  gpsCheckInLng         Float?
-  gpsCheckInAt          DateTime?
-  gpsCheckOutLat        Float?
-  gpsCheckOutLng        Float?
-  gpsCheckOutAt         DateTime?
-  gpsDistanceMeters      Int?
-  gpsCheckInAccuracyM    Float?
-  gpsCheckInConfirmed    Boolean   @default(false)
-  gpsCheckInAdjusted     Boolean   @default(false)
-  gpsCheckInNote         String?   @db.Text
-  requiresSafetyCheckin  Boolean   @default(false)
-  safetyCheckinAt        DateTime?
+  reminder24hSent           Boolean   @default(false)
+  reminder2hSent            Boolean   @default(false)
+  gpsCheckInLat             Float?
+  gpsCheckInLng             Float?
+  gpsCheckInAt              DateTime?
+  gpsCheckOutLat            Float?
+  gpsCheckOutLng            Float?
+  gpsCheckOutAt             DateTime?
+  gpsDistanceMeters         Int?
+  gpsCheckInAccuracyM       Float?
+  gpsCheckInConfirmed       Boolean   @default(false)
+  gpsCheckInAdjusted        Boolean   @default(false)
+  gpsCheckInNote            String?   @db.Text
+  requiresSafetyCheckin     Boolean   @default(false)
+  safetyCheckinAt           DateTime?
   // Skip / don't-clean: a client can request the clean be skipped, or an admin
   // can set it directly. NONE | REQUESTED | SKIPPED | DECLINED.
-  cleanSkipStatus        String    @default("NONE")
-  cleanSkipReason        String?   @db.Text
-  cleanSkipRequestedById String?
-  cleanSkipDecidedById   String?
-  cleanSkipAt            DateTime?
-  manuallyRescheduledAt   DateTime?
-  rescheduledBy           String?
-  enRouteStartedAt        DateTime?
-  enRouteEtaMinutes       Int?
-  enRouteEtaUpdatedAt     DateTime?
-  drivingPausedAt         DateTime?
-  drivingPauseReason      String?
-  drivingDelayedAt        DateTime?
-  drivingDelayedReason    String?
-  arrivedAt               DateTime?
-  lastEtaNotificationAt   DateTime?
-  lastEtaNotifiedMinutes  Int?
+  cleanSkipStatus           String    @default("NONE")
+  cleanSkipReason           String?   @db.Text
+  cleanSkipRequestedById    String?
+  cleanSkipDecidedById      String?
+  cleanSkipAt               DateTime?
+  manuallyRescheduledAt     DateTime?
+  rescheduledBy             String?
+  enRouteStartedAt          DateTime?
+  enRouteEtaMinutes         Int?
+  enRouteEtaUpdatedAt       DateTime?
+  drivingPausedAt           DateTime?
+  drivingPauseReason        String?
+  drivingDelayedAt          DateTime?
+  drivingDelayedReason      String?
+  arrivedAt                 DateTime?
+  lastEtaNotificationAt     DateTime?
+  lastEtaNotifiedMinutes    Int?
   lastDelayedNotificationAt DateTime?
-  createdAt               DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   property               Property                   @relation(fields: [propertyId], references: [id])
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
@@ -1171,11 +1175,11 @@ model Job {
   timeLogs               TimeLog[]
   formSubmissions        FormSubmission[]
   qaReviews              QAReview[]
-  qaAssignments           QaAssignment[]
-  qaFormSubmissions       QaFormSubmission[]
-  qaReworkTransfers       QaReworkTransfer[]
-  mediaOverrideRequests   MediaOverrideRequest[]
-  maintenanceItems        PropertyMaintenanceItem[]
+  qaAssignments          QaAssignment[]
+  qaFormSubmissions      QaFormSubmission[]
+  qaReworkTransfers      QaReworkTransfer[]
+  mediaOverrideRequests  MediaOverrideRequest[]
+  maintenanceItems       PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?
   issueTickets           IssueTicket[]
@@ -1202,30 +1206,30 @@ model Job {
 }
 
 model CleanerPayAdjustment {
-  id              String              @id @default(cuid())
-  jobId           String?
-  propertyId      String?
-  cleanerId       String
-  scope           PayAdjustmentScope  @default(JOB)
-  title           String?
-  type            PayAdjustmentType
-  requestedHours  Float?
-  requestedRate   Float?
-  requestedAmount Float
-  approvedAmount  Float?
-  status          PayAdjustmentStatus @default(PENDING)
-  cleanerNote     String?             @db.Text
-  attachmentKeys  Json?
-  adminNote       String?             @db.Text
-  requestedAt     DateTime            @default(now())
-  reviewedById    String?
-  reviewedAt      DateTime?
+  id                     String              @id @default(cuid())
+  jobId                  String?
+  propertyId             String?
+  cleanerId              String
+  scope                  PayAdjustmentScope  @default(JOB)
+  title                  String?
+  type                   PayAdjustmentType
+  requestedHours         Float?
+  requestedRate          Float?
+  requestedAmount        Float
+  approvedAmount         Float?
+  status                 PayAdjustmentStatus @default(PENDING)
+  cleanerNote            String?             @db.Text
+  attachmentKeys         Json?
+  adminNote              String?             @db.Text
+  requestedAt            DateTime            @default(now())
+  reviewedById           String?
+  reviewedAt             DateTime?
   // Stamped with the payroll run that paid this approved adjustment so it can
   // never be included in a second run (idempotency — mirrors Job.payrollRunId
   // and ShoppingSettlement.includedInPayrollRunId).
   includedInPayrollRunId String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   job        Job?      @relation(fields: [jobId], references: [id])
   property   Property? @relation(fields: [propertyId], references: [id])
@@ -1239,19 +1243,19 @@ model CleanerPayAdjustment {
 }
 
 model JobAssignment {
-  id                       String                      @id @default(cuid())
-  jobId                    String
-  userId                   String
-  isPrimary                Boolean                     @default(false)
-  payRate                  Float? // hourly rate at time of assignment
-  assignedAt               DateTime                    @default(now())
-  offeredAt                DateTime                    @default(now())
-  removedAt                DateTime?
-  responseStatus           JobAssignmentResponseStatus @default(PENDING)
-  respondedAt              DateTime?
-  responseNote             String?                     @db.Text
-  assignedById             String?
-  transferredFromUserId    String?
+  id                    String                      @id @default(cuid())
+  jobId                 String
+  userId                String
+  isPrimary             Boolean                     @default(false)
+  payRate               Float? // hourly rate at time of assignment
+  assignedAt            DateTime                    @default(now())
+  offeredAt             DateTime                    @default(now())
+  removedAt             DateTime?
+  responseStatus        JobAssignmentResponseStatus @default(PENDING)
+  respondedAt           DateTime?
+  responseNote          String?                     @db.Text
+  assignedById          String?
+  transferredFromUserId String?
 
   job  Job  @relation(fields: [jobId], references: [id])
   user User @relation(fields: [userId], references: [id])
@@ -1312,20 +1316,20 @@ model TimeLogAdjustmentRequest {
 // ─────────────────────────────────────────────
 
 model FormTemplate {
-  id               String    @id @default(cuid())
+  id               String         @id @default(cuid())
   name             String
   serviceType      JobType
-  kind             FormKind  @default(CUSTOM)
-  version          Int       @default(1)
-  isActive         Boolean   @default(true)
+  kind             FormKind       @default(CUSTOM)
+  version          Int            @default(1)
+  isActive         Boolean        @default(true)
   schema           Json // full template JSON (sections → fields → logic)
   parentTemplateId String?
   parentTemplate   FormTemplate?  @relation("FormTemplateLineage", fields: [parentTemplateId], references: [id], onDelete: SetNull)
   children         FormTemplate[] @relation("FormTemplateLineage")
   publishedAt      DateTime?
   archivedAt       DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   submissions FormSubmission[]
 
@@ -1350,55 +1354,55 @@ model FormSubmission {
   createdAt                DateTime        @default(now())
   updatedAt                DateTime        @updatedAt
 
-  job         Job               @relation(fields: [jobId], references: [id])
-  template    FormTemplate      @relation(fields: [templateId], references: [id])
-  submittedBy User              @relation(fields: [submittedById], references: [id])
-  media       SubmissionMedia[]
-  stockTxs    StockTx[]
+  job                   Job                    @relation(fields: [jobId], references: [id])
+  template              FormTemplate           @relation(fields: [templateId], references: [id])
+  submittedBy           User                   @relation(fields: [submittedById], references: [id])
+  media                 SubmissionMedia[]
+  stockTxs              StockTx[]
   mediaOverrideRequests MediaOverrideRequest[]
 }
 
 model SubmissionMedia {
-  id           String    @id @default(cuid())
-  submissionId String
-  fieldId      String
-  mediaType    MediaType
-  url          String    @db.Text
-  s3Key        String
-  originalUrl   String?   @db.Text
-  originalS3Key String?
-  annotatedUrl  String?   @db.Text
+  id             String    @id @default(cuid())
+  submissionId   String
+  fieldId        String
+  mediaType      MediaType
+  url            String    @db.Text
+  s3Key          String
+  originalUrl    String?   @db.Text
+  originalS3Key  String?
+  annotatedUrl   String?   @db.Text
   annotatedS3Key String?
   annotationData Json?
-  sizeBytes    Int?
-  mimeType     String?
-  label        String?
-  createdAt    DateTime  @default(now())
+  sizeBytes      Int?
+  mimeType       String?
+  label          String?
+  createdAt      DateTime  @default(now())
 
   submission FormSubmission @relation(fields: [submissionId], references: [id])
 }
 
 model QAReview {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   jobId        String
   reviewedById String? // null if auto-generated
   score        Float
   passed       Boolean
-  notes        String?  @db.Text
+  notes        String?   @db.Text
   flags        Json? // array of field ids that failed
   // Authority of this review. "QA" = a real on-site QA inspection (highest
   // authority — overrides any earlier admin/auto score for the job). "ADMIN" =
   // an admin/ops quick score. "AUTO" = system-generated. The authoritative
   // outcome for a job is the latest QA review if one exists, else the latest of
   // any kind (see lib/qa/authority.ts).
-  kind         String   @default("QA") // QA | ADMIN | AUTO
+  kind         String    @default("QA") // QA | ADMIN | AUTO
   editedById   String? // admin who last edited this score
   editedAt     DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @default(now()) @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
 
-  job        Job   @relation(fields: [jobId], references: [id])
-  reviewedBy User? @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
+  job               Job                @relation(fields: [jobId], references: [id])
+  reviewedBy        User?              @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
   qaFormSubmissions QaFormSubmission[]
 
   @@index([jobId])
@@ -1417,7 +1421,7 @@ model QaFormTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  property    Property? @relation(fields: [propertyId], references: [id])
+  property    Property?          @relation(fields: [propertyId], references: [id])
   submissions QaFormSubmission[]
 
   @@index([serviceType, isActive, version])
@@ -1425,27 +1429,27 @@ model QaFormTemplate {
 }
 
 model QaAssignment {
-  id           String             @id @default(cuid())
-  jobId        String
-  assignedToId String?
-  createdById  String?
-  pickedUpById String?
-  status       QaAssignmentStatus @default(OPEN)
-  dueAt        DateTime?
-  pickedUpAt   DateTime?
-  completedAt  DateTime?
+  id              String             @id @default(cuid())
+  jobId           String
+  assignedToId    String?
+  createdById     String?
+  pickedUpById    String?
+  status          QaAssignmentStatus @default(OPEN)
+  dueAt           DateTime?
+  pickedUpAt      DateTime?
+  completedAt     DateTime?
   onSiteStartedAt DateTime?
   onSiteEndedAt   DateTime?
   onSiteMinutes   Int?
-  notes        String?            @db.Text
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  job          Job   @relation(fields: [jobId], references: [id])
-  assignedTo   User? @relation("QaAssignmentAssignedTo", fields: [assignedToId], references: [id])
-  createdBy    User? @relation("QaAssignmentCreatedBy", fields: [createdById], references: [id])
-  pickedUpBy   User? @relation("QaAssignmentPickedUpBy", fields: [pickedUpById], references: [id])
-  submissions  QaFormSubmission[]
+  job             Job                @relation(fields: [jobId], references: [id])
+  assignedTo      User?              @relation("QaAssignmentAssignedTo", fields: [assignedToId], references: [id])
+  createdBy       User?              @relation("QaAssignmentCreatedBy", fields: [createdById], references: [id])
+  pickedUpBy      User?              @relation("QaAssignmentPickedUpBy", fields: [pickedUpById], references: [id])
+  submissions     QaFormSubmission[]
   reworkTransfers QaReworkTransfer[]
 
   @@index([status, dueAt])
@@ -1459,29 +1463,29 @@ model QaAssignment {
 /// cleaner's quality stats reflect the miss. Mirrors the existing pay/time
 /// adjustment + approval-gate patterns.
 model QaReworkTransfer {
-  id              String                 @id @default(cuid())
-  jobId           String
-  assignmentId    String?
-  qaUserId        String
-  cleanerUserId   String
-  severity        QaReworkSeverity       @default(MINOR)
-  reason          String                 @db.Text
-  areas           Json?                  // list of areas/items redone
-  minutesFromCleaner Int                 @default(0)
-  amountFromCleaner  Float               @default(0)
-  affectsCleanerStats Boolean            @default(true)
-  status          QaReworkTransferStatus @default(PENDING)
-  reviewedById    String?
-  reviewedAt      DateTime?
-  adminNote       String?                @db.Text
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  id                  String                 @id @default(cuid())
+  jobId               String
+  assignmentId        String?
+  qaUserId            String
+  cleanerUserId       String
+  severity            QaReworkSeverity       @default(MINOR)
+  reason              String                 @db.Text
+  areas               Json? // list of areas/items redone
+  minutesFromCleaner  Int                    @default(0)
+  amountFromCleaner   Float                  @default(0)
+  affectsCleanerStats Boolean                @default(true)
+  status              QaReworkTransferStatus @default(PENDING)
+  reviewedById        String?
+  reviewedAt          DateTime?
+  adminNote           String?                @db.Text
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
-  job         Job           @relation(fields: [jobId], references: [id])
-  assignment  QaAssignment? @relation(fields: [assignmentId], references: [id])
-  qaUser      User          @relation("QaReworkQa", fields: [qaUserId], references: [id])
-  cleaner     User          @relation("QaReworkCleaner", fields: [cleanerUserId], references: [id])
-  reviewedBy  User?         @relation("QaReworkReviewedBy", fields: [reviewedById], references: [id])
+  job        Job           @relation(fields: [jobId], references: [id])
+  assignment QaAssignment? @relation(fields: [assignmentId], references: [id])
+  qaUser     User          @relation("QaReworkQa", fields: [qaUserId], references: [id])
+  cleaner    User          @relation("QaReworkCleaner", fields: [cleanerUserId], references: [id])
+  reviewedBy User?         @relation("QaReworkReviewedBy", fields: [reviewedById], references: [id])
 
   @@index([jobId, status])
   @@index([cleanerUserId, status])
@@ -1516,62 +1520,62 @@ model QaFormSubmission {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  job          Job            @relation(fields: [jobId], references: [id])
-  template     QaFormTemplate @relation(fields: [templateId], references: [id])
-  assignment   QaAssignment?  @relation(fields: [assignmentId], references: [id])
-  qaReview     QAReview?      @relation(fields: [qaReviewId], references: [id])
-  submittedBy  User           @relation("QaFormSubmissionSubmittedBy", fields: [submittedById], references: [id])
+  job         Job            @relation(fields: [jobId], references: [id])
+  template    QaFormTemplate @relation(fields: [templateId], references: [id])
+  assignment  QaAssignment?  @relation(fields: [assignmentId], references: [id])
+  qaReview    QAReview?      @relation(fields: [qaReviewId], references: [id])
+  submittedBy User           @relation("QaFormSubmissionSubmittedBy", fields: [submittedById], references: [id])
 
   @@index([jobId, createdAt])
   @@index([submittedById, createdAt])
 }
 
 model MediaOverrideRequest {
-  id                String              @id @default(cuid())
-  jobId             String
-  submissionId      String?
-  requestedById     String
-  decidedById       String?
-  fieldId           String
-  fieldLabel        String?
-  reason            String?             @db.Text
-  status            MediaOverrideStatus @default(PENDING)
-  decisionNote      String?             @db.Text
-  decidedAt         DateTime?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id            String              @id @default(cuid())
+  jobId         String
+  submissionId  String?
+  requestedById String
+  decidedById   String?
+  fieldId       String
+  fieldLabel    String?
+  reason        String?             @db.Text
+  status        MediaOverrideStatus @default(PENDING)
+  decisionNote  String?             @db.Text
+  decidedAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
-  job          Job             @relation(fields: [jobId], references: [id])
-  submission   FormSubmission? @relation(fields: [submissionId], references: [id])
-  requestedBy  User            @relation("MediaOverrideRequestedBy", fields: [requestedById], references: [id])
-  decidedBy    User?           @relation("MediaOverrideDecidedBy", fields: [decidedById], references: [id])
+  job         Job             @relation(fields: [jobId], references: [id])
+  submission  FormSubmission? @relation(fields: [submissionId], references: [id])
+  requestedBy User            @relation("MediaOverrideRequestedBy", fields: [requestedById], references: [id])
+  decidedBy   User?           @relation("MediaOverrideDecidedBy", fields: [decidedById], references: [id])
 
+  @@unique([jobId, requestedById, fieldId, status])
   @@index([jobId, status])
   @@index([requestedById, status])
-  @@unique([jobId, requestedById, fieldId, status])
 }
 
 model IssueTicket {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   jobId            String?
   clientId         String?
   propertyId       String?
   reportId         String?
   title            String
-  description      String?  @db.Text
-  caseType         String   @default("OPS")
+  description      String?   @db.Text
+  caseType         String    @default("OPS")
   source           String?
-  severity         String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
-  status           String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED (legacy, kept for backward compat)
+  severity         String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status           String    @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED (legacy, kept for backward compat)
   state            CaseState @default(OPEN)
   slaBreachAt      DateTime?
   assignedToUserId String?
-  clientVisible    Boolean  @default(false)
-  clientCanReply   Boolean  @default(true)
-  resolutionNote   String?  @db.Text
+  clientVisible    Boolean   @default(false)
+  clientCanReply   Boolean   @default(true)
+  resolutionNote   String?   @db.Text
   metadata         Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   job         Job?             @relation(fields: [jobId], references: [id])
   client      Client?          @relation(fields: [clientId], references: [id])
@@ -1727,17 +1731,17 @@ model StockTx {
 /// each delivery decrements `quantity` and is recorded as a HeldStockDelivery
 /// (which also bumps the unit's PropertyStock.onHand).
 model HeldStock {
-  id           String          @id @default(cuid())
-  itemId       String
-  holderUserId String
-  quantity     Float           @default(0) // remaining quantity still on hand
-  originalQty  Float           @default(0) // quantity originally acquired
-  unitCostAud  Float?
-  status       HeldStockStatus @default(HELD)
+  id            String          @id @default(cuid())
+  itemId        String
+  holderUserId  String
+  quantity      Float           @default(0) // remaining quantity still on hand
+  originalQty   Float           @default(0) // quantity originally acquired
+  unitCostAud   Float?
+  status        HeldStockStatus @default(HELD)
   shoppingRunId String? // optional link to the shopping run it came from
-  sourceNote   String?         @db.Text
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  sourceNote    String?         @db.Text
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   item       InventoryItem       @relation(fields: [itemId], references: [id])
   holder     User                @relation("HeldStockHolder", fields: [holderUserId], references: [id])
@@ -1771,33 +1775,33 @@ model HeldStockDelivery {
 // ─────────────────────────────────────────────
 
 model LaundryTask {
-  id                String        @id @default(cuid())
-  jobId             String        @unique
-  propertyId        String
-  pickupDate        DateTime // UTC date
-  dropoffDate       DateTime // UTC date
-  status            LaundryStatus @default(PENDING)
-  flagReason        LaundryFlag?
-  flagNotes         String?
-  confirmedAt       DateTime?
-  pickedUpAt        DateTime?
-  droppedAt         DateTime?
-  notifyLaundry     Boolean       @default(false)
-  noPickupRequired  Boolean       @default(false)
-  skipReasonCode    String?
-  skipReasonNote    String?       @db.Text
-  adminOverrideNote String?       @db.Text
-  adminOverrideById String?
-  adminOverrideAt   DateTime?
-  bagWeightKg       Float?
-  dropoffCostAud    Float?
-  receiptImageUrl   String?
+  id                 String        @id @default(cuid())
+  jobId              String        @unique
+  propertyId         String
+  pickupDate         DateTime // UTC date
+  dropoffDate        DateTime // UTC date
+  status             LaundryStatus @default(PENDING)
+  flagReason         LaundryFlag?
+  flagNotes          String?
+  confirmedAt        DateTime?
+  pickedUpAt         DateTime?
+  droppedAt          DateTime?
+  notifyLaundry      Boolean       @default(false)
+  noPickupRequired   Boolean       @default(false)
+  skipReasonCode     String?
+  skipReasonNote     String?       @db.Text
+  adminOverrideNote  String?       @db.Text
+  adminOverrideById  String?
+  adminOverrideAt    DateTime?
+  bagWeightKg        Float?
+  dropoffCostAud     Float?
+  receiptImageUrl    String?
   // Key-handling evidence: photo of the key at pickup + when returned at drop-off.
   pickupKeyPhotoUrl  String?
   dropoffKeyPhotoUrl String?
-  supplierId        String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  supplierId         String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   job           Job                   @relation(fields: [jobId], references: [id])
   property      Property              @relation(fields: [propertyId], references: [id])
@@ -1995,35 +1999,35 @@ model QuoteLead {
 }
 
 model Quote {
-  id             String      @id @default(cuid())
-  leadId         String?
-  clientId       String?
-  serviceType    JobType
-  lineItems      Json // array of { label, unitPrice, qty, total }
-  subtotal       Float
-  gstAmount      Float
-  totalAmount    Float
-  notes          String?     @db.Text
-  validUntil     DateTime?
-  status         QuoteStatus @default(DRAFT)
-  convertedJobId String?
-  viewedAt       DateTime?
-  acceptedAt     DateTime?
-  declinedAt     DateTime?
+  id              String      @id @default(cuid())
+  leadId          String?
+  clientId        String?
+  serviceType     JobType
+  lineItems       Json // array of { label, unitPrice, qty, total }
+  subtotal        Float
+  gstAmount       Float
+  totalAmount     Float
+  notes           String?     @db.Text
+  validUntil      DateTime?
+  status          QuoteStatus @default(DRAFT)
+  convertedJobId  String?
+  viewedAt        DateTime?
+  acceptedAt      DateTime?
+  declinedAt      DateTime?
   // Shareable public link: the client views + approves the quote at
   // /q/<publicToken> without logging in; the page always reflects the latest
   // saved quote (live). Null until the quote is first sent/shared.
-  publicToken     String?  @unique
+  publicToken     String?     @unique
   // When false (default), add-on prices are hidden from the client (email +
   // online) — prices change often, so we usually show add-ons as "on request".
-  showAddOnPrices Boolean  @default(false)
+  showAddOnPrices Boolean     @default(false)
   // Client-supplied reference images attached to the quote: [{ key, url, label }].
   referenceImages Json?
   // Snapshot of the configurable pricing variables chosen for this quote
   // (property condition, location, parking + how it's paid, etc.).
   serviceContext  Json?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   lead   QuoteLead? @relation(fields: [leadId], references: [id])
   client Client?    @relation(fields: [clientId], references: [id])
@@ -2208,17 +2212,17 @@ model ClientInvoice {
 // A cleaner's own invoice, snapshotted when they "send" it, so admin can review
 // it and push it to Xero as a bill (ACCPAY).
 model CleanerInvoiceSubmission {
-  id             String    @id @default(cuid())
-  cleanerId      String
-  periodStart    DateTime
-  periodEnd      DateTime
-  hours          Float     @default(0)
-  totalAmount    Float     @default(0)
-  jobCount       Int       @default(0)
-  lineData       Json? // snapshot: cleaner contact + line rows for the Xero bill
-  status         String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED
-  xeroBillId     String?
-  xeroExportedAt DateTime?
+  id              String    @id @default(cuid())
+  cleanerId       String
+  periodStart     DateTime
+  periodEnd       DateTime
+  hours           Float     @default(0)
+  totalAmount     Float     @default(0)
+  jobCount        Int       @default(0)
+  lineData        Json? // snapshot: cleaner contact + line rows for the Xero bill
+  status          String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED
+  xeroBillId      String?
+  xeroExportedAt  DateTime?
   // Payment settlement recorded by admin when the invoice is marked PAID.
   paidAmount      Float? // amount actually paid (defaults to totalAmount)
   paidBankAccount String? // which bank account it was paid to
@@ -2226,8 +2230,8 @@ model CleanerInvoiceSubmission {
   paymentMethod   String? // how it was paid: BANK_TRANSFER | CARD | CASH | XERO | OTHER
   paidDate        DateTime? // date the money was actually sent (vs paidAt = record timestamp)
   paidAt          DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([cleanerId])
   @@index([status])
@@ -2267,19 +2271,19 @@ model UserNotificationPreference {
 }
 
 model BlogPost {
-  id            String    @id @default(cuid())
-  slug          String    @unique
-  title         String
-  excerpt       String
-  body          String    @db.Text
-  coverImageUrl String?
-  galleryImageUrls String[] @default([])
-  tags          String[]
-  isPublished   Boolean   @default(false)
-  publishedAt   DateTime?
-  authorName    String    @default("sNeek Team")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  slug             String    @unique
+  title            String
+  excerpt          String
+  body             String    @db.Text
+  coverImageUrl    String?
+  galleryImageUrls String[]  @default([])
+  tags             String[]
+  isPublished      Boolean   @default(false)
+  publishedAt      DateTime?
+  authorName       String    @default("sNeek Team")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model ClientSatisfactionRating {
@@ -2377,7 +2381,7 @@ model EmailCampaign {
   templateId     String?
   template       MessageTemplate? @relation("MessageTemplateCampaigns", fields: [templateId], references: [id], onDelete: SetNull)
 
-  createdBy User @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy User           @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   sends     CampaignSend[]
 
   @@index([campaignStatus, scheduledFor])
@@ -2451,7 +2455,7 @@ model MarketingAsset {
   name         String
   url          String   @db.Text
   s3Key        String?
-  mediaType    String   // "IMAGE" | "VIDEO" | "GIF"
+  mediaType    String // "IMAGE" | "VIDEO" | "GIF"
   width        Int?
   height       Int?
   durationSec  Int?
@@ -2513,7 +2517,7 @@ model LaundrySupplier {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  laundryTasks LaundryTask[]
+  laundryTasks      LaundryTask[]
   onboardingSurveys PropertyOnboardingSurvey[]
 }
 
@@ -2548,8 +2552,8 @@ model Notification {
   status         NotificationStatus  @default(PENDING)
   sentAt         DateTime?
   errorMsg       String?
-  externalId     String?             // e.g. Resend message ID for webhook matching
-  deliveryStatus String?             // PENDING | DELIVERED | BOUNCED | OPENED
+  externalId     String? // e.g. Resend message ID for webhook matching
+  deliveryStatus String? // PENDING | DELIVERED | BOUNCED | OPENED
   createdAt      DateTime            @default(now())
 
   user User? @relation(fields: [userId], references: [id])
@@ -2848,9 +2852,9 @@ model HiringApplication {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  position   HiringPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  reviewedBy User?          @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
-  hiredUser  User?          @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
+  position        HiringPosition           @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  reviewedBy      User?                    @relation("HiringApplicationReviewedBy", fields: [reviewedById], references: [id])
+  hiredUser       User?                    @relation("HiringApplicationHiredUser", fields: [hiredUserId], references: [id])
   events          HiringApplicationEvent[]
   quizAssignments QuizAssignment[]
 }
@@ -2888,7 +2892,7 @@ model QuizTemplate {
   id          String   @id @default(cuid())
   name        String
   description String?  @db.Text
-  schema      Json     // { title, intro, passThreshold, questions: AssessmentQuestion[] }
+  schema      Json // { title, intro, passThreshold, questions: AssessmentQuestion[] }
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2962,12 +2966,12 @@ model CleanerLocationPing {
 // ─────────────────────────────────────────────
 
 model ClientNotificationPreference {
-  clientId             String  @id
-  notificationsEnabled Boolean @default(true)
-  notifyOnEnRoute      Boolean @default(true)
-  notifyOnJobStart     Boolean @default(true)
-  notifyOnJobComplete  Boolean @default(true)
-  preferredChannel     String  @default("EMAIL") // "EMAIL" | "SMS" | "BOTH"
+  clientId             String   @id
+  notificationsEnabled Boolean  @default(true)
+  notifyOnEnRoute      Boolean  @default(true)
+  notifyOnJobStart     Boolean  @default(true)
+  notifyOnJobComplete  Boolean  @default(true)
+  preferredChannel     String   @default("EMAIL") // "EMAIL" | "SMS" | "BOTH"
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -2979,18 +2983,18 @@ model ClientNotificationPreference {
 // ─────────────────────────────────────────────
 
 model MessageTemplate {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
-  triggerType String   @default("MANUAL") // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
-  jobType     String?  // null = all job types; specific JobType string for targeted
-  channel     String   // "EMAIL" | "SMS" | "BOTH"
+  triggerType String          @default("MANUAL") // "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL"
+  jobType     String? // null = all job types; specific JobType string for targeted
+  channel     String // "EMAIL" | "SMS" | "BOTH"
   category    MessageCategory @default(CUSTOM)
-  subject     String?  // email subject — supports {{variables}}
-  body        String   @db.Text // body with {{client_name}}, {{property_address}}, {{cleaner_name}}, {{next_clean_date}}, {{job_type}}, {{feedback_url}}
-  variables   Json?    // declared template variables (for autocomplete)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  subject     String? // email subject — supports {{variables}}
+  body        String          @db.Text // body with {{client_name}}, {{property_address}}, {{cleaner_name}}, {{next_clean_date}}, {{job_type}}, {{feedback_url}}
+  variables   Json? // declared template variables (for autocomplete)
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   automationRules ClientAutomationRule[]
   emailCampaigns  EmailCampaign[]        @relation("MessageTemplateCampaigns")
@@ -3015,8 +3019,8 @@ enum MessageCategory {
 model ClientAutomationRule {
   id           String   @id @default(cuid())
   clientId     String
-  triggerType  String   // "POST_JOB_REVIEW" | "POST_JOB_NEXT_CLEAN" | "POST_JOB_DISCOUNT" | "POST_JOB_CUSTOM"
-  jobType      String?  // null = all job types
+  triggerType  String // "POST_JOB_REVIEW" | "POST_JOB_NEXT_CLEAN" | "POST_JOB_DISCOUNT" | "POST_JOB_CUSTOM"
+  jobType      String? // null = all job types
   templateId   String?
   delayMinutes Int      @default(120)
   isEnabled    Boolean  @default(false) // OFF by default — admin must enable
@@ -3035,21 +3039,21 @@ model ClientAutomationRule {
 // ─────────────────────────────────────────────
 
 model JobFeedback {
-  id             String    @id @default(cuid())
-  jobId          String    @unique
-  clientId       String
-  token          String    @unique @default(cuid()) // public URL token
-  rating         Int?      // overall 1–5, null until submitted
+  id                  String    @id @default(cuid())
+  jobId               String    @unique
+  clientId            String
+  token               String    @unique @default(cuid()) // public URL token
+  rating              Int? // overall 1–5, null until submitted
   // Client-perspective aspect ratings (1–5) — this is a satisfaction review, NOT
   // a QA inspection score. Kept entirely separate from QAReview.
-  cleanlinessRating    Int?
-  communicationRating  Int?
-  valueRating          Int?
-  wouldRecommend       Boolean?
-  comment        String?   @db.Text
-  submittedAt    DateTime?
-  tokenExpiresAt DateTime
-  createdAt      DateTime  @default(now())
+  cleanlinessRating   Int?
+  communicationRating Int?
+  valueRating         Int?
+  wouldRecommend      Boolean?
+  comment             String?   @db.Text
+  submittedAt         DateTime?
+  tokenExpiresAt      DateTime
+  createdAt           DateTime  @default(now())
 
   job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -3122,45 +3126,45 @@ enum OnboardingSourceType {
 }
 
 model PayrollRun {
-  id                        String            @id @default(cuid())
-  periodStart               DateTime
-  periodEnd                 DateTime
-  status                    PayrollRunStatus  @default(DRAFT)
-  totalPayable              Float             @default(0)
-  totalShoppingReimbursements Float           @default(0)
-  totalTransportAllowances  Float             @default(0)
-  totalAdjustments          Float             @default(0)
-  grandTotal                Float             @default(0)
-  cleanerCount              Int               @default(0)
-  createdByUserId           String?
-  confirmedAt               DateTime?
-  completedAt               DateTime?
+  id                          String           @id @default(cuid())
+  periodStart                 DateTime
+  periodEnd                   DateTime
+  status                      PayrollRunStatus @default(DRAFT)
+  totalPayable                Float            @default(0)
+  totalShoppingReimbursements Float            @default(0)
+  totalTransportAllowances    Float            @default(0)
+  totalAdjustments            Float            @default(0)
+  grandTotal                  Float            @default(0)
+  cleanerCount                Int              @default(0)
+  createdByUserId             String?
+  confirmedAt                 DateTime?
+  completedAt                 DateTime?
   // Set when an ABA bank file has been generated for this run. Used to warn on
   // regeneration so the same batch isn't uploaded to the bank twice.
-  abaGeneratedAt            DateTime?
-  abaGeneratedById          String?
-  notes                     String?           @db.Text
-  metadata                  Json?
-  createdAt                 DateTime          @default(now())
-  updatedAt                 DateTime          @updatedAt
+  abaGeneratedAt              DateTime?
+  abaGeneratedById            String?
+  notes                       String?          @db.Text
+  metadata                    Json?
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
 
-  createdBy  User?    @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id])
-  payouts    Payout[]
+  createdBy User?    @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id])
+  payouts   Payout[]
 
   @@index([status, createdAt])
   @@index([periodStart, periodEnd])
 }
 
 model Payout {
-  id                    String        @id @default(cuid())
+  id                    String       @id @default(cuid())
   payrollRunId          String
   cleanerId             String
   amount                Float
-  shoppingReimbursement Float         @default(0)
-  transportAllowance    Float         @default(0)
-  adjustments           Float         @default(0)
-  status                PayoutStatus  @default(PENDING)
-  method                PayoutMethod  @default(MANUAL_BANK_TRANSFER)
+  shoppingReimbursement Float        @default(0)
+  transportAllowance    Float        @default(0)
+  adjustments           Float        @default(0)
+  status                PayoutStatus @default(PENDING)
+  method                PayoutMethod @default(MANUAL_BANK_TRANSFER)
   stripeAccountId       String?
   stripePayoutId        String?
   bankBsb               String?
@@ -3168,10 +3172,10 @@ model Payout {
   bankAccountName       String?
   abaReference          String?
   processedAt           DateTime?
-  failureReason         String?       @db.Text
+  failureReason         String?      @db.Text
   metadata              Json?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
   payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
   cleaner    User       @relation("CleanerPayouts", fields: [cleanerId], references: [id])
@@ -3200,24 +3204,24 @@ model PaymentGateway {
 }
 
 model ClientPayment {
-  id               String   @id @default(cuid())
+  id               String          @id @default(cuid())
   invoiceId        String?
   quoteId          String?
   amount           Float
-  currency         String   @default("AUD")
-  status           String   @default("PENDING")
+  currency         String          @default("AUD")
+  status           String          @default("PENDING")
   gatewayId        String
   gatewayProvider  GatewayProvider
   gatewayPaymentId String?
   gatewayResponse  Json?
   feeAmount        Float?
-  surchargeAmount  Float    @default(0)
+  surchargeAmount  Float           @default(0)
   paidAt           DateTime?
   refundedAt       DateTime?
   refundAmount     Float?
   metadata         Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   invoice ClientInvoice? @relation(fields: [invoiceId], references: [id])
   gateway PaymentGateway @relation(fields: [gatewayId], references: [id])
@@ -3259,29 +3263,29 @@ model NotificationTemplate {
 }
 
 model NotificationPreference {
-  id            String                  @id @default(cuid())
+  id            String                    @id @default(cuid())
   eventKey      String
   recipientRole NotificationRecipientRole
   channel       NotificationChannel
-  enabled       Boolean                 @default(true)
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  enabled       Boolean                   @default(true)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
 
   @@unique([eventKey, recipientRole, channel])
   @@index([eventKey])
 }
 
 model NotificationLog {
-  id             String   @id @default(cuid())
+  id             String                @id @default(cuid())
   eventKey       String
   recipientEmail String?
   recipientRole  String
   channel        NotificationChannel
   status         NotificationLogStatus
   subject        String?
-  error          String?  @db.Text
+  error          String?               @db.Text
   sentAt         DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime              @default(now())
 
   @@index([eventKey, createdAt])
   @@index([recipientEmail, createdAt])
@@ -3292,74 +3296,74 @@ model NotificationLog {
 // ─────────────────────────────────────────────
 
 model PropertyOnboardingSurvey {
-  id                    String                  @id @default(cuid())
-  surveyNumber          String                  @unique
-  sourceType            OnboardingSourceType    @default(ADMIN_CREATED)
-  status                OnboardingSurveyStatus  @default(DRAFT)
-  submittedById         String?
-  adminReviewerId       String?
-  reviewedAt            DateTime?
-  rejectionReason       String?                 @db.Text
+  id              String                 @id @default(cuid())
+  surveyNumber    String                 @unique
+  sourceType      OnboardingSourceType   @default(ADMIN_CREATED)
+  status          OnboardingSurveyStatus @default(DRAFT)
+  submittedById   String?
+  adminReviewerId String?
+  reviewedAt      DateTime?
+  rejectionReason String?                @db.Text
 
   // Client linkage
-  isNewClient           Boolean                 @default(false)
-  clientData            Json?                   // { name, email, phone, address, notes }
-  existingClientId      String?
+  isNewClient      Boolean @default(false)
+  clientData       Json? // { name, email, phone, address, notes }
+  existingClientId String?
 
   // Property basics
-  propertyAddress       String?
-  propertySuburb        String?
-  propertyState         String                  @default("NSW")
-  propertyPostcode      String?
-  propertyName          String?
-  propertyNotes         String?                 @db.Text
+  propertyAddress  String?
+  propertySuburb   String?
+  propertyState    String  @default("NSW")
+  propertyPostcode String?
+  propertyName     String?
+  propertyNotes    String? @db.Text
 
-  bedrooms              Int                     @default(1)
-  bathrooms             Int                     @default(1)
-  hasBalcony            Boolean                 @default(false)
-  floorCount            Int                     @default(1)
-  propertyType          String?                 // HOUSE, APARTMENT, TOWNHOUSE, UNIT, DUPLEX
-  sizeSqm               Float?
+  bedrooms     Int     @default(1)
+  bathrooms    Int     @default(1)
+  hasBalcony   Boolean @default(false)
+  floorCount   Int     @default(1)
+  propertyType String? // HOUSE, APARTMENT, TOWNHOUSE, UNIT, DUPLEX
+  sizeSqm      Float?
 
   // Staffing & estimation
-  requestedCleanerCount Int                     @default(1)
+  requestedCleanerCount Int    @default(1)
   estimatedCleanerCount Int?
   estimatedHours        Float?
   estimatedPrice        Float?
 
   // iCal (optional)
-  icalUrl               String?                 @db.Text
-  icalProvider          IntegrationProvider?    @default(ICAL_OTHER)
+  icalUrl      String?              @db.Text
+  icalProvider IntegrationProvider? @default(ICAL_OTHER)
 
   // Laundry supplier assignment
-  laundrySupplierId     String?
-  laundrySupplier       LaundrySupplier?        @relation(fields: [laundrySupplierId], references: [id])
+  laundrySupplierId String?
+  laundrySupplier   LaundrySupplier? @relation(fields: [laundrySupplierId], references: [id])
 
   // Approval/edit
-  adminNotes            String?                 @db.Text
-  adminOverrides        Json?                   // { cleanerCount, hours, price, ... }
+  adminNotes     String? @db.Text
+  adminOverrides Json? // { cleanerCount, hours, price, ... }
 
   // Created entities on approval
-  createdClientId       String?
-  createdPropertyId     String?
-  createdIntegrationId  String?
-  createdLaundryTaskId  String?
-  createdJobIds         String[]                @default([])
+  createdClientId      String?
+  createdPropertyId    String?
+  createdIntegrationId String?
+  createdLaundryTaskId String?
+  createdJobIds        String[] @default([])
 
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  submittedAt           DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  submittedAt DateTime?
 
-  submittedBy           User?                   @relation("OnboardingSubmittedBy", fields: [submittedById], references: [id])
-  adminReviewer         User?                   @relation("OnboardingReviewedBy", fields: [adminReviewerId], references: [id])
-  existingClient        Client?                 @relation("OnboardingExistingClient", fields: [existingClientId], references: [id])
-  createdClient         Client?                 @relation("OnboardingCreatedClient", fields: [createdClientId], references: [id])
+  submittedBy    User?   @relation("OnboardingSubmittedBy", fields: [submittedById], references: [id])
+  adminReviewer  User?   @relation("OnboardingReviewedBy", fields: [adminReviewerId], references: [id])
+  existingClient Client? @relation("OnboardingExistingClient", fields: [existingClientId], references: [id])
+  createdClient  Client? @relation("OnboardingCreatedClient", fields: [createdClientId], references: [id])
 
-  appliances            OnboardingAppliance[]
-  specialRequests       OnboardingSpecialRequest[]
-  laundryDetail         OnboardingLaundryDetail?
-  accessDetails         OnboardingAccessDetail[]
-  jobTypeAnswers        OnboardingJobTypeAnswer[]
+  appliances      OnboardingAppliance[]
+  specialRequests OnboardingSpecialRequest[]
+  laundryDetail   OnboardingLaundryDetail?
+  accessDetails   OnboardingAccessDetail[]
+  jobTypeAnswers  OnboardingJobTypeAnswer[]
 
   @@index([status, createdAt])
   @@index([sourceType, status])
@@ -3368,87 +3372,87 @@ model PropertyOnboardingSurvey {
 }
 
 model OnboardingAppliance {
-  id            String                    @id @default(cuid())
+  id            String  @id @default(cuid())
   surveyId      String
-  applianceType String                    // OVEN, FRIDGE, DISHWASHER, WASHER, DRYER, RANGEHOOD, MICROWAVE
-  conditionNote String?                   @db.Text
-  requiresClean Boolean                   @default(true)
+  applianceType String // OVEN, FRIDGE, DISHWASHER, WASHER, DRYER, RANGEHOOD, MICROWAVE
+  conditionNote String? @db.Text
+  requiresClean Boolean @default(true)
 
-  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
 }
 
 model OnboardingSpecialRequest {
-  id            String                    @id @default(cuid())
-  surveyId      String
-  description   String                    @db.Text
-  priority      String                    @default("NORMAL")  // LOW, NORMAL, HIGH, URGENT
-  area          String?                   // KITCHEN, BATHROOM, BEDROOM, LIVING, OUTDOOR, GARAGE
+  id          String  @id @default(cuid())
+  surveyId    String
+  description String  @db.Text
+  priority    String  @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+  area        String? // KITCHEN, BATHROOM, BEDROOM, LIVING, OUTDOOR, GARAGE
 
-  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
 }
 
 model OnboardingLaundryDetail {
-  id              String                    @id @default(cuid())
-  surveyId        String                    @unique
-  hasLaundry      Boolean                   @default(false)
-  washerType      String?                   // FRONT_LOAD, TOP_LOAD, COMBO
-  dryerType       String?                   // DRYER, COMBO, NONE
-  laundryLocation String?                   // INSIDE_UNIT, SEPARATE_ROOM, GARAGE, OUTDOOR
-  suppliesProvided Boolean                  @default(false)
-  detergentType   String?                   // STANDARD, HYPOALLERGENIC, ECO, CLIENT_PROVIDED
-  notes           String?                   @db.Text
+  id               String  @id @default(cuid())
+  surveyId         String  @unique
+  hasLaundry       Boolean @default(false)
+  washerType       String? // FRONT_LOAD, TOP_LOAD, COMBO
+  dryerType        String? // DRYER, COMBO, NONE
+  laundryLocation  String? // INSIDE_UNIT, SEPARATE_ROOM, GARAGE, OUTDOOR
+  suppliesProvided Boolean @default(false)
+  detergentType    String? // STANDARD, HYPOALLERGENIC, ECO, CLIENT_PROVIDED
+  notes            String? @db.Text
 
-  survey          PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 }
 
 model OnboardingAccessDetail {
-  id            String                    @id @default(cuid())
-  surveyId      String
-  detailType    String                    // LOCKBOX, KEY_LOCATION, PARKING, ENTRY_PHOTO, BUILDING_ACCESS
-  value         String?                   @db.Text
-  photoUrl      String?                   @db.Text
-  photoKey      String?
-  annotations   Json?                     // [{ x, y, text }]
-  sortOrder     Int                       @default(0)
+  id          String  @id @default(cuid())
+  surveyId    String
+  detailType  String // LOCKBOX, KEY_LOCATION, PARKING, ENTRY_PHOTO, BUILDING_ACCESS
+  value       String? @db.Text
+  photoUrl    String? @db.Text
+  photoKey    String?
+  annotations Json? // [{ x, y, text }]
+  sortOrder   Int     @default(0)
 
-  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
 }
 
 model OnboardingJobTypeAnswer {
-  id            String                    @id @default(cuid())
-  surveyId      String
-  jobType       JobType
-  answers       Json                      // { questionId: answer }
-  isComplete    Boolean                   @default(false)
+  id         String  @id @default(cuid())
+  surveyId   String
+  jobType    JobType
+  answers    Json // { questionId: answer }
+  isComplete Boolean @default(false)
 
-  survey        PropertyOnboardingSurvey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@unique([surveyId, jobType])
   @@index([surveyId])
 }
 
 model UploadFailure {
-  id          String    @id @default(cuid())
-  userId      String?
-  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  jobId       String?
-  job         Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
-  filename    String
-  size        Int
-  mime        String
-  reason      String    // canonical short code, e.g. "S3_TIMEOUT", "PRESIGN_REJECTED", "CLIENT_ABORT"
-  message     String?
-  stack       String?   @db.Text
-  context     Json?     // optional payload (file slice index, retry count, etc.)
-  occurredAt  DateTime  @default(now())
-  resolvedAt  DateTime?
-  resolvedBy  String?
+  id         String    @id @default(cuid())
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  jobId      String?
+  job        Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  filename   String
+  size       Int
+  mime       String
+  reason     String // canonical short code, e.g. "S3_TIMEOUT", "PRESIGN_REJECTED", "CLIENT_ABORT"
+  message    String?
+  stack      String?   @db.Text
+  context    Json? // optional payload (file slice index, retry count, etc.)
+  occurredAt DateTime  @default(now())
+  resolvedAt DateTime?
+  resolvedBy String?
 
   @@index([occurredAt])
   @@index([userId, occurredAt])
@@ -3458,13 +3462,69 @@ model UploadFailure {
 
 // Geocode failures (Plan D backfill)
 model GeocodeFailure {
-  id          String   @id @default(cuid())
-  modelType   String   // "Property" | "User" | "Client"
-  modelId     String
-  query       String
-  reason      String
-  occurredAt  DateTime @default(now())
-  resolvedAt  DateTime?
+  id         String    @id @default(cuid())
+  modelType  String // "Property" | "User" | "Client"
+  modelId    String
+  query      String
+  reason     String
+  occurredAt DateTime  @default(now())
+  resolvedAt DateTime?
+
   @@index([modelType, modelId])
   @@index([resolvedAt])
+}
+
+enum LostFoundStatus {
+  REPORTED
+  IN_STORAGE
+  GUEST_CONTACTED
+  RETURN_OFFERED
+  RETURNED
+  DISPOSED
+  DONATED
+  UNCLAIMED
+  ARCHIVED
+}
+
+// Guest lost-property tracking: a cleaner reports a found item, then admins /
+// cleaners / others comment, offer a return, contact the guest, and action the
+// final decision. Scalar refs (no relations) keep this self-contained; the app
+// batch-fetches property / user / job names as needed.
+model LostFoundItem {
+  id               String           @id @default(cuid())
+  propertyId       String?
+  jobId            String?
+  reportedByUserId String?
+  itemName         String
+  description      String?          @db.Text
+  foundLocation    String?
+  photos           Json? // [{ url, key, caption? }]
+  status           LostFoundStatus  @default(REPORTED)
+  guestName        String?
+  guestContact     String?          @db.Text
+  estimatedValue   Float?
+  resolution       String?          @db.Text
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  events           LostFoundEvent[]
+
+  @@index([propertyId])
+  @@index([jobId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model LostFoundEvent {
+  id        String        @id @default(cuid())
+  itemId    String
+  userId    String?
+  action    String // REPORTED | COMMENT | OFFER_RETURN | GUEST_CONTACTED | RETURNED | DISPOSED | STATUS_CHANGE
+  note      String?       @db.Text
+  meta      Json?
+  createdAt DateTime      @default(now())
+  item      LostFoundItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
 }
