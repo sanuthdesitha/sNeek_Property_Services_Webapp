@@ -45,6 +45,7 @@ enum JobType {
   AIRBNB_TURNOVER
   DEEP_CLEAN
   END_OF_LEASE
+  MOVE_IN_CLEAN
   GENERAL_CLEAN
   POST_CONSTRUCTION
   PRESSURE_WASH
@@ -2009,6 +2010,18 @@ model Quote {
   viewedAt       DateTime?
   acceptedAt     DateTime?
   declinedAt     DateTime?
+  // Shareable public link: the client views + approves the quote at
+  // /q/<publicToken> without logging in; the page always reflects the latest
+  // saved quote (live). Null until the quote is first sent/shared.
+  publicToken     String?  @unique
+  // When false (default), add-on prices are hidden from the client (email +
+  // online) — prices change often, so we usually show add-ons as "on request".
+  showAddOnPrices Boolean  @default(false)
+  // Client-supplied reference images attached to the quote: [{ key, url, label }].
+  referenceImages Json?
+  // Snapshot of the configurable pricing variables chosen for this quote
+  // (property condition, location, parking + how it's paid, etc.).
+  serviceContext  Json?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

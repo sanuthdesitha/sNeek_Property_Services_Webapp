@@ -12,6 +12,7 @@ export const LABOUR_HOURS: Record<string, { label: string; base: number; perBed:
   SPRING_CLEANING: { label: "Spring clean", base: 2.0, perBed: 0.6, perBath: 0.8 },
   DEEP_CLEAN: { label: "Deep clean", base: 2.5, perBed: 0.7, perBath: 1.0 },
   END_OF_LEASE: { label: "End of lease / bond", base: 3.5, perBed: 0.9, perBath: 1.4 },
+  MOVE_IN_CLEAN: { label: "Move-in clean", base: 3.0, perBed: 0.8, perBath: 1.2 },
 };
 
 export const RATE_CARD_JOB_TYPES = Object.keys(LABOUR_HOURS) as JobType[];

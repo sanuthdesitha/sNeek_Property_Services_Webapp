@@ -14,6 +14,7 @@ import {
   Landmark,
   ShieldCheck,
   DollarSign,
+  SlidersHorizontal,
   Eye,
   Shirt,
   Globe,
@@ -28,6 +29,7 @@ import { BankSection } from "@/components/v2/admin/settings/bank-section";
 import { SafeguardsSection } from "@/components/v2/admin/settings/safeguards-section";
 import { NotificationsAutomationSection } from "@/components/v2/admin/settings/notifications-automation-section";
 import { RatesSection } from "@/components/v2/admin/settings/rates-section";
+import { PricingVariablesSection } from "@/components/v2/admin/settings/pricing-variables-section";
 import { PortalsSection } from "@/components/v2/admin/settings/portals-section";
 import { LaundrySection } from "@/components/v2/admin/settings/laundry-section";
 import { PublicWidgetsSection } from "@/components/v2/admin/settings/public-widgets-section";
@@ -52,6 +54,7 @@ type TabKey =
   | "safeguards"
   | "notifications"
   | "rates"
+  | "pricing-variables"
   | "portals"
   | "laundry"
   | "public-widgets"
@@ -72,6 +75,7 @@ const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly
   { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true },
   { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
   { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true },
+  { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true },
   { key: "portals", label: "Portal visibility", icon: <Eye className="h-4 w-4" />, adminOnly: true },
   { key: "laundry", label: "Laundry & locations", icon: <Shirt className="h-4 w-4" />, adminOnly: true },
   { key: "public-widgets", label: "Public site widgets", icon: <Globe className="h-4 w-4" />, adminOnly: true },
@@ -218,6 +222,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
           initialRates={appSettings.cleanerJobHourlyRates as Record<string, Record<string, number>>}
           readOnly={!isAdmin}
         />
+      ) : null}
+
+      {activeTab === "pricing-variables" && isAdmin ? (
+        <PricingVariablesSection initial={appSettings.pricingVariables} readOnly={!isAdmin} />
       ) : null}
 
       {activeTab === "portals" && isAdmin ? (

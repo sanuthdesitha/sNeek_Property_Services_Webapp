@@ -88,7 +88,7 @@ export const MARKETED_SERVICES: MarketedService[] = [
     cardColor: "from-[#4b305c]/95 to-[#7f4b93]/90",
   },
   {
-    jobType: "SPECIAL_CLEAN",
+    jobType: "MOVE_IN_CLEAN",
     slug: "move-in-cleaning",
     family: "residential",
     label: "Move-In Cleaning",

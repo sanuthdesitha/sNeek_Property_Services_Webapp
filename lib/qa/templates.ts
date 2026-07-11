@@ -29,6 +29,7 @@ const TYPE_LABELS: Record<JobType, string> = {
   AIRBNB_TURNOVER: "Airbnb turnover",
   DEEP_CLEAN: "Deep clean",
   END_OF_LEASE: "End of lease",
+  MOVE_IN_CLEAN: "Move-in clean",
   GENERAL_CLEAN: "General clean",
   POST_CONSTRUCTION: "Post construction",
   PRESSURE_WASH: "Pressure wash",

@@ -2170,6 +2170,211 @@ export const DEFAULT_CHECKLISTS: ChecklistMap = {
       },
     ],
   },
+
+  MOVE_IN_CLEAN: {
+    jobType: "MOVE_IN_CLEAN",
+    summary:
+      "A thorough fresh-start deep clean of an empty or near-empty home before you move in, detailing the kitchen, wet areas, floors, interior windows, cupboards and high-touch points so the property is hygienic and ready to unpack into.",
+    notCovered: [
+      "Exterior windows above ground floor requiring ladders or roof access",
+      "Carpet steam cleaning (available as a separate add-on)",
+      "Full wall washing (marks are spot-cleaned only)",
+      "Pest control and flea treatment",
+      "Garden, lawn and green-waste removal",
+    ],
+    sections: [
+      {
+        id: "kitchen",
+        title: "Kitchen",
+        items: [
+          {
+            id: "kitchen.cupboards",
+            label: "Clean inside and outside all cupboards and drawers",
+            covered: true,
+            instructions:
+              "Vacuum out crumbs and dust, then wipe every cupboard and drawer interior, shelf, runner and exterior face so shelves are clean and ready to load before you move in.",
+          },
+          {
+            id: "kitchen.oven",
+            label: "Clean inside oven, racks and door glass",
+            covered: true,
+            instructions:
+              "Apply a caustic oven cleaner to the cavity and racks, dwell per the product label, scrub off carbon and wipe out thoroughly, cleaning between the door glass and rinsing residue-free. Ventilate and wear gloves.",
+          },
+          {
+            id: "kitchen.stovetop",
+            label: "Degrease cooktop, grates and rangehood",
+            covered: true,
+            instructions:
+              "Soak grates and trivets in hot degreaser, scrub the cooktop, and clean the rangehood face and controls; soak metal filters in hot degreasing solution and rinse.",
+          },
+          {
+            id: "kitchen.benchtops",
+            label: "Detail benchtops and splashback",
+            covered: true,
+            instructions:
+              "Clear surfaces, degrease the splashback and benchtops, and clean behind and under the space where small appliances will sit.",
+          },
+          {
+            id: "kitchen.sink",
+            label: "Descale and polish sink and tapware",
+            covered: true,
+            instructions:
+              "Scrub the sink, clean the drain and overflow, descale tapware with a vinegar or lime-scale solution, then rinse and buff to a spot-free finish.",
+          },
+          {
+            id: "kitchen.floor",
+            label: "Detail floor, edges and behind appliances",
+            covered: true,
+            instructions:
+              "Vacuum then mop, hand-detailing kickboards, corners and accessible areas beside and behind any provided appliances.",
+          },
+        ],
+      },
+      {
+        id: "bathrooms",
+        title: "Bathrooms & laundry",
+        items: [
+          {
+            id: "bathroom.toilet",
+            label: "Deep clean, descale and sanitise toilet",
+            covered: true,
+            instructions:
+              "Apply cleaner under the rim and dwell, scrub the bowl, remove waterline scale, then disinfect the seat, hinges, cistern, base and behind the pan.",
+          },
+          {
+            id: "bathroom.shower",
+            label: "Descale shower, screen, tiles and seals",
+            covered: true,
+            instructions:
+              "Apply a soap-scum and lime remover, dwell, scrub tiles, screen, channels and seals, rinse and squeegee to a clear finish, then polish tapware.",
+          },
+          {
+            id: "bathroom.grout",
+            label: "Scrub grout lines and spot-treat mould",
+            covered: true,
+            instructions:
+              "Scrub grout with a stiff brush and a grout cleaner or oxygen-bleach paste, spot-treat surface mould on grout and silicone, and rinse thoroughly.",
+          },
+          {
+            id: "bathroom.vanity",
+            label: "Clean basin, vanity inside/out and mirror",
+            covered: true,
+            instructions:
+              "Clean the basin and overflow, wipe the vanity interior and exterior ready for your toiletries, polish tapware and buff the mirror streak-free.",
+          },
+          {
+            id: "bathroom.exhaust",
+            label: "Clean exhaust fan and light fittings",
+            covered: true,
+            instructions:
+              "Vacuum and wipe the exhaust fan cover and light fittings to remove dust build-up.",
+          },
+          {
+            id: "laundry.area",
+            label: "Clean laundry tub, cabinetry and connections",
+            covered: true,
+            instructions:
+              "Clean the tub and tapware, wipe cabinetry inside and out, and clean accessible areas around washer/dryer connections.",
+          },
+        ],
+      },
+      {
+        id: "storage",
+        title: "Wardrobes & built-ins",
+        items: [
+          {
+            id: "storage.wardrobes",
+            label: "Wipe inside wardrobes, shelves and rails",
+            covered: true,
+            instructions:
+              "Vacuum and wipe empty wardrobe interiors, built-in shelving, rails, drawers and mirrored doors so storage is clean and ready to fill.",
+          },
+          {
+            id: "storage.linen",
+            label: "Clean linen and storage cupboards",
+            covered: true,
+            instructions:
+              "Wipe out linen and hallway storage cupboards, shelves and doors to remove dust before your belongings go in.",
+          },
+        ],
+      },
+      {
+        id: "surfaces",
+        title: "Skirtings, doors & switches",
+        items: [
+          {
+            id: "surfaces.skirting",
+            label: "Wipe skirting boards and architraves",
+            covered: true,
+            instructions:
+              "Damp-wipe skirting boards, door frames and architraves throughout to lift dust and scuffs.",
+          },
+          {
+            id: "surfaces.doors",
+            label: "Wipe doors, handles and light switches",
+            covered: true,
+            instructions:
+              "Damp-wipe doors, handles and switch plates and sanitise high-touch points throughout the home.",
+          },
+          {
+            id: "surfaces.walls.spot",
+            label: "Spot-clean wall marks",
+            covered: true,
+            instructions:
+              "Spot-clean visible marks on walls with a damp microfibre and gentle cleaner, taking care not to burnish the paint; full wall washing is excluded.",
+          },
+          {
+            id: "surfaces.cobwebs",
+            label: "Remove cobwebs and dust vents/fans",
+            covered: true,
+            instructions:
+              "Clear cobwebs from ceiling corners and cornices and dust ceiling fans, air-con vents and returns with an extendable tool.",
+          },
+        ],
+      },
+      {
+        id: "windows",
+        title: "Windows, sills & tracks",
+        items: [
+          {
+            id: "windows.glass.interior",
+            label: "Clean interior window glass",
+            covered: true,
+            instructions:
+              "Clean all reachable interior glass with glass cleaner and a flat-weave microfibre or squeegee for a streak-free finish.",
+          },
+          {
+            id: "windows.tracks",
+            label: "Vacuum and wipe sills and tracks",
+            covered: true,
+            instructions:
+              "Vacuum debris from tracks, scrub with a detail brush and detergent, then wipe dry along with the sills.",
+          },
+        ],
+      },
+      {
+        id: "floors",
+        title: "Floors",
+        items: [
+          {
+            id: "floors.vacuum",
+            label: "Vacuum all carpets and hard floors",
+            covered: true,
+            instructions:
+              "Vacuum the whole property including edges, corners, wardrobes and entry to lift dust and debris before mopping.",
+          },
+          {
+            id: "floors.mop",
+            label: "Mop all hard floors to the edges",
+            covered: true,
+            instructions:
+              "Mop tiles, timber or vinyl with a suitable floor cleaner, working from the far corner back toward the exit to avoid footprints.",
+          },
+        ],
+      },
+    ],
+  },
 };
 
 export default DEFAULT_CHECKLISTS;

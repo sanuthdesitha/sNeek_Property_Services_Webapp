@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { priceService } from "@/lib/pricing/service-catalog";
 import { getServicePricing } from "@/lib/pricing/service-pricing-store";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
+import { applyPricingVariables } from "@/lib/pricing/variables";
 
 /**
  * Admin live pricing for the quote builder. Prices a service from its OWN model
@@ -21,6 +22,11 @@ const schema = z.object({
   items: z.number().min(0).max(500).optional(),
   hours: z.number().min(0).max(1000).optional(),
   bandIndex: z.number().min(0).max(20).optional(),
+  // Optional pricing-variable selections (variable id → option id / quantity /
+  // value). When present, the configured pricing variables adjust the subtotal
+  // and their breakdown lines are returned. Fully backward-compatible: omit to
+  // keep the original pricing behaviour unchanged.
+  serviceContext: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -38,10 +44,38 @@ export async function POST(req: NextRequest) {
         message: "This service needs manual line items.",
       });
     }
-    const totals = calculateGstBreakdown(subtotal, { gstEnabled: settings.pricing.gstEnabled });
+
+    // Optionally layer the admin-configured pricing variables onto the subtotal.
+    // Backward-compatible: when no serviceContext is supplied the subtotal is
+    // untouched and no variable lines are returned.
+    let adjustedSubtotal = subtotal;
+    let variableLines: { label: string; amount: number }[] = [];
+    if (body.serviceContext && Object.keys(body.serviceContext).length > 0) {
+      const applied = applyPricingVariables(subtotal, settings.pricingVariables, body.serviceContext);
+      adjustedSubtotal = applied.total;
+      variableLines = applied.lines;
+    }
+
+    const combinedLineItems = [
+      ...lineItems,
+      ...variableLines.map((line) => ({
+        label: line.label,
+        unitPrice: line.amount,
+        qty: 1,
+        total: line.amount,
+      })),
+    ];
+
+    const totals = calculateGstBreakdown(adjustedSubtotal, { gstEnabled: settings.pricing.gstEnabled });
     return NextResponse.json({
       ok: true,
-      result: { lineItems, subtotal: totals.subtotal, gst: totals.gstAmount, total: totals.totalAmount },
+      result: {
+        lineItems: combinedLineItems,
+        variableLines,
+        subtotal: totals.subtotal,
+        gst: totals.gstAmount,
+        total: totals.totalAmount,
+      },
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
