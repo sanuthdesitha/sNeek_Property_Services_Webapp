@@ -60,6 +60,12 @@ export interface JobAdditional {
   instructions?: string;
 }
 
+/** Reference image carried from the quote onto the job (client-supplied). */
+export interface JobQuoteReferenceImage {
+  url: string;
+  label?: string;
+}
+
 export interface JobMeta {
   version: 1;
   internalNoteText: string;
@@ -78,6 +84,17 @@ export interface JobMeta {
   reservationContext?: JobReservationContext;
   // Quote extras that became part of this job (rendered as Additionals).
   additionals: JobAdditional[];
+  // Ex-GST price of each additional, keyed by the additional's id. Only set for
+  // extras added after conversion via the "quote extras" flow, so removals can
+  // reverse the exact price bump. Extras converted with the quote have their
+  // price inside the quote total and carry no entry here.
+  additionalPrices?: Record<string, number>;
+  // Snapshot of the quote's pricing-variable selections (serviceContext Json),
+  // copied on conversion for transparency. Free-form — display only.
+  quoteServiceContext?: Record<string, unknown>;
+  // Client-supplied reference images from the quote, copied on conversion so
+  // cleaners/admins can see them on the job.
+  quoteReferenceImages?: JobQuoteReferenceImage[];
   // For rework jobs: present the cleaner's fix checklist grouped by area (true,
   // default) or as a single flat list (false). Set from the QA rework proposal.
   reworkCategorized?: boolean;
@@ -103,6 +120,9 @@ export function defaultJobMeta(): JobMeta {
     serviceContext: undefined,
     reservationContext: undefined,
     additionals: [],
+    additionalPrices: undefined,
+    quoteServiceContext: undefined,
+    quoteReferenceImages: undefined,
     reworkCategorized: undefined,
   };
 }
@@ -123,6 +143,41 @@ function normalizeAdditionals(input: unknown): JobAdditional[] {
     });
   });
   return out;
+}
+
+/** Normalize the per-additional ex-GST price map (additional id -> price). */
+function normalizeAdditionalPrices(input: unknown): Record<string, number> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [id, raw] of Object.entries(input as Record<string, unknown>)) {
+    const amount = Number(raw);
+    if (typeof id === "string" && id.trim() && Number.isFinite(amount) && amount >= 0) {
+      out[id.trim()] = Number(amount.toFixed(2));
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Normalize the quote's pricing-variable snapshot (display-only, free-form). */
+function normalizeQuoteServiceContext(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const source = input as Record<string, unknown>;
+  return Object.keys(source).length > 0 ? source : undefined;
+}
+
+/** Normalize reference images carried from the quote ([{url,label}]). */
+function normalizeQuoteReferenceImages(input: unknown): JobQuoteReferenceImage[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: JobQuoteReferenceImage[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const url = typeof item.url === "string" ? item.url.trim() : "";
+    if (!url) continue;
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    out.push({ url, ...(label ? { label } : {}) });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 // Normalize a per-cleaner amount map (userId -> number). `allowZero` controls
@@ -318,6 +373,9 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       serviceContext: normalizeServiceContext(parsed.serviceContext),
       reservationContext: normalizeReservationContext(parsed.reservationContext),
       additionals: normalizeAdditionals(parsed.additionals),
+      additionalPrices: normalizeAdditionalPrices(parsed.additionalPrices),
+      quoteServiceContext: normalizeQuoteServiceContext(parsed.quoteServiceContext),
+      quoteReferenceImages: normalizeQuoteReferenceImages(parsed.quoteReferenceImages),
       reworkCategorized: typeof parsed.reworkCategorized === "boolean" ? parsed.reworkCategorized : undefined,
     };
   } catch {
@@ -342,6 +400,9 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     serviceContext: normalizeServiceContext(input.serviceContext),
     reservationContext: normalizeReservationContext(input.reservationContext),
     additionals: normalizeAdditionals(input.additionals),
+    additionalPrices: normalizeAdditionalPrices(input.additionalPrices),
+    quoteServiceContext: normalizeQuoteServiceContext(input.quoteServiceContext),
+    quoteReferenceImages: normalizeQuoteReferenceImages(input.quoteReferenceImages),
   };
 
   const hasStructuredData =
@@ -356,6 +417,9 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
     Boolean(meta.reservationContext && Object.keys(meta.reservationContext).length > 0) ||
     meta.additionals.length > 0 ||
+    Boolean(meta.additionalPrices) ||
+    Boolean(meta.quoteServiceContext) ||
+    Boolean(meta.quoteReferenceImages && meta.quoteReferenceImages.length > 0) ||
     typeof meta.reworkCategorized === "boolean";
 
   if (!hasStructuredData) {
@@ -376,6 +440,9 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     serviceContext: meta.serviceContext,
     reservationContext: meta.reservationContext,
     additionals: meta.additionals,
+    additionalPrices: meta.additionalPrices,
+    quoteServiceContext: meta.quoteServiceContext,
+    quoteReferenceImages: meta.quoteReferenceImages,
     reworkCategorized: meta.reworkCategorized,
   });
 }

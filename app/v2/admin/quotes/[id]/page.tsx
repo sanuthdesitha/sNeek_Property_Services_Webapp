@@ -26,6 +26,10 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
         createdAt: true,
         clientId: true,
         leadId: true,
+        publicToken: true,
+        showAddOnPrices: true,
+        referenceImages: true,
+        serviceContext: true,
         client: { select: { id: true, name: true, email: true } },
         lead: { select: { id: true, name: true, email: true } },
       },
@@ -54,6 +58,21 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
     clientId: quote.clientId ?? null,
     client: quote.client ? { id: quote.client.id, name: quote.client.name, email: quote.client.email ?? "" } : null,
     lead: quote.lead ? { id: quote.lead.id, name: quote.lead.name, email: quote.lead.email ?? "" } : null,
+    publicToken: quote.publicToken ?? null,
+    showAddOnPrices: Boolean(quote.showAddOnPrices),
+    referenceImages: Array.isArray(quote.referenceImages)
+      ? (quote.referenceImages as Array<Record<string, unknown>>)
+          .filter((r) => r && typeof r.url === "string")
+          .map((r) => ({
+            key: typeof r.key === "string" ? r.key : String(r.url),
+            url: String(r.url),
+            label: typeof r.label === "string" ? r.label : undefined,
+          }))
+      : [],
+    serviceContext:
+      quote.serviceContext && typeof quote.serviceContext === "object" && !Array.isArray(quote.serviceContext)
+        ? (quote.serviceContext as Record<string, string | number | boolean>)
+        : null,
   };
 
   return (

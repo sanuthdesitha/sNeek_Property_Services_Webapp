@@ -47,6 +47,7 @@ const roomBasedServices = new Set<MarketedJobTypeValue>([
   "DEEP_CLEAN",
   "END_OF_LEASE",
   "SPECIAL_CLEAN",
+  "MOVE_IN_CLEAN",
   "SPRING_CLEANING",
 ]);
 const areaBasedServices = new Set<MarketedJobTypeValue>([

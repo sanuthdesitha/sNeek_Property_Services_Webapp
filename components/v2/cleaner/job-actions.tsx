@@ -34,6 +34,7 @@ import {
 import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
+import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 
 type Notice = { tone: "success" | "danger" | "info"; text: string } | null;
 
@@ -83,6 +84,8 @@ export function JobActions({
       <ExtraPayRequest jobId={jobId} onChanged={onChanged} />
 
       <DamageReport jobId={jobId} onChanged={onChanged} />
+
+      <ReportMaintenance jobId={jobId} onChanged={onChanged} />
     </div>
   );
 }

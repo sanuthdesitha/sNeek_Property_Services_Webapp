@@ -19,6 +19,7 @@ interface Stop {
   status: string;
   startTime: string | null;
   dueTime: string | null;
+  estimatedHours: number | null;
   enRouteStartedAt: string | null;
   enRouteEtaMinutes: number | null;
   arrivedAt: string | null;
@@ -65,6 +66,7 @@ async function loadTodayStops(userId: string): Promise<{ stops: Stop[]; isoDate:
             status: true,
             startTime: true,
             dueTime: true,
+            estimatedHours: true,
             enRouteStartedAt: true,
             enRouteEtaMinutes: true,
             arrivedAt: true,
@@ -95,6 +97,7 @@ async function loadTodayStops(userId: string): Promise<{ stops: Stop[]; isoDate:
       status: a.job!.status as unknown as string,
       startTime: a.job!.startTime,
       dueTime: a.job!.dueTime,
+      estimatedHours: a.job!.estimatedHours,
       enRouteStartedAt: a.job!.enRouteStartedAt ? a.job!.enRouteStartedAt.toISOString() : null,
       enRouteEtaMinutes: a.job!.enRouteEtaMinutes,
       arrivedAt: a.job!.arrivedAt ? a.job!.arrivedAt.toISOString() : null,
@@ -127,7 +130,7 @@ export default async function V2CleanerRoutePage() {
         title="Your route"
         description="Drive mode with live GPS heartbeat, or the full timeline with navigation deep links."
       />
-      <RouteDriving initialDate={isoDate} initialStops={stops} />
+      <RouteDriving initialDate={isoDate} initialStops={stops} userId={session.user.id} />
     </div>
   );
 }

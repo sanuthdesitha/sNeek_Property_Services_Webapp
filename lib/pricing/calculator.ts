@@ -323,10 +323,13 @@ async function calculateLocalMarketingQuote(input: QuoteInput, gstSettings: GstS
 
   switch (input.serviceType) {
     case "SPRING_CLEANING":
-    case "SPECIAL_CLEAN": {
+    case "SPECIAL_CLEAN":
+    case "MOVE_IN_CLEAN": {
       const bedrooms = Math.max(1, input.bedrooms ?? 2);
       const bathrooms = Math.max(1, input.bathrooms ?? 1);
-      const isMoveIn = input.serviceType === "SPECIAL_CLEAN";
+      // MOVE_IN_CLEAN is the real move-in service; SPECIAL_CLEAN keeps the same
+      // pricing for backward compatibility (the public card used to map to it).
+      const isMoveIn = input.serviceType !== "SPRING_CLEANING";
       const baseVisit = isMoveIn ? 220 : 130;
       const bedroomRate = isMoveIn ? 65 : 48;
       const bathroomRate = isMoveIn ? 55 : 38;

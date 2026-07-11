@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Camera,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -25,6 +26,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
 import { EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
 type JobTypeValue = string;
 
@@ -55,6 +57,7 @@ interface LibraryModule {
 interface ItemSelection {
   enabled: boolean;
   jobTypes?: JobTypeValue[];
+  requiresPhoto?: boolean;
 }
 
 interface ModuleSelection {
@@ -68,6 +71,8 @@ interface CustomItem {
   label: string;
   instructions?: string;
   jobTypes?: JobTypeValue[];
+  requiresPhoto?: boolean;
+  imageUrl?: string;
 }
 
 interface Selections {
@@ -146,6 +151,8 @@ export function PropertyChecklistProfile({
   const [newItemLabel, setNewItemLabel] = useState("");
   const [newItemInstructions, setNewItemInstructions] = useState("");
   const [newItemModule, setNewItemModule] = useState<string>("custom");
+  const [newItemRequiresPhoto, setNewItemRequiresPhoto] = useState(false);
+  const [newItemImageUrl, setNewItemImageUrl] = useState<string | undefined>(undefined);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -232,6 +239,24 @@ export function PropertyChecklistProfile({
     setDirty(true);
   };
 
+  const setItemRequiresPhoto = (moduleKey: string, itemKey: string, requiresPhoto: boolean) => {
+    setSelections((prev) => {
+      const module = prev.modules[moduleKey] ?? { enabled: true, items: {} };
+      const current = module.items[itemKey] ?? { enabled: true };
+      return {
+        ...prev,
+        modules: {
+          ...prev.modules,
+          [moduleKey]: {
+            ...module,
+            items: { ...module.items, [itemKey]: { ...current, requiresPhoto } },
+          },
+        },
+      };
+    });
+    setDirty(true);
+  };
+
   const toggleItemJobType = (
     moduleKey: string,
     itemKey: string,
@@ -278,11 +303,15 @@ export function PropertyChecklistProfile({
           moduleKey: newItemModule === "custom" ? undefined : newItemModule,
           label,
           instructions: newItemInstructions.trim() || undefined,
+          ...(newItemRequiresPhoto ? { requiresPhoto: true } : {}),
+          ...(newItemImageUrl ? { imageUrl: newItemImageUrl } : {}),
         },
       ],
     }));
     setNewItemLabel("");
     setNewItemInstructions("");
+    setNewItemRequiresPhoto(false);
+    setNewItemImageUrl(undefined);
     setDirty(true);
   };
 
@@ -536,7 +565,19 @@ export function PropertyChecklistProfile({
                                 </span>
                               </label>
                               {itemSel.enabled && moduleSel.enabled ? (
-                                <div className="ml-6 mt-1 flex flex-wrap gap-1">
+                                <div className="ml-6 mt-1 space-y-1">
+                                  <label className="flex w-fit items-center gap-1.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                                    <input
+                                      type="checkbox"
+                                      className={CHECKBOX_CLASS}
+                                      checked={itemSel.requiresPhoto === true}
+                                      onChange={(e) =>
+                                        setItemRequiresPhoto(module.key, item.key, e.target.checked)
+                                      }
+                                    />
+                                    <Camera className="h-3 w-3" /> Photo required
+                                  </label>
+                                  <div className="flex flex-wrap gap-1">
                                   {approveJobTypes.map((jobType) => {
                                     const on = effectiveJobTypes.includes(jobType);
                                     return (
@@ -555,6 +596,7 @@ export function PropertyChecklistProfile({
                                       </button>
                                     );
                                   })}
+                                  </div>
                                 </div>
                               ) : null}
                             </div>
@@ -580,11 +622,26 @@ export function PropertyChecklistProfile({
                       key={custom.id}
                       className="flex items-start justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2.5 py-1.5"
                     >
-                      <div className="min-w-0">
-                        <p className="text-[0.8125rem]">{custom.label}</p>
-                        <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                          {custom.moduleKey ? `In ${custom.moduleKey}` : "Property-specific section"}
-                        </p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        {custom.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={custom.imageUrl}
+                            alt="Reference"
+                            className="h-9 w-9 shrink-0 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
+                          />
+                        ) : null}
+                        <div className="min-w-0">
+                          <p className="text-[0.8125rem]">{custom.label}</p>
+                          <p className="flex items-center gap-1.5 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                            {custom.moduleKey ? `In ${custom.moduleKey}` : "Property-specific section"}
+                            {custom.requiresPhoto ? (
+                              <span className="inline-flex items-center gap-0.5 text-[hsl(var(--e-gold-ink))]">
+                                <Camera className="h-3 w-3" /> photo
+                              </span>
+                            ) : null}
+                          </p>
+                        </div>
                       </div>
                       <EButton size="sm" variant="ghost" onClick={() => removeCustomItem(custom.id)} aria-label="Remove task">
                         <Trash2 className="h-3.5 w-3.5" />
@@ -623,6 +680,18 @@ export function PropertyChecklistProfile({
                   <EButton size="sm" variant="outline" onClick={addCustomItem} disabled={!newItemLabel.trim()}>
                     <Plus className="h-3.5 w-3.5" /> Add task
                   </EButton>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    <input
+                      type="checkbox"
+                      className={CHECKBOX_CLASS}
+                      checked={newItemRequiresPhoto}
+                      onChange={(e) => setNewItemRequiresPhoto(e.target.checked)}
+                    />
+                    <Camera className="h-3.5 w-3.5" /> Photo required
+                  </label>
+                  <TaskImageUpload imageUrl={newItemImageUrl} onChange={setNewItemImageUrl} />
                 </div>
               </div>
             </ECardBody>

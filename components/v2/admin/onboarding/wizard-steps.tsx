@@ -463,6 +463,7 @@ export const JOB_TYPES = [
   { value: "AIRBNB_TURNOVER", label: "Airbnb Turnover" },
   { value: "DEEP_CLEAN", label: "Deep Clean" },
   { value: "END_OF_LEASE", label: "End of Lease" },
+  { value: "MOVE_IN_CLEAN", label: "Move-in Clean" },
   { value: "GENERAL_CLEAN", label: "General Clean" },
   { value: "POST_CONSTRUCTION", label: "Post Construction" },
   { value: "PRESSURE_WASH", label: "Pressure Wash" },

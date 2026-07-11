@@ -25,8 +25,14 @@ import {
   DEFAULT_PUBLIC_WIDGETS,
   type PublicWidgetFlags,
 } from "@/lib/public-site/widgets-types";
+import {
+  DEFAULT_PRICING_VARIABLES,
+  sanitizePricingVariables,
+  type PricingVariable,
+} from "@/lib/pricing/variables";
 
 export { DEFAULT_PUBLIC_WIDGETS, type PublicWidgetFlags };
+export { type PricingVariable };
 
 export type SmsProvider = "none" | "twilio" | "cellcast";
 
@@ -291,6 +297,9 @@ export interface AppSettings {
   notificationTemplates: AppNotificationTemplates;
   invoicing: InvoicingSettings;
   publicWidgets: PublicWidgetFlags;
+  /** Admin-defined variables that adjust quote pricing (condition, zone,
+   *  parking, stairs, pets, access, …). Applied via applyPricingVariables. */
+  pricingVariables: PricingVariable[];
 }
 
 export interface InvoicingSettings {
@@ -570,6 +579,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     companyAddress: "",
   },
   publicWidgets: DEFAULT_PUBLIC_WIDGETS,
+  pricingVariables: DEFAULT_PRICING_VARIABLES,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -1253,6 +1263,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).publicWidgets,
       DEFAULT_SETTINGS.publicWidgets
     ),
+    pricingVariables: sanitizePricingVariables(
+      (parsed as any).pricingVariables,
+      DEFAULT_SETTINGS.pricingVariables
+    ),
   };
 }
 
@@ -1308,6 +1322,9 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
       ...current.publicWidgets,
       ...(input.publicWidgets ?? {}),
     },
+    // Full-array replacement (admins can add/remove variables); an explicitly
+    // sent [] clears them, undefined keeps the current set.
+    pricingVariables: input.pricingVariables ?? current.pricingVariables,
   });
 
   await db.appSetting.upsert({

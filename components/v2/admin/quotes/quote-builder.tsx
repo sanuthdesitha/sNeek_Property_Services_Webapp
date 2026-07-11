@@ -9,13 +9,30 @@
  * Built entirely on the v2 primitives + estate-kit; no components/ui/* imports.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { JobType } from "@prisma/client";
-import { Check, Eye, Loader2, ListChecks, Pencil, Plus, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
+import {
+  Check,
+  Eye,
+  ImagePlus,
+  Link2,
+  Loader2,
+  ListChecks,
+  Mail,
+  Paperclip,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
+import type { PricingSelections, PricingVariable } from "@/lib/pricing/variables";
 import type { ServiceChecklist } from "@/lib/checklists/types";
 import {
   EButton,
@@ -25,10 +42,23 @@ import {
   ECardTitle,
   EEyebrow,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect, EModal } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 type CustomExtra = { id: string; label: string; price: number; instructions: string };
+type ReferenceImage = { key: string; url: string; label?: string };
+type VariableLine = { label: string; amount: number };
+
+/** Sentinel select value for the "Other…" free-typed option (allowCustom). */
+const CUSTOM_OPTION = "__custom__";
+
+/** Human hint for how an option adjusts the price ("+20%", "+$25", ""). */
+function adjustHint(adjustType: string, adjustValue: number): string {
+  if (adjustType === "none" || !adjustValue) return "";
+  const sign = adjustValue > 0 ? "+" : "−";
+  const abs = Math.abs(adjustValue);
+  return adjustType === "percent" ? ` (${sign}${abs}%)` : ` (${sign}$${abs})`;
+}
 
 // Editable per-quote checklist working model (seeded from the service default).
 type EditItem = { id: string; label: string; covered: boolean };
@@ -76,13 +106,15 @@ interface QuoteBuilderProps {
   clients: Option[];
   services: ServiceOption[];
   gstEnabled: boolean;
+  /** Admin-configured pricing variables (settings), rendered as selectors. */
+  pricingVariables?: PricingVariable[];
 }
 
 type RecipientMode = "client" | "lead" | "new";
 
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 
-export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuilderProps) {
+export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVariables = [] }: QuoteBuilderProps) {
   const router = useRouter();
 
   const [recipientMode, setRecipientMode] = useState<RecipientMode>("client");
@@ -110,6 +142,55 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
   const [notesTouched, setNotesTouched] = useState(false);
   const [validUntilDate, setValidUntilDate] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Pricing variables (settings-driven) ──────────────────────────────────
+  // Select/boolean kinds hold an option id (or CUSTOM_OPTION when "Other…"),
+  // number kinds hold a string the admin types. Defaults are preselected.
+  const [variableChoices, setVariableChoices] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const variable of pricingVariables) {
+      if (variable.kind === "number") continue;
+      const fallback = variable.defaultOptionId ?? variable.options?.[0]?.id ?? "";
+      if (fallback) initial[variable.id] = fallback;
+    }
+    return initial;
+  });
+  const [variableCustom, setVariableCustom] = useState<Record<string, string>>({});
+  const [variableNumbers, setVariableNumbers] = useState<Record<string, string>>({});
+  const [variableLines, setVariableLines] = useState<VariableLine[]>([]);
+
+  // Effective serviceContext payload: variable id → option id / custom string /
+  // numeric quantity. Empty custom "Other…" entries and blank numbers are omitted.
+  const serviceContext = useMemo<PricingSelections>(() => {
+    const out: PricingSelections = {};
+    for (const variable of pricingVariables) {
+      if (variable.kind === "number") {
+        const raw = (variableNumbers[variable.id] ?? "").trim();
+        if (!raw) continue;
+        const qty = Number(raw);
+        if (!Number.isFinite(qty) || qty === 0) continue;
+        out[variable.id] = qty;
+        continue;
+      }
+      const choice = variableChoices[variable.id];
+      if (!choice) continue;
+      if (choice === CUSTOM_OPTION) {
+        const typed = (variableCustom[variable.id] ?? "").trim();
+        if (typed) out[variable.id] = typed;
+        continue;
+      }
+      out[variable.id] = choice;
+    }
+    return out;
+  }, [pricingVariables, variableChoices, variableCustom, variableNumbers]);
+
+  // ── Client reference photos ───────────────────────────────────────────────
+  const [refImages, setRefImages] = useState<ReferenceImage[]>([]);
+  const [uploadingRefs, setUploadingRefs] = useState(false);
+  const refFileInput = useRef<HTMLInputElement | null>(null);
+
+  // ── Add-on price visibility (client-facing) ───────────────────────────────
+  const [showAddOnPrices, setShowAddOnPrices] = useState(false);
 
   // "What's included" checklist for the selected service (base default, fetched).
   const [checklist, setChecklist] = useState<ServiceChecklist | null>(null);
@@ -149,7 +230,16 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     () => selectedExtraDetails.map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
     [selectedExtraDetails],
   );
-  const allLines = useMemo(() => [...lineItems, ...extraLines], [lineItems, extraLines]);
+  // Pricing-variable adjustments as quote line items (kept separate from the
+  // hand-editable rows so re-pricing can replace them cleanly).
+  const variableLineItems = useMemo<LineItem[]>(
+    () => variableLines.map((l) => ({ label: l.label, unitPrice: l.amount, qty: 1, total: l.amount })),
+    [variableLines],
+  );
+  const allLines = useMemo(
+    () => [...lineItems, ...variableLineItems, ...extraLines],
+    [lineItems, variableLineItems, extraLines],
+  );
 
   // Seed / reset the editable model whenever the base checklist changes (i.e. on
   // service switch). A fresh base clears any per-quote edits.
@@ -350,40 +440,74 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     };
   }
 
-  async function autoPrice() {
+  // Track whether the rate card has priced this quote at least once — pricing
+  // variables then re-price live (debounced) as selections change.
+  const [hasAutoPriced, setHasAutoPriced] = useState(false);
+
+  async function autoPrice(opts: { silent?: boolean } = {}) {
     setPricing(true);
     try {
       const res = await fetch("/api/admin/quotes/price", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(priceInputs()),
+        body: JSON.stringify({
+          ...priceInputs(),
+          serviceContext: Object.keys(serviceContext).length > 0 ? serviceContext : undefined,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not price this quote.");
       if (body.requiresManualQuote) {
-        toast({ title: "Manual quote needed", description: body.message ?? "Add line items by hand." });
+        if (!opts.silent) {
+          toast({ title: "Manual quote needed", description: body.message ?? "Add line items by hand." });
+        }
         return;
       }
-      const priced: LineItem[] = Array.isArray(body.result?.lineItems) ? body.result.lineItems : [];
-      if (priced.length === 0) {
-        toast({ title: "No price returned", description: "Add line items manually.", variant: "destructive" });
+      const combined: LineItem[] = Array.isArray(body.result?.lineItems) ? body.result.lineItems : [];
+      const returnedVariableLines: VariableLine[] = Array.isArray(body.result?.variableLines)
+        ? body.result.variableLines
+        : [];
+      if (combined.length === 0) {
+        if (!opts.silent) {
+          toast({ title: "No price returned", description: "Add line items manually.", variant: "destructive" });
+        }
         return;
       }
+      // The endpoint returns base line items + variable adjustment lines
+      // appended; split them back apart so adjustments stay live-replaceable.
+      const baseCount = Math.max(0, combined.length - returnedVariableLines.length);
       setLineItems(
-        priced.map((i) => ({
+        combined.slice(0, baseCount).map((i) => ({
           label: i.label,
           unitPrice: Number(i.unitPrice),
           qty: Number(i.qty),
           total: Number(i.total),
         })),
       );
-      toast({ title: "Priced from rate card", description: `${priced.length} line item(s) added.` });
+      setVariableLines(
+        returnedVariableLines.map((l) => ({ label: String(l.label), amount: Number(l.amount) || 0 })),
+      );
+      setHasAutoPriced(true);
+      if (!opts.silent) {
+        toast({ title: "Priced from rate card", description: `${combined.length} line item(s) added.` });
+      }
     } catch (err: any) {
-      toast({ title: "Pricing failed", description: err.message, variant: "destructive" });
+      if (!opts.silent) toast({ title: "Pricing failed", description: err.message, variant: "destructive" });
     } finally {
       setPricing(false);
     }
   }
+
+  // Live totals: once priced, changing a pricing variable re-prices quietly.
+  const serviceContextKey = JSON.stringify(serviceContext);
+  useEffect(() => {
+    if (!hasAutoPriced) return;
+    const timer = setTimeout(() => {
+      autoPrice({ silent: true });
+    }, 450);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceContextKey]);
 
   function updateItem(idx: number, patch: Partial<LineItem>) {
     setLineItems((prev) =>
@@ -434,8 +558,37 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     return base;
   }
 
+  async function uploadReferenceImages(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadingRefs(true);
+    try {
+      const uploaded: ReferenceImage[] = [];
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("folder", "quote-references");
+        const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body?.url) throw new Error(body?.error ?? `Could not upload ${file.name}.`);
+        uploaded.push({ key: String(body.key ?? body.url), url: String(body.url) });
+      }
+      setRefImages((prev) => [...prev, ...uploaded].slice(0, 12));
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingRefs(false);
+      if (refFileInput.current) refFileInput.current.value = "";
+    }
+  }
+
   function buildPayload() {
     return {
+      serviceContext: Object.keys(serviceContext).length > 0 ? serviceContext : undefined,
+      referenceImages:
+        refImages.length > 0
+          ? refImages.map((r) => ({ key: r.key, url: r.url, label: r.label?.trim() || undefined }))
+          : undefined,
+      showAddOnPrices,
       clientId: recipientMode === "client" ? clientId : undefined,
       leadId: recipientMode === "lead" ? leadId : undefined,
       newLead:
@@ -513,6 +666,51 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
     });
   }
 
+  // ── Email preview before sending (save & send path) ──────────────────────
+  type EmailPreview = {
+    quoteId: string;
+    subject: string;
+    html: string;
+    attachments: Array<{ filename: string; size?: number }>;
+    publicUrl?: string;
+    recipients: string[];
+  };
+  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null);
+  const [sendingNow, setSendingNow] = useState(false);
+
+  async function confirmSend() {
+    if (!emailPreview) return;
+    setSendingNow(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${emailPreview.quoteId}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not send the quote.");
+      toast({
+        title: "Quote sent",
+        description: `Emailed with ${Array.isArray(body.attachments) ? body.attachments.length : 0} attachment(s).`,
+      });
+      setEmailPreview(null);
+      router.push("/v2/admin/quotes");
+      router.refresh();
+    } catch (err: any) {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSendingNow(false);
+    }
+  }
+
+  function cancelSend() {
+    const quoteId = emailPreview?.quoteId;
+    setEmailPreview(null);
+    toast({ title: "Saved as draft", description: "The quote was created but not sent." });
+    router.push(quoteId ? `/v2/admin/quotes/${quoteId}` : "/v2/admin/quotes");
+    router.refresh();
+  }
+
   async function submit(send: boolean) {
     if (!recipientValid()) {
       toast({
@@ -544,24 +742,36 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
       }
 
       if (send) {
-        const sendRes = await fetch(`/api/admin/quotes/${quote.id}/send`, {
+        // Render the exact email (body + attachments + public link) WITHOUT
+        // sending; the admin confirms from the preview modal.
+        const previewRes = await fetch(`/api/admin/quotes/${quote.id}/send?preview=1`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ preview: true }),
         });
-        const sendBody = await sendRes.json().catch(() => ({}));
-        if (!sendRes.ok) {
+        const previewBody = await previewRes.json().catch(() => ({}));
+        if (!previewRes.ok) {
           toast({
-            title: "Quote created, but send failed",
-            description: sendBody.error ?? "Open the quote to resend.",
+            title: "Quote created, but the email preview failed",
+            description: previewBody.error ?? "Open the quote to send it.",
             variant: "destructive",
           });
-        } else {
-          toast({ title: "Quote sent", description: "Emailed to the recipient." });
+          router.push(`/v2/admin/quotes/${quote.id}`);
+          router.refresh();
+          return;
         }
-      } else {
-        toast({ title: "Quote created", description: "Saved as a draft." });
+        setEmailPreview({
+          quoteId: quote.id,
+          subject: String(previewBody.subject ?? ""),
+          html: String(previewBody.html ?? ""),
+          attachments: Array.isArray(previewBody.attachments) ? previewBody.attachments : [],
+          publicUrl: typeof previewBody.publicUrl === "string" ? previewBody.publicUrl : undefined,
+          recipients: Array.isArray(previewBody.recipients) ? previewBody.recipients : [],
+        });
+        return; // stay on the page — the modal takes it from here
       }
+
+      toast({ title: "Quote created", description: "Saved as a draft." });
       router.push("/v2/admin/quotes");
       router.refresh();
     } catch (err: any) {
@@ -581,6 +791,72 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
             title="Quote preview"
             className="h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
           />
+        ) : null}
+      </EModal>
+
+      {/* Email preview — exact email + attachments, confirmed before sending */}
+      <EModal
+        open={Boolean(emailPreview)}
+        onClose={cancelSend}
+        eyebrow="Quotes"
+        title="Review before sending"
+        size="full"
+      >
+        {emailPreview ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <EEyebrow>To</EEyebrow>
+                <p className="mt-1 text-[0.8125rem]">
+                  {emailPreview.recipients.length > 0 ? emailPreview.recipients.join(", ") : "No recipient on file"}
+                </p>
+                <EEyebrow className="mt-3">Subject</EEyebrow>
+                <p className="mt-1 text-[0.8125rem]">{emailPreview.subject}</p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <EEyebrow className="flex items-center gap-1.5">
+                  <Paperclip className="h-3 w-3" /> Attachments
+                </EEyebrow>
+                {emailPreview.attachments.length === 0 ? (
+                  <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">None</p>
+                ) : (
+                  <ul className="mt-1 space-y-1">
+                    {emailPreview.attachments.map((a, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                        <span className="min-w-0 truncate">{a.filename}</span>
+                        {typeof a.size === "number" ? (
+                          <span className="e-tnum shrink-0 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                            {(a.size / 1024).toFixed(0)} KB
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {emailPreview.publicUrl ? (
+                  <p className="mt-3 flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    <Link2 className="h-3 w-3 shrink-0 text-[hsl(var(--e-gold-ink))]" />
+                    <span className="min-w-0 truncate">{emailPreview.publicUrl}</span>
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <iframe
+              srcDoc={emailPreview.html}
+              sandbox=""
+              title="Quote email preview"
+              className="h-[52vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-white"
+            />
+            <div className="flex flex-wrap justify-end gap-2">
+              <EButton variant="outline" onClick={cancelSend} disabled={sendingNow}>
+                Keep as draft
+              </EButton>
+              <EButton variant="gold" onClick={confirmSend} disabled={sendingNow}>
+                {sendingNow ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {sendingNow ? "Sending…" : "Send now"}
+              </EButton>
+            </div>
+          </div>
         ) : null}
       </EModal>
 
@@ -721,12 +997,92 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
             ) : null}
           </div>
 
-          <EButton type="button" onClick={autoPrice} disabled={pricing}>
+          <EButton type="button" onClick={() => autoPrice()} disabled={pricing}>
             {pricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Calculate from rate card
           </EButton>
         </ECardBody>
       </ECard>
+
+      {/* Pricing variables — settings-driven adjustments (condition, zone, …) */}
+      {pricingVariables.length > 0 ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle>Pricing variables</ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Property condition, location, parking and access — adjustments update the total live after pricing
+              from the rate card.
+            </p>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {pricingVariables.map((variable) => {
+                if (variable.kind === "number") {
+                  return (
+                    <EField
+                      key={variable.id}
+                      label={variable.unitLabel ? `${variable.label} (${variable.unitLabel})` : variable.label}
+                      hint={variable.note}
+                    >
+                      <EInput
+                        type="number"
+                        step="any"
+                        value={variableNumbers[variable.id] ?? ""}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setVariableNumbers((prev) => ({ ...prev, [variable.id]: e.target.value }))
+                        }
+                      />
+                    </EField>
+                  );
+                }
+                const options = variable.options ?? [];
+                const choice = variableChoices[variable.id] ?? "";
+                return (
+                  <EField key={variable.id} label={variable.label} hint={variable.note}>
+                    <div className="space-y-2">
+                      <ESelect
+                        value={choice}
+                        onChange={(e) =>
+                          setVariableChoices((prev) => ({ ...prev, [variable.id]: e.target.value }))
+                        }
+                      >
+                        {options.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                            {adjustHint(option.adjustType, option.adjustValue)}
+                          </option>
+                        ))}
+                        {variable.allowCustom ? <option value={CUSTOM_OPTION}>Other…</option> : null}
+                      </ESelect>
+                      {variable.allowCustom && choice === CUSTOM_OPTION ? (
+                        <EInput
+                          value={variableCustom[variable.id] ?? ""}
+                          placeholder="Type the custom value…"
+                          onChange={(e) =>
+                            setVariableCustom((prev) => ({ ...prev, [variable.id]: e.target.value }))
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  </EField>
+                );
+              })}
+            </div>
+            {variableLines.length > 0 ? (
+              <div className="mt-4 space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+                <EEyebrow>Adjustments applied</EEyebrow>
+                {variableLines.map((line, i) => (
+                  <div key={i} className="flex items-center justify-between text-[0.8125rem]">
+                    <span className="text-[hsl(var(--e-text-secondary))]">{line.label}</span>
+                    <span className="e-tnum">{money(line.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       {/* Extras / add-ons — grouped by category */}
       <ECard>
@@ -736,6 +1092,20 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
             Added to the price and carried into the job form as &quot;Additionals&quot; so cleaners see exactly what
             extra work was quoted.
           </p>
+          <div className="pt-2">
+            <ESwitch
+              checked={showAddOnPrices}
+              onCheckedChange={setShowAddOnPrices}
+              label={
+                <>
+                  Show add-on prices to client
+                  <span className="ml-1 text-[hsl(var(--e-text-faint))]">
+                    (off = the attached add-on list shows &quot;on request&quot;)
+                  </span>
+                </>
+              }
+            />
+          </div>
         </ECardHeader>
         <ECardBody className="space-y-5 pt-0">
           {EXTRAS_BY_CATEGORY.map((group) => (
@@ -830,6 +1200,79 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
               </div>
             ) : null}
           </div>
+        </ECardBody>
+      </ECard>
+
+      {/* Client reference photos — attached to the quote email as images */}
+      <ECard>
+        <ECardHeader className="flex-row items-start justify-between gap-3">
+          <div>
+            <ECardTitle>Client reference photos</ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Optional photos (the property, problem areas, examples) — attached to the quote email and shown on
+              the quote.
+            </p>
+          </div>
+          <EButton
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => refFileInput.current?.click()}
+            disabled={uploadingRefs}
+          >
+            {uploadingRefs ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            {uploadingRefs ? "Uploading…" : "Add photos"}
+          </EButton>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          <input
+            ref={refFileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => uploadReferenceImages(e.target.files)}
+          />
+          {refImages.length === 0 ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No reference photos added.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {refImages.map((img, idx) => (
+                <div
+                  key={img.key}
+                  className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-2"
+                >
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.url}
+                      alt={img.label || `Reference ${idx + 1}`}
+                      className="h-28 w-full rounded-[var(--e-radius)] object-cover"
+                    />
+                    <EButton
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute right-1 top-1 h-7 w-7 bg-[hsl(var(--e-surface)/0.9)]"
+                      onClick={() => setRefImages((prev) => prev.filter((r) => r.key !== img.key))}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
+                    </EButton>
+                  </div>
+                  <EInput
+                    value={img.label ?? ""}
+                    placeholder="Label (optional)"
+                    className="h-8 text-[0.75rem]"
+                    onChange={(e) =>
+                      setRefImages((prev) =>
+                        prev.map((r) => (r.key === img.key ? { ...r, label: e.target.value } : r)),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </ECardBody>
       </ECard>
 
@@ -1111,6 +1554,18 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled }: QuoteBuil
               </div>
             ))
           )}
+
+          {variableLineItems.length > 0 ? (
+            <div className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+              <EEyebrow>Pricing adjustments</EEyebrow>
+              {variableLineItems.map((li, i) => (
+                <div key={i} className="flex items-center justify-between text-[0.8125rem]">
+                  <span className="text-[hsl(var(--e-text-secondary))]">{li.label}</span>
+                  <span className="e-tnum">{money(li.total)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {extraLines.length > 0 ? (
             <div className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">

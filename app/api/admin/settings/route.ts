@@ -259,6 +259,10 @@ const updateSchema = z.object({
     })
     .partial()
     .optional(),
+  // Configurable pricing variables — loosely validated here (the shape is
+  // enforced/coerced by sanitizePricingVariables in lib/settings.ts). Accept an
+  // array of passthrough objects so the editor can add/remove variables freely.
+  pricingVariables: z.array(z.object({}).passthrough()).optional(),
 });
 
 export async function GET() {

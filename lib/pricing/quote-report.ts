@@ -57,7 +57,14 @@ function escapeHtml(value: unknown) {
 
 export function buildQuoteHtml(
   quote: any,
-  branding?: { companyName?: string; logoUrl?: string; companyAddress?: string }
+  branding?: {
+    companyName?: string;
+    logoUrl?: string;
+    companyAddress?: string;
+    /** When set (email body only — never the PDF), a prominent "View your
+     *  quote online" button linking to the public quote page is rendered. */
+    viewOnlineUrl?: string;
+  }
 ) {
   const companyName = branding?.companyName?.trim() || "sNeek Property Services";
   const logoUrl = resolveLogoUrl(branding?.logoUrl ?? "");
@@ -117,6 +124,15 @@ export function buildQuoteHtml(
 
   // Clean, box-free premium mark (shared treatment across every document).
   const logoBox = renderBrandLogo(logoUrl, companyName, { height: 56, align: "right", wordmarkColor: slate });
+
+  // Optional "view online" call-to-action (email body only; never on the PDF).
+  const viewOnlineUrl = (branding?.viewOnlineUrl ?? "").trim();
+  const viewOnlineHtml = viewOnlineUrl
+    ? `<div style="margin:30px 0 4px 0;text-align:center;">
+        <a href="${escapeHtml(viewOnlineUrl)}" style="display:inline-block;background:${slate};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;letter-spacing:.4px;padding:13px 32px;border-radius:6px;">View your quote online</a>
+        <div style="margin-top:8px;font-size:12px;color:${muted};">Or open this link: <a href="${escapeHtml(viewOnlineUrl)}" style="color:${slate};">${escapeHtml(viewOnlineUrl)}</a></div>
+      </div>`
+    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -186,6 +202,8 @@ export function buildQuoteHtml(
           </table>
         </td></tr>
       </table>
+
+      ${viewOnlineHtml}
 
       <!-- Terms -->
       <div style="margin-top:40px;">

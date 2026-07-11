@@ -57,6 +57,7 @@ import {
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
 import { cn } from "@/lib/utils";
+import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
@@ -554,6 +555,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         hasCheckin={hasCheckin}
         isRunning={timeState.isRunning}
         completedSeconds={timeState.completedSeconds}
+        activeStartedAt={timeState.activeStartedAt ?? null}
+        maxAllowedTotalSeconds={timeState.maxAllowedTotalSeconds ?? null}
         busy={busy}
         onClockIn={clockIn}
         onPause={pauseClock}
@@ -738,6 +741,8 @@ function ClockCard({
   hasCheckin,
   isRunning,
   completedSeconds,
+  activeStartedAt,
+  maxAllowedTotalSeconds,
   busy,
   onClockIn,
   onPause,
@@ -748,18 +753,40 @@ function ClockCard({
   hasCheckin: boolean;
   isRunning: boolean;
   completedSeconds: number;
+  activeStartedAt: string | null;
+  maxAllowedTotalSeconds: number | null;
   busy: string | null;
   onClockIn: () => void;
   onPause: () => void;
   onCheckout: () => void;
 }) {
-  const [tick, setTick] = React.useState(0);
+  // Re-render every second while the clock runs so the live elapsed keeps
+  // advancing. `tick` isn't read directly — it exists purely to schedule the
+  // render; the displayed time is derived fresh from `activeStartedAt` + now on
+  // each render (never an accumulating counter), so a background-tab throttle or
+  // reload can't drift it.
+  const [, setTick] = React.useState(0);
   React.useEffect(() => {
     if (!isRunning) return;
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [isRunning]);
-  const mins = Math.floor(completedSeconds / 60);
+
+  // Total seconds on site: banked (stopped logs) + the live active leg. Never
+  // clamped — the timer KEEPS TICKING past the job's planned end/due time; the
+  // server-side auto-clock-out safety net (due-time + grace / midnight / max
+  // length) is what actually stops the log, not this display.
+  const totalSeconds = isRunning
+    ? elapsedSecondsSince(activeStartedAt, completedSeconds)
+    : completedSeconds;
+  // "Over planned time" is a subtle informational badge — it does NOT stop the
+  // clock. maxAllowedTotalSeconds is the server's allowed total until the cutoff
+  // (respects stopAtEstimatedDuration, default false).
+  const overrunSeconds =
+    isRunning && maxAllowedTotalSeconds != null && totalSeconds > maxAllowedTotalSeconds
+      ? totalSeconds - maxAllowedTotalSeconds
+      : 0;
+  const overPlanned = overrunSeconds > 0;
 
   return (
     <ECard>
@@ -768,14 +795,22 @@ function ClockCard({
           <p className="e-eyebrow flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5" /> Time on site
           </p>
-          <span className="text-[0.875rem] font-[550] tabular-nums">
+          <span className="inline-flex items-center gap-2 text-[0.875rem] font-[550] tabular-nums">
             {isRunning ? (
               <span className="inline-flex items-center gap-1.5 text-[hsl(var(--e-success))]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--e-success))]" /> Running
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--e-success))]" />
+                {formatDuration(totalSeconds)}
               </span>
             ) : (
-              `${mins} min logged`
+              <span className="text-[hsl(var(--e-muted-foreground))]">
+                {formatDuration(totalSeconds)} logged
+              </span>
             )}
+            {overPlanned ? (
+              <EBadge tone="warning" soft>
+                +{formatDuration(overrunSeconds)} over planned
+              </EBadge>
+            ) : null}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">

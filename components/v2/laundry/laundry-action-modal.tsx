@@ -283,16 +283,21 @@ export function LaundryActionModal({
       if (receiptPhoto[0]?.key) payload.receiptImageKey = receiptPhoto[0].key;
 
       setSubmitting(true);
-      const res = await fetch(`/api/laundry/${task.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await res.json().catch(() => ({}));
-      setSubmitting(false);
-      if (!res.ok) return fail("Update failed", body?.error ?? "Could not update completed laundry details.");
-      toast({ title: "Completed laundry details updated" });
-      onDone();
+      try {
+        const res = await fetch(`/api/laundry/${task.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return fail("Update failed", body?.error ?? "Could not update completed laundry details.");
+        toast({ title: "Completed laundry details updated" });
+        onDone();
+      } catch (err: any) {
+        fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -314,22 +319,27 @@ export function LaundryActionModal({
         payload.requestedAction = failedMode === "REQUEST_DELETE" ? "DELETE" : "SKIP";
       }
       setSubmitting(true);
-      const res = await fetch(`/api/laundry/${task.id}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await res.json().catch(() => ({}));
-      setSubmitting(false);
-      if (!res.ok) return fail("Update failed", body?.error ?? "Could not save the failed pickup update.");
-      toast({
-        title: failedMode === "RESCHEDULE" ? "Pickup rescheduled" : "Approval request sent",
-        description:
-          failedMode === "RESCHEDULE"
-            ? "The pickup date has been updated and admin has been notified."
-            : "Admin approval is now required before this pickup can be skipped or deleted.",
-      });
-      onDone();
+      try {
+        const res = await fetch(`/api/laundry/${task.id}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return fail("Update failed", body?.error ?? "Could not save the failed pickup update.");
+        toast({
+          title: failedMode === "RESCHEDULE" ? "Pickup rescheduled" : "Approval request sent",
+          description:
+            failedMode === "RESCHEDULE"
+              ? "The pickup date has been updated and admin has been notified."
+              : "Admin approval is now required before this pickup can be skipped or deleted.",
+        });
+        onDone();
+      } catch (err: any) {
+        fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -380,16 +390,21 @@ export function LaundryActionModal({
     }
 
     setSubmitting(true);
-    const res = await fetch(`/api/laundry/${task.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json().catch(() => ({}));
-    setSubmitting(false);
-    if (!res.ok) return fail("Update failed", body?.error ?? "Could not update status.");
-    toast({ title: "Laundry updated" });
-    onDone();
+    try {
+      const res = await fetch(`/api/laundry/${task.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return fail("Update failed", body?.error ?? "Could not update status.");
+      toast({ title: "Laundry updated" });
+      onDone();
+    } catch (err: any) {
+      fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const showDropoffFields = action === "RETURNED" || action === "EDIT_COMPLETED";

@@ -14,9 +14,12 @@ import { RouteTimeline, type RouteStop } from "@/components/v2/cleaner/route-tim
 export function RouteDriving({
   initialDate,
   initialStops,
+  userId,
 }: {
   initialDate: string;
   initialStops: RouteStop[];
+  /** Cleaner id — namespaces the saved per-day stop order (localStorage). */
+  userId?: string;
 }) {
   const [mode, setMode] = React.useState<"drive" | "timeline">("drive");
   return (
@@ -34,9 +37,9 @@ export function RouteDriving({
         </EChip>
       </div>
       {mode === "drive" ? (
-        <DrivingMode initialStops={initialStops} />
+        <DrivingMode initialStops={initialStops} userId={userId} />
       ) : (
-        <RouteTimeline initialDate={initialDate} initialStops={initialStops} />
+        <RouteTimeline initialDate={initialDate} initialStops={initialStops} userId={userId} />
       )}
     </div>
   );

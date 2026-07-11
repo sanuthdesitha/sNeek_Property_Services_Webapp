@@ -55,6 +55,8 @@ export const SERVICE_CATALOG: ServiceConfig[] = [
     rate: { base: 140, perBedroom: 40, perBathroom: 55, perSqm: 0.5, minCharge: 245 } },
   { jobType: JobType.END_OF_LEASE, label: "End of lease / bond", model: "ROOMS", autoPriceable: true,
     rate: { base: 200, perBedroom: 50, perBathroom: 80, perSqm: 0.6, minCharge: 320 } },
+  { jobType: JobType.MOVE_IN_CLEAN, label: "Move-in clean", model: "ROOMS", autoPriceable: true,
+    rate: { base: 170, perBedroom: 45, perBathroom: 65, perSqm: 0.55, minCharge: 285 } },
 
   // ---- Area-based (sqm) ----
   { jobType: JobType.PRESSURE_WASH, label: "Pressure washing", model: "AREA", unitLabel: "sqm", autoPriceable: true,

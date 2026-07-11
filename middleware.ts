@@ -149,6 +149,7 @@ export default withAuth(
           pathname === "/unauthorized" ||
           pathname === "/" ||
           pathname.startsWith("/rate/") ||
+          pathname.startsWith("/q/") ||
           pathname === "/services" ||
           pathname.startsWith("/services/") ||
           pathname === "/why-us" ||

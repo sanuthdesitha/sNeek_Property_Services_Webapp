@@ -29,6 +29,7 @@ const itemSchema = z.object({
   label: z.string().trim().min(1).max(200),
   covered: z.boolean(),
   instructions: z.string().trim().max(4000).optional(),
+  requiresPhoto: z.boolean().optional(),
   imageUrl: z.string().trim().max(2000).optional(),
   videoUrl: z.string().trim().max(2000).optional(),
 });

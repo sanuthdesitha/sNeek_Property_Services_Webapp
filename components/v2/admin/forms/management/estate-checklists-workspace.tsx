@@ -12,8 +12,8 @@
  *   POST  /api/admin/checklists/generate-form { jobType }→ { ok, templateId }
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Save, Trash2, ClipboardList } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Camera, ImagePlus, Loader2, Plus, Save, Trash2, ClipboardList } from "lucide-react";
 import {
   EButton,
   ECard,
@@ -35,6 +35,7 @@ type Item = {
   label: string;
   covered: boolean;
   instructions?: string;
+  requiresPhoto?: boolean;
   imageUrl?: string;
   videoUrl?: string;
 };
@@ -326,6 +327,21 @@ export function EstateChecklistsWorkspace() {
                         onChange={(e) => setItem({ videoUrl: e.target.value })}
                         placeholder="How-to video URL (optional)"
                       />
+                      <div className="flex flex-wrap items-center gap-4">
+                        <ESwitch
+                          checked={item.requiresPhoto === true}
+                          onCheckedChange={(v) => setItem({ requiresPhoto: v })}
+                          label={
+                            <span className="inline-flex items-center gap-1.5">
+                              <Camera className="h-3.5 w-3.5" /> Photo required
+                            </span>
+                          }
+                        />
+                        <TaskImageUpload
+                          imageUrl={item.imageUrl}
+                          onChange={(url) => setItem({ imageUrl: url })}
+                        />
+                      </div>
                     </div>
                   );
                 })}
@@ -371,6 +387,76 @@ export function EstateChecklistsWorkspace() {
           Choose a service to edit its checklist.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Per-task reference image: uploads to task-references via /api/uploads/direct
+ * and stores the public URL. Shows a thumbnail + remove when set. The composed
+ * cleaner form surfaces this image next to the task with a tap-to-enlarge
+ * lightbox.
+ */
+export function TaskImageUpload({
+  imageUrl,
+  onChange,
+}: {
+  imageUrl?: string;
+  onChange: (url: string | undefined) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("folder", "task-references");
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.url) onChange(body.url as string);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {imageUrl ? (
+        <span className="relative inline-flex">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt="Reference"
+            className="h-10 w-10 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
+          />
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            aria-label="Remove image"
+            className="absolute -right-1.5 -top-1.5 rounded-full bg-[hsl(var(--e-danger))] p-0.5 text-white"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </span>
+      ) : null}
+      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 py-1.5 text-[0.75rem] text-[hsl(var(--e-foreground))] hover:bg-[hsl(var(--e-muted))]">
+        {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+        {imageUrl ? "Replace image" : "Reference image"}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          disabled={uploading}
+          onChange={(e) => {
+            void upload(e.target.files?.[0]);
+            e.currentTarget.value = "";
+          }}
+        />
+      </label>
     </div>
   );
 }
