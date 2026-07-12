@@ -16,7 +16,8 @@ export const runtime = "nodejs";
  *   kind ∈ LOCKBOX|KEYS|ENTRY|ALARM|PARKING|BIN_ROOM|SUPPLIES_CUPBOARD|WIFI|OTHER
  */
 
-export const ACCESS_GUIDE_KINDS = [
+// Not exported: a Next route module may only export HTTP handlers + route config.
+const ACCESS_GUIDE_KINDS = [
   "LOCKBOX",
   "KEYS",
   "ENTRY",
