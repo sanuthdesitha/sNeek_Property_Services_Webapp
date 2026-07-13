@@ -79,6 +79,16 @@ function isPerUnitVariable(v: PricingVariable): boolean {
   return v.kind === "number" && Boolean(v.unitAdjustValue);
 }
 
+/**
+ * A "per-unit" extra is one priced per room / per load / per bathroom / per set
+ * / per seat / per basket etc. — its catalog label carries a "(per …)" suffix.
+ * These get a quantity input so the admin says HOW MANY and the extra bills
+ * `unitPrice × quantity`. Everything else is a flat one-off add-on.
+ */
+function isPerUnitExtra(label: string): boolean {
+  return /\(\s*per\s+/i.test(label);
+}
+
 /** Live "$rate × qty = amount" (or "±rate% per unit") preview for a per-unit
  *  quantity input — mirrors what applyPricingVariables will bill server-side. */
 function perUnitPreview(v: PricingVariable, qtyRaw: string): string {
@@ -262,16 +272,21 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
 
   const selectedExtras: string[] = [];
   const customExtras: CustomExtra[] = [];
+  const extraQtys: Record<string, string> = {};
   extrasMeta.forEach((raw, i) => {
     const id = typeof raw?.id === "string" ? raw.id : "";
     const label = typeof raw?.label === "string" ? raw.label : "";
     const instructions = typeof raw?.instructions === "string" ? raw.instructions : "";
     const line = extraSlice[i];
     const price = line ? Number(line.unitPrice ?? line.total ?? 0) || 0 : 0;
+    // Recover the per-unit quantity from the stored line (fallback to META qty).
+    const qty = Number(line?.qty ?? raw?.qty ?? 1) || 1;
+    const resolvedId = id && EXTRAS_BY_ID[id] ? id : id || `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    if (isPerUnitExtra(label) && qty !== 1) extraQtys[resolvedId] = String(qty);
     if (id && EXTRAS_BY_ID[id]) {
       selectedExtras.push(id);
     } else if (id || label) {
-      customExtras.push({ id: id || `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, label, price, instructions });
+      customExtras.push({ id: resolvedId, label, price, instructions });
     }
   });
 
@@ -296,6 +311,7 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
     variableNumbers,
     selectedExtras,
     customExtras,
+    extraQtys,
     lineItems: baseLineItems,
     refImages: editQuote.referenceImages ?? [],
     showAddOnPrices: Boolean(editQuote.showAddOnPrices),
@@ -346,6 +362,11 @@ export function QuoteBuilder({
   const [lineItems, setLineItems] = useState<LineItem[]>(seed?.lineItems ?? []);
   const [selectedExtras, setSelectedExtras] = useState<string[]>(seed?.selectedExtras ?? []);
   const [customExtras, setCustomExtras] = useState<CustomExtra[]>(seed?.customExtras ?? []);
+  // Quantity per per-unit extra (extra id → qty string), e.g. how many rooms of
+  // carpet steam. Non-per-unit extras ignore this (always billed once).
+  const [extraQtys, setExtraQtys] = useState<Record<string, string>>(seed?.extraQtys ?? {});
+  const extraQty = (id: string) => Math.max(0, Number(extraQtys[id] ?? "1") || 0);
+  const setExtraQty = (id: string, value: string) => setExtraQtys((prev) => ({ ...prev, [id]: value }));
   const [customLabel, setCustomLabel] = useState("");
   const [customPrice, setCustomPrice] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
@@ -441,8 +462,17 @@ export function QuoteBuilder({
   );
 
   const extraLines = useMemo<LineItem[]>(
-    () => selectedExtraDetails.map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
-    [selectedExtraDetails],
+    () =>
+      selectedExtraDetails.map((e) => {
+        // Per-unit extras ("per room", "per load", …) bill unitPrice × quantity;
+        // flat extras bill once.
+        const per = isPerUnitExtra(e.label);
+        const qty = per ? extraQty(e.id) : 1;
+        return { label: e.label, unitPrice: e.price, qty, total: Math.round(e.price * qty * 100) / 100 };
+      }),
+    // extraQtys drives the per-unit totals.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedExtraDetails, extraQtys],
   );
   // Pricing-variable adjustments as quote line items (kept separate from the
   // hand-editable rows so re-pricing can replace them cleanly).
@@ -776,6 +806,9 @@ export function QuoteBuilder({
       id: e.id,
       label: e.label,
       instructions: e.instructions,
+      // Persist the quantity for per-unit extras so it round-trips into edit
+      // mode and the job (flat extras stay at 1).
+      ...(isPerUnitExtra(e.label) ? { qty: extraQty(e.id) } : {}),
     }));
     // Per-quote checklist override — only when the admin actually edited it, so
     // untouched quotes stay on the base template (backward-compatible).
@@ -1447,6 +1480,8 @@ export function QuoteBuilder({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {group.options.map((e) => {
                   const checked = selectedExtras.includes(e.id);
+                  const per = isPerUnitExtra(e.label);
+                  const qty = extraQty(e.id);
                   return (
                     <label
                       key={e.id}
@@ -1456,10 +1491,10 @@ export function QuoteBuilder({
                           : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]"
                       }`}
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex min-w-0 items-center gap-2">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+                          className="h-4 w-4 shrink-0 accent-[hsl(var(--e-primary))]"
                           checked={checked}
                           onChange={(ev) =>
                             setSelectedExtras((prev) =>
@@ -1467,9 +1502,30 @@ export function QuoteBuilder({
                             )
                           }
                         />
-                        {e.label}
+                        <span className="min-w-0 truncate">{e.label}</span>
                       </span>
-                      <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
+                      {checked && per ? (
+                        // Per-unit extra: how many units × the unit price.
+                        <span
+                          className="flex shrink-0 items-center gap-1"
+                          onClick={(ev) => ev.preventDefault()}
+                        >
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="numeric"
+                            value={extraQtys[e.id] ?? "1"}
+                            onChange={(ev) => setExtraQty(e.id, ev.target.value)}
+                            className="e-tnum h-7 w-12 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-1.5 text-right text-[0.8125rem]"
+                            aria-label={`Quantity for ${e.label}`}
+                          />
+                          <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">
+                            × ${e.price} = ${(e.price * qty).toFixed(0)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
+                      )}
                     </label>
                   );
                 })}
@@ -1819,15 +1875,22 @@ export function QuoteBuilder({
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
               <EEyebrow>Added on this quote</EEyebrow>
               <ul className="mt-2 space-y-1.5">
-                {selectedExtraDetails.map((e) => (
-                  <li key={e.id} className="flex items-center justify-between gap-2 text-[0.8125rem]">
-                    <span className="flex items-start gap-2">
-                      <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
-                      <span>{e.label}</span>
-                    </span>
-                    <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">{money(e.price)}</span>
-                  </li>
-                ))}
+                {selectedExtraDetails.map((e) => {
+                  const per = isPerUnitExtra(e.label);
+                  const qty = per ? extraQty(e.id) : 1;
+                  return (
+                    <li key={e.id} className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                      <span className="flex items-start gap-2">
+                        <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
+                        <span>
+                          {e.label}
+                          {per && qty !== 1 ? <span className="text-[hsl(var(--e-muted-foreground))]"> · {qty} × {money(e.price)}</span> : null}
+                        </span>
+                      </span>
+                      <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">{money(e.price * qty)}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}
@@ -1905,7 +1968,10 @@ export function QuoteBuilder({
               <EEyebrow>Extras included</EEyebrow>
               {extraLines.map((li, i) => (
                 <div key={i} className="flex items-center justify-between text-[0.8125rem]">
-                  <span className="text-[hsl(var(--e-text-secondary))]">{li.label}</span>
+                  <span className="text-[hsl(var(--e-text-secondary))]">
+                    {li.label}
+                    {li.qty !== 1 ? <span className="text-[hsl(var(--e-muted-foreground))]"> · {li.qty} × {money(li.unitPrice)}</span> : null}
+                  </span>
                   <span className="e-tnum">{money(li.total)}</span>
                 </div>
               ))}
