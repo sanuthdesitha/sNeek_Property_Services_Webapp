@@ -92,7 +92,7 @@ export async function buildQaReportHtml(jobId: string): Promise<{ html: string; 
   const settings = await getAppSettings();
   const localDate = format(toZonedTime(job.scheduledDate, TZ), "dd MMMM yyyy");
   const companyName = settings?.companyName || "sNeek Property Services";
-  const logoUrl = settings?.reportLogoUrl?.trim() || settings?.logoUrl?.trim() || "";
+  const logoUrl = settings?.logoUrl?.trim() || settings?.reportLogoUrl?.trim() || "";
 
   const templateSchema: any = submission?.template?.schema ?? null;
   const answers: Record<string, unknown> =

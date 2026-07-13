@@ -640,7 +640,7 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
   const remainingMediaHtml = renderFieldMediaHtml(remainingMedia);
   const companyName = settings?.companyName || "sNeek Property Services";
   const themedLogo = themeRec?.logoUrl?.trim() || "";
-  const logoUrl = themedLogo || settings?.reportLogoUrl?.trim() || settings?.logoUrl?.trim() || "";
+  const logoUrl = themedLogo || settings?.logoUrl?.trim() || settings?.reportLogoUrl?.trim() || "";
   const primaryHsl = themeRec?.primaryColorHsl || "200 98% 39%"; // sky-600-ish
   const accentHsl = themeRec?.accentColorHsl || primaryHsl;
   const density = themeRec?.layout?.density ?? "default";

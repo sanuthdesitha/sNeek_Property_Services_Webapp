@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     const html = buildQuoteHtml(previewQuote, {
       companyName: settings.companyName,
-      logoUrl: settings.reportLogoUrl || settings.logoUrl,
+      logoUrl: settings.logoUrl || settings.reportLogoUrl,
       companyAddress: settings.invoicing?.companyAddress,
     });
     try {

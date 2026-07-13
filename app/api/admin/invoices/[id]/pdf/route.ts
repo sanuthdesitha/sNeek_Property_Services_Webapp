@@ -16,7 +16,7 @@ export async function GET(
     }
     // ?inline=1 renders in-browser (for the send-preview) instead of downloading.
     const inline = new URL(req.url).searchParams.get("inline");
-    const pdf = await renderClientInvoicePdf(invoice, settings.companyName || "sNeek Property Services", settings.reportLogoUrl || settings.logoUrl, settings.invoicing);
+    const pdf = await renderClientInvoicePdf(invoice, settings.companyName || "sNeek Property Services", settings.logoUrl || settings.reportLogoUrl, settings.invoicing);
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
