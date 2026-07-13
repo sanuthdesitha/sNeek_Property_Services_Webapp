@@ -10,6 +10,7 @@ import {
   generatePropertyTemplates,
   mergeSelections,
   sanitizeSelections,
+  type ProfileCustomItem,
 } from "@/lib/checklists/compose";
 import { featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/features";
 import { logger } from "@/lib/logger";
@@ -32,6 +33,8 @@ export interface ApproveResult {
   integrationId?: string;
   laundryTaskId?: string;
   jobIds: string[];
+  /** Non-fatal warnings, e.g. a selected job type produced no checklist form. */
+  coverageWarnings?: string[];
 }
 
 /** Thrown when the survey is missing required data to create real entities. */
@@ -166,6 +169,172 @@ function buildPropertyNotes(survey: SurveyWithChildren, meta: OnboardingFormMeta
   return joined.trim() || null;
 }
 
+/**
+ * Structured laundry JSON for `Property.laundryDetail`, built from the survey's
+ * OnboardingLaundryDetail child (previously only its `hasLaundry` boolean was
+ * read). Returns null when there's no laundry row or nothing meaningful to store.
+ */
+function buildLaundryDetailJson(survey: SurveyWithChildren): Record<string, unknown> | null {
+  const ld = survey.laundryDetail;
+  if (!ld) return null;
+  const out: Record<string, unknown> = {};
+  if (ld.hasLaundry != null) out.hasLaundry = ld.hasLaundry;
+  if (ld.washerType) out.washerType = ld.washerType;
+  if (ld.dryerType) out.dryerType = ld.dryerType;
+  if (ld.laundryLocation) out.laundryLocation = ld.laundryLocation;
+  if (ld.detergentType) out.detergentType = ld.detergentType;
+  if (ld.suppliesProvided != null) out.suppliesProvided = ld.suppliesProvided;
+  if (typeof ld.notes === "string" && ld.notes.trim()) out.notes = ld.notes.trim();
+  // Only worth persisting when there's more than the default hasLaundry=false.
+  const meaningful =
+    ld.hasLaundry === true ||
+    out.washerType ||
+    out.dryerType ||
+    out.laundryLocation ||
+    out.detergentType ||
+    out.suppliesProvided === true ||
+    out.notes;
+  return meaningful ? out : null;
+}
+
+/** Return a non-empty structured object from formMeta, else null. */
+function nonEmptyObject(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return Object.keys(record).length > 0 ? record : null;
+  }
+  return null;
+}
+
+/**
+ * Drive `Property.inventoryEnabled` from the wizard's consumables answers
+ * instead of hardcoding false: the property is stock-managed when our team
+ * restocks consumables. Defaults false when there's no signal.
+ */
+function deriveInventoryEnabled(scenarios: Record<string, unknown>): boolean {
+  if (scenarios.consumablesProvided === true) return true;
+  const restock = scenarios.restockExpectations ?? scenarios.restock;
+  if (typeof restock === "string" && restock.trim()) return true;
+  return false;
+}
+
+/**
+ * Build the cleaner-facing `Property.accessGuide` from the survey access details
+ * + entry-photo annotations (+ scenario wifi/bins). Matches the canonical entry
+ * shape validated by the access-guide route:
+ *   { id, kind, label, instructions?, images: [{ url, key, caption? }] }
+ * so cleaners see a populated Access Guide straight from onboarding.
+ */
+function buildAccessGuide(
+  survey: SurveyWithChildren,
+  meta: OnboardingFormMeta
+): Array<Record<string, unknown>> {
+  const scenarios = (meta.scenarios ?? {}) as Record<string, unknown>;
+  const entries: Array<Record<string, unknown>> = [];
+
+  const KIND_BY_DETAIL: Record<string, { kind: string; label: string }> = {
+    LOCKBOX: { kind: "LOCKBOX", label: "Lockbox" },
+    KEY_LOCATION: { kind: "KEYS", label: "Key location" },
+    PARKING: { kind: "PARKING", label: "Parking" },
+    BUILDING_ACCESS: { kind: "ENTRY", label: "Building access" },
+    ENTRY_PHOTO: { kind: "ENTRY", label: "Entry" },
+  };
+
+  let seq = 0;
+  for (const detail of survey.accessDetails) {
+    const map = KIND_BY_DETAIL[detail.detailType];
+    if (!map) continue;
+    const value = (detail.value ?? "").trim();
+    // Photo annotations ([{ x, y, text }]) → a caption for the entry photo.
+    const annotations = Array.isArray(detail.annotations) ? (detail.annotations as unknown[]) : [];
+    const annotationText = annotations
+      .map((a) =>
+        a && typeof a === "object" ? String((a as Record<string, unknown>).text ?? "").trim() : ""
+      )
+      .filter(Boolean)
+      .join(" • ");
+
+    const images: Array<Record<string, unknown>> = [];
+    // The access-guide schema requires BOTH url + key on an image; only add when both present.
+    if (detail.photoUrl && detail.photoKey) {
+      const caption = (annotationText || value || "").slice(0, 280);
+      images.push({
+        url: detail.photoUrl,
+        key: detail.photoKey,
+        ...(caption ? { caption } : {}),
+      });
+    }
+
+    const instructions = (value || annotationText || "").slice(0, 4000);
+    // Skip entries that would carry nothing useful.
+    if (!instructions && images.length === 0) continue;
+
+    entries.push({
+      id: (detail.id || `access-${++seq}`).slice(0, 64),
+      kind: map.kind,
+      label: map.label,
+      ...(instructions ? { instructions } : {}),
+      images,
+    });
+  }
+
+  // Fold scenario wifi + bins into the guide where sensible (allowed kinds).
+  if (scenarios.wifiNetwork || scenarios.wifiPassword) {
+    const instructions = [
+      scenarios.wifiNetwork ? `Network: ${scenarios.wifiNetwork}` : null,
+      scenarios.wifiPassword ? `Password: ${scenarios.wifiPassword}` : null,
+    ]
+      .filter(Boolean)
+      .join(" — ")
+      .slice(0, 4000);
+    if (instructions) {
+      entries.push({ id: "access-wifi", kind: "WIFI", label: "Wifi", instructions, images: [] });
+    }
+  }
+  if (scenarios.binDay || scenarios.binNotes) {
+    const instructions = [
+      scenarios.binDay ? `Day: ${scenarios.binDay}` : null,
+      scenarios.binNotes ? String(scenarios.binNotes) : null,
+    ]
+      .filter(Boolean)
+      .join(" — ")
+      .slice(0, 4000);
+    if (instructions) {
+      entries.push({ id: "access-bins", kind: "BIN_ROOM", label: "Bins", instructions, images: [] });
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * Special requests → checklist custom items (ProfileCustomItem shape the compose
+ * lib expects). Priority + area are folded into the label/instructions, and
+ * HIGH/URGENT requests demand a proof photo. Ids are stable so re-approval stays
+ * idempotent.
+ */
+function specialRequestCustomItems(survey: SurveyWithChildren): ProfileCustomItem[] {
+  return survey.specialRequests
+    .filter((r) => typeof r.description === "string" && r.description.trim())
+    .map((r, idx) => {
+      const description = r.description.trim();
+      const label = (r.area ? `${r.area}: ${description}` : description).slice(0, 120);
+      const instructions = [
+        r.priority && r.priority !== "NORMAL" ? `Priority: ${r.priority}` : null,
+        r.area ? `Area: ${r.area}` : null,
+        description.length > 120 || r.area ? description : null,
+      ]
+        .filter(Boolean)
+        .join(" • ");
+      return {
+        id: `sr-${r.id || idx}`.slice(0, 64),
+        label,
+        ...(instructions ? { instructions } : {}),
+        ...(r.priority === "HIGH" || r.priority === "URGENT" ? { requiresPhoto: true } : {}),
+      };
+    });
+}
+
 export async function approveSurvey(input: ApproveInput): Promise<ApproveResult> {
   const loaded = await db.propertyOnboardingSurvey.findUnique({
     where: { id: input.surveyId },
@@ -253,6 +422,21 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
   const checkinTime = HH_MM.test(String(meta.defaultCheckinTime ?? "")) ? String(meta.defaultCheckinTime) : "14:00";
   const checkoutTime = HH_MM.test(String(meta.defaultCheckoutTime ?? "")) ? String(meta.defaultCheckoutTime) : "10:00";
 
+  // ── Dropped-input recovery: structured property attributes ─────────────────
+  // These were captured/validated on the survey but never landed on the Property
+  // (columns now exist). All reads guarded so old surveys stay backward-compatible.
+  const propertyType =
+    typeof survey.propertyType === "string" && survey.propertyType.trim()
+      ? survey.propertyType.trim()
+      : null;
+  const sizeSqm = typeof survey.sizeSqm === "number" ? survey.sizeSqm : null;
+  const floorCount = typeof survey.floorCount === "number" ? survey.floorCount : null;
+  const laundryDetailJson = buildLaundryDetailJson(survey);
+  const emergencyContactJson = nonEmptyObject(meta.emergencyContact);
+  const recurringScheduleJson = nonEmptyObject(meta.recurringSchedule);
+  const accessGuide = buildAccessGuide(survey, meta);
+  const inventoryEnabled = deriveInventoryEnabled(scenarios);
+
   // ── Transaction: client → property → integration → laundry → jobs ──
   let result;
   try {
@@ -278,6 +462,7 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
   // Copies the amenity features onto the property, saves the checklist profile
   // (from the wizard's Checklist step if reviewed, else library defaults), and
   // generates the property-specific form templates for the selected job types.
+  const coverageWarnings: string[] = [];
   try {
     const checklistOverride =
       overrides.checklist && typeof overrides.checklist === "object"
@@ -285,6 +470,9 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         : null;
     const features = {
       ...featuresFromAppliances(survey.appliances ?? []),
+      // hasPets → petFriendly so the pet-hair checklist section is included.
+      // Applied BEFORE the admin's explicit override so a deliberate toggle wins.
+      ...(scenarios.hasPets === true ? { petFriendly: true } : {}),
       ...sanitizeFeatures(checklistOverride?.features),
     };
     await db.property.update({
@@ -314,6 +502,17 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         ? sanitizeSelections(checklistOverride.selections)
         : null;
       const selections = saved ? mergeSelections(defaults, saved) : defaults;
+
+      // Special requests → custom checklist tasks (deduped by id so re-approval
+      // is idempotent). HIGH/URGENT requests require a proof photo.
+      const requestItems = specialRequestCustomItems(survey);
+      if (requestItems.length > 0) {
+        const existingIds = new Set(selections.customItems.map((c) => c.id));
+        for (const item of requestItems) {
+          if (!existingIds.has(item.id)) selections.customItems.push(item);
+        }
+      }
+
       await db.propertyChecklistProfile.upsert({
         where: { propertyId: result.propertyId },
         create: {
@@ -329,11 +528,32 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         Object.values(JobType).includes(jobType as JobType)
       );
       if (templateJobTypes.length > 0) {
-        await generatePropertyTemplates({
+        const { generated } = await generatePropertyTemplates({
           propertyId: result.propertyId,
           jobTypes: templateJobTypes,
           actorUserId: input.adminReviewerId,
         });
+        // Coverage check: warn (non-fatal) if a selected job type produced no form
+        // so approval never silently leaves a service without a checklist.
+        const covered = new Set(Object.keys(generated));
+        const uncovered = templateJobTypes.filter((jobType) => !covered.has(jobType));
+        if (uncovered.length > 0) {
+          const warning = `No checklist form was generated for: ${uncovered
+            .map((jt) => jt.replace(/_/g, " ").toLowerCase())
+            .join(", ")}. Set these up from the property's Forms tab.`;
+          coverageWarnings.push(warning);
+          logger.warn(
+            { surveyId: survey.id, propertyId: result.propertyId, uncovered },
+            "Onboarding approval: selected job type(s) produced no checklist form"
+          );
+          const currentNotes = input.adminNotes ?? survey.adminNotes ?? "";
+          await db.propertyOnboardingSurvey.update({
+            where: { id: survey.id },
+            data: {
+              adminNotes: [currentNotes, `⚠ ${warning}`].filter(Boolean).join("\n\n"),
+            },
+          });
+        }
       }
     }
   } catch (err) {
@@ -343,7 +563,12 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
     );
   }
 
-  return { ok: true, alreadyApproved: false, ...result };
+  return {
+    ok: true,
+    alreadyApproved: false,
+    ...result,
+    ...(coverageWarnings.length ? { coverageWarnings } : {}),
+  };
 
   async function runApprovalTransaction() {
     return db.$transaction(async (tx) => {
@@ -397,7 +622,22 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         bedrooms: survey.bedrooms,
         bathrooms: survey.bathrooms,
         hasBalcony: survey.hasBalcony,
+        // Structured attributes recovered from the survey (previously dropped).
+        propertyType: propertyType ?? undefined,
+        sizeSqm: sizeSqm ?? undefined,
+        floorCount: floorCount ?? undefined,
+        laundryDetail: laundryDetailJson
+          ? (laundryDetailJson as Prisma.InputJsonValue)
+          : undefined,
+        emergencyContact: emergencyContactJson
+          ? (emergencyContactJson as Prisma.InputJsonValue)
+          : undefined,
+        recurringSchedule: recurringScheduleJson
+          ? (recurringScheduleJson as Prisma.InputJsonValue)
+          : undefined,
+        // Keep accessInfo for back-compat AND populate the rich cleaner Access Guide.
         accessInfo: accessInfo as Prisma.InputJsonValue,
+        accessGuide: accessGuide.length ? (accessGuide as unknown as Prisma.InputJsonValue) : undefined,
         accessCode,
         alarmCode,
         keyLocation,
@@ -407,7 +647,7 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         defaultCheckinTime: checkinTime,
         defaultCheckoutTime: checkoutTime,
         linenBufferSets,
-        inventoryEnabled: false,
+        inventoryEnabled,
         laundryEnabled: survey.laundryDetail?.hasLaundry ?? false,
         preferredCleanerUserId:
           typeof meta.preferredCleanerUserId === "string" ? meta.preferredCleanerUserId : undefined,

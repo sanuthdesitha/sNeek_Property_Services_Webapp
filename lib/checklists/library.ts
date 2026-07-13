@@ -1,7 +1,18 @@
 import { JobType } from "@prisma/client";
 import { db } from "@/lib/db";
-import { DEFAULT_CHECKLISTS } from "@/lib/checklists/catalog";
+import { DEFAULT_CHECKLISTS, FEATURE_MODULES } from "@/lib/checklists/catalog";
 import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
+
+/**
+ * Bump this whenever the in-code catalog / feature modules change in a way that
+ * needs to reach already-seeded databases. `getChecklistLibrary` compares it to
+ * the stored marker and re-runs the idempotent sync once per deploy when they
+ * differ, so production libraries pick up new modules/rules without a manual
+ * re-seed. (History: v1 = original catalog seed; v2 = feature modules + rule/
+ * repeatBy sync onto existing rows.)
+ */
+export const CATALOG_VERSION = "2";
+const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
  * Checklist library service — the DB-backed catalog of checklist modules
@@ -40,7 +51,48 @@ export interface LibraryModule {
   items: LibraryItem[];
 }
 
+// ── Version-gated auto-sync ─────────────────────────────────────────────────
+// Callers only invoke the seed when the library is EMPTY, so an already-seeded
+// production DB would never receive new catalog/feature modules. We close that
+// gap here: every library read ensures the catalog is synced once per process
+// (and once per DB whenever CATALOG_VERSION advances), via idempotent upserts.
+
+let inProcessSyncedVersion: string | null = null;
+let syncInFlight: Promise<void> | null = null;
+
+async function ensureChecklistLibrarySynced(): Promise<void> {
+  if (inProcessSyncedVersion === CATALOG_VERSION) return;
+  if (syncInFlight) return syncInFlight;
+  const run = (async () => {
+    try {
+      const row = await db.appSetting.findUnique({ where: { key: LIBRARY_VERSION_KEY } }).catch(() => null);
+      const stored =
+        typeof row?.value === "string"
+          ? row.value
+          : row?.value && typeof row.value === "object" && "version" in (row.value as Record<string, unknown>)
+            ? String((row.value as Record<string, unknown>).version)
+            : null;
+      if (stored !== CATALOG_VERSION) {
+        await seedChecklistLibraryFromCatalog({ force: true });
+        await db.appSetting.upsert({
+          where: { key: LIBRARY_VERSION_KEY },
+          create: { key: LIBRARY_VERSION_KEY, value: CATALOG_VERSION as any },
+          update: { value: CATALOG_VERSION as any },
+        });
+      }
+      inProcessSyncedVersion = CATALOG_VERSION;
+    } finally {
+      syncInFlight = null;
+    }
+  })();
+  syncInFlight = run;
+  return run;
+}
+
 export async function getChecklistLibrary(opts?: { includeInactive?: boolean }): Promise<LibraryModule[]> {
+  // Best-effort: keep the library current, but never fail a read if the sync
+  // hits a transient DB error — fall through to whatever is already stored.
+  await ensureChecklistLibrarySynced().catch(() => {});
   const modules = await db.checklistModule.findMany({
     where: opts?.includeInactive ? {} : { isActive: true },
     include: {
@@ -60,10 +112,13 @@ export async function getChecklistLibrary(opts?: { includeInactive?: boolean }):
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Sections that represent the same physical area across job types. */
-const MODULE_META: Record<string, { title: string; category: string; sortOrder: number; appliesWhen?: AppliesWhenRule }> = {
+const MODULE_META: Record<
+  string,
+  { title: string; category: string; sortOrder: number; appliesWhen?: AppliesWhenRule; repeatBy?: string }
+> = {
   kitchen: { title: "Kitchen", category: "ROOM", sortOrder: 10 },
-  bathrooms: { title: "Bathrooms", category: "ROOM", sortOrder: 20 },
-  bedrooms: { title: "Bedrooms", category: "ROOM", sortOrder: 30 },
+  bathrooms: { title: "Bathrooms", category: "ROOM", sortOrder: 20, repeatBy: "bathrooms" },
+  bedrooms: { title: "Bedrooms", category: "ROOM", sortOrder: 30, repeatBy: "bedrooms" },
   living: { title: "Living areas", category: "ROOM", sortOrder: 40 },
   general: { title: "General / whole home", category: "ROOM", sortOrder: 50 },
   finish: { title: "Finishing touches", category: "EXTRA", sortOrder: 900 },
@@ -80,15 +135,16 @@ function inferItemRule(key: string, label: string): AppliesWhenRule | null {
   return null;
 }
 
-export async function seedChecklistLibraryFromCatalog(opts?: { force?: boolean }): Promise<{
+export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean }): Promise<{
   modules: number;
   items: number;
   skipped: boolean;
 }> {
-  const existing = await db.checklistModule.count();
-  if (existing > 0 && !opts?.force) {
-    return { modules: 0, items: 0, skipped: true };
-  }
+  // Idempotent sync: create missing modules/items and refresh their rules /
+  // labels / repeatBy / job types on existing rows (keyed by stable key/slug).
+  // Admin-authored custom modules (keys not in the catalog) are never touched,
+  // and admin edits to instructions/media/field types are preserved (only set
+  // on create). Safe to run against an already-seeded production library.
 
   // Aggregate across all job types: module key = section id; item key = item id.
   // The same item appearing in several job types merges into one row with the
@@ -145,16 +201,18 @@ export async function seedChecklistLibraryFromCatalog(opts?: { force?: boolean }
   let itemCount = 0;
   for (const [moduleKey, itemMap] of Array.from(itemsByModule.entries())) {
     const meta = MODULE_META[moduleKey];
+    const title = meta?.title ?? moduleTitles.get(moduleKey) ?? moduleKey;
+    const category = meta?.category ?? "ROOM";
+    const appliesWhen = (meta?.appliesWhen ?? null) as any;
+    const repeatBy = meta?.repeatBy ?? null;
+    const sortOrder = moduleOrder.get(moduleKey) ?? 500;
     const moduleRow = await db.checklistModule.upsert({
       where: { key: moduleKey },
-      create: {
-        key: moduleKey,
-        title: meta?.title ?? moduleTitles.get(moduleKey) ?? moduleKey,
-        category: meta?.category ?? "ROOM",
-        appliesWhen: (meta?.appliesWhen ?? null) as any,
-        sortOrder: moduleOrder.get(moduleKey) ?? 500,
-      },
-      update: {},
+      create: { key: moduleKey, title, category, appliesWhen, repeatBy, sortOrder },
+      // Refresh canonical structure/rules on existing rows; leave isActive +
+      // description (admin-editable) alone. This is how already-seeded DBs pick
+      // up newly-added gating (appliesWhen) and per-room repetition (repeatBy).
+      update: { title, category, appliesWhen, repeatBy, sortOrder },
       select: { id: true },
     });
     moduleCount += 1;
@@ -175,9 +233,60 @@ export async function seedChecklistLibraryFromCatalog(opts?: { force?: boolean }
           sortOrder: agg.sortOrder,
         },
         update: {
-          // Re-running with force keeps admin edits to label/instructions but
-          // unions in any newly-covered job types from the catalog.
+          // Refresh label, gating rule, job-type coverage and ordering from the
+          // catalog; preserve admin edits to instructions/media/field settings.
+          label: agg.label,
           jobTypes: Array.from(agg.jobTypes),
+          appliesWhen: (rule ?? null) as any,
+          sortOrder: agg.sortOrder,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── Feature-gated add-on modules (pool, bbq, spa, balcony, pets, …) ────────
+  for (const mod of FEATURE_MODULES) {
+    const moduleRow = await db.checklistModule.upsert({
+      where: { key: mod.key },
+      create: {
+        key: mod.key,
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: mod.appliesWhen as any,
+        repeatBy: mod.repeatBy ?? null,
+        sortOrder: mod.sortOrder,
+      },
+      update: {
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: mod.appliesWhen as any,
+        repeatBy: mod.repeatBy ?? null,
+        sortOrder: mod.sortOrder,
+      },
+      select: { id: true },
+    });
+    moduleCount += 1;
+
+    let sortIndex = 0;
+    for (const item of mod.items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          instructions: item.instructions,
+          jobTypes: mod.jobTypes,
+          // Module-level appliesWhen already gates these, so item rule stays null.
+          appliesWhen: null as any,
+          sortOrder: sortIndex,
+        },
+        update: {
+          label: item.label,
+          jobTypes: mod.jobTypes,
+          sortOrder: sortIndex,
         },
       });
       itemCount += 1;

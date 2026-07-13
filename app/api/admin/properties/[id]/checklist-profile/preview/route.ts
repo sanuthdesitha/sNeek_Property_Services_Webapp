@@ -19,11 +19,14 @@ const previewSchema = z.object({
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const property = await db.property.findUnique({ where: { id: params.id }, select: { id: true } });
+    const property = await db.property.findUnique({
+      where: { id: params.id },
+      select: { id: true, features: true, bedrooms: true, bathrooms: true, hasBalcony: true, inventoryEnabled: true, laundryEnabled: true },
+    });
     if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
     const body = previewSchema.parse(await req.json());
     const library = await getChecklistLibrary();
-    const schema = composeFormSchema(library, sanitizeSelections(body.selections), body.jobType);
+    const schema = composeFormSchema(library, sanitizeSelections(body.selections), body.jobType, property);
     return NextResponse.json({ schema, jobType: body.jobType });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

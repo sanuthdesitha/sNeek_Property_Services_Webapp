@@ -1,3 +1,4 @@
+import { JobType } from "@prisma/client";
 import type { ChecklistMap } from "@/lib/checklists/types";
 
 export const DEFAULT_CHECKLISTS: ChecklistMap = {
@@ -2376,5 +2377,302 @@ export const DEFAULT_CHECKLISTS: ChecklistMap = {
     ],
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// Feature-gated checklist modules.
+//
+// These are extra sections that only appear when the property carries the
+// matching feature flag (Property.features[...] === true) or property column
+// (e.g. hasBalcony). They live outside the per-job-type DEFAULT_CHECKLISTS map
+// because they are cross-cutting add-ons, not part of a single service's base
+// scope. The library seed (library.ts) upserts each into ChecklistModule with
+// its `appliesWhen` rule so composition attaches them automatically.
+//
+// Feature keys MUST match FEATURE_DEFS keys in features.ts exactly.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface FeatureModuleItemDef {
+  /** Stable key = generated form-field id. Namespaced by module to stay unique. */
+  key: string;
+  label: string;
+  instructions: string;
+}
+
+export interface FeatureModuleDef {
+  /** Stable module key/slug (must not collide with a catalog section id). */
+  key: string;
+  title: string;
+  /** ROOM | APPLIANCE | OUTDOOR | SAFETY | EXTRA (free-form, shown in editors). */
+  category: string;
+  /** Gating rule attached to the module: feature flag or property column. */
+  appliesWhen: { feature: string } | { propertyField: string; equals?: unknown };
+  /** Optional per-room repetition (unused by feature modules today). */
+  repeatBy?: string;
+  sortOrder: number;
+  /** Job types this add-on applies to (empty would mean ALL — we scope it). */
+  jobTypes: JobType[];
+  items: FeatureModuleItemDef[];
+}
+
+/**
+ * The home-cleaning services that share these property add-ons. Trade services
+ * (lawn, gutters, windows, pressure wash, etc.) are intentionally excluded so a
+ * window clean doesn't sprout a coffee-machine task.
+ */
+const HOME_CLEANING_JOB_TYPES: JobType[] = [
+  JobType.GENERAL_CLEAN,
+  JobType.DEEP_CLEAN,
+  JobType.SPRING_CLEANING,
+  JobType.END_OF_LEASE,
+  JobType.MOVE_IN_CLEAN,
+  JobType.AIRBNB_TURNOVER,
+];
+
+export const FEATURE_MODULES: FeatureModuleDef[] = [
+  {
+    key: "coffeeMachine",
+    title: "Coffee machine",
+    category: "APPLIANCE",
+    appliesWhen: { feature: "coffeeMachine" },
+    sortOrder: 210,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "coffeeMachine.descale",
+        label: "Descale and clean coffee machine",
+        instructions:
+          "Run a descale/clean cycle appropriate to the machine, empty and rinse the drip tray and the used-pod or grounds container, and wipe the group head, steam wand and body.",
+      },
+    ],
+  },
+  {
+    key: "airConditioner",
+    title: "Air conditioner",
+    category: "APPLIANCE",
+    appliesWhen: { feature: "airConditioner" },
+    sortOrder: 220,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "airConditioner.filters",
+        label: "Clean or wipe air-conditioner filters",
+        instructions:
+          "Remove accessible split-system filters, vacuum and rinse them, dry and refit. Do not dismantle sealed units or access ducted returns beyond the grille.",
+      },
+      {
+        key: "airConditioner.vents",
+        label: "Wipe vents, grilles and unit face",
+        instructions:
+          "Dust and wipe the indoor unit face, louvres and return-air grilles to remove built-up dust and airflow marks.",
+      },
+    ],
+  },
+  {
+    key: "fireplace",
+    title: "Fireplace",
+    category: "ROOM",
+    appliesWhen: { feature: "fireplace" },
+    sortOrder: 230,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "fireplace.ash",
+        label: "Clear ash and firebox",
+        instructions:
+          "Confirm the ash is fully cold, then remove it from the firebox or grate into a metal container and sweep the hearth. Never bag warm ash.",
+      },
+      {
+        key: "fireplace.hearth",
+        label: "Wipe hearth, surround and glass",
+        instructions:
+          "Wipe the hearth and mantel surround, and clean the glass door with a fireplace-safe glass cleaner where one is fitted.",
+      },
+    ],
+  },
+  {
+    key: "balcony",
+    title: "Balcony",
+    category: "ROOM",
+    appliesWhen: { propertyField: "hasBalcony", equals: true },
+    sortOrder: 240,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "balcony.floor",
+        label: "Sweep and mop balcony floor",
+        instructions:
+          "Sweep debris and leaves from the balcony floor and corners, remove cobwebs from the ceiling and railings, then mop tiled or sealed surfaces.",
+      },
+      {
+        key: "balcony.railing",
+        label: "Wipe balustrade, railing and glass",
+        instructions:
+          "Wipe the railing or balustrade and clean any glass balustrade panels inside and out where safely reachable from the balcony.",
+      },
+      {
+        key: "balcony.furniture",
+        label: "Wipe balcony furniture and tidy",
+        instructions:
+          "Wipe down the outdoor table and chairs, tidy the space, and clear any leaves from drainage points and gutters accessible from the balcony.",
+      },
+    ],
+  },
+  {
+    key: "garden",
+    title: "Garden / outdoor area",
+    category: "OUTDOOR",
+    appliesWhen: { feature: "garden" },
+    sortOrder: 250,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "garden.paths",
+        label: "Sweep paths and outdoor entries",
+        instructions:
+          "Sweep leaves and debris from paths, porches and outdoor entry areas so dirt isn't tracked back inside. (Mowing and garden-bed work are a separate lawn service.)",
+      },
+      {
+        key: "garden.alfresco",
+        label: "Tidy alfresco / outdoor living area",
+        instructions:
+          "Wipe down the outdoor table and seating, remove cobwebs from the alfresco ceiling and posts, and tidy the outdoor living space.",
+      },
+    ],
+  },
+  {
+    key: "garage",
+    title: "Garage",
+    category: "OUTDOOR",
+    appliesWhen: { feature: "garage" },
+    sortOrder: 260,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "garage.sweep",
+        label: "Sweep garage floor",
+        instructions:
+          "Sweep or blow out the garage floor, clearing leaves, dust and debris from the corners and along the roller-door track.",
+      },
+      {
+        key: "garage.cobwebs",
+        label: "Clear garage cobwebs and wipe surfaces",
+        instructions:
+          "Remove cobwebs from corners and rafters and wipe reachable shelving and the internal access door.",
+      },
+    ],
+  },
+  {
+    key: "pool",
+    title: "Pool surrounds",
+    category: "OUTDOOR",
+    appliesWhen: { feature: "pool" },
+    sortOrder: 270,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "pool.skim",
+        label: "Skim surface and empty skimmer basket",
+        instructions:
+          "Skim floating leaves and debris from the water surface and empty the skimmer and pump baskets. Water chemistry, dosing and filtration are NOT part of this service.",
+      },
+      {
+        key: "pool.surrounds",
+        label: "Clean and tidy pool surrounds",
+        instructions:
+          "Sweep or hose the paved pool surround, wipe down outdoor furniture, and clear leaves and debris from the coping and edges.",
+      },
+      {
+        key: "pool.safety",
+        label: "Check and close pool safety gate",
+        instructions:
+          "Confirm the pool safety gate self-closes and latches, and leave it closed. Report any fault with the fence or gate to the client — do not attempt repairs.",
+      },
+    ],
+  },
+  {
+    key: "spa",
+    title: "Spa / hot tub",
+    category: "OUTDOOR",
+    appliesWhen: { feature: "spa" },
+    sortOrder: 280,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "spa.shell",
+        label: "Wipe spa shell waterline and cover",
+        instructions:
+          "Wipe the spa shell waterline and headrests and clean the top and underside of the cover/lid. Water treatment and chemistry are not included.",
+      },
+      {
+        key: "spa.surrounds",
+        label: "Tidy spa surrounds",
+        instructions:
+          "Sweep and wipe the decking or paving around the spa and tidy any outdoor furniture or steps.",
+      },
+    ],
+  },
+  {
+    key: "bbq",
+    title: "BBQ / grill",
+    category: "OUTDOOR",
+    appliesWhen: { feature: "bbq" },
+    sortOrder: 290,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "bbq.degrease",
+        label: "Degrease BBQ grill and plates",
+        instructions:
+          "Scrape and degrease the grill bars and hotplate, empty the grease/drip tray, and wipe the exterior lid, shelves and controls.",
+      },
+      {
+        key: "bbq.cover",
+        label: "Refit BBQ cover and tidy area",
+        instructions:
+          "Once the BBQ is cool and dry, refit the cover and tidy the surrounding cooking area.",
+      },
+    ],
+  },
+  {
+    key: "pets",
+    title: "Pet-friendly home",
+    category: "EXTRA",
+    appliesWhen: { feature: "petFriendly" },
+    sortOrder: 300,
+    jobTypes: HOME_CLEANING_JOB_TYPES,
+    items: [
+      {
+        key: "pets.hair",
+        label: "Remove pet hair from floors and furnishings",
+        instructions:
+          "Vacuum carpets, rugs, sofas and pet beds with a pet/upholstery tool, then lift embedded hair the vacuum leaves behind with a rubber brush or lint roller.",
+      },
+      {
+        key: "pets.products",
+        label: "Use pet-safe, allergy-conscious products",
+        instructions:
+          "Choose low-fragrance, pet-safe cleaning products and rinse floors well so no residue is left where pets walk, lick or lie.",
+      },
+      {
+        key: "pets.feeding",
+        label: "Clean feeding, water and litter areas",
+        instructions:
+          "Wipe food and water bowls and their mats and clean around the litter tray or pet toileting area, disinfecting and deodorising the surrounds.",
+      },
+      {
+        key: "pets.odour",
+        label: "Deodorise and spot-treat pet marks",
+        instructions:
+          "Spot-treat any accident marks and deodorise soft furnishings and high-use pet zones to neutralise odours rather than mask them.",
+      },
+      {
+        key: "pets.backyard",
+        label: "Tidy accessible backyard pet mess",
+        instructions:
+          "Pick up and bag visible pet waste from accessible paved or lawn areas near entries so it isn't tracked back inside.",
+      },
+    ],
+  },
+];
 
 export default DEFAULT_CHECKLISTS;

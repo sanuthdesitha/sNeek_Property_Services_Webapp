@@ -854,6 +854,14 @@ model Property {
   hasBalcony                 Boolean  @default(false)
   bedrooms                   Int      @default(1)
   bathrooms                  Int      @default(1)
+  // Captured during onboarding — persisted so nothing is dropped and cleaners/
+  // pricing can use them.
+  propertyType               String? // house | apartment | townhouse | unit | commercial | other
+  sizeSqm                    Float?
+  floorCount                 Int?
+  laundryDetail              Json? // { washerType, dryerType, laundryLocation, detergentType, suppliesProvided, notes }
+  emergencyContact           Json? // { name, phone, relationship }
+  recurringSchedule          Json? // { frequency, day, time, notes } captured for recurring services
   latitude                   Float?
   longitude                  Float?
   accessCode                 String?  @db.Text

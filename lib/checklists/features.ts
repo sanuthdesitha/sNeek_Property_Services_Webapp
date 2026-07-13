@@ -29,7 +29,9 @@ export const FEATURE_DEFS: FeatureDef[] = [
   { key: "pool", label: "Pool", group: "OUTDOOR", keywords: ["pool"] },
   { key: "spa", label: "Spa / hot tub", group: "OUTDOOR", keywords: ["spa", "hot tub", "jacuzzi"] },
   { key: "garage", label: "Garage", group: "OUTDOOR", keywords: ["garage"] },
-  { key: "garden", label: "Garden / lawn", group: "OUTDOOR", keywords: ["garden", "lawn"] },
+  // NB: no "lawn" keyword — it would wrongly feature-gate the LAWN_MOWING
+  // service's "Mow lawn" task (that service is chosen by job type, not feature).
+  { key: "garden", label: "Garden / lawn", group: "OUTDOOR", keywords: ["garden"] },
   { key: "fireplace", label: "Fireplace", group: "GENERAL", keywords: ["fireplace"] },
   { key: "petFriendly", label: "Pet-friendly (pet hair)", group: "GENERAL", keywords: ["pet hair", "pet-friendly"] },
   { key: "airConditioner", label: "Air conditioner", group: "GENERAL", keywords: ["air con", "aircon", "air-con", "a/c filter"] },
