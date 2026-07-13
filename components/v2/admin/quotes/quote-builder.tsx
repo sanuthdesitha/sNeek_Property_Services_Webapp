@@ -46,6 +46,7 @@ import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/component
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 type CustomExtra = { id: string; label: string; price: number; instructions: string };
+type AppliedDiscount = { code: string | null; label: string; amount: number };
 type ReferenceImage = { key: string; url: string; label?: string };
 type VariableLine = { label: string; amount: number };
 
@@ -160,6 +161,8 @@ export interface QuoteEditSeed {
   referenceImages: ReferenceImage[];
   showAddOnPrices: boolean;
   lineItems: LineItem[];
+  /** Applied coupon code, if the quote carries a campaign discount. */
+  discountCode?: string | null;
   /** Raw notes including any [[META:{…}]] block. */
   notes: string;
   /** ISO string or null. */
@@ -265,7 +268,16 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
   // and in the same order — split them back out so the builder re-derives their
   // lines from the selection (and custom-extra prices are recovered from them).
   const extrasMeta: any[] = Array.isArray(meta?.extras) ? meta!.extras : [];
-  const stored = editQuote.lineItems ?? [];
+  // Pull the discount out first — it's the negative-total line (this codebase's
+  // convention). Seed the discount state from it + strip it from the editable
+  // rows, so it's re-applied on save via the discount endpoint rather than shown
+  // as an editable line.
+  const storedRaw = editQuote.lineItems ?? [];
+  const discountLine = storedRaw.find((li) => Number(li?.total) < 0) ?? null;
+  const seededDiscount = discountLine
+    ? { code: editQuote.discountCode ?? null, label: String(discountLine.label ?? "Discount"), amount: Math.abs(Number(discountLine.total) || 0) }
+    : null;
+  const stored = storedRaw.filter((li) => Number(li?.total) >= 0);
   const extraCount = Math.min(extrasMeta.length, stored.length);
   const extraSlice = extraCount > 0 ? stored.slice(stored.length - extraCount) : [];
   const baseLineItems = extraCount > 0 ? stored.slice(0, stored.length - extraCount) : stored.slice();
@@ -312,6 +324,7 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
     selectedExtras,
     customExtras,
     extraQtys,
+    seededDiscount,
     lineItems: baseLineItems,
     refImages: editQuote.referenceImages ?? [],
     showAddOnPrices: Boolean(editQuote.showAddOnPrices),
@@ -370,6 +383,12 @@ export function QuoteBuilder({
   const [customLabel, setCustomLabel] = useState("");
   const [customPrice, setCustomPrice] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
+  // ── Discount / coupon (applied server-side via the discount endpoint on save) ──
+  const [appliedDiscount, setAppliedDiscount] = useState<AppliedDiscount | null>(seed?.seededDiscount ?? null);
+  const seededHadDiscount = useRef(Boolean(seed?.seededDiscount));
+  const [couponInput, setCouponInput] = useState("");
+  const [manualDiscountInput, setManualDiscountInput] = useState("");
+  const [discountBusy, setDiscountBusy] = useState(false);
   const [pricing, setPricing] = useState(false);
   const [notes, setNotes] = useState(seed?.notes ?? "");
   // In edit mode the seeded prose notes must survive (don't let auto-draft run).
@@ -670,6 +689,85 @@ export function QuoteBuilder({
     return calculateGstBreakdown(Math.max(0, Number(sum.toFixed(2))), { gstEnabled });
   }, [allLines, gstEnabled]);
   const gstLabel = useMemo(() => getGstDisplayLabel({ gstEnabled }), [gstEnabled]);
+
+  // Discount estimate (display only — the discount endpoint finalises on save,
+  // adding the negative line + recomputing GST/total server-side). Clamped so
+  // the total never goes negative.
+  const discountAmount = Math.min(subtotal, Math.max(0, appliedDiscount?.amount ?? 0));
+  const netAfterDiscount = useMemo(
+    () => calculateGstBreakdown(Math.max(0, Number((subtotal - discountAmount).toFixed(2))), { gstEnabled }),
+    [subtotal, discountAmount, gstEnabled],
+  );
+
+  // Validate a coupon against the live campaigns, then stage it for save.
+  async function applyCoupon() {
+    const code = couponInput.trim();
+    if (!code) return;
+    setDiscountBusy(true);
+    try {
+      const params = new URLSearchParams({ code, serviceType, subtotal: String(subtotal) });
+      const res = await fetch(`/api/public/campaign?${params.toString()}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.valid) {
+        toast({ title: "Coupon not applied", description: body.reason ?? "That code isn't valid for this quote.", variant: "destructive" });
+        return;
+      }
+      const c = body.campaign;
+      const amount =
+        c.discountType === "FIXED"
+          ? Math.min(subtotal, Math.max(0, Number(c.discountValue) || 0))
+          : Number(((subtotal * Math.max(0, Math.min(100, Number(c.discountValue) || 0))) / 100).toFixed(2));
+      if (amount <= 0) {
+        toast({ title: "Coupon has no effect", description: "This code produces no discount on the current total.", variant: "destructive" });
+        return;
+      }
+      setAppliedDiscount({ code: c.code, label: `Discount · ${c.title} (${c.code})`, amount });
+      setCouponInput("");
+      toast({ title: "Coupon staged", description: `${c.code} — will apply −${money(amount)} on save.` });
+    } finally {
+      setDiscountBusy(false);
+    }
+  }
+
+  function applyManualDiscount() {
+    const amount = Math.min(subtotal, Math.max(0, Number(manualDiscountInput) || 0));
+    if (amount <= 0) {
+      toast({ title: "Enter a discount", description: "Enter an amount greater than $0.", variant: "destructive" });
+      return;
+    }
+    setAppliedDiscount({ code: null, label: "Discount", amount });
+    setManualDiscountInput("");
+  }
+
+  function clearDiscount() {
+    setAppliedDiscount(null);
+  }
+
+  /**
+   * Apply / clear the staged discount on the saved quote via the discount
+   * endpoint (server does validation + the negative line + coupon usage +
+   * discountCode). Best-effort: a failure is surfaced but doesn't block the save.
+   */
+  async function applyDiscountToQuote(quoteId: string) {
+    try {
+      let payload: Record<string, unknown> | null = null;
+      if (appliedDiscount?.code) payload = { code: appliedDiscount.code };
+      else if (appliedDiscount && appliedDiscount.amount > 0) payload = { amount: appliedDiscount.amount, label: appliedDiscount.label.replace(/^Discount · /, "") };
+      else if (seededHadDiscount.current) payload = { clear: true };
+      if (!payload) return;
+      const res = await fetch(`/api/admin/quotes/${quoteId}/discount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast({ title: "Discount not applied", description: b.error ?? "The quote saved, but the discount couldn't be applied.", variant: "destructive" });
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
 
   function applyLead(id: string) {
     setLeadId(id);
@@ -1012,6 +1110,9 @@ export function QuoteBuilder({
       if (quote.marginWarning) {
         toast({ title: "Margin warning", description: String(quote.marginWarning) });
       }
+      // Apply the staged discount/coupon server-side BEFORE any email preview
+      // so the sent quote reflects it.
+      await applyDiscountToQuote(quote.id);
 
       if (send) {
         // Render the exact email (body + attachments + public link) WITHOUT
@@ -1095,6 +1196,8 @@ export function QuoteBuilder({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not save changes.");
+      // Re-apply / clear the discount server-side after the base save.
+      await applyDiscountToQuote(editQuote.id);
       toast({ title: "Quote updated", description: "Your changes were saved." });
       router.push(`/v2/admin/quotes/${editQuote.id}`);
       router.refresh();
@@ -1978,19 +2081,78 @@ export function QuoteBuilder({
             </div>
           ) : null}
 
-          <div className="grid gap-4 pt-2 md:grid-cols-3">
+          {/* Discount & coupon — staged here, finalised server-side on save. */}
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <EEyebrow>Discount &amp; coupon</EEyebrow>
+            {appliedDiscount ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] px-3 py-2 text-[0.8125rem]">
+                <span>
+                  {appliedDiscount.label}
+                  {appliedDiscount.code ? <span className="text-[hsl(var(--e-muted-foreground))]"> · code {appliedDiscount.code}</span> : null}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="e-tnum">−{money(discountAmount)}</span>
+                  <EButton type="button" variant="ghost" size="sm" onClick={clearDiscount} disabled={discountBusy}>
+                    Remove
+                  </EButton>
+                </span>
+              </div>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="flex gap-2">
+                  <EInput
+                    value={couponInput}
+                    placeholder="Coupon code"
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        applyCoupon();
+                      }
+                    }}
+                  />
+                  <EButton type="button" variant="outline" onClick={applyCoupon} disabled={discountBusy || !couponInput.trim()}>
+                    Apply
+                  </EButton>
+                </div>
+                <div className="flex gap-2">
+                  <EInput
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={manualDiscountInput}
+                    placeholder="Manual discount ($)"
+                    onChange={(e) => setManualDiscountInput(e.target.value)}
+                  />
+                  <EButton type="button" variant="outline" onClick={applyManualDiscount} disabled={discountBusy || !(Number(manualDiscountInput) > 0)}>
+                    Apply
+                  </EButton>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={`grid gap-4 pt-2 ${discountAmount > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
               <EEyebrow>Subtotal</EEyebrow>
               <p className="e-numeral mt-1 text-[1.25rem] leading-none">{money(subtotal)}</p>
             </div>
+            {discountAmount > 0 ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
+                <EEyebrow>Discount</EEyebrow>
+                <p className="e-numeral mt-1 text-[1.25rem] leading-none text-[hsl(var(--e-gold-ink))]">−{money(discountAmount)}</p>
+              </div>
+            ) : null}
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
               <EEyebrow>{gstLabel}</EEyebrow>
-              <p className="e-numeral mt-1 text-[1.25rem] leading-none">{money(gstAmount)}</p>
+              <p className="e-numeral mt-1 text-[1.25rem] leading-none">
+                {money(discountAmount > 0 ? netAfterDiscount.gstAmount : gstAmount)}
+              </p>
             </div>
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
               <EEyebrow>Total</EEyebrow>
               <p className="e-numeral mt-1 text-[1.25rem] leading-none text-[hsl(var(--e-gold-ink))]">
-                {money(totalAmount)}
+                {money(discountAmount > 0 ? netAfterDiscount.totalAmount : totalAmount)}
               </p>
             </div>
           </div>
