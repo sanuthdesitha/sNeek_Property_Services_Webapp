@@ -27,9 +27,16 @@ async function loadSurvey(surveyId: string) {
 
 function pseudoPropertyFromSurvey(
   survey: NonNullable<Awaited<ReturnType<typeof loadSurvey>>>,
-  savedFeatures: Record<string, boolean> | null
+  savedFeatures: Record<string, boolean> | null,
+  scenarios: Record<string, unknown>
 ) {
-  const features = savedFeatures ?? featuresFromAppliances(survey.appliances ?? []);
+  // Mirror the approval workflow: hasPets → petFriendly so the Checklist Preview
+  // step reflects the pet-hair section that approval will materialise.
+  const features =
+    savedFeatures ?? {
+      ...featuresFromAppliances(survey.appliances ?? []),
+      ...(scenarios.hasPets === true ? { petFriendly: true } : {}),
+    };
   return {
     hasBalcony: survey.hasBalcony,
     bedrooms: survey.bedrooms,
@@ -58,16 +65,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       library = await getChecklistLibrary();
     }
 
+    const meta = readFormMeta(survey.adminOverrides);
+    const scenarios = (meta.scenarios ?? {}) as Record<string, unknown>;
+
     const checklistOverride = readChecklistOverride(survey.adminOverrides);
     const savedFeatures = checklistOverride?.features ? sanitizeFeatures(checklistOverride.features) : null;
-    const pseudoProperty = pseudoPropertyFromSurvey(survey, savedFeatures);
+    const pseudoProperty = pseudoPropertyFromSurvey(survey, savedFeatures, scenarios);
 
     const defaults = buildDefaultSelections(library, pseudoProperty);
     const saved = checklistOverride?.selections ? sanitizeSelections(checklistOverride.selections) : null;
     const selections = saved ? mergeSelections(defaults, saved) : defaults;
 
     // Job types the wizard selected (Cleaning Types step), for per-item chips.
-    const meta = readFormMeta(survey.adminOverrides);
     const metaJobTypes = Array.isArray(meta.selectedJobTypes) ? meta.selectedJobTypes : [];
     const answerJobTypes = survey.jobTypeAnswers.map((answer) => answer.jobType as string);
     const selectedJobTypes = (metaJobTypes.length ? metaJobTypes : answerJobTypes).filter((jobType) =>

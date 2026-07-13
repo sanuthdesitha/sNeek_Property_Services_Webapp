@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, Role, QuoteStatus } from "@prisma/client";
+import { Prisma, Role, QuoteStatus, JobType } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
@@ -9,6 +9,22 @@ const updateQuoteSchema = z.object({
   status: z.nativeEnum(QuoteStatus).optional(),
   notes: z.string().trim().optional().nullable(),
   validUntil: z.string().datetime().optional().nullable(),
+  // Full-edit structural fields (from the quote builder in edit mode). When
+  // present the quote's service, pricing lines and totals are rewritten.
+  serviceType: z.nativeEnum(JobType).optional(),
+  lineItems: z
+    .array(
+      z.object({
+        label: z.string(),
+        unitPrice: z.number(),
+        qty: z.number(),
+        total: z.number(),
+      })
+    )
+    .optional(),
+  subtotal: z.number().optional(),
+  gstAmount: z.number().optional(),
+  totalAmount: z.number().optional(),
   // Assign/reassign the quote to a client (null to unassign).
   clientId: z.string().trim().min(1).optional().nullable(),
   // Pricing-variable selections snapshot (variable id → option/qty/custom).
@@ -67,6 +83,34 @@ export async function PATCH(
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateQuoteSchema.parse(await req.json());
     const data: Record<string, unknown> = {};
+
+    // Structural edits (service/pricing) are blocked once a quote has been
+    // converted to a job — the job now owns the scope/price.
+    const structuralEdit =
+      body.serviceType !== undefined ||
+      body.lineItems !== undefined ||
+      body.subtotal !== undefined ||
+      body.gstAmount !== undefined ||
+      body.totalAmount !== undefined;
+    if (structuralEdit) {
+      const existing = await db.quote.findUnique({
+        where: { id: params.id },
+        select: { status: true },
+      });
+      if (!existing) return NextResponse.json({ error: "Quote not found." }, { status: 404 });
+      if (existing.status === QuoteStatus.CONVERTED) {
+        return NextResponse.json(
+          { error: "This quote has been converted to a job and can no longer be edited." },
+          { status: 400 }
+        );
+      }
+    }
+    if (body.serviceType !== undefined) data.serviceType = body.serviceType;
+    if (body.lineItems !== undefined) data.lineItems = body.lineItems;
+    if (body.subtotal !== undefined) data.subtotal = body.subtotal;
+    if (body.gstAmount !== undefined) data.gstAmount = body.gstAmount;
+    if (body.totalAmount !== undefined) data.totalAmount = body.totalAmount;
+
     if (body.status !== undefined) {
       data.status = body.status;
       // Backfill lifecycle timestamps on status transition (set once, idempotent).

@@ -52,7 +52,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const previewJobType = (req.nextUrl.searchParams.get("previewJobType") as JobType | null) ?? JobType.AIRBNB_TURNOVER;
     const preview = Object.values(JobType).includes(previewJobType)
-      ? composeFormSchema(library, selections, previewJobType)
+      ? composeFormSchema(library, selections, previewJobType, property)
       : null;
 
     return NextResponse.json({

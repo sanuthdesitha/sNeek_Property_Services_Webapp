@@ -97,6 +97,24 @@ interface ServiceOption {
   unitLabel: string | null;
   bands: { label: string }[];
 }
+/** The stored quote reshaped for seeding the builder in edit mode. */
+export interface QuoteEditSeed {
+  id: string;
+  status: string;
+  serviceType: string;
+  clientId: string | null;
+  leadId: string | null;
+  leadName?: string | null;
+  serviceContext: Record<string, string | number | boolean> | null;
+  referenceImages: ReferenceImage[];
+  showAddOnPrices: boolean;
+  lineItems: LineItem[];
+  /** Raw notes including any [[META:{…}]] block. */
+  notes: string;
+  /** ISO string or null. */
+  validUntil: string | null;
+}
+
 interface QuoteBuilderProps {
   leads: (Option & {
     serviceType?: JobType;
@@ -108,45 +126,190 @@ interface QuoteBuilderProps {
   gstEnabled: boolean;
   /** Admin-configured pricing variables (settings), rendered as selectors. */
   pricingVariables?: PricingVariable[];
+  /** When present, the builder loads in "edit" mode: all state is seeded from
+   *  this quote and the primary action becomes "Save changes" (PATCH). */
+  editQuote?: QuoteEditSeed;
+}
+
+/** Pull + parse the [[META:{…}]] JSON block out of stored quote notes. */
+function parseNotesMeta(notes: string | null | undefined): Record<string, any> | null {
+  if (!notes) return null;
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]) as Record<string, any>;
+  } catch {
+    return null;
+  }
+}
+
+/** Strip the [[META]] block, leaving the human-facing prose notes. */
+function stripNotesMeta(notes: string | null | undefined): string {
+  if (!notes) return "";
+  return notes.replace(/\[\[META:([\s\S]+?)\]\]/, "").trim();
+}
+
+/** Rebuild the editable checklist model from a notes-META checklist override
+ *  (exactly the shape the send route reads back — see checklistOverrideFromNotes). */
+function editChecklistFromMeta(meta: Record<string, any> | null): EditChecklist | null {
+  const ov = meta?.checklist;
+  if (!ov || !Array.isArray(ov.sections)) return null;
+  const sections: EditSection[] = ov.sections.map((s: any, si: number) => ({
+    id: `sec-${si}`,
+    title: typeof s?.title === "string" ? s.title : "",
+    items: Array.isArray(s?.items)
+      ? s.items
+          .filter((it: any) => typeof it?.label === "string" && it.label.trim())
+          .map((it: any, ii: number) => ({
+            id: `it-${si}-${ii}`,
+            label: String(it.label).trim(),
+            covered: Boolean(it?.covered),
+          }))
+      : [],
+  }));
+  const notCovered = Array.isArray(ov.notCovered)
+    ? ov.notCovered.filter((n: unknown): n is string => typeof n === "string")
+    : [];
+  return { summary: typeof ov.summary === "string" ? ov.summary : "", sections, notCovered };
+}
+
+/** Compute every seedable piece of builder state from a stored quote. Pure. */
+function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariable[]) {
+  const meta = parseNotesMeta(editQuote.notes);
+
+  // Dimensions live in the META block (only ROOMS/AREA models store them).
+  const bedrooms = meta?.bedrooms != null ? String(meta.bedrooms) : "2";
+  const bathrooms = meta?.bathrooms != null ? String(meta.bathrooms) : "1";
+  const sqm = meta?.sqm != null ? String(meta.sqm) : "50";
+
+  // Pricing-variable selections come from serviceContext (variable id → value).
+  const variableChoices: Record<string, string> = {};
+  const variableCustom: Record<string, string> = {};
+  const variableNumbers: Record<string, string> = {};
+  const ctx = editQuote.serviceContext ?? {};
+  for (const variable of pricingVariables) {
+    const val = ctx[variable.id];
+    if (variable.kind === "number") {
+      if (val != null) variableNumbers[variable.id] = String(val);
+      continue;
+    }
+    const options = variable.options ?? [];
+    const fallback = variable.defaultOptionId ?? options[0]?.id ?? "";
+    if (val == null) {
+      if (fallback) variableChoices[variable.id] = fallback;
+      continue;
+    }
+    if (options.some((o) => o.id === val)) {
+      variableChoices[variable.id] = String(val);
+    } else if (variable.allowCustom) {
+      variableChoices[variable.id] = CUSTOM_OPTION;
+      variableCustom[variable.id] = String(val);
+    } else if (fallback) {
+      variableChoices[variable.id] = fallback;
+    }
+  }
+
+  // Extras were appended LAST in the stored line items, one per META.extras entry
+  // and in the same order — split them back out so the builder re-derives their
+  // lines from the selection (and custom-extra prices are recovered from them).
+  const extrasMeta: any[] = Array.isArray(meta?.extras) ? meta!.extras : [];
+  const stored = editQuote.lineItems ?? [];
+  const extraCount = Math.min(extrasMeta.length, stored.length);
+  const extraSlice = extraCount > 0 ? stored.slice(stored.length - extraCount) : [];
+  const baseLineItems = extraCount > 0 ? stored.slice(0, stored.length - extraCount) : stored.slice();
+
+  const selectedExtras: string[] = [];
+  const customExtras: CustomExtra[] = [];
+  extrasMeta.forEach((raw, i) => {
+    const id = typeof raw?.id === "string" ? raw.id : "";
+    const label = typeof raw?.label === "string" ? raw.label : "";
+    const instructions = typeof raw?.instructions === "string" ? raw.instructions : "";
+    const line = extraSlice[i];
+    const price = line ? Number(line.unitPrice ?? line.total ?? 0) || 0 : 0;
+    if (id && EXTRAS_BY_ID[id]) {
+      selectedExtras.push(id);
+    } else if (id || label) {
+      customExtras.push({ id: id || `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, label, price, instructions });
+    }
+  });
+
+  const recipientMode: RecipientMode = editQuote.clientId ? "client" : editQuote.leadId ? "lead" : "new";
+
+  return {
+    recipientMode,
+    clientId: editQuote.clientId ?? "",
+    leadId: editQuote.leadId ?? "",
+    serviceType: editQuote.serviceType,
+    bedrooms,
+    bathrooms,
+    sqm,
+    variableChoices,
+    variableCustom,
+    variableNumbers,
+    selectedExtras,
+    customExtras,
+    lineItems: baseLineItems,
+    refImages: editQuote.referenceImages ?? [],
+    showAddOnPrices: Boolean(editQuote.showAddOnPrices),
+    notes: stripNotesMeta(editQuote.notes),
+    validUntilDate: editQuote.validUntil ? editQuote.validUntil.slice(0, 10) : "",
+    editOverride: editChecklistFromMeta(meta),
+  };
 }
 
 type RecipientMode = "client" | "lead" | "new";
 
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 
-export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVariables = [] }: QuoteBuilderProps) {
+export function QuoteBuilder({
+  leads,
+  clients,
+  services,
+  gstEnabled,
+  pricingVariables = [],
+  editQuote,
+}: QuoteBuilderProps) {
   const router = useRouter();
 
-  const [recipientMode, setRecipientMode] = useState<RecipientMode>("client");
-  const [clientId, setClientId] = useState("");
-  const [leadId, setLeadId] = useState("");
+  const isEdit = Boolean(editQuote);
+  // Seed once from the stored quote in edit mode (deterministic from props).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const seed = useMemo(() => (editQuote ? buildEditSeed(editQuote, pricingVariables) : null), []);
+
+  const [recipientMode, setRecipientMode] = useState<RecipientMode>(seed?.recipientMode ?? "client");
+  const [clientId, setClientId] = useState(seed?.clientId ?? "");
+  const [leadId, setLeadId] = useState(seed?.leadId ?? "");
   const [newLead, setNewLead] = useState({ name: "", email: "", phone: "", suburb: "" });
 
-  const [serviceType, setServiceType] = useState<string>(services[0]?.jobType ?? "AIRBNB_TURNOVER");
-  const [bedrooms, setBedrooms] = useState("2");
-  const [bathrooms, setBathrooms] = useState("1");
-  const [sqm, setSqm] = useState("50");
+  const [serviceType, setServiceType] = useState<string>(
+    seed?.serviceType ?? services[0]?.jobType ?? "AIRBNB_TURNOVER",
+  );
+  const [bedrooms, setBedrooms] = useState(seed?.bedrooms ?? "2");
+  const [bathrooms, setBathrooms] = useState(seed?.bathrooms ?? "1");
+  const [sqm, setSqm] = useState(seed?.sqm ?? "50");
   const [windows, setWindows] = useState("10");
   const [items, setItems] = useState("3");
   const [hours, setHours] = useState("3");
   const [bandIndex, setBandIndex] = useState("0");
 
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
-  const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
-  const [customExtras, setCustomExtras] = useState<CustomExtra[]>([]);
+  const [lineItems, setLineItems] = useState<LineItem[]>(seed?.lineItems ?? []);
+  const [selectedExtras, setSelectedExtras] = useState<string[]>(seed?.selectedExtras ?? []);
+  const [customExtras, setCustomExtras] = useState<CustomExtra[]>(seed?.customExtras ?? []);
   const [customLabel, setCustomLabel] = useState("");
   const [customPrice, setCustomPrice] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [pricing, setPricing] = useState(false);
-  const [notes, setNotes] = useState("");
-  const [notesTouched, setNotesTouched] = useState(false);
-  const [validUntilDate, setValidUntilDate] = useState("");
+  const [notes, setNotes] = useState(seed?.notes ?? "");
+  // In edit mode the seeded prose notes must survive (don't let auto-draft run).
+  const [notesTouched, setNotesTouched] = useState(isEdit);
+  const [validUntilDate, setValidUntilDate] = useState(seed?.validUntilDate ?? "");
   const [saving, setSaving] = useState(false);
 
   // ── Pricing variables (settings-driven) ──────────────────────────────────
   // Select/boolean kinds hold an option id (or CUSTOM_OPTION when "Other…"),
   // number kinds hold a string the admin types. Defaults are preselected.
   const [variableChoices, setVariableChoices] = useState<Record<string, string>>(() => {
+    if (seed) return seed.variableChoices;
     const initial: Record<string, string> = {};
     for (const variable of pricingVariables) {
       if (variable.kind === "number") continue;
@@ -155,8 +318,8 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVari
     }
     return initial;
   });
-  const [variableCustom, setVariableCustom] = useState<Record<string, string>>({});
-  const [variableNumbers, setVariableNumbers] = useState<Record<string, string>>({});
+  const [variableCustom, setVariableCustom] = useState<Record<string, string>>(seed?.variableCustom ?? {});
+  const [variableNumbers, setVariableNumbers] = useState<Record<string, string>>(seed?.variableNumbers ?? {});
   const [variableLines, setVariableLines] = useState<VariableLine[]>([]);
 
   // Effective serviceContext payload: variable id → option id / custom string /
@@ -185,12 +348,12 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVari
   }, [pricingVariables, variableChoices, variableCustom, variableNumbers]);
 
   // ── Client reference photos ───────────────────────────────────────────────
-  const [refImages, setRefImages] = useState<ReferenceImage[]>([]);
+  const [refImages, setRefImages] = useState<ReferenceImage[]>(seed?.refImages ?? []);
   const [uploadingRefs, setUploadingRefs] = useState(false);
   const refFileInput = useRef<HTMLInputElement | null>(null);
 
   // ── Add-on price visibility (client-facing) ───────────────────────────────
-  const [showAddOnPrices, setShowAddOnPrices] = useState(false);
+  const [showAddOnPrices, setShowAddOnPrices] = useState(seed?.showAddOnPrices ?? false);
 
   // "What's included" checklist for the selected service (base default, fetched).
   const [checklist, setChecklist] = useState<ServiceChecklist | null>(null);
@@ -241,9 +404,21 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVari
     [lineItems, variableLineItems, extraLines],
   );
 
+  // In edit mode, apply the reconstructed checklist override exactly once — after
+  // the base template has loaded (so switching service later still resets to base).
+  const appliedEditOverride = useRef(false);
+
   // Seed / reset the editable model whenever the base checklist changes (i.e. on
   // service switch). A fresh base clears any per-quote edits.
   useEffect(() => {
+    if (seed?.editOverride && !appliedEditOverride.current && checklist) {
+      appliedEditOverride.current = true;
+      setEditChecklist(seed.editOverride);
+      setChecklistTouched(true);
+      setNewItemLabels({});
+      setNewExclusion("");
+      return;
+    }
     setEditChecklist(checklist ? editableFromChecklist(checklist) : null);
     setChecklistTouched(false);
     setNewItemLabels({});
@@ -776,6 +951,55 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVari
       router.refresh();
     } catch (err: any) {
       toast({ title: "Could not create quote", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Edit mode: PATCH the full payload back onto the existing quote ─────────
+  function buildEditPatch() {
+    return {
+      serviceType,
+      clientId: recipientMode === "client" ? clientId || null : null,
+      lineItems: allLines,
+      subtotal,
+      gstAmount,
+      totalAmount,
+      notes: [notes.trim(), `[[META:${JSON.stringify(buildMeta())}]]`].filter(Boolean).join("\n") || null,
+      serviceContext: Object.keys(serviceContext).length > 0 ? serviceContext : null,
+      referenceImages:
+        refImages.length > 0
+          ? refImages.map((r) => ({ key: r.key, url: r.url, label: r.label?.trim() || undefined }))
+          : null,
+      showAddOnPrices,
+      validUntil: validUntilDate ? new Date(`${validUntilDate}T23:59:59`).toISOString() : null,
+    };
+  }
+
+  async function saveEdit() {
+    if (!editQuote) return;
+    if (allLines.length === 0 || subtotal <= 0) {
+      toast({
+        title: "Add pricing",
+        description: "Calculate from the rate card, add line items, or pick extras.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${editQuote.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildEditPatch()),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not save changes.");
+      toast({ title: "Quote updated", description: "Your changes were saved." });
+      router.push(`/v2/admin/quotes/${editQuote.id}`);
+      router.refresh();
+    } catch (err: any) {
+      toast({ title: "Could not save changes", description: err.message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -1637,13 +1861,27 @@ export function QuoteBuilder({ leads, clients, services, gstEnabled, pricingVari
               {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
               {previewing ? "Rendering…" : "Preview"}
             </EButton>
-            <EButton variant="outline" onClick={() => submit(false)} disabled={saving}>
-              {saving ? "Saving…" : "Create draft"}
-            </EButton>
-            <EButton variant="gold" onClick={() => submit(true)} disabled={saving}>
-              <Send className="h-4 w-4" />
-              {saving ? "Working…" : "Create & send"}
-            </EButton>
+            {isEdit ? (
+              <>
+                <EButton variant="outline" onClick={() => router.push(`/v2/admin/quotes/${editQuote!.id}`)} disabled={saving}>
+                  Cancel
+                </EButton>
+                <EButton variant="gold" onClick={saveEdit} disabled={saving}>
+                  <Check className="h-4 w-4" />
+                  {saving ? "Saving…" : "Save changes"}
+                </EButton>
+              </>
+            ) : (
+              <>
+                <EButton variant="outline" onClick={() => submit(false)} disabled={saving}>
+                  {saving ? "Saving…" : "Create draft"}
+                </EButton>
+                <EButton variant="gold" onClick={() => submit(true)} disabled={saving}>
+                  <Send className="h-4 w-4" />
+                  {saving ? "Working…" : "Create & send"}
+                </EButton>
+              </>
+            )}
           </div>
         </ECardBody>
       </ECard>

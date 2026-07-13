@@ -210,70 +210,154 @@ export function withSignoffSection(sections: unknown[]): unknown[] {
   ];
 }
 
+/** How many times a module repeats, from its `repeatBy` + the property counts. */
+function repeatCountFor(repeatBy: string | null | undefined, property?: PropertyForRules): number {
+  if (!repeatBy || !property) return 1;
+  if (repeatBy === "bedrooms") return Math.max(1, Number(property.bedrooms ?? 1) || 1);
+  if (repeatBy === "bathrooms") return Math.max(1, Number(property.bathrooms ?? 1) || 1);
+  return 1;
+}
+
+/** Build one library item → form field, with an optional id suffix for repeats. */
+function libraryItemField(
+  item: LibraryModule["items"][number],
+  requiresPhoto: boolean,
+  idSuffix: string
+) {
+  const fieldId = `${item.key}${idSuffix}`;
+  const fieldType = item.fieldType || "checkbox";
+  // A proof photo only makes sense when the task itself isn't already a
+  // media/upload field.
+  const wantsProofPhoto =
+    requiresPhoto && fieldType !== "photo" && fieldType !== "video" && fieldType !== "file";
+  return {
+    id: fieldId,
+    type: fieldType,
+    label: item.label,
+    required: item.required,
+    instructions: item.instructions || undefined,
+    ...(item.minPhotos != null ? { minPhotos: item.minPhotos } : {}),
+    ...(item.stampTag ? { stampTag: item.stampTag } : {}),
+    ...(item.imageUrl || item.videoUrl
+      ? {
+          references: [
+            ...(item.imageUrl ? [{ kind: "image", url: item.imageUrl }] : []),
+            ...(item.videoUrl ? [{ kind: "video", url: item.videoUrl }] : []),
+          ],
+        }
+      : {}),
+    ...(wantsProofPhoto ? { children: [proofPhotoChildField(fieldId, item.label)] } : {}),
+  };
+}
+
+/**
+ * A minimal guaranteed section so every SELECTED service composes to ≥1 section
+ * (and therefore always materialises a form). Only used as a safety net when a
+ * job type's modules/items all resolve away — real service content, when
+ * present, takes precedence and this is skipped.
+ */
+function baselineServiceSection() {
+  const field = (id: string, label: string, instructions: string) => ({
+    id,
+    type: "checkbox",
+    label,
+    required: true,
+    instructions,
+  });
+  return {
+    id: "service-baseline",
+    title: "Service access & completion",
+    description: "Baseline checks to confirm the booked service was carried out.",
+    fields: [
+      field(
+        "service.access",
+        "Confirmed safe access to the property / work area",
+        "Confirm you have safe, authorised access to the areas in scope before starting."
+      ),
+      field(
+        "service.scope",
+        "Confirmed the agreed scope of work",
+        "Check the booking notes and confirm the specific tasks and priorities for this visit."
+      ),
+      field(
+        "service.complete",
+        "Completed the agreed service to standard",
+        "Work through the agreed tasks methodically and check the result against the brief."
+      ),
+      field(
+        "service.tidy",
+        "Cleared equipment and left the area tidy",
+        "Remove your equipment and any waste generated and leave the area clean and presentable."
+      ),
+    ],
+  };
+}
+
 /**
  * Compose the final FormSchema for one job type from the library + selections.
  * Emits the same section/field shape the existing form engine consumes
  * (checkbox items with reveal instructions, photo items with stamp tags, etc.).
+ *
+ * `property` (optional) enables per-room repetition (module.repeatBy) and is
+ * threaded through by generatePropertyTemplates; callers that omit it get
+ * today's single-section-per-module behaviour.
  */
 export function composeFormSchema(
   library: LibraryModule[],
   selections: ProfileSelections,
-  jobType: JobType
+  jobType: JobType,
+  property?: PropertyForRules
 ): { sections: unknown[] } {
   const sections: unknown[] = [];
+  const emittedCustomModuleKeys = new Set<string>();
+
   for (const module of library) {
     const moduleSel = selections.modules[module.key];
     if (!moduleSel?.enabled) continue;
-    const fields: unknown[] = [];
-    for (const item of module.items) {
-      const itemSel = moduleSel.items[item.key];
-      if (!itemSel?.enabled) continue;
-      if (!itemIncludesJobType(item.jobTypes, itemSel.jobTypes, jobType)) continue;
-      const fieldType = item.fieldType || "checkbox";
-      // A proof photo only makes sense to append when the task itself isn't
-      // already a media/upload field.
-      const wantsProofPhoto =
-        itemSel.requiresPhoto === true && fieldType !== "photo" && fieldType !== "video" && fieldType !== "file";
-      fields.push({
-        id: item.key,
-        type: fieldType,
-        label: item.label,
-        required: item.required,
-        instructions: item.instructions || undefined,
-        ...(item.minPhotos != null ? { minPhotos: item.minPhotos } : {}),
-        ...(item.stampTag ? { stampTag: item.stampTag } : {}),
-        ...(item.imageUrl || item.videoUrl
-          ? {
-              references: [
-                ...(item.imageUrl ? [{ kind: "image", url: item.imageUrl }] : []),
-                ...(item.videoUrl ? [{ kind: "video", url: item.videoUrl }] : []),
-              ],
-            }
-          : {}),
-        ...(wantsProofPhoto ? { children: [proofPhotoChildField(item.key, item.label)] } : {}),
+
+    const repeatCount = repeatCountFor(module.repeatBy, property);
+    const unitLabel = module.repeatBy === "bathrooms" ? "Bathroom" : "Bedroom";
+
+    for (let n = 1; n <= repeatCount; n++) {
+      const repeated = repeatCount > 1;
+      // Keep field ids identical to today for the single (non-repeated) case so
+      // existing properties/templates are unaffected; only suffix on repeats.
+      const idSuffix = repeated ? `__${module.repeatBy === "bathrooms" ? "bath" : "bed"}${n}` : "";
+      const fields: unknown[] = [];
+      for (const item of module.items) {
+        const itemSel = moduleSel.items[item.key];
+        if (!itemSel?.enabled) continue;
+        if (!itemIncludesJobType(item.jobTypes, itemSel.jobTypes, jobType)) continue;
+        fields.push(libraryItemField(item, itemSel.requiresPhoto === true, idSuffix));
+      }
+      // Custom items attached to this module — only on the first block so they
+      // aren't duplicated across repeated rooms.
+      if (n === 1) {
+        for (const custom of selections.customItems) {
+          if (custom.moduleKey !== module.key) continue;
+          if (custom.jobTypes && custom.jobTypes.length > 0 && !custom.jobTypes.includes(jobType)) continue;
+          fields.push(customItemField(custom));
+        }
+      }
+      if (fields.length === 0) continue;
+      emittedCustomModuleKeys.add(module.key);
+      sections.push({
+        id: repeated ? `${module.key}-${n}` : module.key,
+        title: repeated ? `${unitLabel} ${n}` : module.title,
+        description: module.description || undefined,
+        fields,
       });
     }
-    // Custom items attached to this module.
-    for (const custom of selections.customItems) {
-      if (custom.moduleKey !== module.key) continue;
-      if (custom.jobTypes && custom.jobTypes.length > 0 && !custom.jobTypes.includes(jobType)) continue;
-      fields.push(customItemField(custom));
-    }
-    if (fields.length === 0) continue;
-    sections.push({
-      id: module.key,
-      title: module.title,
-      description: module.description || undefined,
-      fields,
-    });
   }
 
-  // Custom items with no module → their own "Property-specific" section.
-  const looseCustom = selections.customItems.filter(
-    (custom) =>
-      (!custom.moduleKey || custom.moduleKey === "custom") &&
-      (!custom.jobTypes || custom.jobTypes.length === 0 || custom.jobTypes.includes(jobType))
-  );
+  // Custom items with no module, or attached to a module that didn't render
+  // (disabled/absent for this property or job type) → gathered into their own
+  // "Property-specific" section so an injected special request is never lost.
+  const looseCustom = selections.customItems.filter((custom) => {
+    if (custom.jobTypes && custom.jobTypes.length > 0 && !custom.jobTypes.includes(jobType)) return false;
+    if (!custom.moduleKey || custom.moduleKey === "custom") return true;
+    return !emittedCustomModuleKeys.has(custom.moduleKey);
+  });
   if (looseCustom.length > 0) {
     sections.push({
       id: "property-custom",
@@ -281,6 +365,12 @@ export function composeFormSchema(
       description: "Extra tasks defined for this property.",
       fields: looseCustom.map((custom) => customItemField(custom)),
     });
+  }
+
+  // No selected service should be left without a form: fall back to a baseline
+  // access/scope/completion section when nothing else resolved.
+  if (sections.length === 0) {
+    sections.push(baselineServiceSection());
   }
 
   return { sections: withSignoffSection(sections) };
@@ -339,7 +429,7 @@ export async function generatePropertyTemplates(params: {
   const generated: Partial<Record<JobType, string>> = {};
 
   for (const jobType of params.jobTypes) {
-    const schema = composeFormSchema(library, selections, jobType);
+    const schema = composeFormSchema(library, selections, jobType, property);
     if (schema.sections.length === 0) continue;
     const previousId = previousIds[jobType];
     const previous = previousId

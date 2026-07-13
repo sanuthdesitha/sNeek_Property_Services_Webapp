@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { CalendarPlus, Copy, Download, Eye, Loader2, Mail, Paperclip, Send } from "lucide-react";
+import { CalendarPlus, Copy, Download, Eye, Loader2, Mail, Paperclip, Pencil, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -349,6 +349,13 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
             {copyingLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
             Copy public link
           </EButton>
+          {quote.status !== "CONVERTED" ? (
+            <EButton asChild variant="outline" size="sm">
+              <Link href={`/v2/admin/quotes/${quote.id}/edit`}>
+                <Pencil className="h-3.5 w-3.5" /> Edit quote
+              </Link>
+            </EButton>
+          ) : null}
           <EButton variant="outline-gold" size="sm" onClick={sendQuote} disabled={sending}>
             <Send className="h-3.5 w-3.5" /> {sending ? "Preparing…" : "Send"}
           </EButton>
