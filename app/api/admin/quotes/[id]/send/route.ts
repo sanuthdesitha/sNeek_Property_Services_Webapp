@@ -11,6 +11,7 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
 import { getChecklist } from "@/lib/checklists/store";
+import { recordQuoteEvent } from "@/lib/quotes/events";
 import { buildChecklistHtml, type ChecklistPdfExtra } from "@/lib/checklists/checklist-pdf";
 import type { ServiceChecklist } from "@/lib/checklists/types";
 import { z } from "zod";
@@ -316,6 +317,14 @@ export async function POST(
       data: {
         status: quote.status === QuoteStatus.DRAFT ? QuoteStatus.SENT : quote.status,
       },
+    });
+
+    // Timeline: a real send happened. `resend` = the quote had already left DRAFT
+    // (i.e. it was sent at least once before this). Best-effort, never blocks.
+    await recordQuoteEvent(quote.id, "EMAIL_SENT", {
+      recipients,
+      attachments: attachmentManifest.map((a) => a.filename),
+      resend: quote.status !== QuoteStatus.DRAFT,
     });
 
     return NextResponse.json({

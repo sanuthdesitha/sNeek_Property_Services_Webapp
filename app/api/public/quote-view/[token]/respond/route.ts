@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { recordQuoteEvent } from "@/lib/quotes/events";
 import { findQuoteByToken, isQuoteExpired } from "../../_lib";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
 
     const recipient = quote.client?.name ?? quote.lead?.name ?? "Client";
+
+    // Timeline: client accepted / declined. Best-effort, never blocks.
+    await recordQuoteEvent(
+      quote.id,
+      accepted ? "ACCEPTED" : "DECLINED",
+      note ? { note } : undefined
+    );
 
     // AuditLog.userId is required (public visitors have no user), so journal
     // the response via the structured app log instead — same pattern as the

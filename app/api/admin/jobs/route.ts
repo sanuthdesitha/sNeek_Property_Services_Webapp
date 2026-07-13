@@ -10,6 +10,7 @@ import { ensureServiceSiteProperty } from "@/lib/jobs/service-site";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 function normalizeRule(
   rule:
@@ -107,6 +108,25 @@ export async function POST(req: NextRequest) {
       propertyId: job.propertyId,
       jobType: job.jobType,
     });
+    // Confirm the booking with the client for a real (non-rework) job that hangs
+    // off a client via its property. Best-effort auto send (gated + never throws).
+    if (!job.isRework && job.property?.clientId) {
+      const scheduleText = job.scheduledDate
+        ? new Date(job.scheduledDate).toLocaleDateString("en-AU", {
+            timeZone: "Australia/Sydney",
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        : undefined;
+      await sendLifecycleEmail({
+        jobId: job.id,
+        stage: "BOOKING_CONFIRMED",
+        mode: "auto",
+        extra: { scheduleText },
+      }).catch(() => {});
+    }
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

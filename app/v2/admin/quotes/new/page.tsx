@@ -55,7 +55,7 @@ export default async function V2NewQuotePage() {
       />
       <QuoteBuilder
         leads={leads}
-        clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "" }))}
+        clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb ?? null }))}
         services={serviceOptions}
         gstEnabled={settings.pricing.gstEnabled}
         pricingVariables={settings.pricingVariables}

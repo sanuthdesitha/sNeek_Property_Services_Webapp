@@ -6,7 +6,8 @@
  *   PATCH  /api/admin/quotes/[id]          { status | notes | validUntil | clientId }
  *   POST   /api/admin/quotes/[id]/send     { to? }
  *   GET    /api/admin/quotes/[id]/pdf      (download)
- *   POST   /api/admin/quotes/[id]/convert-to-job { propertyId, scheduledDate }
+ *   POST   /api/admin/quotes/[id]/convert-to-job
+ *            { propertyId? | newProperty?{address,suburb,name?}, createJob, scheduledDate? }
  * Built on v2 primitives + estate-kit only.
  */
 
@@ -14,7 +15,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { CalendarPlus, Copy, Download, Eye, Loader2, Mail, Paperclip, Pencil, Send } from "lucide-react";
+import { CalendarPlus, Copy, Download, Eye, Loader2, Mail, PackagePlus, Paperclip, Pencil, Send, Tag, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -27,6 +28,7 @@ import {
   EThread,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
+import QuoteTimeline from "@/components/v2/admin/quotes/quote-timeline";
 import { formatCurrency } from "@/lib/utils";
 
 type Tone = "neutral" | "info" | "success" | "danger" | "gold";
@@ -39,8 +41,9 @@ const QUOTE_TONES: Record<string, Tone> = {
 };
 const STATUSES = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CONVERTED"];
 
-type Party = { id: string; name: string; email: string };
+type Party = { id: string; name: string; email: string; address?: string | null; suburb?: string | null };
 type ReferenceImage = { key: string; url: string; label?: string };
+type Frequency = "one_off" | "weekly" | "fortnightly" | "monthly";
 type QuoteInitial = {
   id: string;
   status: string;
@@ -58,10 +61,28 @@ type QuoteInitial = {
   showAddOnPrices?: boolean;
   referenceImages?: ReferenceImage[];
   serviceContext?: Record<string, string | number | boolean> | null;
+  frequency?: string | null;
+  serviceAddress?: string | null;
+  serviceSuburb?: string | null;
+  requestedAddOns?: RequestedAddOn[];
+  discountCode?: string | null;
+  discountAmount?: number;
+  discountLabel?: string | null;
 };
+
+type RequestedAddOn = { id?: string; label: string; price: number; note?: string; requestedAt?: string };
 
 const prettify = (v?: string | null) => String(v ?? "").replace(/_/g, " ").trim();
 const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
+
+const RECURRING: Record<string, { label: string; blurb: string }> = {
+  weekly: { label: "Weekly", blurb: "We'll create the first visit and save a weekly recurring schedule on the property." },
+  fortnightly: {
+    label: "Fortnightly",
+    blurb: "We'll create the first visit and save a fortnightly recurring schedule on the property.",
+  },
+  monthly: { label: "Monthly", blurb: "We'll create the first visit and save a monthly recurring schedule on the property." },
+};
 
 export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clients: Party[] }) {
   const router = useRouter();
@@ -76,38 +97,104 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
 
   const [convertOpen, setConvertOpen] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [propertiesLoaded, setPropertiesLoaded] = useState(false);
   const [properties, setProperties] = useState<Array<{ id: string; name: string; suburb?: string | null }>>([]);
   const [convertPropertyId, setConvertPropertyId] = useState("");
   const [convertDate, setConvertDate] = useState("");
+  // Link an existing property, or create one from the service address.
+  const [propertyMode, setPropertyMode] = useState<"existing" | "new">("existing");
+  const [newAddress, setNewAddress] = useState("");
+  const [newSuburb, setNewSuburb] = useState("");
+  const [newName, setNewName] = useState("");
+  // Create the job now, or just link/create the property + mark the quote won.
+  const [createJobNow, setCreateJobNow] = useState(true);
+
+  const freq = (initial.frequency ?? "one_off") as Frequency;
+  const recurringInfo = RECURRING[freq];
+
+  // Best-known service address for prefill: explicit quote address, else the
+  // client's, else the lead's. Drives the "ask the address first" gate below.
+  const prefillAddress = (initial.serviceAddress ?? initial.client?.address ?? initial.lead?.address ?? "").trim();
+  const prefillSuburb = (initial.serviceSuburb ?? initial.client?.suburb ?? initial.lead?.suburb ?? "").trim();
 
   useEffect(() => {
-    if (!convertOpen || properties.length > 0) return;
-    fetch("/api/admin/properties", { cache: "no-store" })
+    if (!convertOpen || propertiesLoaded) return;
+    // Scope to the quote's client when it has one, so the dropdown only lists
+    // that client's properties (the ones a job may legally attach to).
+    const url = initial.clientId
+      ? `/api/admin/properties?clientId=${encodeURIComponent(initial.clientId)}`
+      : "/api/admin/properties";
+    fetch(url, { cache: "no-store" })
       .then((res) => res.json().catch(() => []))
-      .then((rows) => setProperties(Array.isArray(rows) ? rows : Array.isArray(rows?.properties) ? rows.properties : []))
-      .catch(() => setProperties([]));
-  }, [convertOpen, properties.length]);
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : Array.isArray(rows?.properties) ? rows.properties : [];
+        setProperties(list);
+        setPropertiesLoaded(true);
+        // No properties to link → force "create new" so the admin supplies an address.
+        if (list.length === 0) setPropertyMode("new");
+      })
+      .catch(() => {
+        setProperties([]);
+        setPropertiesLoaded(true);
+        setPropertyMode("new");
+      });
+  }, [convertOpen, propertiesLoaded, initial.clientId]);
+
+  // When the modal opens, seed the new-property fields from the best-known address.
+  useEffect(() => {
+    if (!convertOpen) return;
+    setNewAddress((v) => v || prefillAddress);
+    setNewSuburb((v) => v || prefillSuburb);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convertOpen]);
+
+  // Convert is blocked until we have a resolvable property AND (if creating a
+  // job) a date. Creating a new property also needs a client on the quote.
+  const propertyReady =
+    propertyMode === "existing"
+      ? Boolean(convertPropertyId)
+      : Boolean(newAddress.trim() && newSuburb.trim() && initial.clientId);
+  const convertBlocked = converting || !propertyReady || (createJobNow && !convertDate);
 
   async function convertToJob() {
-    if (!convertPropertyId || !convertDate) {
-      toast({ title: "Property and date are required.", variant: "destructive" });
+    if (!propertyReady) {
+      toast({
+        title:
+          propertyMode === "new" && !initial.clientId
+            ? "Assign this quote to a client before creating a property."
+            : "A service address is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (createJobNow && !convertDate) {
+      toast({ title: "A scheduled date is required to create the job now.", variant: "destructive" });
       return;
     }
     setConverting(true);
     try {
+      const payload: Record<string, unknown> = { createJob: createJobNow };
+      if (propertyMode === "existing") {
+        payload.propertyId = convertPropertyId;
+      } else {
+        payload.newProperty = {
+          address: newAddress.trim(),
+          suburb: newSuburb.trim(),
+          ...(newName.trim() ? { name: newName.trim() } : {}),
+        };
+      }
+      if (createJobNow) payload.scheduledDate = `${convertDate}T00:00:00.000Z`;
+
       const res = await fetch(`/api/admin/quotes/${quote.id}/convert-to-job`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          propertyId: convertPropertyId,
-          scheduledDate: `${convertDate}T00:00:00.000Z`,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Failed to convert quote.");
-      toast({ title: "Quote converted to job" });
+      toast({ title: createJobNow ? "Quote converted to job" : "Quote marked won — schedule the visit when ready" });
       setConvertOpen(false);
-      if (body.job?.id) {
+      if (createJobNow && body.job?.id) {
         router.push(`/v2/admin/jobs/${body.job.id}`);
       }
       router.refresh();
@@ -226,6 +313,125 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
       router.refresh();
     } finally {
       setSendingNow(false);
+    }
+  }
+
+  // ── Client-requested add-ons (price them in, then re-send) ────────────────
+  const [requested, setRequested] = useState<RequestedAddOn[]>(initial.requestedAddOns ?? []);
+  // Editable price per pending request, keyed by id-or-label.
+  const addOnKey = (a: { id?: string; label: string }) => (a.id ? `id:${a.id}` : `label:${a.label.toLowerCase()}`);
+  const [addOnPrices, setAddOnPrices] = useState<Record<string, string>>(() =>
+    Object.fromEntries((initial.requestedAddOns ?? []).map((a) => [addOnKey(a), String(a.price || 0)]))
+  );
+  const [addOnBusy, setAddOnBusy] = useState(false);
+
+  function setAddOnPrice(a: RequestedAddOn, value: string) {
+    setAddOnPrices((prev) => ({ ...prev, [addOnKey(a)]: value }));
+  }
+
+  async function postRequestedAddOns(action: "accept" | "dismiss", items: RequestedAddOn[]) {
+    const payload = items.map((a) => ({
+      ...(a.id ? { id: a.id } : {}),
+      label: a.label,
+      ...(action === "accept" ? { price: Math.max(0, Number(addOnPrices[addOnKey(a)] ?? a.price) || 0) } : {}),
+    }));
+    const res = await fetch(`/api/admin/quotes/${quote.id}/requested-addons`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, items: payload }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast({ title: action === "accept" ? "Could not add add-ons" : "Could not dismiss", description: body.error ?? "Please try again.", variant: "destructive" });
+      return null;
+    }
+    setRequested(Array.isArray(body.requestedAddOns) ? body.requestedAddOns : []);
+    if (action === "accept") {
+      // Reflect the new pricing + notes immediately so the preview is up to date.
+      setQuote((q) => ({
+        ...q,
+        subtotal: typeof body.subtotal === "number" ? body.subtotal : q.subtotal,
+        gstAmount: typeof body.gstAmount === "number" ? body.gstAmount : q.gstAmount,
+        totalAmount: typeof body.totalAmount === "number" ? body.totalAmount : q.totalAmount,
+        notes: typeof body.notes === "string" ? body.notes : q.notes,
+      }));
+      if (typeof body.notes === "string") setNotes(body.notes);
+    }
+    return body;
+  }
+
+  async function acceptAddOns(items: RequestedAddOn[], thenReview: boolean) {
+    if (items.length === 0) return;
+    setAddOnBusy(true);
+    try {
+      const body = await postRequestedAddOns("accept", items);
+      if (!body) return;
+      const added = items.reduce((sum, a) => sum + (Number(addOnPrices[addOnKey(a)] ?? a.price) || 0), 0);
+      toast({
+        title: "Added to the quote",
+        description: `${items.length} add-on${items.length > 1 ? "s" : ""} (+${formatCurrency(added)} ex GST). New total ${formatCurrency(
+          typeof body.totalAmount === "number" ? body.totalAmount : quote.totalAmount
+        )}.`,
+      });
+      router.refresh();
+      if (thenReview) await sendQuote();
+    } finally {
+      setAddOnBusy(false);
+    }
+  }
+
+  async function dismissAddOn(item: RequestedAddOn) {
+    setAddOnBusy(true);
+    try {
+      await postRequestedAddOns("dismiss", [item]);
+    } finally {
+      setAddOnBusy(false);
+    }
+  }
+
+  // ── Discount & coupon code ────────────────────────────────────────────────
+  const [discountCode, setDiscountCode] = useState<string | null>(initial.discountCode ?? null);
+  const [discountAmount, setDiscountAmount] = useState<number>(initial.discountAmount ?? 0);
+  const [discountLabel, setDiscountLabel] = useState<string | null>(initial.discountLabel ?? null);
+  const [couponInput, setCouponInput] = useState("");
+  const [manualInput, setManualInput] = useState("");
+  const [discountBusy, setDiscountBusy] = useState(false);
+
+  async function postDiscount(payload: { code?: string; amount?: number; label?: string; clear?: boolean }) {
+    setDiscountBusy(true);
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/discount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Discount not applied", description: body.error ?? "Please try again.", variant: "destructive" });
+        return;
+      }
+      setDiscountCode(body.discountCode ?? null);
+      setDiscountAmount(Number(body.discountAmount) || 0);
+      setDiscountLabel(body.discountLabel ?? null);
+      setCouponInput("");
+      setManualInput("");
+      setQuote((q) => ({
+        ...q,
+        subtotal: typeof body.subtotal === "number" ? body.subtotal : q.subtotal,
+        gstAmount: typeof body.gstAmount === "number" ? body.gstAmount : q.gstAmount,
+        totalAmount: typeof body.totalAmount === "number" ? body.totalAmount : q.totalAmount,
+      }));
+      toast({
+        title: payload.clear ? "Discount removed" : "Discount applied",
+        description: payload.clear
+          ? "The quote is back to full price."
+          : `−${formatCurrency(Number(body.discountAmount) || 0)} · new total ${formatCurrency(
+              typeof body.totalAmount === "number" ? body.totalAmount : quote.totalAmount
+            )}.`,
+      });
+      router.refresh();
+    } finally {
+      setDiscountBusy(false);
     }
   }
 
@@ -441,32 +647,108 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
         ) : null}
       </EModal>
 
-      {/* Convert to job — same payload as the classic flow */}
+      {/* Convert to job — pick/create the property, choose whether to schedule now */}
       <EModal open={convertOpen} onClose={() => setConvertOpen(false)} eyebrow="Quotes" title="Convert to job">
         <div className="space-y-4">
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-            Creates a {prettify(quote.serviceType).toLowerCase() || "service"} job from this quote and marks the quote as converted.
+            {createJobNow
+              ? `Creates a ${prettify(quote.serviceType).toLowerCase() || "service"} job from this quote and marks the quote as converted.`
+              : "Links (or creates) the property and marks this quote as won — no job yet, so you can schedule the first visit later."}
           </p>
-          <EField label="Property">
-            <ESelect value={convertPropertyId} onChange={(e) => setConvertPropertyId(e.target.value)}>
-              <option value="">Select property…</option>
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                  {p.suburb ? ` — ${p.suburb}` : ""}
+
+          {/* Frequency banner: one-off vs recurring cadence */}
+          {recurringInfo ? (
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
+              <EEyebrow>{recurringInfo.label} service</EEyebrow>
+              <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{recurringInfo.blurb}</p>
+            </div>
+          ) : (
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              One-off service — a single job will be created.
+            </p>
+          )}
+
+          {/* Property: link an existing one, or create from the service address */}
+          <div>
+            <EEyebrow>Property</EEyebrow>
+            <div className="mt-2 flex gap-2">
+              <EButton
+                type="button"
+                size="sm"
+                variant={propertyMode === "existing" ? "gold" : "outline"}
+                onClick={() => setPropertyMode("existing")}
+                disabled={properties.length === 0}
+              >
+                Link existing
+              </EButton>
+              <EButton
+                type="button"
+                size="sm"
+                variant={propertyMode === "new" ? "gold" : "outline"}
+                onClick={() => setPropertyMode("new")}
+              >
+                Create from address
+              </EButton>
+            </div>
+          </div>
+
+          {propertyMode === "existing" ? (
+            <EField label="Existing property">
+              <ESelect value={convertPropertyId} onChange={(e) => setConvertPropertyId(e.target.value)}>
+                <option value="">
+                  {properties.length === 0 ? "No properties for this client" : "Select property…"}
                 </option>
-              ))}
-            </ESelect>
-          </EField>
-          <EField label="Scheduled date">
-            <EInput type="date" value={convertDate} onChange={(e) => setConvertDate(e.target.value)} />
-          </EField>
+                {properties.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.suburb ? ` — ${p.suburb}` : ""}
+                  </option>
+                ))}
+              </ESelect>
+            </EField>
+          ) : (
+            <div className="space-y-3">
+              {!prefillAddress ? (
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  No address is on file for this quote — enter the service address to continue.
+                </p>
+              ) : null}
+              <EField label="Service address">
+                <EInput value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="12 Beach Rd" />
+              </EField>
+              <EField label="Suburb">
+                <EInput value={newSuburb} onChange={(e) => setNewSuburb(e.target.value)} placeholder="Bondi" />
+              </EField>
+              <EField label="Property name (optional)">
+                <EInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Defaults to the address" />
+              </EField>
+              {!initial.clientId ? (
+                <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">
+                  Assign this quote to a client before creating a property from its address.
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {/* Schedule now? */}
+          <ESwitch
+            checked={createJobNow}
+            onCheckedChange={setCreateJobNow}
+            label="Create a job now"
+          />
+
+          {createJobNow ? (
+            <EField label="Scheduled date">
+              <EInput type="date" value={convertDate} onChange={(e) => setConvertDate(e.target.value)} />
+            </EField>
+          ) : null}
+
           <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
             <EButton variant="outline" size="sm" onClick={() => setConvertOpen(false)} disabled={converting}>
               Cancel
             </EButton>
-            <EButton variant="gold" size="sm" onClick={convertToJob} disabled={converting || !convertPropertyId || !convertDate}>
-              {converting ? "Converting…" : "Create job"}
+            <EButton variant="gold" size="sm" onClick={convertToJob} disabled={convertBlocked}>
+              {converting ? "Converting…" : createJobNow ? "Create job" : "Mark won"}
             </EButton>
           </div>
         </div>
@@ -568,6 +850,151 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
       ) : null}
 
       {/* Manage */}
+      {requested.length > 0 ? (
+        <ECard className="border-[hsl(var(--e-gold)/0.5)]">
+          <ECardHeader>
+            <div className="flex items-center gap-2">
+              <PackagePlus className="h-4 w-4 text-[hsl(var(--e-gold))]" />
+              <ECardTitle>Client requested add-ons</ECardTitle>
+              <EBadge tone="gold">{requested.length}</EBadge>
+            </div>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              The client asked for these from their online quote. Set a price, add them to the quote, and re-send —
+              you&apos;ll get a preview to confirm before it goes out.
+            </p>
+          </ECardHeader>
+          <ECardBody className="space-y-2 pt-0">
+            {requested.map((a) => (
+              <div
+                key={addOnKey(a)}
+                className="flex flex-wrap items-center gap-3 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.9rem] font-medium">{a.label}</p>
+                  {a.note ? (
+                    <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">“{a.note}”</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[0.8rem] text-[hsl(var(--e-muted-foreground))]">$</span>
+                  <EInput
+                    type="number"
+                    min="0"
+                    inputMode="decimal"
+                    className="w-24"
+                    value={addOnPrices[addOnKey(a)] ?? String(a.price)}
+                    onChange={(e) => setAddOnPrice(a, e.target.value)}
+                  />
+                  <span className="text-[0.7rem] text-[hsl(var(--e-muted-foreground))]">ex GST</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    onClick={() => acceptAddOns([a], false)}
+                    disabled={addOnBusy}
+                  >
+                    Add
+                  </EButton>
+                  <EButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => dismissAddOn(a)}
+                    disabled={addOnBusy}
+                    aria-label={`Dismiss ${a.label}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </EButton>
+                </div>
+              </div>
+            ))}
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <EButton variant="outline" size="sm" onClick={() => acceptAddOns(requested, false)} disabled={addOnBusy}>
+                {addOnBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PackagePlus className="h-3.5 w-3.5" />} Add all to quote
+              </EButton>
+              <EButton variant="outline-gold" size="sm" onClick={() => acceptAddOns(requested, true)} disabled={addOnBusy}>
+                {addOnBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Add all &amp; review email
+              </EButton>
+            </div>
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      <ECard>
+        <ECardHeader>
+          <div className="flex items-center gap-2">
+            <Tag className="h-4 w-4 text-[hsl(var(--e-gold))]" />
+            <ECardTitle>Discount &amp; coupons</ECardTitle>
+          </div>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Apply a coupon code or a manual discount. It shows as a line on the quote and updates the total.
+          </p>
+        </ECardHeader>
+        <ECardBody className="space-y-4 pt-0">
+          {discountAmount > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-gold)/0.4)] bg-[hsl(var(--e-gold)/0.06)] px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-[0.9rem] font-medium">{discountLabel ?? "Discount"}</p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  −{formatCurrency(discountAmount)}
+                  {discountCode ? ` · code ${discountCode}` : " · manual"}
+                </p>
+              </div>
+              <EButton variant="ghost" size="sm" onClick={() => postDiscount({ clear: true })} disabled={discountBusy}>
+                <X className="h-3.5 w-3.5" /> Remove
+              </EButton>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <EField label="Coupon code">
+                <div className="flex gap-2">
+                  <EInput
+                    placeholder="e.g. WELCOME10"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && couponInput.trim()) postDiscount({ code: couponInput.trim() });
+                    }}
+                  />
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    onClick={() => postDiscount({ code: couponInput.trim() })}
+                    disabled={discountBusy || !couponInput.trim()}
+                  >
+                    {discountBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
+                  </EButton>
+                </div>
+              </EField>
+            </div>
+            <div>
+              <EField label="Manual discount ($)">
+                <div className="flex gap-2">
+                  <EInput
+                    type="number"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={manualInput}
+                    onChange={(e) => setManualInput(e.target.value)}
+                  />
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    onClick={() => postDiscount({ amount: Math.max(0, Number(manualInput) || 0) })}
+                    disabled={discountBusy || !(Number(manualInput) > 0)}
+                  >
+                    {discountBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
+                  </EButton>
+                </div>
+              </EField>
+            </div>
+          </div>
+        </ECardBody>
+      </ECard>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ECard>
           <ECardHeader>
@@ -633,6 +1060,18 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           </ECardBody>
         </ECard>
       </div>
+
+      <ECard>
+        <ECardHeader>
+          <ECardTitle>Activity</ECardTitle>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Emails sent and the client&apos;s responses — updates automatically.
+          </p>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          <QuoteTimeline quoteId={quote.id} />
+        </ECardBody>
+      </ECard>
     </div>
   );
 }

@@ -12,11 +12,33 @@ import {
 } from "@/lib/jobs/meta";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
 import { withSignoffSection } from "@/lib/checklists/compose";
+import { recordQuoteEvent } from "@/lib/quotes/events";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
-const schema = z.object({
-  propertyId: z.string().min(1),
-  scheduledDate: z.string().datetime(),
+/** Recurring cadences a quote can carry (one_off → a single job, no schedule). */
+const RECURRING_FREQUENCIES = new Set(["weekly", "fortnightly", "monthly"]);
+
+const newPropertySchema = z.object({
+  address: z.string().trim().min(1, "A service address is required."),
+  suburb: z.string().trim().min(1, "A suburb is required."),
+  name: z.string().trim().min(1).max(200).optional(),
 });
+
+const schema = z
+  .object({
+    // Link an existing property…
+    propertyId: z.string().min(1).optional(),
+    // …or create one from the service address.
+    newProperty: newPropertySchema.optional(),
+    // Convert can create the job now, or just link/create the property + mark
+    // the quote won so the admin schedules the visit later.
+    createJob: z.boolean().default(true),
+    scheduledDate: z.string().datetime().optional(),
+  })
+  .refine((d) => !d.createJob || Boolean(d.scheduledDate), {
+    message: "A scheduled date is required to create the job now.",
+    path: ["scheduledDate"],
+  });
 
 /** Pull the structured extras the admin/client picked, out of the quote notes META. */
 function extrasFromQuoteNotes(notes: string | null | undefined): JobAdditional[] {
@@ -138,7 +160,7 @@ export async function POST(
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const { propertyId, scheduledDate } = schema.parse(await req.json());
+    const { propertyId, newProperty, createJob, scheduledDate } = schema.parse(await req.json());
 
     const quote = await db.quote.findUnique({ where: { id: params.id } });
     if (!quote) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -148,6 +170,10 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (quote.status === QuoteStatus.CONVERTED) {
+      // Already marked won without a job (createJob was OFF) — nothing to redo.
+      return NextResponse.json({ error: "Quote already converted." }, { status: 400 });
+    }
     if (quote.status === QuoteStatus.DECLINED) {
       return NextResponse.json(
         { error: "A declined quote can't be converted to a job." },
@@ -155,25 +181,27 @@ export async function POST(
       );
     }
 
-    // The chosen property must belong to the quote's client (if any) — otherwise
-    // the job, and its billing, would attach to the wrong client's property.
-    const property = await db.property.findUnique({
-      where: { id: propertyId },
-      select: { id: true, clientId: true },
-    });
-    if (!property) {
-      return NextResponse.json({ error: "Property not found." }, { status: 404 });
-    }
-    if (quote.clientId && property.clientId !== quote.clientId) {
+    // ── Property target: link an existing one, or create from the address ────
+    // The convert flow can't proceed without a service address somewhere, so
+    // block early when neither an existing property nor a new address is given.
+    if (!propertyId && !newProperty) {
       return NextResponse.json(
-        { error: "That property belongs to a different client than the quote." },
+        { error: "A service address is required to convert this quote." },
+        { status: 400 }
+      );
+    }
+    // A brand-new property must hang off a client (Property.clientId is required).
+    if (!propertyId && newProperty && !quote.clientId) {
+      return NextResponse.json(
+        { error: "Assign this quote to a client before creating a property from its address." },
         { status: 400 }
       );
     }
 
-    const jobNumber = await reserveJobNumber(db);
-    const additionals = extrasFromQuoteNotes(quote.notes);
+    const isRecurring = Boolean(quote.frequency && RECURRING_FREQUENCIES.has(quote.frequency));
+    const quoteRef = params.id.slice(-6).toUpperCase();
 
+    const additionals = extrasFromQuoteNotes(quote.notes);
     // Carry quote context onto the job meta for transparency: the pricing-variable
     // selections the quote was priced on, and any client reference images.
     const quoteServiceContext =
@@ -181,29 +209,99 @@ export async function POST(
         ? (quote.serviceContext as Record<string, unknown>)
         : undefined;
     const quoteReferenceImages = referenceImagesFromQuote(quote.referenceImages);
-
     const hasMeta =
       additionals.length > 0 || quoteServiceContext !== undefined || quoteReferenceImages.length > 0;
 
-    const job = await db.job.create({
-      data: {
-        jobNumber,
-        propertyId,
-        jobType: quote.serviceType,
-        scheduledDate: new Date(scheduledDate),
-        notes: `Converted from quote #${params.id}`,
-        // Carry the quoted extras onto the job so the cleaner's form shows them
-        // as an "Additionals" section with how-to instructions, plus the quote's
-        // pricing-variable snapshot and reference images for transparency.
-        internalNotes: hasMeta
-          ? serializeJobInternalNotes({
-              additionals,
-              quoteServiceContext,
-              quoteReferenceImages: quoteReferenceImages.length > 0 ? quoteReferenceImages : undefined,
-            })
-          : undefined,
-      },
+    // The cadence we persist onto the property so ops know the service recurs.
+    const recurringSchedule = isRecurring
+      ? { frequency: quote.frequency, notes: `From quote ${quoteRef}` }
+      : null;
+
+    // ── Core mutations run transactionally: resolve/create the property, (opt.)
+    // create the first job, and flip the quote to CONVERTED together. ─────────
+    const result = await db.$transaction(async (tx) => {
+      // Resolve the target property.
+      let targetPropertyId: string;
+      if (propertyId) {
+        const property = await tx.property.findUnique({
+          where: { id: propertyId },
+          select: { id: true, clientId: true },
+        });
+        if (!property) throw new Error("Property not found.");
+        // The chosen property must belong to the quote's client (if any) —
+        // otherwise the job, and its billing, attach to the wrong client.
+        if (quote.clientId && property.clientId !== quote.clientId) {
+          throw new Error("That property belongs to a different client than the quote.");
+        }
+        targetPropertyId = property.id;
+        if (recurringSchedule) {
+          await tx.property.update({
+            where: { id: property.id },
+            data: { recurringSchedule: recurringSchedule as any },
+          });
+        }
+      } else {
+        // Create a minimal property from the address under the quote's client —
+        // same required fields as the property-create route (geocode optional).
+        const created = await tx.property.create({
+          data: {
+            clientId: quote.clientId!,
+            name: newProperty!.name?.trim() || newProperty!.address.trim(),
+            address: newProperty!.address.trim(),
+            suburb: newProperty!.suburb.trim(),
+            ...(recurringSchedule ? { recurringSchedule: recurringSchedule as any } : {}),
+            integration: { create: { isEnabled: false } },
+          },
+          select: { id: true },
+        });
+        targetPropertyId = created.id;
+      }
+
+      // When the admin opted not to schedule now, just mark the quote won and
+      // return the linked/created property — no job, no job number burned.
+      if (!createJob) {
+        await tx.quote.update({
+          where: { id: params.id },
+          data: { status: QuoteStatus.CONVERTED },
+        });
+        return { propertyId: targetPropertyId, job: null as null | { id: string } };
+      }
+
+      const jobNumber = await reserveJobNumber(tx);
+      const recurringNote = isRecurring
+        ? `\nRecurring service — ${quote.frequency} (schedule saved on the property).`
+        : "";
+
+      const job = await tx.job.create({
+        data: {
+          jobNumber,
+          propertyId: targetPropertyId,
+          jobType: quote.serviceType,
+          scheduledDate: new Date(scheduledDate!),
+          notes: `Converted from quote #${params.id}${recurringNote}`,
+          // Carry the quoted extras onto the job so the cleaner's form shows them
+          // as an "Additionals" section with how-to instructions, plus the quote's
+          // pricing-variable snapshot and reference images for transparency.
+          internalNotes: hasMeta
+            ? serializeJobInternalNotes({
+                additionals,
+                quoteServiceContext,
+                quoteReferenceImages: quoteReferenceImages.length > 0 ? quoteReferenceImages : undefined,
+              })
+            : undefined,
+        },
+      });
+
+      await tx.quote.update({
+        where: { id: params.id },
+        data: { status: QuoteStatus.CONVERTED, convertedJobId: job.id },
+      });
+
+      return { propertyId: targetPropertyId, job: { id: job.id } };
     });
+
+    const targetPropertyId = result.propertyId;
+    const job = result.job;
 
     // SPECIAL CHECKLIST: when the quote carries a per-quote checklist override
     // (the "agreed scope" the client accepted), materialise a one-off
@@ -211,50 +309,80 @@ export async function POST(
     // form override for the job type — the same attachment path
     // generatePropertyTemplates uses, which the job-form pipeline resolves.
     // Quotes without an override keep the generic property/job-type template.
-    const checklistOverride = checklistOverrideFromNotes(quote.notes);
     let agreedScopeTemplateId: string | null = null;
-    if (checklistOverride) {
-      const scopeSchema = buildAgreedScopeSchema(checklistOverride);
-      if (scopeSchema.sections.length > 0) {
-        const quoteRef = params.id.slice(-6).toUpperCase();
-        const template = await db.formTemplate.create({
-          data: {
-            name: `Quote ${quoteRef} — agreed scope`,
-            serviceType: quote.serviceType,
-            kind: FormKind.CUSTOM,
-            version: 1,
-            isActive: true,
-            schema: scopeSchema as any,
-            publishedAt: new Date(),
-          },
-          select: { id: true },
-        });
-        agreedScopeTemplateId = template.id;
+    if (job) {
+      const checklistOverride = checklistOverrideFromNotes(quote.notes);
+      if (checklistOverride) {
+        const scopeSchema = buildAgreedScopeSchema(checklistOverride);
+        if (scopeSchema.sections.length > 0) {
+          const template = await db.formTemplate.create({
+            data: {
+              name: `Quote ${quoteRef} — agreed scope`,
+              serviceType: quote.serviceType,
+              kind: FormKind.CUSTOM,
+              version: 1,
+              isActive: true,
+              schema: scopeSchema as any,
+              publishedAt: new Date(),
+            },
+            select: { id: true },
+          });
+          agreedScopeTemplateId = template.id;
 
-        const settings = await getAppSettings();
-        const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
-        const forProperty: Partial<Record<JobType, string>> = {
-          ...(overrides[propertyId] ?? {}),
-        };
-        forProperty[quote.serviceType] = template.id;
-        overrides[propertyId] = forProperty;
-        await saveAppSettings({ propertyFormTemplateOverrides: overrides });
+          const settings = await getAppSettings();
+          const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
+          const forProperty: Partial<Record<JobType, string>> = {
+            ...(overrides[targetPropertyId] ?? {}),
+          };
+          forProperty[quote.serviceType] = template.id;
+          overrides[targetPropertyId] = forProperty;
+          await saveAppSettings({ propertyFormTemplateOverrides: overrides });
+        }
       }
+
+      await assignPreferredCleanerIfAvailable({
+        jobId: job.id,
+        propertyId: targetPropertyId,
+        jobType: quote.serviceType,
+      });
     }
 
-    await db.quote.update({
-      where: { id: params.id },
-      data: { status: QuoteStatus.CONVERTED, convertedJobId: job.id },
-    });
-    await assignPreferredCleanerIfAvailable({
-      jobId: job.id,
-      propertyId,
-      jobType: job.jobType,
+    // Timeline entry so the quote detail shows the conversion + its outcome.
+    await recordQuoteEvent(params.id, "CONVERTED", {
+      propertyId: targetPropertyId,
+      ...(job ? { jobId: job.id } : {}),
+      frequency: quote.frequency ?? "one_off",
     });
 
-    return NextResponse.json({ job, agreedScopeTemplateId });
+    // A job was actually created (createJob path) → confirm the booking with the
+    // client. Best-effort auto send (gated + never throws). No job = nothing to
+    // confirm yet (the admin schedules the visit later).
+    if (job) {
+      const scheduleText = new Date(scheduledDate!).toLocaleDateString("en-AU", {
+        timeZone: "Australia/Sydney",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+      await sendLifecycleEmail({
+        jobId: job.id,
+        stage: "BOOKING_CONFIRMED",
+        mode: "auto",
+        extra: { scheduleText },
+      }).catch(() => {});
+    }
+
+    return NextResponse.json({ job, propertyId: targetPropertyId, agreedScopeTemplateId });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : err.message === "Property not found."
+            ? 404
+            : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

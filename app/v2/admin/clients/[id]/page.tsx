@@ -15,9 +15,14 @@ import {
   EStatCard,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { ArrowLeft, Building2, FileText, Mail, Phone, Wallet } from "lucide-react";
+import { ArrowLeft, Building2, FileText, Mail, Phone, TrendingUp, Wallet } from "lucide-react";
 import { ClientAutomationRules } from "@/components/v2/admin/clients/client-automation-rules";
 import { ClientActions } from "@/components/v2/admin/clients/client-actions";
+import { ClientProfit } from "@/components/v2/admin/clients/client-profit";
+import { ClientTimeline } from "@/components/v2/admin/clients/client-timeline";
+import ClientCommunications from "@/components/v2/admin/clients/client-communications";
+import { getFinanceSummary } from "@/lib/finance/summary";
+import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
 
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -151,7 +156,36 @@ async function getClient(id: string) {
 
   const outstandingAud = outstanding.reduce((sum, inv) => sum + (inv.totalAmount ?? 0), 0);
 
-  return { client, recentJobs, outstanding, outstandingAud };
+  // Per-client profit over a trailing 12-month window. We reuse the canonical
+  // finance engine (getFinanceSummary) and filter its byClient rows to this
+  // client — never duplicate the margin math here.
+  const todayKey = sydneyTodayKey();
+  const startKey = addDaysToKey(todayKey, -365);
+  const [finance, rateRows] = await Promise.all([
+    getFinanceSummary({ startDate: startKey, endDate: todayKey }).catch(() => null),
+    propertyIds.length
+      ? db.propertyClientRate
+          .findMany({
+            where: { propertyId: { in: propertyIds }, isActive: true },
+            select: { propertyId: true },
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const profitRow = finance?.byClient.find((row) => row.clientId === id) ?? null;
+  const activeRateCount = rateRows.length;
+  const ratedPropertyCount = new Set(rateRows.map((r) => r.propertyId)).size;
+
+  return {
+    client,
+    recentJobs,
+    outstanding,
+    outstandingAud,
+    profitRow,
+    activeRateCount,
+    ratedPropertyCount,
+  };
 }
 
 export default async function AdminClientDetailPage({ params }: { params: { id: string } }) {
@@ -159,7 +193,15 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
   const data = await getClient(params.id);
   if (!data) notFound();
 
-  const { client, recentJobs, outstanding, outstandingAud } = data;
+  const { client, recentJobs, outstanding, outstandingAud, profitRow, activeRateCount, ratedPropertyCount } = data;
+
+  const marginPctLabel =
+    profitRow && profitRow.marginPct !== null ? `${profitRow.marginPct.toFixed(0)}% margin` : "12-mo";
+  const marginTone: "success" | "danger" | "neutral" = profitRow
+    ? profitRow.grossMargin >= 0
+      ? "success"
+      : "danger"
+    : "neutral";
 
   return (
     <div className="space-y-6">
@@ -193,8 +235,9 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
         }
       />
 
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <EStatCard label="Properties" value={String(client.properties.length)} delta="active" deltaTone="neutral" icon={<Building2 className="h-4 w-4" />} />
+        <EStatCard label="Gross margin · 12mo" value={profitRow ? money(profitRow.grossMargin) : "—"} delta={marginPctLabel} deltaTone={marginTone} icon={<TrendingUp className="h-4 w-4" />} />
         <EStatCard label="Outstanding" value={money(outstandingAud)} delta={`${outstanding.length} invoice${outstanding.length === 1 ? "" : "s"}`} deltaTone="neutral" icon={<Wallet className="h-4 w-4" />} />
         <EStatCard label="Client since" value={format(new Date(client.createdAt), "MMM yyyy")} delta="onboarded" deltaTone="neutral" icon={<FileText className="h-4 w-4" />} />
       </section>
@@ -244,6 +287,22 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
           </ECardBody>
         </ECard>
       </div>
+
+      {/* Profit & pricing */}
+      <ClientProfit
+        row={profitRow}
+        rangeLabel="Trailing 12 months"
+        activeRateCount={activeRateCount}
+        ratedPropertyCount={ratedPropertyCount}
+      />
+
+      {/* Communications hub (component authored separately) */}
+      <section>
+        <ClientCommunications clientId={client.id} />
+      </section>
+
+      {/* Unified activity + cleaner-update timeline */}
+      <ClientTimeline clientId={client.id} />
 
       {/* Recent jobs */}
       <ECard>

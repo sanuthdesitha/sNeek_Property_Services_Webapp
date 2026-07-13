@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { recordQuoteEvent } from "@/lib/quotes/events";
 import {
   buildPublicQuotePayload,
   findQuoteByToken,
-  stampViewedAt,
 } from "@/app/api/public/quote-view/_lib";
 import { QuoteView } from "./quote-view";
 
@@ -30,7 +31,16 @@ export default async function PublicQuotePage({ params }: { params: { token: str
   const quote = await findQuoteByToken(params.token);
   if (!quote) notFound();
 
-  await stampViewedAt(quote.id);
+  // Record the VIEWED event on the first view only (null → now transition),
+  // guarded by the atomic affected-row count so page reloads don't spam events.
+  const firstView = await db.quote.updateMany({
+    where: { id: quote.id, viewedAt: null },
+    data: { viewedAt: new Date() },
+  });
+  if (firstView.count > 0) {
+    await recordQuoteEvent(quote.id, "VIEWED");
+  }
+
   const payload = await buildPublicQuotePayload(quote);
 
   return <QuoteView token={params.token} quote={payload} />;

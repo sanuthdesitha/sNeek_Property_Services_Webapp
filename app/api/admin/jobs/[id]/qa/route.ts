@@ -16,6 +16,7 @@ import {
   meetsAutoOpenThreshold,
 } from "@/lib/cases/auto-case";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -239,6 +240,24 @@ export async function POST(
         propertyId: job.propertyId,
         jobType: job.jobType,
       }).catch(() => null);
+    }
+
+    // QA fail that spawned a rework job: tell the client we found something we're
+    // putting right (ISSUE_RAISED on the ORIGINAL job), then confirm the re-clean
+    // and its new schedule (RECLEAN_SCHEDULED on the rework job, whose date the
+    // lifecycle service reads for the schedule text). Best-effort auto sends.
+    if (reworkJobId) {
+      await sendLifecycleEmail({
+        jobId: job.id,
+        stage: "ISSUE_RAISED",
+        mode: "auto",
+        extra: { reason: body.notes?.trim() || undefined },
+      }).catch(() => {});
+      await sendLifecycleEmail({
+        jobId: reworkJobId,
+        stage: "RECLEAN_SCHEDULED",
+        mode: "auto",
+      }).catch(() => {});
     }
 
     return NextResponse.json(qa);

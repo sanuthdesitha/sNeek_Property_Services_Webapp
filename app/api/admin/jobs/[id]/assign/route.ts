@@ -23,6 +23,7 @@ import {
   formatAssignmentResponseLabel,
 } from "@/lib/jobs/assignment-workflow";
 import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 export async function POST(
   req: NextRequest,
@@ -51,6 +52,7 @@ export async function POST(
             userId: true,
             removedAt: true,
             responseStatus: true,
+            isPrimary: true,
           },
         },
       },
@@ -311,6 +313,22 @@ export async function POST(
 
     // Attach any pending admin tasks queued for this property
     await attachPendingAdminTasksToJob({ jobId: job.id, propertyId: job.propertyId });
+
+    // Introduce the assigned cleaner to the client — only when the PRIMARY
+    // cleaner is newly set or changed (not on secondary/removal-only edits), and
+    // never for a skipped clean. Best-effort auto send (gated + never throws).
+    const newPrimaryId = userIds.length > 0 ? (primaryUserId ?? userIds[0]) : null;
+    const previousPrimaryId =
+      activeAssignments.find((assignment) => assignment.isPrimary)?.userId ?? null;
+    if (newPrimaryId && newPrimaryId !== previousPrimaryId && job.cleanSkipStatus !== "SKIPPED") {
+      const primaryCleaner = targetUsers.get(newPrimaryId);
+      await sendLifecycleEmail({
+        jobId: job.id,
+        stage: "CLEANER_ASSIGNED",
+        mode: "auto",
+        extra: { cleanerName: primaryCleaner?.name ?? null },
+      }).catch(() => {});
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
