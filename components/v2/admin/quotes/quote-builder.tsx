@@ -46,6 +46,7 @@ import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/component
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 type CustomExtra = { id: string; label: string; price: number; instructions: string };
+type AppliedDiscount = { code: string | null; label: string; amount: number };
 type ReferenceImage = { key: string; url: string; label?: string };
 type VariableLine = { label: string; amount: number };
 
@@ -77,6 +78,16 @@ function adjustHint(adjustType: string, adjustValue: number): string {
  */
 function isPerUnitVariable(v: PricingVariable): boolean {
   return v.kind === "number" && Boolean(v.unitAdjustValue);
+}
+
+/**
+ * A "per-unit" extra is one priced per room / per load / per bathroom / per set
+ * / per seat / per basket etc. — its catalog label carries a "(per …)" suffix.
+ * These get a quantity input so the admin says HOW MANY and the extra bills
+ * `unitPrice × quantity`. Everything else is a flat one-off add-on.
+ */
+function isPerUnitExtra(label: string): boolean {
+  return /\(\s*per\s+/i.test(label);
 }
 
 /** Live "$rate × qty = amount" (or "±rate% per unit") preview for a per-unit
@@ -150,6 +161,8 @@ export interface QuoteEditSeed {
   referenceImages: ReferenceImage[];
   showAddOnPrices: boolean;
   lineItems: LineItem[];
+  /** Applied coupon code, if the quote carries a campaign discount. */
+  discountCode?: string | null;
   /** Raw notes including any [[META:{…}]] block. */
   notes: string;
   /** ISO string or null. */
@@ -255,23 +268,37 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
   // and in the same order — split them back out so the builder re-derives their
   // lines from the selection (and custom-extra prices are recovered from them).
   const extrasMeta: any[] = Array.isArray(meta?.extras) ? meta!.extras : [];
-  const stored = editQuote.lineItems ?? [];
+  // Pull the discount out first — it's the negative-total line (this codebase's
+  // convention). Seed the discount state from it + strip it from the editable
+  // rows, so it's re-applied on save via the discount endpoint rather than shown
+  // as an editable line.
+  const storedRaw = editQuote.lineItems ?? [];
+  const discountLine = storedRaw.find((li) => Number(li?.total) < 0) ?? null;
+  const seededDiscount = discountLine
+    ? { code: editQuote.discountCode ?? null, label: String(discountLine.label ?? "Discount"), amount: Math.abs(Number(discountLine.total) || 0) }
+    : null;
+  const stored = storedRaw.filter((li) => Number(li?.total) >= 0);
   const extraCount = Math.min(extrasMeta.length, stored.length);
   const extraSlice = extraCount > 0 ? stored.slice(stored.length - extraCount) : [];
   const baseLineItems = extraCount > 0 ? stored.slice(0, stored.length - extraCount) : stored.slice();
 
   const selectedExtras: string[] = [];
   const customExtras: CustomExtra[] = [];
+  const extraQtys: Record<string, string> = {};
   extrasMeta.forEach((raw, i) => {
     const id = typeof raw?.id === "string" ? raw.id : "";
     const label = typeof raw?.label === "string" ? raw.label : "";
     const instructions = typeof raw?.instructions === "string" ? raw.instructions : "";
     const line = extraSlice[i];
     const price = line ? Number(line.unitPrice ?? line.total ?? 0) || 0 : 0;
+    // Recover the per-unit quantity from the stored line (fallback to META qty).
+    const qty = Number(line?.qty ?? raw?.qty ?? 1) || 1;
+    const resolvedId = id && EXTRAS_BY_ID[id] ? id : id || `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    if (isPerUnitExtra(label) && qty !== 1) extraQtys[resolvedId] = String(qty);
     if (id && EXTRAS_BY_ID[id]) {
       selectedExtras.push(id);
     } else if (id || label) {
-      customExtras.push({ id: id || `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, label, price, instructions });
+      customExtras.push({ id: resolvedId, label, price, instructions });
     }
   });
 
@@ -296,6 +323,8 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
     variableNumbers,
     selectedExtras,
     customExtras,
+    extraQtys,
+    seededDiscount,
     lineItems: baseLineItems,
     refImages: editQuote.referenceImages ?? [],
     showAddOnPrices: Boolean(editQuote.showAddOnPrices),
@@ -346,9 +375,20 @@ export function QuoteBuilder({
   const [lineItems, setLineItems] = useState<LineItem[]>(seed?.lineItems ?? []);
   const [selectedExtras, setSelectedExtras] = useState<string[]>(seed?.selectedExtras ?? []);
   const [customExtras, setCustomExtras] = useState<CustomExtra[]>(seed?.customExtras ?? []);
+  // Quantity per per-unit extra (extra id → qty string), e.g. how many rooms of
+  // carpet steam. Non-per-unit extras ignore this (always billed once).
+  const [extraQtys, setExtraQtys] = useState<Record<string, string>>(seed?.extraQtys ?? {});
+  const extraQty = (id: string) => Math.max(0, Number(extraQtys[id] ?? "1") || 0);
+  const setExtraQty = (id: string, value: string) => setExtraQtys((prev) => ({ ...prev, [id]: value }));
   const [customLabel, setCustomLabel] = useState("");
   const [customPrice, setCustomPrice] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
+  // ── Discount / coupon (applied server-side via the discount endpoint on save) ──
+  const [appliedDiscount, setAppliedDiscount] = useState<AppliedDiscount | null>(seed?.seededDiscount ?? null);
+  const seededHadDiscount = useRef(Boolean(seed?.seededDiscount));
+  const [couponInput, setCouponInput] = useState("");
+  const [manualDiscountInput, setManualDiscountInput] = useState("");
+  const [discountBusy, setDiscountBusy] = useState(false);
   const [pricing, setPricing] = useState(false);
   const [notes, setNotes] = useState(seed?.notes ?? "");
   // In edit mode the seeded prose notes must survive (don't let auto-draft run).
@@ -441,8 +481,17 @@ export function QuoteBuilder({
   );
 
   const extraLines = useMemo<LineItem[]>(
-    () => selectedExtraDetails.map((e) => ({ label: e.label, unitPrice: e.price, qty: 1, total: e.price })),
-    [selectedExtraDetails],
+    () =>
+      selectedExtraDetails.map((e) => {
+        // Per-unit extras ("per room", "per load", …) bill unitPrice × quantity;
+        // flat extras bill once.
+        const per = isPerUnitExtra(e.label);
+        const qty = per ? extraQty(e.id) : 1;
+        return { label: e.label, unitPrice: e.price, qty, total: Math.round(e.price * qty * 100) / 100 };
+      }),
+    // extraQtys drives the per-unit totals.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedExtraDetails, extraQtys],
   );
   // Pricing-variable adjustments as quote line items (kept separate from the
   // hand-editable rows so re-pricing can replace them cleanly).
@@ -641,6 +690,85 @@ export function QuoteBuilder({
   }, [allLines, gstEnabled]);
   const gstLabel = useMemo(() => getGstDisplayLabel({ gstEnabled }), [gstEnabled]);
 
+  // Discount estimate (display only — the discount endpoint finalises on save,
+  // adding the negative line + recomputing GST/total server-side). Clamped so
+  // the total never goes negative.
+  const discountAmount = Math.min(subtotal, Math.max(0, appliedDiscount?.amount ?? 0));
+  const netAfterDiscount = useMemo(
+    () => calculateGstBreakdown(Math.max(0, Number((subtotal - discountAmount).toFixed(2))), { gstEnabled }),
+    [subtotal, discountAmount, gstEnabled],
+  );
+
+  // Validate a coupon against the live campaigns, then stage it for save.
+  async function applyCoupon() {
+    const code = couponInput.trim();
+    if (!code) return;
+    setDiscountBusy(true);
+    try {
+      const params = new URLSearchParams({ code, serviceType, subtotal: String(subtotal) });
+      const res = await fetch(`/api/public/campaign?${params.toString()}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.valid) {
+        toast({ title: "Coupon not applied", description: body.reason ?? "That code isn't valid for this quote.", variant: "destructive" });
+        return;
+      }
+      const c = body.campaign;
+      const amount =
+        c.discountType === "FIXED"
+          ? Math.min(subtotal, Math.max(0, Number(c.discountValue) || 0))
+          : Number(((subtotal * Math.max(0, Math.min(100, Number(c.discountValue) || 0))) / 100).toFixed(2));
+      if (amount <= 0) {
+        toast({ title: "Coupon has no effect", description: "This code produces no discount on the current total.", variant: "destructive" });
+        return;
+      }
+      setAppliedDiscount({ code: c.code, label: `Discount · ${c.title} (${c.code})`, amount });
+      setCouponInput("");
+      toast({ title: "Coupon staged", description: `${c.code} — will apply −${money(amount)} on save.` });
+    } finally {
+      setDiscountBusy(false);
+    }
+  }
+
+  function applyManualDiscount() {
+    const amount = Math.min(subtotal, Math.max(0, Number(manualDiscountInput) || 0));
+    if (amount <= 0) {
+      toast({ title: "Enter a discount", description: "Enter an amount greater than $0.", variant: "destructive" });
+      return;
+    }
+    setAppliedDiscount({ code: null, label: "Discount", amount });
+    setManualDiscountInput("");
+  }
+
+  function clearDiscount() {
+    setAppliedDiscount(null);
+  }
+
+  /**
+   * Apply / clear the staged discount on the saved quote via the discount
+   * endpoint (server does validation + the negative line + coupon usage +
+   * discountCode). Best-effort: a failure is surfaced but doesn't block the save.
+   */
+  async function applyDiscountToQuote(quoteId: string) {
+    try {
+      let payload: Record<string, unknown> | null = null;
+      if (appliedDiscount?.code) payload = { code: appliedDiscount.code };
+      else if (appliedDiscount && appliedDiscount.amount > 0) payload = { amount: appliedDiscount.amount, label: appliedDiscount.label.replace(/^Discount · /, "") };
+      else if (seededHadDiscount.current) payload = { clear: true };
+      if (!payload) return;
+      const res = await fetch(`/api/admin/quotes/${quoteId}/discount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast({ title: "Discount not applied", description: b.error ?? "The quote saved, but the discount couldn't be applied.", variant: "destructive" });
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+
   function applyLead(id: string) {
     setLeadId(id);
     const lead = leads.find((l) => l.id === id);
@@ -776,6 +904,9 @@ export function QuoteBuilder({
       id: e.id,
       label: e.label,
       instructions: e.instructions,
+      // Persist the quantity for per-unit extras so it round-trips into edit
+      // mode and the job (flat extras stay at 1).
+      ...(isPerUnitExtra(e.label) ? { qty: extraQty(e.id) } : {}),
     }));
     // Per-quote checklist override — only when the admin actually edited it, so
     // untouched quotes stay on the base template (backward-compatible).
@@ -979,6 +1110,9 @@ export function QuoteBuilder({
       if (quote.marginWarning) {
         toast({ title: "Margin warning", description: String(quote.marginWarning) });
       }
+      // Apply the staged discount/coupon server-side BEFORE any email preview
+      // so the sent quote reflects it.
+      await applyDiscountToQuote(quote.id);
 
       if (send) {
         // Render the exact email (body + attachments + public link) WITHOUT
@@ -1062,6 +1196,8 @@ export function QuoteBuilder({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not save changes.");
+      // Re-apply / clear the discount server-side after the base save.
+      await applyDiscountToQuote(editQuote.id);
       toast({ title: "Quote updated", description: "Your changes were saved." });
       router.push(`/v2/admin/quotes/${editQuote.id}`);
       router.refresh();
@@ -1447,6 +1583,8 @@ export function QuoteBuilder({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {group.options.map((e) => {
                   const checked = selectedExtras.includes(e.id);
+                  const per = isPerUnitExtra(e.label);
+                  const qty = extraQty(e.id);
                   return (
                     <label
                       key={e.id}
@@ -1456,10 +1594,10 @@ export function QuoteBuilder({
                           : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]"
                       }`}
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex min-w-0 items-center gap-2">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+                          className="h-4 w-4 shrink-0 accent-[hsl(var(--e-primary))]"
                           checked={checked}
                           onChange={(ev) =>
                             setSelectedExtras((prev) =>
@@ -1467,9 +1605,30 @@ export function QuoteBuilder({
                             )
                           }
                         />
-                        {e.label}
+                        <span className="min-w-0 truncate">{e.label}</span>
                       </span>
-                      <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
+                      {checked && per ? (
+                        // Per-unit extra: how many units × the unit price.
+                        <span
+                          className="flex shrink-0 items-center gap-1"
+                          onClick={(ev) => ev.preventDefault()}
+                        >
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="numeric"
+                            value={extraQtys[e.id] ?? "1"}
+                            onChange={(ev) => setExtraQty(e.id, ev.target.value)}
+                            className="e-tnum h-7 w-12 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-1.5 text-right text-[0.8125rem]"
+                            aria-label={`Quantity for ${e.label}`}
+                          />
+                          <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">
+                            × ${e.price} = ${(e.price * qty).toFixed(0)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">${e.price}</span>
+                      )}
                     </label>
                   );
                 })}
@@ -1819,15 +1978,22 @@ export function QuoteBuilder({
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
               <EEyebrow>Added on this quote</EEyebrow>
               <ul className="mt-2 space-y-1.5">
-                {selectedExtraDetails.map((e) => (
-                  <li key={e.id} className="flex items-center justify-between gap-2 text-[0.8125rem]">
-                    <span className="flex items-start gap-2">
-                      <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
-                      <span>{e.label}</span>
-                    </span>
-                    <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">{money(e.price)}</span>
-                  </li>
-                ))}
+                {selectedExtraDetails.map((e) => {
+                  const per = isPerUnitExtra(e.label);
+                  const qty = per ? extraQty(e.id) : 1;
+                  return (
+                    <li key={e.id} className="flex items-center justify-between gap-2 text-[0.8125rem]">
+                      <span className="flex items-start gap-2">
+                        <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
+                        <span>
+                          {e.label}
+                          {per && qty !== 1 ? <span className="text-[hsl(var(--e-muted-foreground))]"> · {qty} × {money(e.price)}</span> : null}
+                        </span>
+                      </span>
+                      <span className="e-tnum shrink-0 text-[hsl(var(--e-muted-foreground))]">{money(e.price * qty)}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}
@@ -1905,26 +2071,88 @@ export function QuoteBuilder({
               <EEyebrow>Extras included</EEyebrow>
               {extraLines.map((li, i) => (
                 <div key={i} className="flex items-center justify-between text-[0.8125rem]">
-                  <span className="text-[hsl(var(--e-text-secondary))]">{li.label}</span>
+                  <span className="text-[hsl(var(--e-text-secondary))]">
+                    {li.label}
+                    {li.qty !== 1 ? <span className="text-[hsl(var(--e-muted-foreground))]"> · {li.qty} × {money(li.unitPrice)}</span> : null}
+                  </span>
                   <span className="e-tnum">{money(li.total)}</span>
                 </div>
               ))}
             </div>
           ) : null}
 
-          <div className="grid gap-4 pt-2 md:grid-cols-3">
+          {/* Discount & coupon — staged here, finalised server-side on save. */}
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <EEyebrow>Discount &amp; coupon</EEyebrow>
+            {appliedDiscount ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] px-3 py-2 text-[0.8125rem]">
+                <span>
+                  {appliedDiscount.label}
+                  {appliedDiscount.code ? <span className="text-[hsl(var(--e-muted-foreground))]"> · code {appliedDiscount.code}</span> : null}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="e-tnum">−{money(discountAmount)}</span>
+                  <EButton type="button" variant="ghost" size="sm" onClick={clearDiscount} disabled={discountBusy}>
+                    Remove
+                  </EButton>
+                </span>
+              </div>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="flex gap-2">
+                  <EInput
+                    value={couponInput}
+                    placeholder="Coupon code"
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        applyCoupon();
+                      }
+                    }}
+                  />
+                  <EButton type="button" variant="outline" onClick={applyCoupon} disabled={discountBusy || !couponInput.trim()}>
+                    Apply
+                  </EButton>
+                </div>
+                <div className="flex gap-2">
+                  <EInput
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={manualDiscountInput}
+                    placeholder="Manual discount ($)"
+                    onChange={(e) => setManualDiscountInput(e.target.value)}
+                  />
+                  <EButton type="button" variant="outline" onClick={applyManualDiscount} disabled={discountBusy || !(Number(manualDiscountInput) > 0)}>
+                    Apply
+                  </EButton>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={`grid gap-4 pt-2 ${discountAmount > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
               <EEyebrow>Subtotal</EEyebrow>
               <p className="e-numeral mt-1 text-[1.25rem] leading-none">{money(subtotal)}</p>
             </div>
+            {discountAmount > 0 ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
+                <EEyebrow>Discount</EEyebrow>
+                <p className="e-numeral mt-1 text-[1.25rem] leading-none text-[hsl(var(--e-gold-ink))]">−{money(discountAmount)}</p>
+              </div>
+            ) : null}
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
               <EEyebrow>{gstLabel}</EEyebrow>
-              <p className="e-numeral mt-1 text-[1.25rem] leading-none">{money(gstAmount)}</p>
+              <p className="e-numeral mt-1 text-[1.25rem] leading-none">
+                {money(discountAmount > 0 ? netAfterDiscount.gstAmount : gstAmount)}
+              </p>
             </div>
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-gold-soft))] p-3">
               <EEyebrow>Total</EEyebrow>
               <p className="e-numeral mt-1 text-[1.25rem] leading-none text-[hsl(var(--e-gold-ink))]">
-                {money(totalAmount)}
+                {money(discountAmount > 0 ? netAfterDiscount.totalAmount : totalAmount)}
               </p>
             </div>
           </div>

@@ -38,6 +38,7 @@ export default async function V2EditQuotePage({ params }: { params: { id: string
         referenceImages: true,
         serviceContext: true,
         lineItems: true,
+        discountCode: true,
         client: { select: { id: true, name: true, email: true } },
         lead: { select: { id: true, name: true, email: true } },
       },
@@ -135,6 +136,7 @@ export default async function V2EditQuotePage({ params }: { params: { id: string
     referenceImages,
     showAddOnPrices: Boolean(quote.showAddOnPrices),
     lineItems,
+    discountCode: quote.discountCode ?? null,
     notes: quote.notes ?? "",
     validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString() : null,
   };
