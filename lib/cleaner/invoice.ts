@@ -496,7 +496,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,
-    logoUrl: settings.reportLogoUrl || settings.logoUrl,
+    logoUrl: settings.logoUrl || settings.reportLogoUrl,
   };
 }
 

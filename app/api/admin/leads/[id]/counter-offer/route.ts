@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
         {
           companyName: settings.companyName,
-          logoUrl: settings.reportLogoUrl || settings.logoUrl,
+          logoUrl: settings.logoUrl || settings.reportLogoUrl,
         }
       );
       const emailResult = await sendEmailDetailed({

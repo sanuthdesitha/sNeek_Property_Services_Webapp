@@ -199,7 +199,7 @@ export async function POST(
     const subject = body.subject || settings.quoteDefaultEmailSubject;
     const branding = {
       companyName: settings.companyName,
-      logoUrl: settings.reportLogoUrl || settings.logoUrl,
+      logoUrl: settings.logoUrl || settings.reportLogoUrl,
       companyAddress: settings.invoicing?.companyAddress,
     };
     // Email body carries the "View your quote online" button; the PDF doesn't.
@@ -225,7 +225,7 @@ export async function POST(
       if (checklist) {
         const checklistHtml = buildChecklistHtml(checklist, {
           companyName: settings.companyName,
-          logoUrl: settings.reportLogoUrl || settings.logoUrl,
+          logoUrl: settings.logoUrl || settings.reportLogoUrl,
           serviceLabel: String(quote.serviceType).replace(/_/g, " "),
           extras: extrasFromNotes(quote.notes),
         });
@@ -242,7 +242,7 @@ export async function POST(
     try {
       const addOnsHtml = buildAddOnListHtml({
         companyName: settings.companyName,
-        logoUrl: settings.reportLogoUrl || settings.logoUrl,
+        logoUrl: settings.logoUrl || settings.reportLogoUrl,
         showPrices: Boolean(quote.showAddOnPrices),
         categories: EXTRAS_BY_CATEGORY,
         publicUrl,
