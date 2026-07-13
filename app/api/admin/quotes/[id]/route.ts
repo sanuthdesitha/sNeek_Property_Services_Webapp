@@ -96,10 +96,16 @@ export async function PATCH(
     if (body.generatePublicToken) {
       const existing = await db.quote.findUnique({
         where: { id: params.id },
-        select: { publicToken: true },
+        select: { publicToken: true, status: true },
       });
       if (!existing) return NextResponse.json({ error: "Quote not found." }, { status: 404 });
       if (!existing.publicToken) data.publicToken = newPublicToken();
+      // Minting a shareable link IS a share: the public /q/<token> view rejects
+      // DRAFT quotes and the client can't approve until the quote is SENT, so
+      // promote DRAFT → SENT here (unless the caller set an explicit status).
+      if (existing.status === QuoteStatus.DRAFT && data.status === undefined) {
+        data.status = QuoteStatus.SENT;
+      }
     }
     if (body.clientId !== undefined) {
       if (body.clientId) {
