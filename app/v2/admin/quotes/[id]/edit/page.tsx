@@ -24,6 +24,9 @@ export default async function V2EditQuotePage({ params }: { params: { id: string
         id: true,
         status: true,
         serviceType: true,
+        frequency: true,
+        serviceAddress: true,
+        serviceSuburb: true,
         subtotal: true,
         gstAmount: true,
         totalAmount: true,
@@ -119,6 +122,9 @@ export default async function V2EditQuotePage({ params }: { params: { id: string
     id: quote.id,
     status: String(quote.status),
     serviceType: String(quote.serviceType),
+    frequency: quote.frequency ?? null,
+    serviceAddress: quote.serviceAddress ?? null,
+    serviceSuburb: quote.serviceSuburb ?? null,
     clientId: quote.clientId ?? null,
     leadId: quote.leadId ?? null,
     leadName: quote.lead?.name ?? null,
@@ -143,7 +149,7 @@ export default async function V2EditQuotePage({ params }: { params: { id: string
       <QuoteBuilder
         editQuote={editQuote}
         leads={leads}
-        clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "" }))}
+        clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb ?? null }))}
         services={serviceOptions}
         gstEnabled={settings.pricing.gstEnabled}
         pricingVariables={settings.pricingVariables}

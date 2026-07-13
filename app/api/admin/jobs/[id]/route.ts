@@ -18,6 +18,7 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { syncAdminJobTasks } from "@/lib/job-tasks/service";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 const FINISHED_JOB_STATUSES = new Set<JobStatus>([
@@ -406,6 +407,22 @@ export async function PATCH(
           });
         }
 
+      }
+
+      // Client-facing schedule change: fire once when the date or start/finish
+      // time actually moved (not on unrelated edits, and not on finished jobs).
+      // Best-effort auto send — the lifecycle service reads the updated job for
+      // the new schedule text, so it can't block or throw in the job flow.
+      const scheduleChanged =
+        formatJobDate(current.scheduledDate) !== formatJobDate(refreshed.scheduledDate) ||
+        (current.startTime ?? "") !== (refreshed.startTime ?? "") ||
+        (current.dueTime ?? "") !== (refreshed.dueTime ?? "");
+      if (scheduleChanged && !suppressFinishedJobNotifications) {
+        await sendLifecycleEmail({
+          jobId: refreshed.id,
+          stage: "SCHEDULE_UPDATED",
+          mode: "auto",
+        }).catch(() => {});
       }
     }
 

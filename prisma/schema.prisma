@@ -2034,11 +2034,44 @@ model Quote {
   // Snapshot of the configurable pricing variables chosen for this quote
   // (property condition, location, parking + how it's paid, etc.).
   serviceContext  Json?
+  // Service cadence chosen on the quote: one_off | weekly | fortnightly | monthly.
+  // Drives whether conversion creates a single job or a recurring schedule.
+  frequency       String?
+  // Explicit service address on the quote (for leads without a linked property,
+  // and so conversion can create/find a property from it).
+  serviceAddress  String?
+  serviceSuburb   String?
+  // Pending add-ons the client asked for from the public quote page, awaiting
+  // the admin to price them in and re-send. Cleared as each is added/dismissed.
+  // Shape: [{ id?, label, price, note?, requestedAt }].
+  requestedAddOns Json?
+  // Applied coupon code (DiscountCampaign.code) when a campaign discount is on
+  // this quote. The discount amount itself lives as a negative line item; this
+  // tracks which coupon so usage counts + removal stay accurate. Null = none or
+  // a manual (codeless) discount.
+  discountCode    String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  lead   QuoteLead? @relation(fields: [leadId], references: [id])
-  client Client?    @relation(fields: [clientId], references: [id])
+  lead   QuoteLead?   @relation(fields: [leadId], references: [id])
+  client Client?      @relation(fields: [clientId], references: [id])
+  events QuoteEvent[]
+}
+
+// Timeline of everything that happens to a quote: emails we send + client
+// responses (viewed / accepted / declined / add-ons requested) + conversion.
+// Surfaced on the admin quote detail and updated automatically by the send /
+// public-response / convert flows.
+model QuoteEvent {
+  id        String   @id @default(cuid())
+  quoteId   String
+  type      String // EMAIL_SENT | VIEWED | ACCEPTED | DECLINED | ADDON_REQUESTED | CONVERTED | NOTE
+  detail    Json? // { recipients?, note?, items?, total?, ... }
+  createdAt DateTime @default(now())
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@index([createdAt])
 }
 
 model ShoppingRun {

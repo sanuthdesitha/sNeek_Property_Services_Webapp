@@ -18,6 +18,7 @@ import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
 import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
@@ -764,7 +765,15 @@ export async function POST(
     sendClientJobNotification({ jobId: params.id, type: "JOB_COMPLETE" });
     queueClientPostJobAutomations(params.id).catch(console.error);
 
-    generateJobReport(params.id).catch(console.error);
+    // Generate the report, then share it with the client (REPORT_READY) once it
+    // exists. The "clean complete" email already fires via sendClientJobNotification
+    // above, so we deliberately do NOT fire JOB_COMPLETED here (would duplicate) —
+    // REPORT_READY is the new, distinct notification. Best-effort auto send.
+    generateJobReport(params.id)
+      .then(() =>
+        sendLifecycleEmail({ jobId: params.id, stage: "REPORT_READY", mode: "auto" })
+      )
+      .catch(console.error);
     await clearSharedCleanerJobDraft(params.id);
 
     return NextResponse.json({ ok: true, submissionId: submission.id });

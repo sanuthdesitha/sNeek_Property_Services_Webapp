@@ -5,6 +5,7 @@ import { getBranchById, listBranches, resolveBranchPropertyIds } from "@/lib/pha
 import { suggestAutoAssignment } from "@/lib/ops/dispatch";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 function parseDateOnly(value?: string | null, endOfDay = false) {
   if (!value) return null;
@@ -367,6 +368,22 @@ export async function applyReschedule(input: {
       } as any,
     },
   });
+
+  // Notify the client of the new schedule — but only when the date or start/
+  // finish time actually moved. Best-effort auto send (gated + never throws).
+  const scheduleChanged =
+    job.scheduledDate?.getTime() !== updated.scheduledDate?.getTime() ||
+    (job.startTime ?? "") !== (updated.startTime ?? "") ||
+    (job.dueTime ?? "") !== (updated.dueTime ?? "");
+  if (scheduleChanged) {
+    await sendLifecycleEmail({
+      jobId: updated.id,
+      stage: "SCHEDULE_UPDATED",
+      mode: "auto",
+      extra: { reason: input.reason ?? undefined },
+    }).catch(() => {});
+  }
+
   return updated;
 }
 

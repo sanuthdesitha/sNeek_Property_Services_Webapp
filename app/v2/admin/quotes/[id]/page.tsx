@@ -30,8 +30,18 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
         showAddOnPrices: true,
         referenceImages: true,
         serviceContext: true,
-        client: { select: { id: true, name: true, email: true } },
-        lead: { select: { id: true, name: true, email: true } },
+        frequency: true,
+        serviceAddress: true,
+        serviceSuburb: true,
+        requestedAddOns: true,
+        discountCode: true,
+        lineItems: true,
+        client: {
+          select: { id: true, name: true, email: true, address: true, suburb: true },
+        },
+        lead: {
+          select: { id: true, name: true, email: true, address: true, suburb: true },
+        },
       },
     })
     .catch(() => null);
@@ -56,8 +66,27 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
     validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString() : null,
     createdAt: new Date(quote.createdAt).toISOString(),
     clientId: quote.clientId ?? null,
-    client: quote.client ? { id: quote.client.id, name: quote.client.name, email: quote.client.email ?? "" } : null,
-    lead: quote.lead ? { id: quote.lead.id, name: quote.lead.name, email: quote.lead.email ?? "" } : null,
+    client: quote.client
+      ? {
+          id: quote.client.id,
+          name: quote.client.name,
+          email: quote.client.email ?? "",
+          address: quote.client.address ?? null,
+          suburb: quote.client.suburb ?? null,
+        }
+      : null,
+    lead: quote.lead
+      ? {
+          id: quote.lead.id,
+          name: quote.lead.name,
+          email: quote.lead.email ?? "",
+          address: quote.lead.address ?? null,
+          suburb: quote.lead.suburb ?? null,
+        }
+      : null,
+    frequency: quote.frequency ?? null,
+    serviceAddress: quote.serviceAddress ?? null,
+    serviceSuburb: quote.serviceSuburb ?? null,
     publicToken: quote.publicToken ?? null,
     showAddOnPrices: Boolean(quote.showAddOnPrices),
     referenceImages: Array.isArray(quote.referenceImages)
@@ -73,6 +102,29 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
       quote.serviceContext && typeof quote.serviceContext === "object" && !Array.isArray(quote.serviceContext)
         ? (quote.serviceContext as Record<string, string | number | boolean>)
         : null,
+    requestedAddOns: Array.isArray(quote.requestedAddOns)
+      ? (quote.requestedAddOns as Array<Record<string, unknown>>)
+          .filter((r) => r && typeof r.label === "string")
+          .map((r) => ({
+            id: typeof r.id === "string" ? r.id : undefined,
+            label: String(r.label),
+            price: Number(r.price) || 0,
+            note: typeof r.note === "string" ? r.note : undefined,
+            requestedAt: typeof r.requestedAt === "string" ? r.requestedAt : undefined,
+          }))
+      : [],
+    // Derive the current discount from the negative line item (this codebase's
+    // convention), so the detail card shows the applied state on load.
+    ...(() => {
+      const lines = Array.isArray(quote.lineItems) ? (quote.lineItems as Array<Record<string, unknown>>) : [];
+      const discountLine = lines.find((l) => Number(l?.total) < 0);
+      const amount = lines.reduce((s, l) => s + Math.min(0, Number(l?.total) || 0), 0);
+      return {
+        discountCode: quote.discountCode ?? null,
+        discountAmount: amount < 0 ? Math.abs(Number(amount.toFixed(2))) : 0,
+        discountLabel: discountLine && typeof discountLine.label === "string" ? discountLine.label : null,
+      };
+    })(),
   };
 
   return (

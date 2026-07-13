@@ -104,6 +104,11 @@ export const createQuoteSchema = z.object({
     })
     .optional(),
   serviceType: z.nativeEnum(JobType),
+  // How often the service recurs — snapshotted on the quote.
+  frequency: z.enum(["one_off", "weekly", "fortnightly", "monthly"]).optional(),
+  // Where the service is performed (defaults blank for the admin to fill).
+  serviceAddress: z.string().trim().max(300).optional(),
+  serviceSuburb: z.string().trim().max(160).optional(),
   lineItems: z.array(
     z.object({
       label: z.string(),

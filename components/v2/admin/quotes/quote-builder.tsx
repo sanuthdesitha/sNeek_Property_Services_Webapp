@@ -52,12 +52,48 @@ type VariableLine = { label: string; amount: number };
 /** Sentinel select value for the "Other…" free-typed option (allowCustom). */
 const CUSTOM_OPTION = "__custom__";
 
+/** Service recurrence options — persisted on the quote as `frequency`. */
+const FREQUENCY_OPTIONS = [
+  { value: "one_off", label: "One-off" },
+  { value: "weekly", label: "Weekly" },
+  { value: "fortnightly", label: "Fortnightly" },
+  { value: "monthly", label: "Monthly" },
+] as const;
+const FREQUENCY_VALUES = FREQUENCY_OPTIONS.map((o) => o.value) as readonly string[];
+
 /** Human hint for how an option adjusts the price ("+20%", "+$25", ""). */
 function adjustHint(adjustType: string, adjustValue: number): string {
   if (adjustType === "none" || !adjustValue) return "";
   const sign = adjustValue > 0 ? "+" : "−";
   const abs = Math.abs(adjustValue);
   return adjustType === "percent" ? ` (${sign}${abs}%)` : ` (${sign}$${abs})`;
+}
+
+/**
+ * A "per-unit" pricing variable is the number kind carrying a per-unit rate
+ * (per room / per m² / per hour): the admin types HOW MANY units and the price
+ * is `unitRate × quantity`. Fixed option variables (select/boolean) are not
+ * per-unit — they resolve to a single configured adjustment.
+ */
+function isPerUnitVariable(v: PricingVariable): boolean {
+  return v.kind === "number" && Boolean(v.unitAdjustValue);
+}
+
+/** Live "$rate × qty = amount" (or "±rate% per unit") preview for a per-unit
+ *  quantity input — mirrors what applyPricingVariables will bill server-side. */
+function perUnitPreview(v: PricingVariable, qtyRaw: string): string {
+  const rate = v.unitAdjustValue ?? 0;
+  if (!rate) return "";
+  const unit = v.unitLabel ? ` per ${v.unitLabel}` : " per unit";
+  const qty = Number((qtyRaw ?? "").trim());
+  if (v.unitAdjustType === "percent") {
+    const base = `${rate > 0 ? "+" : "−"}${Math.abs(rate)}%${unit}`;
+    return Number.isFinite(qty) && qty !== 0 ? `${base} · ${Math.abs(qty * rate)}% total` : base;
+  }
+  const base = `$${Math.abs(rate)}${unit}`;
+  if (!Number.isFinite(qty) || qty === 0) return base;
+  const amount = Math.round(qty * rate * 100) / 100;
+  return `${base} · ${qty} × $${Math.abs(rate)} = $${amount.toFixed(2)}`;
 }
 
 // Editable per-quote checklist working model (seeded from the service default).
@@ -105,6 +141,11 @@ export interface QuoteEditSeed {
   clientId: string | null;
   leadId: string | null;
   leadName?: string | null;
+  /** Service recurrence — one of one_off | weekly | fortnightly | monthly. */
+  frequency?: string | null;
+  /** Where the service is performed. */
+  serviceAddress?: string | null;
+  serviceSuburb?: string | null;
   serviceContext: Record<string, string | number | boolean> | null;
   referenceImages: ReferenceImage[];
   showAddOnPrices: boolean;
@@ -120,8 +161,9 @@ interface QuoteBuilderProps {
     serviceType?: JobType;
     bedrooms?: number | null;
     bathrooms?: number | null;
+    suburb?: string | null;
   })[];
-  clients: Option[];
+  clients: (Option & { suburb?: string | null })[];
   services: ServiceOption[];
   gstEnabled: boolean;
   /** Admin-configured pricing variables (settings), rendered as selectors. */
@@ -240,6 +282,12 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
     clientId: editQuote.clientId ?? "",
     leadId: editQuote.leadId ?? "",
     serviceType: editQuote.serviceType,
+    frequency:
+      editQuote.frequency && FREQUENCY_VALUES.includes(editQuote.frequency)
+        ? editQuote.frequency
+        : "one_off",
+    serviceAddress: editQuote.serviceAddress ?? "",
+    serviceSuburb: editQuote.serviceSuburb ?? "",
     bedrooms,
     bathrooms,
     sqm,
@@ -284,6 +332,9 @@ export function QuoteBuilder({
   const [serviceType, setServiceType] = useState<string>(
     seed?.serviceType ?? services[0]?.jobType ?? "AIRBNB_TURNOVER",
   );
+  const [frequency, setFrequency] = useState<string>(seed?.frequency ?? "one_off");
+  const [serviceAddress, setServiceAddress] = useState(seed?.serviceAddress ?? "");
+  const [serviceSuburb, setServiceSuburb] = useState(seed?.serviceSuburb ?? "");
   const [bedrooms, setBedrooms] = useState(seed?.bedrooms ?? "2");
   const [bathrooms, setBathrooms] = useState(seed?.bathrooms ?? "1");
   const [sqm, setSqm] = useState(seed?.sqm ?? "50");
@@ -599,6 +650,16 @@ export function QuoteBuilder({
     }
     if (lead.bedrooms != null) setBedrooms(String(lead.bedrooms));
     if (lead.bathrooms != null) setBathrooms(String(lead.bathrooms));
+    // Prefill the service suburb from the lead when the admin hasn't typed one.
+    if (lead.suburb) setServiceSuburb((prev) => prev.trim() || String(lead.suburb));
+  }
+
+  function applyClient(id: string) {
+    setClientId(id);
+    const client = clients.find((c) => c.id === id);
+    if (!client) return;
+    // Prefill the service suburb from the client when still blank.
+    if (client.suburb) setServiceSuburb((prev) => prev.trim() || String(client.suburb));
   }
 
   function priceInputs() {
@@ -776,6 +837,9 @@ export function QuoteBuilder({
             }
           : undefined,
       serviceType,
+      frequency,
+      serviceAddress: serviceAddress.trim() || undefined,
+      serviceSuburb: serviceSuburb.trim() || undefined,
       lineItems: allLines,
       subtotal,
       gstAmount,
@@ -960,6 +1024,9 @@ export function QuoteBuilder({
   function buildEditPatch() {
     return {
       serviceType,
+      frequency,
+      serviceAddress: serviceAddress.trim() || undefined,
+      serviceSuburb: serviceSuburb.trim() || undefined,
       clientId: recipientMode === "client" ? clientId || null : null,
       lineItems: allLines,
       subtotal,
@@ -1111,7 +1178,7 @@ export function QuoteBuilder({
           </div>
           {recipientMode === "client" ? (
             <EField label="Client">
-              <ESelect value={clientId} onChange={(e) => setClientId(e.target.value)}>
+              <ESelect value={clientId} onChange={(e) => applyClient(e.target.value)}>
                 <option value="">Select a client…</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -1221,6 +1288,32 @@ export function QuoteBuilder({
             ) : null}
           </div>
 
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <EField label="Service frequency">
+              <ESelect value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+                {FREQUENCY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </ESelect>
+            </EField>
+            <EField label="Service address">
+              <EInput
+                value={serviceAddress}
+                placeholder="Street address of the property"
+                onChange={(e) => setServiceAddress(e.target.value)}
+              />
+            </EField>
+            <EField label="Suburb">
+              <EInput
+                value={serviceSuburb}
+                placeholder="Suburb"
+                onChange={(e) => setServiceSuburb(e.target.value)}
+              />
+            </EField>
+          </div>
+
           <EButton type="button" onClick={() => autoPrice()} disabled={pricing}>
             {pricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Calculate from rate card
@@ -1242,17 +1335,33 @@ export function QuoteBuilder({
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {pricingVariables.map((variable) => {
                 if (variable.kind === "number") {
+                  const perUnit = isPerUnitVariable(variable);
+                  const qtyRaw = variableNumbers[variable.id] ?? "";
+                  // For a per-unit rate variable the number IS the quantity of
+                  // units (rooms / m² / hours) and the price is rate × quantity;
+                  // surface the live computation so the admin sees the maths.
+                  const hint = perUnit
+                    ? [variable.note, perUnitPreview(variable, qtyRaw)].filter(Boolean).join(" — ")
+                    : variable.note;
                   return (
                     <EField
                       key={variable.id}
-                      label={variable.unitLabel ? `${variable.label} (${variable.unitLabel})` : variable.label}
-                      hint={variable.note}
+                      label={
+                        perUnit
+                          ? `${variable.label}${variable.unitLabel ? ` — quantity (${variable.unitLabel})` : " — quantity"}`
+                          : variable.unitLabel
+                            ? `${variable.label} (${variable.unitLabel})`
+                            : variable.label
+                      }
+                      hint={hint}
                     >
                       <EInput
                         type="number"
                         step="any"
-                        value={variableNumbers[variable.id] ?? ""}
-                        placeholder="0"
+                        min={perUnit ? "0" : undefined}
+                        inputMode={perUnit ? "decimal" : undefined}
+                        value={qtyRaw}
+                        placeholder={perUnit ? "How many…" : "0"}
                         onChange={(e) =>
                           setVariableNumbers((prev) => ({ ...prev, [variable.id]: e.target.value }))
                         }

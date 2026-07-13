@@ -4,6 +4,12 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { recordQuoteEvent } from "@/lib/quotes/events";
+import {
+  mergeRequestedAddOns,
+  parseRequestedAddOns,
+  resolveRequestedAddOnEntries,
+} from "@/lib/quotes/requested-addons";
 import {
   appendNoteLinePreservingMeta,
   findQuoteByToken,
@@ -41,15 +47,31 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
 
     const recipient = quote.client?.name ?? quote.lead?.name ?? "Client";
-    const when = format(new Date(), "dd-MM-yyyy HH:mm");
+    const now = new Date();
+    const when = format(now, "dd-MM-yyyy HH:mm");
     const noteLine =
       `Client requested add-ons: ${labels.join(", ")} on ${when}` +
       (note ? ` — "${note.replace(/"/g, "'")}"` : "");
 
-    // Append to notes, preserving the [[META:...]] block byte-for-byte.
+    // Structured pending requests for the admin to price in + re-send. Catalog
+    // matches carry their price; free-text comes in at 0 for the admin to set.
+    const incoming = resolveRequestedAddOnEntries(body?.items, note || undefined, now.toISOString());
+    const nextPending = mergeRequestedAddOns(parseRequestedAddOns(quote.requestedAddOns), incoming);
+
+    // Append the human note (preserving [[META:...]]) AND store the structured
+    // pending list so the admin's quote detail surfaces an actionable request.
     await db.quote.update({
       where: { id: quote.id },
-      data: { notes: appendNoteLinePreservingMeta(quote.notes, noteLine) },
+      data: {
+        notes: appendNoteLinePreservingMeta(quote.notes, noteLine),
+        requestedAddOns: nextPending as unknown as object,
+      },
+    });
+
+    // Timeline: client requested add-ons. Best-effort, never blocks.
+    await recordQuoteEvent(quote.id, "ADDON_REQUESTED", {
+      items: labels,
+      ...(note ? { note } : {}),
     });
 
     logger.info(

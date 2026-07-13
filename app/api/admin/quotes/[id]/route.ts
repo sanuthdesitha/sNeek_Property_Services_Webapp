@@ -12,6 +12,10 @@ const updateQuoteSchema = z.object({
   // Full-edit structural fields (from the quote builder in edit mode). When
   // present the quote's service, pricing lines and totals are rewritten.
   serviceType: z.nativeEnum(JobType).optional(),
+  // Service frequency / location snapshot (from the quote builder in edit mode).
+  frequency: z.enum(["one_off", "weekly", "fortnightly", "monthly"]).optional(),
+  serviceAddress: z.string().trim().max(300).optional(),
+  serviceSuburb: z.string().trim().max(160).optional(),
   lineItems: z
     .array(
       z.object({
@@ -128,6 +132,9 @@ export async function PATCH(
         if (!existing?.viewedAt) data.viewedAt = now;
       }
     }
+    if (body.frequency !== undefined) data.frequency = body.frequency;
+    if (body.serviceAddress !== undefined) data.serviceAddress = body.serviceAddress || null;
+    if (body.serviceSuburb !== undefined) data.serviceSuburb = body.serviceSuburb || null;
     if (body.notes !== undefined) data.notes = body.notes || null;
     if (body.validUntil !== undefined) data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
     if (body.serviceContext !== undefined) {

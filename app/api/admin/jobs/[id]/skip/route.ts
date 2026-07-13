@@ -3,6 +3,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 // Best-effort: push an in-app notification to the client's portal users.
 async function notifyClientOfSkipDecision(jobId: string, approved: boolean) {
@@ -133,6 +134,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       } catch {
         // ignore notification failures
       }
+    }
+
+    // Confirm to the client only when the clean is actually skipped/cancelled
+    // (set or approved) — not on a decline (clean goes ahead) or unskip
+    // (restored). This is an email; the push above is a separate channel, not a
+    // duplicate. Best-effort auto send (gated + never throws).
+    if (nextStatus === "SKIPPED") {
+      await sendLifecycleEmail({
+        jobId: job.id,
+        stage: "SKIP_CANCELLED",
+        mode: "auto",
+        extra: { reason: updated.cleanSkipReason ?? undefined },
+      }).catch(() => {});
     }
 
     return NextResponse.json({ ok: true, ...updated });

@@ -6,6 +6,7 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { logger } from "@/lib/logger";
 import { sendEmail, sendEmailDetailed } from "@/lib/notifications/email";
+import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { getAppSettings } from "@/lib/settings";
 
@@ -206,6 +207,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
         if (delivered) {
           summary.longSent += 1;
           await db.job.update({ where: { id: job.id }, data: { reminder24hSent: true } });
+          // Client-facing pre-clean reminder — one send per job, tied to the same
+          // 24h pass + reminder24hSent gate as the cleaner reminder so it never
+          // spams. Best-effort auto send (gated + never throws).
+          await sendLifecycleEmail({ jobId: job.id, stage: "REMINDER", mode: "auto" }).catch(() => {});
         }
       }
     }

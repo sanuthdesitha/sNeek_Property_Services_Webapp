@@ -14,6 +14,14 @@ function money(n: number) {
   return `$${Number(n || 0).toFixed(2)}`;
 }
 
+function statusLabel(status: string, expired: boolean): string {
+  if (status === "ACCEPTED") return "Accepted";
+  if (status === "DECLINED") return "Declined";
+  if (status === "CONVERTED") return "Confirmed";
+  if (expired) return "Expired";
+  return "Awaiting your response";
+}
+
 function formatDate(iso: string | null) {
   if (!iso) return "";
   try {
@@ -61,9 +69,19 @@ export function QuoteView({ token, quote }: { token: string; quote: PublicQuoteP
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
             Quote for {quote.recipientFirstName}
           </h1>
+          {/* Prominent quote reference — the client's shorthand for this quote. */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-4 py-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-teal-600">
+              Quote
+            </span>
+            <span className="text-base font-bold tracking-wide text-slate-900">
+              #{quote.quoteRef}
+            </span>
+          </div>
           <p className="text-sm text-slate-500">
-            Ref {quote.quoteRef} · Issued {formatDate(quote.createdAt)}
+            Issued {formatDate(quote.createdAt)}
             {quote.validUntil ? ` · Valid until ${formatDate(quote.validUntil)}` : ""}
+            {` · ${statusLabel(effectiveStatus, quote.expired)}`}
           </p>
         </header>
 
