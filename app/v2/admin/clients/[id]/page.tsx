@@ -21,6 +21,7 @@ import { ClientActions } from "@/components/v2/admin/clients/client-actions";
 import { ClientProfit } from "@/components/v2/admin/clients/client-profit";
 import { ClientTimeline } from "@/components/v2/admin/clients/client-timeline";
 import ClientCommunications from "@/components/v2/admin/clients/client-communications";
+import ClientDocuments from "@/components/v2/admin/clients/client-documents";
 import { getFinanceSummary } from "@/lib/finance/summary";
 import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
 
@@ -299,6 +300,11 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
       {/* Communications hub (component authored separately) */}
       <section>
         <ClientCommunications clientId={client.id} />
+      </section>
+
+      {/* Re-send any document on request (quote, invoice, checklist, add-ons, link, report) */}
+      <section>
+        <ClientDocuments clientId={client.id} />
       </section>
 
       {/* Unified activity + cleaner-update timeline */}
