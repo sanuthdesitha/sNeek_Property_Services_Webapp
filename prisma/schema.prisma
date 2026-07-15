@@ -1318,6 +1318,13 @@ model CleanerPayAdjustment {
   // never be included in a second run (idempotency — mirrors Job.payrollRunId
   // and ShoppingSettlement.includedInPayrollRunId).
   includedInPayrollRunId String?
+  // Accountability provenance. source: STREAK_5 | STREAK_10 | MONTHLY_RANK_1 |
+  // MONTHLY_RANK_2 | QA_RECTIFICATION_PAY | RECTIFICATION_DEDUCTION |
+  // REWORK_DEDUCTION (null = manual/legacy). sourceKey is the dedupe key for
+  // auto-proposals (e.g. "streak5:<cleanerId>:<jobId>", "monthly:2026-07:1") —
+  // proposers must check (source, sourceKey, cleanerId) before creating.
+  source                 String?
+  sourceKey              String?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 
@@ -1330,6 +1337,7 @@ model CleanerPayAdjustment {
   @@index([jobId, status])
   @@index([propertyId, status])
   @@index([includedInPayrollRunId])
+  @@index([source, sourceKey])
 }
 
 model JobAssignment {

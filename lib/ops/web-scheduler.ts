@@ -20,6 +20,7 @@ import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
+import { runAccountabilityNightly } from "@/lib/accountability/streaks";
 
 const TZ = "Australia/Sydney";
 const WEB_SCHEDULER_MIN_INTERVAL_MS = 5 * 60_000;
@@ -101,6 +102,10 @@ const JOBS: FallbackJob[] = [
   } },
   { name: "document-expiry-check", minIntervalMs: 6 * DAY, hour: 8, dow: 1, run: async () => { await runDocumentExpiryCheck(new Date()); } },
   { name: "recognition-check", minIntervalMs: 6 * DAY, hour: 9, dow: 0, run: async () => { await runRecognitionCheck(new Date()); } },
+  // Accountability nightly — quality-streak + monthly-ranking bonus proposals.
+  // Pinned to 20:00 Sydney (matches boss.ts 20:30 window); creates PENDING
+  // pay-adjustment proposals only (manager approves before payroll).
+  { name: "accountability-nightly", minIntervalMs: 20 * HOUR, hour: 20, run: async () => { await runAccountabilityNightly({ now: new Date() }); } },
   // Cache TTL is 24h (getCachedGoogleReviews), so refresh DAILY — a weekly
   // refresh left the cache stale (returning null → empty reviews widget) 6 of 7
   // days. Pinned to 03:00 Sydney.

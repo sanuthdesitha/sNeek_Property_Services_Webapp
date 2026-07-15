@@ -27,6 +27,8 @@ import type { FormSchema } from "@/lib/forms/types";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { roundCents } from "@/lib/finance/job-money";
+import { getAppSettings } from "@/lib/settings";
+import { buildReworkDeductionSourceKey } from "@/lib/accountability/rectification";
 import { s3 } from "@/lib/s3";
 
 /** Cleaner "after" photo upload fields are keyed `rework_area_<areaId>`. */
@@ -458,6 +460,24 @@ export async function applyReworkDeduction(params: {
   const amount = roundCents(Math.max(0, Number(rework.reworkPayAmount ?? 0)));
   if (amount <= 0 || !rework.reworkDeductFromCleanerId || !rework.reworkOfJobId) return;
 
+  const settings = await getAppSettings();
+  // Owner control: when rework deductions require approval (default), the
+  // cross-cleaner deduction lands as PENDING and is naturally excluded from
+  // payroll (which filters on status === APPROVED) until an admin approves it via
+  // the pay-adjustments review route. When disabled, it stays auto-APPROVED.
+  const requireApproval = settings.accountability.rectification.reworkDeductionsRequireApproval !== false;
+  const sourceKey = buildReworkDeductionSourceKey(rework.reworkOfJobId);
+
+  // Dedupe on (source, sourceKey). A PENDING deduction from a previous call does
+  // NOT set reworkDeductionApplied (that flag now means "APPROVED / applied to
+  // payroll", not merely "created"), so the flag guard above won't catch it —
+  // this does.
+  const existingDeduction = await db.cleanerPayAdjustment.findFirst({
+    where: { source: "REWORK_DEDUCTION", sourceKey },
+    select: { id: true },
+  });
+  if (existingDeduction) return;
+
   await db.$transaction(async (tx) => {
     await tx.cleanerPayAdjustment.create({
       data: {
@@ -468,17 +488,25 @@ export async function applyReworkDeduction(params: {
         title: `Rework reassigned — ${rework.property?.name ?? "property"}`,
         type: PayAdjustmentType.FIXED,
         requestedAmount: -amount,
-        approvedAmount: -amount,
-        status: PayAdjustmentStatus.APPROVED,
+        approvedAmount: requireApproval ? null : -amount,
+        status: requireApproval ? PayAdjustmentStatus.PENDING : PayAdjustmentStatus.APPROVED,
         cleanerNote: "Clean failed QA and was redone by another cleaner; the rework pay is deducted here.",
-        reviewedById: params.reviewerUserId,
-        reviewedAt: new Date(),
+        reviewedById: requireApproval ? null : params.reviewerUserId,
+        reviewedAt: requireApproval ? null : new Date(),
+        source: "REWORK_DEDUCTION",
+        sourceKey,
       },
     });
-    await tx.job.update({
-      where: { id: rework.id },
-      data: { reworkDeductionApplied: true },
-    });
+    // reworkDeductionApplied now means the deduction is APPROVED and feeding
+    // payroll — NOT merely created. A PENDING (approval-required) deduction leaves
+    // the flag false so payroll excludes it until approved; only an auto-APPROVED
+    // deduction stamps the flag here.
+    if (!requireApproval) {
+      await tx.job.update({
+        where: { id: rework.id },
+        data: { reworkDeductionApplied: true },
+      });
+    }
   });
 }
 

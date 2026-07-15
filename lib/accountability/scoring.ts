@@ -96,6 +96,26 @@ const SEVERITY_DEDUCTION_KIND: Record<
 > = { MINOR: "MINOR", MAJOR: "MAJOR", CRITICAL: "CRITICAL" };
 
 /**
+ * Pure rating-band resolver shared by the submit engine and the accountability
+ * review routes (score adjustment / false-confirmation reversal). A CRITICAL
+ * issue force-routes to MANAGEMENT_REVIEW (when the setting is on) regardless of
+ * the numeric score; otherwise the score maps to the configured bands.
+ */
+export function ratingForScore(
+  score: number,
+  scoring: AccountabilityScoringSettings,
+  hasCritical: boolean
+): AccountabilityRating {
+  if (hasCritical && scoring.criticalTriggersManagementReview) {
+    return "MANAGEMENT_REVIEW";
+  }
+  if (score >= scoring.excellentMin) return "EXCELLENT";
+  if (score >= scoring.passMin) return "PASS";
+  if (score >= scoring.needsImprovementMin) return "NEEDS_IMPROVEMENT";
+  return "FAILED";
+}
+
+/**
  * Compute the accountability score for a QA assessment.
  *
  * Rules:
@@ -163,18 +183,7 @@ export function computeAccountabilityScore(
   const rawScore = Math.max(scoring.floor, 100 - totalDeduction);
 
   const managementReview = hasCritical && scoring.criticalTriggersManagementReview;
-  let rating: AccountabilityRating;
-  if (managementReview) {
-    rating = "MANAGEMENT_REVIEW";
-  } else if (rawScore >= scoring.excellentMin) {
-    rating = "EXCELLENT";
-  } else if (rawScore >= scoring.passMin) {
-    rating = "PASS";
-  } else if (rawScore >= scoring.needsImprovementMin) {
-    rating = "NEEDS_IMPROVEMENT";
-  } else {
-    rating = "FAILED";
-  }
+  const rating = ratingForScore(rawScore, scoring, hasCritical);
 
   const passed = rating === "EXCELLENT" || rating === "PASS";
 

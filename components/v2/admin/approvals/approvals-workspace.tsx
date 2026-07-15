@@ -23,14 +23,19 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  Gift,
   RefreshCw,
   RotateCcw,
+  Scale,
   Send,
+  ShieldAlert,
   Shirt,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
+import { EModal, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 type AllApprovals = {
@@ -43,6 +48,10 @@ type AllApprovals = {
   rescheduleRequests: any[];
   qaReworkTransfers: any[];
   skipRequests: any[];
+  rectificationAdjustments: any[];
+  bonusProposals: any[];
+  falseConfirmations: any[];
+  managementReviews: any[];
   counts: Record<string, number>;
 };
 
@@ -56,6 +65,10 @@ const QUEUES = [
   { key: "rescheduleRequests", label: "Reschedules", icon: CalendarClock },
   { key: "qaReworkTransfers", label: "QA reworks", icon: RotateCcw },
   { key: "skipRequests", label: "Skips", icon: XCircle },
+  { key: "rectificationAdjustments", label: "Rectifications", icon: Wrench },
+  { key: "bonusProposals", label: "Bonuses", icon: Gift },
+  { key: "falseConfirmations", label: "False confirmations", icon: ShieldAlert },
+  { key: "managementReviews", label: "Management reviews", icon: Scale },
 ] as const;
 
 type QueueKey = (typeof QUEUES)[number]["key"];
@@ -335,6 +348,297 @@ function EmptyQueue() {
       <p className="e-display-sm mt-1">Nothing awaits your signature</p>
       <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No pending items in this queue.</p>
     </div>
+  );
+}
+
+function severityTone(severity?: string): "danger" | "warning" | "neutral" {
+  return severity === "CRITICAL" ? "danger" : severity === "MAJOR" ? "warning" : "neutral";
+}
+
+/**
+ * Suspected false-completion confirmation. Each decision opens a modal that
+ * spells out the score impact before it is committed:
+ *   Confirm → keeps the −10 accountability penalty (PATCH { decision:"CONFIRMED" })
+ *   Reject  → reverses it                        (PATCH { decision:"REJECTED" })
+ */
+function FalseConfirmationCard({
+  row,
+  busy,
+  onDecision,
+}: {
+  row: any;
+  busy: boolean;
+  onDecision: (decision: "CONFIRMED" | "REJECTED") => void;
+}) {
+  const [modal, setModal] = useState<null | "CONFIRMED" | "REJECTED">(null);
+  const propertyName = row.job?.property?.name ?? row.property?.name ?? "Property";
+  return (
+    <>
+      <QueueCard
+        eyebrow="Suspected false confirmation"
+        title={<>{row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner"} — {propertyName}</>}
+        status={
+          <>
+            <EBadge tone={severityTone(row.severity)} soft>{row.severity}</EBadge>
+            <EBadge tone="aubergine" soft>{row.category}</EBadge>
+          </>
+        }
+        lines={[
+          [
+            row.job?.property?.suburb ?? row.property?.suburb,
+            row.job?.jobNumber ? `Job #${row.job.jobNumber}` : null,
+            row.job?.scheduledDate ? fmtDay(row.job.scheduledDate) : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          row.description ?? null,
+          row.cleanerMarkedComplete ? <>Cleaner marked this item complete.</> : null,
+        ]}
+        footer={`Raised ${fmt(row.createdAt)}`}
+        actions={
+          <>
+            <EButton size="sm" variant="danger" disabled={busy} onClick={() => setModal("CONFIRMED")}>
+              <ShieldAlert className="h-3.5 w-3.5" /> Confirm
+            </EButton>
+            <EButton size="sm" variant="outline" disabled={busy} onClick={() => setModal("REJECTED")}>
+              <XCircle className="h-3.5 w-3.5" /> Reject
+            </EButton>
+            {row.jobId ? (
+              <EButton size="sm" variant="ghost" asChild>
+                <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+              </EButton>
+            ) : null}
+          </>
+        }
+      />
+      <EModal
+        open={modal !== null}
+        onClose={() => setModal(null)}
+        eyebrow="False confirmation"
+        title={modal === "CONFIRMED" ? "Confirm false confirmation" : "Reject false confirmation"}
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            {modal === "CONFIRMED"
+              ? "Confirming keeps the extra −10 score penalty applied to this clean and marks the false completion as confirmed."
+              : "Rejecting reverses the extra −10 score penalty — the cleaner is cleared of a false completion for this item."}
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <EButton variant="ghost" size="sm" disabled={busy} onClick={() => setModal(null)}>
+              Cancel
+            </EButton>
+            <EButton
+              variant={modal === "CONFIRMED" ? "danger" : "gold"}
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                const decision = modal!;
+                setModal(null);
+                onDecision(decision);
+              }}
+            >
+              {modal === "CONFIRMED" ? "Confirm penalty" : "Reject — reverse penalty"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+    </>
+  );
+}
+
+/**
+ * QA review routed to management. Links to the job's QA detail and offers an
+ * "Adjust score" modal posting to POST /api/admin/jobs/[id]/qa/adjust
+ * { reviewId, score, reason } (reason mandatory). Creating a coaching record is
+ * deferred — the job link is the entry point for that.
+ */
+function ManagementReviewCard({
+  row,
+  busy,
+  onAdjusted,
+}: {
+  row: any;
+  busy: boolean;
+  onAdjusted: () => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [score, setScore] = useState(row.score != null ? String(row.score) : "");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const propertyName = row.job?.property?.name ?? "Property";
+
+  async function submit() {
+    const n = Number(score);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      toast({ title: "Enter a score from 0 to 100", variant: "destructive" });
+      return;
+    }
+    if (!reason.trim()) {
+      toast({ title: "A reason is required to adjust the score.", variant: "destructive" });
+      return;
+    }
+    if (!row.jobId) {
+      toast({ title: "This review has no linked job.", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${row.jobId}/qa/adjust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewId: row.id, score: n, reason: reason.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not adjust score.");
+      toast({ title: "Score adjusted" });
+      setOpen(false);
+      await onAdjusted();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err?.message ?? "Could not adjust score.", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <QueueCard
+        eyebrow="Management review"
+        title={
+          <>
+            Job #{row.job?.jobNumber ?? String(row.jobId ?? "").slice(0, 8)}
+            {propertyName ? ` — ${propertyName}` : ""}
+          </>
+        }
+        status={<EBadge tone="aubergine" soft>Management review</EBadge>}
+        lines={[
+          [row.job?.property?.suburb, row.job?.scheduledDate ? fmtDay(row.job.scheduledDate) : null]
+            .filter(Boolean)
+            .join(" · "),
+          <>Cleaner: {row.cleaner?.name ?? "—"}</>,
+          <>
+            Score: <span className="e-numeral text-[0.9375rem]">{row.score != null ? `${Number(row.score).toFixed(0)}%` : "—"}</span>
+            {row.rawScore != null && row.rawScore !== row.score ? (
+              <span className="ml-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">raw {Number(row.rawScore).toFixed(0)}%</span>
+            ) : null}
+          </>,
+        ]}
+        footer={`Filed ${fmt(row.createdAt)}`}
+        actions={
+          <>
+            <EButton size="sm" variant="gold" disabled={busy} onClick={() => setOpen(true)}>
+              <Scale className="h-3.5 w-3.5" /> Adjust score
+            </EButton>
+            {row.jobId ? (
+              <EButton size="sm" variant="outline-gold" asChild>
+                <Link href={`/v2/admin/jobs/${row.jobId}`}>
+                  QA detail <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </EButton>
+            ) : null}
+          </>
+        }
+      />
+      <EModal open={open} onClose={() => setOpen(false)} eyebrow="Management review" title="Adjust QA score" size="md">
+        <div className="space-y-4">
+          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            Set the final approved score for this clean. A reason is mandatory and recorded on the review.
+          </p>
+          <EField label="Score (0–100)">
+            <EInput
+              type="number"
+              inputMode="numeric"
+              min="0"
+              max="100"
+              value={score}
+              onChange={(e) => setScore(e.target.value)}
+            />
+          </EField>
+          <EField label="Reason (required)">
+            <ETextarea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why the score is being adjusted…"
+            />
+          </EField>
+          <div className="flex justify-end gap-2 pt-1">
+            <EButton variant="ghost" size="sm" disabled={submitting} onClick={() => setOpen(false)}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" size="sm" disabled={submitting} onClick={submit}>
+              {submitting ? "Saving…" : "Save adjustment"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+    </>
+  );
+}
+
+/** Approve/decline an accountability pay adjustment (rectification or bonus). */
+function AccountabilityPayCard({
+  row,
+  eyebrow,
+  busy,
+  onApprove,
+  onDecline,
+}: {
+  row: any;
+  eyebrow: string;
+  busy: boolean;
+  onApprove: () => void;
+  onDecline: () => void;
+}) {
+  const amount = Number(row.requestedAmount ?? 0);
+  const isDeduction = amount < 0 || (row.source ?? "").includes("DEDUCTION");
+  return (
+    <QueueCard
+      eyebrow={eyebrow}
+      title={<>{row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner"} — {row.title ?? row.job?.property?.name ?? row.property?.name ?? "Adjustment"}</>}
+      status={
+        <>
+          <StatusPill status={row.status} />
+          <EBadge tone={isDeduction ? "danger" : "success"} soft>{String(row.source ?? "").replace(/_/g, " ")}</EBadge>
+        </>
+      }
+      lines={[
+        [
+          row.job?.property?.suburb ?? row.property?.suburb,
+          row.job?.jobNumber ? `Job #${row.job.jobNumber}` : null,
+          row.job?.scheduledDate ? fmtDay(row.job.scheduledDate) : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        <>
+          {isDeduction ? "Deduction" : "Amount"}:{" "}
+          <span className="e-numeral text-[0.9375rem]" style={{ color: isDeduction ? "hsl(var(--e-danger))" : undefined }}>
+            {isDeduction ? "−" : ""}${Math.abs(amount).toFixed(2)}
+          </span>
+        </>,
+        row.cleanerNote ?? null,
+      ]}
+      footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
+      actions={
+        <>
+          <EButton size="sm" variant="gold" disabled={busy} onClick={onApprove}>
+            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+          </EButton>
+          <ConfirmButton
+            label={<><XCircle className="h-3.5 w-3.5" /> Decline</>}
+            confirmLabel="Confirm decline"
+            disabled={busy}
+            onConfirm={onDecline}
+          />
+          {row.job?.id ? (
+            <EButton size="sm" variant="ghost" asChild>
+              <Link href={`/v2/admin/jobs/${row.job.id}`}>View job</Link>
+            </EButton>
+          ) : null}
+        </>
+      }
+    />
   );
 }
 
@@ -1140,6 +1444,92 @@ export function ApprovalsWorkspace() {
                   </>
                 }
               />
+            ))}
+
+          {/* ── Rectification adjustments (accountability pay/deductions) ── */}
+          {active === "rectificationAdjustments" &&
+            activeRows.map((row) => (
+              <AccountabilityPayCard
+                key={row.id}
+                row={row}
+                eyebrow="Rectification adjustment"
+                busy={busy}
+                onApprove={() =>
+                  decide({
+                    url: `/api/admin/pay-adjustments/${row.id}`,
+                    body: { status: "APPROVED" },
+                    queue: "rectificationAdjustments",
+                    rowId: row.id,
+                    successMsg: "Rectification adjustment approved",
+                  })
+                }
+                onDecline={() =>
+                  decide({
+                    url: `/api/admin/pay-adjustments/${row.id}`,
+                    body: { status: "REJECTED" },
+                    queue: "rectificationAdjustments",
+                    rowId: row.id,
+                    successMsg: "Rectification adjustment declined",
+                  })
+                }
+              />
+            ))}
+
+          {/* ── Bonus proposals (streak / monthly rank) ── */}
+          {active === "bonusProposals" &&
+            activeRows.map((row) => (
+              <AccountabilityPayCard
+                key={row.id}
+                row={row}
+                eyebrow="Bonus proposal"
+                busy={busy}
+                onApprove={() =>
+                  decide({
+                    url: `/api/admin/pay-adjustments/${row.id}`,
+                    body: { status: "APPROVED" },
+                    queue: "bonusProposals",
+                    rowId: row.id,
+                    successMsg: "Bonus approved",
+                  })
+                }
+                onDecline={() =>
+                  decide({
+                    url: `/api/admin/pay-adjustments/${row.id}`,
+                    body: { status: "REJECTED" },
+                    queue: "bonusProposals",
+                    rowId: row.id,
+                    successMsg: "Bonus declined",
+                  })
+                }
+              />
+            ))}
+
+          {/* ── Suspected false confirmations ── */}
+          {active === "falseConfirmations" &&
+            activeRows.map((row) => (
+              <FalseConfirmationCard
+                key={row.id}
+                row={row}
+                busy={busy}
+                onDecision={(decision) =>
+                  decide({
+                    url: `/api/admin/qa/issues/${row.id}`,
+                    body: { action: "falseConfirmation", decision },
+                    queue: "falseConfirmations",
+                    rowId: row.id,
+                    successMsg:
+                      decision === "CONFIRMED"
+                        ? "False confirmation confirmed — penalty kept"
+                        : "False confirmation rejected — penalty reversed",
+                  })
+                }
+              />
+            ))}
+
+          {/* ── Management reviews ── */}
+          {active === "managementReviews" &&
+            activeRows.map((row) => (
+              <ManagementReviewCard key={row.id} row={row} busy={busy} onAdjusted={load} />
             ))}
         </div>
       )}

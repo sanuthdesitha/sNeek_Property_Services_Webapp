@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Role, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
+import { Role, PayAdjustmentStatus, QaReworkTransferStatus, FalseConfirmationStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -8,16 +8,57 @@ import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 
+// Accountability-sourced pay adjustments are surfaced in their own dedicated
+// queues (rectificationAdjustments / bonusProposals) — NOT in the generic
+// "Pay requests" queue — so a row never double-shows and per-queue counts stay
+// consistent. These mirror CleanerPayAdjustment.source values.
+const RECTIFICATION_SOURCES = ["QA_RECTIFICATION_PAY", "RECTIFICATION_DEDUCTION", "REWORK_DEDUCTION"];
+const BONUS_SOURCES = ["STREAK_5", "STREAK_10", "MONTHLY_RANK_1", "MONTHLY_RANK_2"];
+const ACCOUNTABILITY_SOURCES = [...RECTIFICATION_SOURCES, ...BONUS_SOURCES];
+
+const ACCOUNTABILITY_PAY_INCLUDE = {
+  cleaner: { select: { id: true, name: true, email: true, image: true, role: true } },
+  job: {
+    select: {
+      id: true,
+      jobNumber: true,
+      scheduledDate: true,
+      startTime: true,
+      property: { select: { name: true, suburb: true } },
+    },
+  },
+  property: { select: { id: true, name: true, suburb: true } },
+} as const;
+
 export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    const [continuations, timingRequests, payAdjustments, timeAdjustments, clientApprovals, flaggedLaundry, allClientTasks, qaReworkTransfers, skipRequests] =
+    const [
+      continuations,
+      timingRequests,
+      payAdjustments,
+      timeAdjustments,
+      clientApprovals,
+      flaggedLaundry,
+      allClientTasks,
+      qaReworkTransfers,
+      skipRequests,
+      rectificationAdjustments,
+      bonusProposals,
+      falseConfirmations,
+      managementReviews,
+    ] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
         listEarlyCheckoutRequests({ status: "PENDING" }),
         db.cleanerPayAdjustment.findMany({
-          where: { status: PayAdjustmentStatus.PENDING },
+          // Exclude accountability-sourced rows (they get dedicated queues below).
+          // The OR keeps null/legacy sources — a bare `notIn` would drop nulls in SQL.
+          where: {
+            status: PayAdjustmentStatus.PENDING,
+            OR: [{ source: null }, { source: { notIn: ACCOUNTABILITY_SOURCES } }],
+          },
           include: {
             cleaner: { select: { id: true, name: true, email: true, image: true, role: true } },
             job: {
@@ -107,6 +148,61 @@ export async function GET() {
             property: { select: { name: true, suburb: true } },
           },
           orderBy: { cleanSkipAt: "desc" },
+          take: 50,
+        }),
+        // Accountability rectification pay/deduction adjustments awaiting sign-off.
+        db.cleanerPayAdjustment.findMany({
+          where: { status: PayAdjustmentStatus.PENDING, source: { in: RECTIFICATION_SOURCES } },
+          include: ACCOUNTABILITY_PAY_INCLUDE,
+          orderBy: { requestedAt: "desc" },
+          take: 50,
+        }),
+        // Streak / monthly-rank bonus proposals awaiting sign-off.
+        db.cleanerPayAdjustment.findMany({
+          where: { status: PayAdjustmentStatus.PENDING, source: { in: BONUS_SOURCES } },
+          include: ACCOUNTABILITY_PAY_INCLUDE,
+          orderBy: { requestedAt: "desc" },
+          take: 50,
+        }),
+        // QA issues flagged as a suspected false completion confirmation.
+        db.qaIssue.findMany({
+          where: { falseConfirmation: FalseConfirmationStatus.SUSPECTED },
+          include: {
+            cleaner: { select: { id: true, name: true, email: true } },
+            job: {
+              select: {
+                id: true,
+                jobNumber: true,
+                scheduledDate: true,
+                property: { select: { name: true, suburb: true } },
+              },
+            },
+            property: { select: { name: true, suburb: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+        // QA reviews routed to management and not yet resolved. A review is
+        // "resolved" once an admin adjusts it (editedById set), so unresolved =
+        // managementReview true AND editedById null.
+        db.qAReview.findMany({
+          where: { managementReview: true, editedById: null },
+          include: {
+            job: {
+              select: {
+                id: true,
+                jobNumber: true,
+                scheduledDate: true,
+                property: { select: { name: true, suburb: true } },
+                assignments: {
+                  where: { removedAt: null },
+                  select: { user: { select: { id: true, name: true } } },
+                  take: 1,
+                },
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
           take: 50,
         }),
       ]);
@@ -200,6 +296,27 @@ export async function GET() {
       };
     });
 
+    // Normalise the management-review rows: surface the job label + assigned
+    // cleaner so the queue card can render without extra client lookups.
+    const managementReviewRows = managementReviews.map((r) => ({
+      id: r.id,
+      jobId: r.jobId,
+      score: r.score,
+      rawScore: r.rawScore,
+      rating: r.rating,
+      notes: r.notes,
+      createdAt: r.createdAt,
+      job: r.job
+        ? {
+            id: r.job.id,
+            jobNumber: r.job.jobNumber,
+            scheduledDate: r.job.scheduledDate,
+            property: r.job.property,
+          }
+        : null,
+      cleaner: r.job?.assignments?.[0]?.user ?? null,
+    }));
+
     return NextResponse.json({
       continuations: continuations.map((c) => ({ ...c, job: jobMap[c.jobId] ?? null })),
       timingRequests: timingRequests.map((r) => ({ ...r, job: timingJobMap[r.jobId] ?? null })),
@@ -210,6 +327,10 @@ export async function GET() {
       rescheduleRequests,
       qaReworkTransfers,
       skipRequests: enrichedSkipRequests,
+      rectificationAdjustments,
+      bonusProposals,
+      falseConfirmations,
+      managementReviews: managementReviewRows,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -220,6 +341,10 @@ export async function GET() {
         rescheduleRequests: rescheduleRequests.length,
         qaReworkTransfers: qaReworkTransfers.length,
         skipRequests: enrichedSkipRequests.length,
+        rectificationAdjustments: rectificationAdjustments.length,
+        bonusProposals: bonusProposals.length,
+        falseConfirmations: falseConfirmations.length,
+        managementReviews: managementReviewRows.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -229,7 +354,11 @@ export async function GET() {
           flaggedLaundry.length +
           rescheduleRequests.length +
           qaReworkTransfers.length +
-          enrichedSkipRequests.length,
+          enrichedSkipRequests.length +
+          rectificationAdjustments.length +
+          bonusProposals.length +
+          falseConfirmations.length +
+          managementReviewRows.length,
       },
     });
   } catch (err: any) {

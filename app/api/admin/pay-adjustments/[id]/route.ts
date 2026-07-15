@@ -141,6 +141,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         : roundCents(Number(approvedAmountRaw));
 
     if (body.status === PayAdjustmentStatus.APPROVED) {
+      // Self-approval guard: the payee of their OWN QA rectification pay cannot
+      // approve it — a different ADMIN/OPS reviewer must. (Rectification pay is
+      // paid to the QA who fixed the issue, so the reviewer must not be that QA.)
+      if (existing.source === "QA_RECTIFICATION_PAY" && existing.cleanerId === session.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot approve your own QA rectification pay. Another admin or ops manager must review it.",
+          },
+          { status: 403 }
+        );
+      }
       const linkedApprovals = (await listClientApprovals()).filter((approval) => {
         const metadata = approval.metadata as Record<string, unknown> | null;
         return metadata?.source === "pay_adjustment" && metadata?.payAdjustmentId === existing.id;
