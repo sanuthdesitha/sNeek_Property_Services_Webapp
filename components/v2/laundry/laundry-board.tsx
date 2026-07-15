@@ -26,6 +26,7 @@ import {
   Copy,
   FilePenLine,
   MapPin,
+  Navigation,
   Package,
   QrCode,
   RefreshCw,
@@ -42,6 +43,8 @@ import {
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
+import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { toast } from "@/hooks/use-toast";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
@@ -87,6 +90,8 @@ export type BoardTask = {
     name: string | null;
     suburb?: string | null;
     address?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     linenBufferSets?: number | null;
     accessInfo?: unknown;
     client?: { id?: string; name: string | null; email?: string | null } | null;
@@ -119,6 +124,43 @@ function propertyLabel(t: BoardTask): string {
   const name = t.property?.name ?? "Property";
   const suburb = t.property?.suburb ?? "";
   return suburb ? `${name}, ${suburb}` : name;
+}
+
+/** Full street address for a task's property; falls back to name + suburb. */
+function taskAddressText(t: BoardTask): string {
+  const full = fullAddressText({
+    address: t.property?.address ?? null,
+    suburb: t.property?.suburb ?? null,
+  });
+  return full || propertyLabel(t);
+}
+
+/**
+ * Google Maps directions URL to a task's property — prefers the saved rooftop
+ * pin (lat/lng) and falls back to the full street address. "" when neither
+ * exists, so callers can hide the Navigate button.
+ */
+function taskNavUrl(t: BoardTask): string {
+  return googleMapsDirectionsUrl({
+    address: t.property?.address ?? null,
+    suburb: t.property?.suburb ?? null,
+    latitude: t.property?.latitude ?? null,
+    longitude: t.property?.longitude ?? null,
+  });
+}
+
+/** A per-card "Navigate" button — hidden when the task has no usable location. */
+function NavButton({ task }: { task: BoardTask }) {
+  const url = taskNavUrl(task);
+  if (!url) return null;
+  return (
+    <EButton variant="outline" size="sm" asChild>
+      <a href={url} target="_blank" rel="noreferrer" aria-label="Open directions in Google Maps">
+        <Navigation className="h-3.5 w-3.5" />
+        Navigate
+      </a>
+    </EButton>
+  );
 }
 
 function bagCountFor(task: BoardTask): number {
@@ -490,10 +532,19 @@ export function QueueBoard() {
                             className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
                           >
                             <p className="min-w-0 truncate font-medium">{propertyLabel(it)}</p>
-                            <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                              {bags} bag{bags === 1 ? "" : "s"}
-                              {it.bagWeightKg ? ` · ${it.bagWeightKg} kg` : ""}
-                            </p>
+                            {it.property?.address || it.property?.suburb ? (
+                              <p className="mt-0.5 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{taskAddressText(it)}</span>
+                              </p>
+                            ) : null}
+                            <div className="mt-0.5 flex items-center justify-between gap-2">
+                              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                                {bags} bag{bags === 1 ? "" : "s"}
+                                {it.bagWeightKg ? ` · ${it.bagWeightKg} kg` : ""}
+                              </p>
+                              <NavButton task={it} />
+                            </div>
                           </div>
                         );
                       })
@@ -602,17 +653,36 @@ function RunColumn({
   submittingId: string | null;
   openAction: (task: BoardTask, action: "PICKED_UP" | "RETURNED" | "FAILED_PICKUP") => void;
 }) {
+  // Multi-stop directions for the whole loop, in scheduled order, starting from
+  // the device's current location. Mirrors the route-map "Open in Google Maps".
+  const routeUrl =
+    tasks.length > 1
+      ? buildGoogleMapsMultiStopUrl(
+          tasks.map((t) => taskAddressText(t)),
+          { fromCurrentLocation: true, travelMode: "driving" }
+        )
+      : null;
   return (
     <ECard>
       <ECardBody className="space-y-3 pt-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="inline-flex items-center gap-2 text-[0.8125rem] font-semibold uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">
             {icon}
             {title}
           </p>
-          <EBadge tone={tasks.length > 0 && done === tasks.length ? "success" : "info"} soft>
-            {done}/{tasks.length} done
-          </EBadge>
+          <div className="flex items-center gap-2">
+            {routeUrl ? (
+              <EButton variant="outline" size="sm" asChild>
+                <a href={routeUrl} target="_blank" rel="noreferrer" aria-label="Open the full route in Google Maps">
+                  <Navigation className="h-3.5 w-3.5" />
+                  Navigate route
+                </a>
+              </EButton>
+            ) : null}
+            <EBadge tone={tasks.length > 0 && done === tasks.length ? "success" : "info"} soft>
+              {done}/{tasks.length} done
+            </EBadge>
+          </div>
         </div>
         <div className="space-y-2">
           {tasks.length === 0 ? (
@@ -630,13 +700,20 @@ function RunColumn({
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium">{propertyLabel(t)}</p>
+                    {t.property?.address || t.property?.suburb ? (
+                      <p className="mt-0.5 inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{taskAddressText(t)}</span>
+                      </p>
+                    ) : null}
                     <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       {kind === "pickup"
                         ? `Pickup ${format(new Date(t.pickupDate), "HH:mm")}`
                         : `Return ${format(new Date(t.dropoffDate), "HH:mm")}`}
                     </p>
                   </div>
-                  <div className="flex flex-shrink-0 items-center gap-2">
+                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+                    <NavButton task={t} />
                     {overdue ? <EBadge tone="danger" soft>Overdue</EBadge> : null}
                     {canPickup ? (
                       <>
@@ -877,10 +954,10 @@ export function TrackingBoard() {
                         </p>
                       ) : null}
                       <p className="mt-0.5 inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {t.property?.suburb ? (
+                        {t.property?.address || t.property?.suburb ? (
                           <span className="inline-flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {t.property.suburb}
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            {taskAddressText(t)}
                           </span>
                         ) : null}
                         <span>Pickup {format(new Date(t.pickupDate), "d MMM · HH:mm")}</span>
@@ -910,6 +987,7 @@ export function TrackingBoard() {
                       <EBadge tone={STATUS_TONE[t.status]} soft>
                         {STATUS_LABEL[t.status]}
                       </EBadge>
+                      <NavButton task={t} />
                     </div>
                   </div>
 

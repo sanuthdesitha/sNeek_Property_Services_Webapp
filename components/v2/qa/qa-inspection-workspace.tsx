@@ -567,7 +567,16 @@ function ESignaturePad({ value, onChange }: { value: string; onChange: (dataUrl:
 }
 
 /* ── main workspace ───────────────────────────────────────────────────── */
-export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
+export function QaInspectionWorkspace({
+  jobId,
+  returnHref = "/v2/qa",
+}: {
+  jobId: string;
+  /** Where "Back to queue" and the post-submit redirect go. Defaults to the QA
+   *  inspector queue; the admin Quality surface passes its own queue path so the
+   *  same workspace can be deep-linked from /v2/admin/quality. */
+  returnHref?: string;
+}) {
   const router = useRouter();
   const { data: authSession } = useSession();
   const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
@@ -1017,7 +1026,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
     } catch {
       /* ignore */
     }
-    router.push("/v2/qa");
+    router.push(returnHref);
     router.refresh();
   }
 
@@ -1070,7 +1079,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
       {/* header */}
       <div className="flex items-start gap-3">
         <EButton asChild variant="ghost" size="icon" className="shrink-0">
-          <Link href="/v2/qa" aria-label="Back to queue">
+          <Link href={returnHref} aria-label="Back to queue">
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </EButton>
