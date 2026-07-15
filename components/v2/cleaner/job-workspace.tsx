@@ -323,10 +323,15 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const responseStatus: string | null = payload?.assignmentState?.responseStatus ?? null;
   const needsAcceptance = responseStatus === "PENDING";
 
-  // Laundry is captured on submit only when the property has laundry enabled and
-  // this isn't a rework (reworks reuse the original clean's linen) — mirrors the
-  // submit route's `laundrySuppressed` rule so the UI matches what's persisted.
-  const laundryEnabled = (property as any)?.laundryEnabled !== false && job?.isRework !== true;
+  // Laundry is captured on submit only for AIRBNB_TURNOVER jobs on
+  // laundry-enabled properties, and never on reworks (reworks reuse the
+  // original clean's linen) — mirrors the submit route's `laundrySuppressed`
+  // rule so the UI matches what's persisted. Non-turnover jobs show NO laundry
+  // fields at all (no bag row, no start confirm, no outcome section).
+  const laundryEnabled =
+    job?.jobType === "AIRBNB_TURNOVER" &&
+    (property as any)?.laundryEnabled !== false &&
+    job?.isRework !== true;
 
   // ── Job-start "Before you start" gate ──────────────────────────────────────
   const hasStarted = hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0;

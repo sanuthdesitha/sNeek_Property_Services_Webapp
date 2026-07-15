@@ -2959,7 +2959,6 @@ export const SELF_INSPECTION_MODULE_KEY = "final-inspection";
 /** High-severity self-inspection items (guest-safety / linen / evidence critical). */
 const HIGH_SEVERITY_SELF_INSPECTION = new Set([
   "beds-setup-correctly",
-  "laundry-bagged-correctly",
   "fresh-linen-verified",
   "no-guest-belongings",
   "windows-doors-secured",
@@ -2969,18 +2968,26 @@ const HIGH_SEVERITY_SELF_INSPECTION = new Set([
 ]);
 
 /**
- * The 14 final self-inspection items (key → label). Each composes to a required
+ * The final self-inspection items (key → label). Each composes to a required
  * `checkbox` field (EVERY_CLEAN, evidenceCategory FINAL) so the cleaner must
  * confirm the property is guest-ready before the form can be submitted.
+ *
+ * NOTE: there is deliberately NO "correct laundry bag" item here — the bag is
+ * confirmed once at the job-start gate and the linen outcome is captured by
+ * the end-of-job laundry flow; a third checkbox was a duplicate. Linen items
+ * are turnover-only via per-item jobTypes.
  */
-const SELF_INSPECTION_ITEM_DEFS: { key: string; label: string }[] = [
+const SELF_INSPECTION_ITEM_DEFS: { key: string; label: string; jobTypes?: JobType[] }[] = [
   { key: "beds-setup-correctly", label: "All beds made & set up to the reference standard" },
   { key: "kitchen-reset", label: "Kitchen fully reset (benches, sink, appliances wiped)" },
   { key: "bathroom-guest-ready", label: "Bathrooms guest-ready (glass, taps, toilet, floors)" },
   { key: "floors-done", label: "All floors vacuumed & mopped" },
   { key: "rubbish-removed", label: "All rubbish removed & bins reset" },
-  { key: "laundry-bagged-correctly", label: "Used linen in the CORRECT laundry bag" },
-  { key: "fresh-linen-verified", label: "Fresh linen count verified against property needs" },
+  {
+    key: "fresh-linen-verified",
+    label: "Fresh linen count verified against property needs",
+    jobTypes: ["AIRBNB_TURNOVER"],
+  },
   { key: "restock-completed", label: "Consumables restocked to par levels" },
   { key: "no-guest-belongings", label: "No guest belongings left behind (checked all rooms)" },
   { key: "appliances-off", label: "All appliances off / dishwasher running if needed" },
@@ -2990,11 +2997,16 @@ const SELF_INSPECTION_ITEM_DEFS: { key: string; label: string }[] = [
   { key: "property-presentation", label: "Final walkthrough done — property is guest-ready" },
 ];
 
+/** Item keys removed from the self-inspection catalog; the library sync deletes
+ * their seeded rows so stale duplicates disappear from regenerated templates. */
+export const SELF_INSPECTION_REMOVED_ITEM_KEYS = ["laundry-bagged-correctly"];
+
 /**
- * The always-present "final-inspection" module: 14 required self-inspection
+ * The always-present "final-inspection" module: required self-inspection
  * checkboxes the cleaner must tick before submit. `appliesWhen` is null (module
- * always applies) and item `jobTypes` is empty (applies to every job type). Its
- * high sortOrder makes it compose last, immediately before the sign-off.
+ * always applies); item `jobTypes` empty = every job type, else restricted
+ * (linen items are AIRBNB_TURNOVER-only). Its high sortOrder makes it compose
+ * last, immediately before the sign-off.
  */
 export const SELF_INSPECTION_MODULE: {
   key: string;
@@ -3002,7 +3014,7 @@ export const SELF_INSPECTION_MODULE: {
   category: string;
   sortOrder: number;
   jobTypes: JobType[];
-  items: { key: string; label: string; severity: string }[];
+  items: { key: string; label: string; severity: string; jobTypes: JobType[] }[];
 } = {
   key: SELF_INSPECTION_MODULE_KEY,
   title: "Final self-inspection",
@@ -3015,6 +3027,7 @@ export const SELF_INSPECTION_MODULE: {
     key: def.key,
     label: def.label,
     severity: HIGH_SEVERITY_SELF_INSPECTION.has(def.key) ? "high" : "medium",
+    jobTypes: def.jobTypes ?? [],
   })),
 };
 

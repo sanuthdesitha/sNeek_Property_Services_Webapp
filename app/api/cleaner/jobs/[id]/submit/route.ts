@@ -204,9 +204,11 @@ export async function POST(
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
     const bagLocation = body.bagLocation?.trim();
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
-    // Rework/reclean jobs (and laundry-disabled properties) never create a laundry
-    // booking or record a laundry update — they reuse the original clean's linen.
-    const laundrySuppressed = job.isRework || job.property.laundryEnabled === false;
+    // Laundry only exists on Airbnb turnovers. Rework/reclean jobs (and
+    // laundry-disabled properties) never create a laundry booking or record a
+    // laundry update — they reuse the original clean's linen.
+    const laundrySuppressed =
+      job.jobType !== "AIRBNB_TURNOVER" || job.isRework || job.property.laundryEnabled === false;
     const { outcome: rawLaundryOutcome, legacyReady: rawLegacyReady } = normalizeLaundrySubmission(body);
     const laundryOutcome = laundrySuppressed ? undefined : rawLaundryOutcome;
     const legacyReady = laundrySuppressed ? undefined : rawLegacyReady;
