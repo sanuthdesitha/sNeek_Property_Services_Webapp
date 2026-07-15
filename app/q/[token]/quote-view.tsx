@@ -67,8 +67,14 @@ export function QuoteView({ token, quote }: { token: string; quote: PublicQuoteP
             {quote.serviceLabel} Quote
           </div>
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-            Quote for {quote.recipientFirstName}
+            {quote.heading ? quote.heading : `Quote for ${quote.recipientFirstName}`}
           </h1>
+          {quote.serviceAddress ? (
+            <p className="text-sm text-slate-500">
+              <span className="font-medium text-slate-600">Service address:</span>{" "}
+              {quote.serviceAddress}
+            </p>
+          ) : null}
           {/* Prominent quote reference — the client's shorthand for this quote. */}
           <div className="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-4 py-1.5">
             <span className="text-xs font-semibold uppercase tracking-wider text-teal-600">

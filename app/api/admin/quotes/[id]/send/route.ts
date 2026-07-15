@@ -29,6 +29,19 @@ function newPublicToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
+/** Pull the admin's per-quote email subject override out of the quote notes META. */
+function emailSubjectFromNotes(notes: string | null | undefined): string | undefined {
+  if (!notes) return undefined;
+  const match = notes.match(/\[\[META:([\s\S]+?)\]\]/);
+  if (!match) return undefined;
+  try {
+    const meta = JSON.parse(match[1]) as { emailSubject?: unknown };
+    return typeof meta.emailSubject === "string" ? meta.emailSubject.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Pull the structured extras the admin/client added, out of the quote notes META. */
 function extrasFromNotes(notes: string | null | undefined): ChecklistPdfExtra[] {
   if (!notes) return [];
@@ -197,7 +210,8 @@ export async function POST(
     const publicUrl = resolveAppUrl(`/q/${publicToken}`, req);
 
     const settings = await getAppSettings();
-    const subject = body.subject || settings.quoteDefaultEmailSubject;
+    const subject =
+      body.subject || emailSubjectFromNotes(quote.notes) || settings.quoteDefaultEmailSubject;
     const branding = {
       companyName: settings.companyName,
       logoUrl: settings.logoUrl || settings.reportLogoUrl,

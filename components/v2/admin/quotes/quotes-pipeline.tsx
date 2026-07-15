@@ -15,6 +15,7 @@ import {
   Download,
   Mail,
   Phone,
+  Repeat,
   Send,
   Trash2,
   UserRoundPlus,
@@ -63,6 +64,17 @@ function prettify(value?: string | null) {
   return String(value ?? "").replace(/_/g, " ").trim();
 }
 
+const RECURRING_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  fortnightly: "Fortnightly",
+  monthly: "Monthly",
+};
+
+/** Recurring frequency → display label; null for one-off / unknown. */
+function recurringLabel(frequency?: string | null): string | null {
+  return RECURRING_LABELS[String(frequency ?? "").toLowerCase()] ?? null;
+}
+
 /* ── Minimal Estate modal (hairline, warm surface) ─────────────────────── */
 function EModal({
   open,
@@ -99,6 +111,7 @@ function EModal({
 
 export function QuotesPipeline() {
   const [tab, setTab] = useState<"leads" | "quotes">("leads");
+  const [recurringOnly, setRecurringOnly] = useState(false);
   const [leads, setLeads] = useState<any[]>([]);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string | null }>>([]);
@@ -234,6 +247,16 @@ export function QuotesPipeline() {
     loadData();
   }
 
+  const recurringCount = useMemo(
+    () => quotes.filter((q) => recurringLabel(q.frequency)).length,
+    [quotes]
+  );
+
+  const visibleQuotes = useMemo(
+    () => (recurringOnly ? quotes.filter((q) => recurringLabel(q.frequency)) : quotes),
+    [quotes, recurringOnly]
+  );
+
   const leadCounts = useMemo(() => {
     return leads.reduce<Record<string, number>>((acc, lead) => {
       acc[lead.status] = (acc[lead.status] ?? 0) + 1;
@@ -270,6 +293,27 @@ export function QuotesPipeline() {
               <EBadge key={status} tone={LEAD_TONES[status] ?? "neutral"}>
                 {prettify(status)} {leadCounts[status] ?? 0}
               </EBadge>
+            ))}
+          </div>
+        ) : recurringCount > 0 ? (
+          <div className="inline-flex rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] p-0.5">
+            {([
+              [false, `All (${quotes.length})`],
+              [true, `Recurring (${recurringCount})`],
+            ] as const).map(([value, label]) => (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => setRecurringOnly(value)}
+                className={`inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] px-4 py-1.5 text-[0.8125rem] font-[550] transition-colors ${
+                  recurringOnly === value
+                    ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]"
+                    : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+                }`}
+              >
+                {value ? <Repeat className="h-3.5 w-3.5" /> : null}
+                {label}
+              </button>
             ))}
           </div>
         ) : null}
@@ -392,7 +436,7 @@ export function QuotesPipeline() {
                 </tr>
               </thead>
               <tbody>
-                {quotes.map((quote) => (
+                {visibleQuotes.map((quote) => (
                   <tr
                     key={quote.id}
                     className="border-b border-[hsl(var(--e-border))] last:border-0 hover:bg-[hsl(var(--e-muted))]"
@@ -403,7 +447,17 @@ export function QuotesPipeline() {
                         <span className="ml-1.5 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">lead</span>
                       ) : null}
                     </td>
-                    <td className="px-5 py-3 text-[hsl(var(--e-text-secondary))]">{prettify(quote.serviceType)}</td>
+                    <td className="px-5 py-3 text-[hsl(var(--e-text-secondary))]">
+                      <span className="inline-flex items-center gap-2">
+                        {prettify(quote.serviceType)}
+                        {recurringLabel(quote.frequency) ? (
+                          <EBadge tone="aubergine" soft>
+                            <Repeat className="h-3 w-3" />
+                            {recurringLabel(quote.frequency)}
+                          </EBadge>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="e-numeral whitespace-nowrap px-5 py-3 text-[0.9375rem]">
                       {formatCurrency(Number(quote.totalAmount ?? 0))}
                     </td>

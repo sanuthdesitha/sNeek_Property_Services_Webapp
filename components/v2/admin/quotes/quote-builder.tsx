@@ -331,6 +331,10 @@ function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: PricingVariab
     notes: stripNotesMeta(editQuote.notes),
     validUntilDate: editQuote.validUntil ? editQuote.validUntil.slice(0, 10) : "",
     editOverride: editChecklistFromMeta(meta),
+    // Editable presentation overrides live alongside extras/checklist in META.
+    quoteHeading: typeof meta?.quoteHeading === "string" ? meta.quoteHeading : "",
+    emailSubject: typeof meta?.emailSubject === "string" ? meta.emailSubject : "",
+    emailMessage: typeof meta?.emailMessage === "string" ? meta.emailMessage : "",
   };
 }
 
@@ -394,6 +398,10 @@ export function QuoteBuilder({
   // In edit mode the seeded prose notes must survive (don't let auto-draft run).
   const [notesTouched, setNotesTouched] = useState(isEdit);
   const [validUntilDate, setValidUntilDate] = useState(seed?.validUntilDate ?? "");
+  // Editable presentation overrides (persisted in the notes [[META]] block).
+  const [quoteHeading, setQuoteHeading] = useState(seed?.quoteHeading ?? "");
+  const [emailSubject, setEmailSubject] = useState(seed?.emailSubject ?? "");
+  const [emailMessage, setEmailMessage] = useState(seed?.emailMessage ?? "");
   const [saving, setSaving] = useState(false);
 
   // ── Pricing variables (settings-driven) ──────────────────────────────────
@@ -922,6 +930,15 @@ export function QuoteBuilder({
         notCovered: editChecklist.notCovered.map((n) => n.trim()).filter(Boolean),
       };
     }
+    // Editable presentation overrides — only persisted when non-empty so quotes
+    // without overrides stay clean (the send route/public page fall back to
+    // their computed defaults).
+    const heading = quoteHeading.trim();
+    if (heading) base.quoteHeading = heading;
+    const subject = emailSubject.trim();
+    if (subject) base.emailSubject = subject;
+    const message = emailMessage.trim();
+    if (message) base.emailMessage = message;
     return base;
   }
 
@@ -2156,6 +2173,42 @@ export function QuoteBuilder({
               </p>
             </div>
           </div>
+        </ECardBody>
+      </ECard>
+
+      {/* Quote & email presentation — editable overrides (stored in notes META) */}
+      <ECard>
+        <ECardHeader>
+          <ECardTitle>Quote &amp; email presentation</ECardTitle>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Optional overrides for how this quote is titled and how the email reads. Leave blank to use the
+            defaults.
+          </p>
+        </ECardHeader>
+        <ECardBody className="space-y-4 pt-0">
+          <div className="grid gap-4 md:grid-cols-2">
+            <EField label="Quote heading" hint="Defaults to the service name.">
+              <EInput
+                value={quoteHeading}
+                placeholder="e.g. Move-in Clean Quote"
+                onChange={(e) => setQuoteHeading(e.target.value)}
+              />
+            </EField>
+            <EField label="Email subject" hint="Defaults to the standard quote subject.">
+              <EInput
+                value={emailSubject}
+                placeholder={`e.g. Your ${serviceLabel} quote from sNeek`}
+                onChange={(e) => setEmailSubject(e.target.value)}
+              />
+            </EField>
+          </div>
+          <EField label="Message to client (email)" hint="Shown in the quote email, above the pricing.">
+            <ETextarea
+              value={emailMessage}
+              placeholder="A short personal note to the client…"
+              onChange={(e) => setEmailMessage(e.target.value)}
+            />
+          </EField>
         </ECardBody>
       </ECard>
 
