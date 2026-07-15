@@ -21,6 +21,7 @@ import {
   MaintenanceStatus,
 } from "@prisma/client";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { EInput, ESelect, ETextarea, EField, EModal } from "@/components/v2/admin/estate-kit";
 import { ECheckTile, EInlineNotice } from "@/components/v2/client/fields";
 import { toast } from "@/hooks/use-toast";
@@ -588,20 +589,11 @@ function WorkDoneModal({ item }: { item: MaintenanceListItem }) {
             <div>
               <EEyebrow className="mb-2">Completed work</EEyebrow>
               {finishPhotos.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                  {finishPhotos.map((p) => (
-                    <a
-                      key={p.key}
-                      href={p.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block aspect-square overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.url} alt="" className="h-full w-full object-cover" />
-                    </a>
-                  ))}
-                </div>
+                <MediaGallery
+                  items={finishPhotos.map((p) => ({ id: p.key, url: p.url, mediaType: (p as any).mediaType }))}
+                  title="Completed work"
+                  className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+                />
               ) : (
                 <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No completion photos.</p>
               )}
@@ -761,17 +753,16 @@ export function MaintenanceBoard({ properties }: { properties: ClientProperty[] 
                   ) : null}
                 </div>
                 {item.photos && item.photos.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {item.photos.slice(0, 4).map((photo) => (
-                      <a key={photo.key} href={photo.url} target="_blank" rel="noopener noreferrer">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={photo.url}
-                          alt={item.title}
-                          className="h-16 w-16 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
-                        />
-                      </a>
-                    ))}
+                  <div className="pt-1">
+                    <MediaGallery
+                      items={item.photos.map((photo) => ({
+                        id: photo.key,
+                        url: photo.url,
+                        mediaType: (photo as any).mediaType,
+                      }))}
+                      title={item.title}
+                      className="grid grid-cols-4 gap-2 sm:grid-cols-6"
+                    />
                   </div>
                 ) : null}
                 <CostApproval item={item} onSaved={load} />

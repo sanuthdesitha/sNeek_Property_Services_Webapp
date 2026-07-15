@@ -50,6 +50,7 @@ import {
   EConfirmModal,
   EModal,
 } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
@@ -85,6 +86,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     suburb: "",
     state: "NSW",
     postcode: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
     notes: "",
     linenBufferSets: "0",
     inventoryEnabled: false,
@@ -154,6 +158,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       suburb: data.suburb ?? "",
       state: data.state ?? "NSW",
       postcode: data.postcode ?? "",
+      latitude: typeof data.latitude === "number" ? data.latitude : null,
+      longitude: typeof data.longitude === "number" ? data.longitude : null,
+      placeId: typeof data.placeId === "string" ? data.placeId : null,
       notes: data.notes ?? "",
       linenBufferSets: String(data.linenBufferSets ?? 0),
       inventoryEnabled: Boolean(data.inventoryEnabled),
@@ -206,6 +213,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       suburb: form.suburb,
       state: form.state || "NSW",
       postcode: form.postcode || undefined,
+      latitude: form.latitude ?? undefined,
+      longitude: form.longitude ?? undefined,
+      placeId: form.placeId ?? undefined,
       notes: form.notes || undefined,
       accessInfo: {
         lockbox: access.lockbox || undefined,
@@ -523,7 +533,23 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                 </EField>
               </div>
               <EField label="Address">
-                <EInput value={form.address} onChange={(e) => setF("address", e.target.value)} />
+                <EAddressInput
+                  value={form.address}
+                  placeholder="Start typing an address…"
+                  onChange={(text) => setF("address", text)}
+                  onSelect={(r) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      address: r.formattedAddress,
+                      suburb: r.suburb ?? prev.suburb,
+                      state: r.state ?? prev.state,
+                      postcode: r.postcode ?? prev.postcode,
+                      latitude: r.lat,
+                      longitude: r.lng,
+                      placeId: r.placeId,
+                    }))
+                  }
+                />
               </EField>
               <div className="grid gap-4 md:grid-cols-3">
                 <EField label="State">

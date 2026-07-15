@@ -11,8 +11,8 @@
  *   POST   /api/uploads/direct  (multipart file, folder=pay-adjustments)
  *
  * List renders status as an EBadge and the requested amount in the serif numeral
- * scale; the new-request form lives in an EModal. No MediaGallery dependency —
- * evidence thumbnails render natively.
+ * scale; the new-request form lives in an EModal. Evidence thumbnails open in
+ * the shared MediaGallery overlay (in-page lightbox, never a new tab).
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -29,6 +29,7 @@ import {
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { EChip, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { toast } from "@/hooks/use-toast";
+import { MediaGallery } from "@/components/shared/media-gallery";
 
 type Tone = "neutral" | "success" | "warning" | "danger";
 interface JobOption {
@@ -317,19 +318,12 @@ export function PayRequestsPanel({
                   ) : null}
 
                   {gallery.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {gallery.map((g) => (
-                        <a
-                          key={g.key}
-                          href={g.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block h-16 w-16 overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))]"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={g.url} alt="Evidence" className="h-full w-full object-cover" />
-                        </a>
-                      ))}
+                    <div className="pt-1">
+                      <MediaGallery
+                        items={gallery.map((g) => ({ id: g.key, url: g.url }))}
+                        title="Pay request evidence"
+                        className="grid grid-cols-4 gap-2 sm:grid-cols-6"
+                      />
                     </div>
                   ) : null}
 

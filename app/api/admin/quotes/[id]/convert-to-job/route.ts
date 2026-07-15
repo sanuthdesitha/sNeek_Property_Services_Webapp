@@ -26,6 +26,9 @@ const newPropertySchema = z.object({
   address: z.string().trim().min(1, "A service address is required."),
   suburb: z.string().trim().min(1, "A suburb is required."),
   name: z.string().trim().min(1).max(200).optional(),
+  // Optional geo captured from the address autocomplete; persisted when present.
+  latitude: z.number().finite().optional(),
+  longitude: z.number().finite().optional(),
 });
 
 const schema = z
@@ -298,6 +301,8 @@ export async function POST(
             name: newProperty!.name?.trim() || newProperty!.address.trim(),
             address: newProperty!.address.trim(),
             suburb: newProperty!.suburb.trim(),
+            ...(newProperty!.latitude != null ? { latitude: newProperty!.latitude } : {}),
+            ...(newProperty!.longitude != null ? { longitude: newProperty!.longitude } : {}),
             ...(recurringSchedule ? { recurringSchedule: recurringSchedule as any } : {}),
             integration: { create: { isEnabled: false } },
           },

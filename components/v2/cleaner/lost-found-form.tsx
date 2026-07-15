@@ -22,6 +22,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { toast } from "@/hooks/use-toast";
@@ -319,20 +320,15 @@ export function LostFoundForm({ jobs }: { jobs: JobOption[] }) {
             ) : null}
 
             {detail.photos.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {detail.photos.map((p) => (
-                  <a
-                    key={p.key}
-                    href={p.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="aspect-square overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.url} alt={detail.itemName} className="h-full w-full object-cover" />
-                  </a>
-                ))}
-              </div>
+              <MediaGallery
+                items={detail.photos.map((p) => ({
+                  id: p.key,
+                  url: p.url,
+                  mediaType: (p as any).mediaType,
+                }))}
+                title={detail.itemName}
+                className="grid grid-cols-3 gap-2 sm:grid-cols-4"
+              />
             ) : null}
 
             {/* Timeline */}

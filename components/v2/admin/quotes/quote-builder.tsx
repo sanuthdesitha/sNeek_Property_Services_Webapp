@@ -43,6 +43,7 @@ import {
   EEyebrow,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
 type CustomExtra = { id: string; label: string; price: number; instructions: string };
@@ -1452,10 +1453,14 @@ export function QuoteBuilder({
               </ESelect>
             </EField>
             <EField label="Service address">
-              <EInput
+              <EAddressInput
                 value={serviceAddress}
-                placeholder="Street address of the property"
-                onChange={(e) => setServiceAddress(e.target.value)}
+                placeholder="Start typing an address…"
+                onChange={(text) => setServiceAddress(text)}
+                onSelect={(r) => {
+                  setServiceAddress(r.formattedAddress);
+                  if (r.suburb) setServiceSuburb(r.suburb);
+                }}
               />
             </EField>
             <EField label="Suburb">

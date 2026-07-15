@@ -67,6 +67,7 @@ import {
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
 import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 
@@ -1136,18 +1137,11 @@ export function QaInspectionWorkspace({
               Submitted by {latestSubmission?.submittedBy?.name || latestSubmission?.submittedBy?.email || "Unknown"}.
             </p>
             {mediaItems.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                {mediaItems.map((m: any) =>
-                  m.mediaType === "VIDEO" || isVideoKey(m.url) ? (
-                    <video key={m.id} src={m.url} controls playsInline className="aspect-square w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover" />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <a key={m.id} href={m.url} target="_blank" rel="noreferrer">
-                      <img src={m.url} alt={m.label || "Cleaner media"} className="aspect-square w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover transition-opacity hover:opacity-80" />
-                    </a>
-                  )
-                )}
-              </div>
+              <MediaGallery
+                items={mediaItems}
+                title="Cleaner submission evidence"
+                className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"
+              />
             ) : (
               <EAlert tone="info">No cleaner media was attached to this submission.</EAlert>
             )}

@@ -3,9 +3,10 @@
 /**
  * ESTATE new-client form — v2-native replacement for the v1 NewClientForm.
  * Same endpoint (POST /api/admin/clients) and payload shape; brand-new Estate
- * UI built purely on the v2 primitives + estate-kit. No Google Places widget
- * (that lives in the forbidden components/shared/*); a plain structured address
- * block posts the same fields the API accepts (address/suburb/state/postcode).
+ * UI built purely on the v2 primitives + estate-kit. The street address uses the
+ * Estate-native Google Places autocomplete (EAddressInput), which fills
+ * suburb/state/postcode and captures lat/lng + placeId on selection; manual
+ * typing still works. Posts the same fields the API accepts.
  */
 
 import { useState } from "react";
@@ -21,6 +22,7 @@ import {
   ECardTitle,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ETextarea, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 type ClientForm = {
   name: string;
@@ -143,10 +145,22 @@ export function NewClientForm() {
               />
             </EField>
             <EField label="Street address">
-              <EInput
+              <EAddressInput
                 value={form.address}
-                onChange={(e) => set("address", e.target.value)}
-                placeholder="1 Example St"
+                placeholder="Start typing an address…"
+                onChange={(text) => set("address", text)}
+                onSelect={(r) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    address: r.formattedAddress,
+                    suburb: r.suburb ?? prev.suburb,
+                    state: r.state ?? prev.state,
+                    postcode: r.postcode ?? prev.postcode,
+                    latitude: r.lat,
+                    longitude: r.lng,
+                    placeId: r.placeId,
+                  }))
+                }
               />
             </EField>
           </div>

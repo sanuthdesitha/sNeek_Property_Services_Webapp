@@ -22,7 +22,7 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import { JobManageModal } from "@/components/v2/admin/jobs/job-manage";
-import { AccessImage } from "@/components/v2/admin/jobs/submission-review";
+import { AccessMediaGallery } from "@/components/v2/admin/jobs/submission-review";
 
 /* ── Manage trigger (header) ────────────────────────────────────────────── */
 
@@ -138,17 +138,13 @@ export function TaskRequestReviews({ jobId, tasks }: { jobId: string; tasks: Tas
               </div>
             </div>
             {task.attachments.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {task.attachments.map((att) => (
-                  <AccessImage
-                    key={att.id}
-                    s3Key={att.s3Key}
-                    url={att.url}
-                    jobId={jobId}
-                    label={att.label ?? "Client reference"}
-                    mediaType={att.mediaType}
-                  />
-                ))}
+              <div className="mt-2">
+                <AccessMediaGallery
+                  media={task.attachments}
+                  jobId={jobId}
+                  title="Client reference"
+                  className="grid grid-cols-4 gap-2 sm:grid-cols-6"
+                />
               </div>
             ) : null}
             {task.reviewNote ? (

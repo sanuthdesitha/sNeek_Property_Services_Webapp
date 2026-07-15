@@ -18,6 +18,7 @@
 import * as React from "react";
 import { format, isSameDay, startOfDay } from "date-fns";
 import jsQR from "jsqr";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import {
   AlertTriangle,
   ArrowRight,
@@ -329,24 +330,11 @@ function ActivityTimeline({ events }: { events: Array<{ at: Date; label: string 
 function PhotoStrip({ photos }: { photos: Array<{ id: string; url: string; label: string }> }) {
   if (photos.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2">
-      {photos.map((p) => (
-        <a
-          key={p.id}
-          href={p.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block w-16 overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
-          title={p.label}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={p.url} alt={p.label} className="h-14 w-full object-cover" />
-          <span className="block truncate px-1 py-0.5 text-center text-[0.5625rem] text-[hsl(var(--e-muted-foreground))]">
-            {p.label}
-          </span>
-        </a>
-      ))}
-    </div>
+    <MediaGallery
+      items={photos.map((p) => ({ id: p.id, url: p.url, label: p.label }))}
+      title="Laundry evidence"
+      className="grid grid-cols-3 gap-2 sm:grid-cols-5"
+    />
   );
 }
 

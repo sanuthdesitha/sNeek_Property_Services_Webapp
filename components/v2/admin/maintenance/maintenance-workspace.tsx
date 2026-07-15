@@ -47,6 +47,7 @@ import {
   EEmptyState,
   EAlert,
 } from "@/components/v2/ui/primitives";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { ESelect, EField, EModal } from "@/components/v2/admin/estate-kit";
 
 const CATEGORIES = Object.values(MaintenanceCategory);
@@ -475,18 +476,15 @@ export function EstateMaintenanceWorkspace({ properties }: { properties: Propert
             </dl>
 
             {detailItem.photos && detailItem.photos.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {detailItem.photos.map((photo) => (
-                  <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo.url}
-                      alt={detailItem.title}
-                      className="h-20 w-20 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] object-cover"
-                    />
-                  </a>
-                ))}
-              </div>
+              <MediaGallery
+                items={detailItem.photos.map((photo) => ({
+                  id: photo.key,
+                  url: photo.url,
+                  mediaType: (photo as any).mediaType,
+                }))}
+                title={detailItem.title}
+                className="grid grid-cols-3 gap-2 sm:grid-cols-5"
+              />
             ) : null}
 
             {/* Inline status change */}

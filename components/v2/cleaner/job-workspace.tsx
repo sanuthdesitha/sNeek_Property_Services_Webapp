@@ -53,6 +53,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { JobActions } from "@/components/v2/cleaner/job-actions";
@@ -1458,14 +1459,13 @@ function BriefingCard({ briefing }: { briefing: any }) {
               </p>
             ) : null}
             {drop.photo?.url ? (
-              <a href={drop.photo.url} target="_blank" rel="noreferrer" className="mt-2 block w-fit">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={drop.photo.url}
-                  alt={drop.photo.label || "Linen drop-off"}
-                  className="h-28 w-auto max-w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
+              <div className="mt-2 max-w-[10rem]">
+                <MediaGallery
+                  items={[{ id: drop.photo.url, url: drop.photo.url, label: drop.photo.label || "Linen drop-off", mediaType: (drop.photo as any).mediaType }]}
+                  title={drop.photo.label || "Linen drop-off"}
+                  className="grid grid-cols-1"
                 />
-              </a>
+              </div>
             ) : (
               <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                 No drop-off photo was captured — check the usual linen storage spot.
@@ -1477,18 +1477,16 @@ function BriefingCard({ briefing }: { briefing: any }) {
         {lastPhotos.length > 0 ? (
           <div>
             <p className="text-[0.8125rem] font-[550]">Recent property photos</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {lastPhotos.slice(0, 6).map((photo: any) => (
-                <a key={photo.id ?? photo.url} href={photo.url} target="_blank" rel="noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo.url}
-                    alt={photo.label || "Property photo"}
-                    className="h-20 w-20 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
-                  />
-                </a>
-              ))}
-            </div>
+            <MediaGallery
+              items={lastPhotos.slice(0, 6).map((photo: any) => ({
+                id: photo.id ?? photo.url,
+                url: photo.url,
+                label: photo.label || undefined,
+                mediaType: photo.mediaType,
+              }))}
+              title="Recent property photos"
+              className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6"
+            />
           </div>
         ) : null}
 

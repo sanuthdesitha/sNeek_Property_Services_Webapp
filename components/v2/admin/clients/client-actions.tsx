@@ -19,6 +19,7 @@ import {
   EModal,
   ETextarea,
 } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 export type ClientActionsClient = {
   id: string;
@@ -46,6 +47,9 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
     suburb: client.suburb ?? "",
     state: client.state ?? "",
     postcode: client.postcode ?? "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
     notes: client.notes ?? "",
   });
 
@@ -76,6 +80,9 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
           suburb: form.suburb.trim() || undefined,
           state: form.state.trim() || undefined,
           postcode: form.postcode.trim() || undefined,
+          latitude: form.latitude ?? undefined,
+          longitude: form.longitude ?? undefined,
+          placeId: form.placeId ?? undefined,
           notes: form.notes.trim() || undefined,
         }),
       });
@@ -180,7 +187,23 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
               <EInput type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
             </EField>
             <EField label="Address">
-              <EInput value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
+              <EAddressInput
+                value={form.address}
+                placeholder="Start typing an address…"
+                onChange={(text) => setForm((p) => ({ ...p, address: text }))}
+                onSelect={(r) =>
+                  setForm((p) => ({
+                    ...p,
+                    address: r.formattedAddress,
+                    suburb: r.suburb ?? p.suburb,
+                    state: r.state ?? p.state,
+                    postcode: r.postcode ?? p.postcode,
+                    latitude: r.lat,
+                    longitude: r.lng,
+                    placeId: r.placeId,
+                  }))
+                }
+              />
             </EField>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">

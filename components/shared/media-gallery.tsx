@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -19,9 +19,38 @@ interface MediaGalleryProps {
   className?: string;
 }
 
+/** File extension with any query string / hash stripped (presigned S3 URLs
+ *  carry `?X-Amz-…`, so a naive end-of-string test would never match). */
+function extOf(url: string): string {
+  const clean = url.split("?")[0].split("#")[0];
+  const m = /\.([a-z0-9]+)$/i.exec(clean);
+  return m ? m[1].toLowerCase() : "";
+}
+
+const VIDEO_EXT = ["mp4", "mov", "webm", "m4v", "avi", "3gp", "mkv", "ogv"];
+const DOC_EXT = ["pdf", "doc", "docx", "xls", "xlsx", "csv", "zip"];
+
+function isVideo(item: MediaGalleryItem): boolean {
+  if ((item.mediaType ?? "").toUpperCase().includes("VIDEO")) return true;
+  return VIDEO_EXT.includes(extOf(item.url));
+}
+
+/** Non-viewable attachments (PDFs/office docs) link out; everything else that
+ *  isn't a video is treated as an image — presigned URLs often lack a clean
+ *  extension, so unknowns default to the image lightbox rather than a link. */
+function isDocument(item: MediaGalleryItem): boolean {
+  const mt = (item.mediaType ?? "").toUpperCase();
+  if (mt.includes("PDF") || mt.includes("DOC")) return true;
+  return DOC_EXT.includes(extOf(item.url));
+}
+
 function isImage(item: MediaGalleryItem): boolean {
-  if ((item.mediaType ?? "").toUpperCase() === "PHOTO") return true;
-  return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(item.url);
+  return !isVideo(item) && !isDocument(item);
+}
+
+/** Photos + videos open in the lightbox; documents (e.g. PDFs) link out. */
+function isViewable(item: MediaGalleryItem): boolean {
+  return isImage(item) || isVideo(item);
 }
 
 export function MediaGallery({
@@ -33,11 +62,12 @@ export function MediaGallery({
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
 
-  const imageItems = useMemo(() => items.filter(isImage), [items]);
-  const otherItems = useMemo(() => items.filter((item) => !isImage(item)), [items]);
+  // The carousel spans every viewable item (photos + videos), in order.
+  const mediaItems = useMemo(() => items.filter(isViewable), [items]);
+  const otherItems = useMemo(() => items.filter((item) => !isViewable(item)), [items]);
 
-  const count = imageItems.length;
-  const current = count > 0 ? imageItems[Math.min(index, count - 1)] : null;
+  const count = mediaItems.length;
+  const current = count > 0 ? mediaItems[Math.min(index, count - 1)] : null;
 
   const go = useCallback(
     (delta: number) => {
@@ -83,17 +113,34 @@ export function MediaGallery({
 
   return (
     <>
-      {imageItems.length > 0 && (
+      {mediaItems.length > 0 && (
         <div className={className}>
-          {imageItems.map((item, i) => (
+          {mediaItems.map((item, i) => (
             <button
               key={item.id}
               type="button"
-              className="overflow-hidden rounded-md border bg-muted/20 text-left"
+              className="relative overflow-hidden rounded-md border bg-muted/20 text-left"
               onClick={() => openImage(i)}
-              title={item.label ?? "View image"}
+              title={item.label ?? (isVideo(item) ? "Play video" : "View image")}
             >
-              <img src={item.url} alt={item.label ?? "Submission image"} className="h-20 w-full object-cover" />
+              {isVideo(item) ? (
+                <>
+                  <video
+                    src={item.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="h-20 w-full object-cover"
+                  />
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="rounded-full bg-black/55 p-1.5 text-white shadow">
+                      <Play className="h-4 w-4" />
+                    </span>
+                  </span>
+                </>
+              ) : (
+                <img src={item.url} alt={item.label ?? "Submission image"} className="h-20 w-full object-cover" />
+              )}
               {item.label ? (
                 <div className="truncate border-t bg-white dark:bg-surface-raised px-2 py-1 text-[11px] text-muted-foreground">
                   {item.label}
@@ -128,18 +175,28 @@ export function MediaGallery({
             onTouchEnd={onTouchEnd}
           >
             {current && (
-              <img
-                src={current.url}
-                alt={current.label || "Preview"}
-                className="mx-auto max-h-[70vh] w-auto max-w-full select-none rounded-md object-contain"
-                draggable={false}
-              />
+              isVideo(current) ? (
+                <video
+                  key={current.id}
+                  src={current.url}
+                  controls
+                  playsInline
+                  className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md object-contain"
+                />
+              ) : (
+                <img
+                  src={current.url}
+                  alt={current.label || "Preview"}
+                  className="mx-auto max-h-[70vh] w-auto max-w-full select-none rounded-md object-contain"
+                  draggable={false}
+                />
+              )
             )}
             {count > 1 && (
               <>
                 <button
                   type="button"
-                  aria-label="Previous image"
+                  aria-label="Previous item"
                   onClick={() => go(-1)}
                   className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white shadow hover:bg-black/75"
                 >
@@ -147,7 +204,7 @@ export function MediaGallery({
                 </button>
                 <button
                   type="button"
-                  aria-label="Next image"
+                  aria-label="Next item"
                   onClick={() => go(1)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white shadow hover:bg-black/75"
                 >
@@ -158,15 +215,24 @@ export function MediaGallery({
           </div>
           {count > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1 pt-2">
-              {imageItems.map((item, i) => (
+              {mediaItems.map((item, i) => (
                 <button
                   key={`thumb-${item.id}`}
                   type="button"
                   onClick={() => setIndex(i)}
-                  aria-label={`View image ${i + 1}`}
-                  className={`shrink-0 overflow-hidden rounded-md border-2 ${i === Math.min(index, count - 1) ? "border-primary" : "border-transparent opacity-70"}`}
+                  aria-label={`View item ${i + 1}`}
+                  className={`relative shrink-0 overflow-hidden rounded-md border-2 ${i === Math.min(index, count - 1) ? "border-primary" : "border-transparent opacity-70"}`}
                 >
-                  <img src={item.url} alt="" className="h-12 w-12 object-cover" />
+                  {isVideo(item) ? (
+                    <>
+                      <video src={item.url} muted playsInline preload="metadata" className="h-12 w-12 object-cover" />
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <Play className="h-3.5 w-3.5 text-white drop-shadow" />
+                      </span>
+                    </>
+                  ) : (
+                    <img src={item.url} alt="" className="h-12 w-12 object-cover" />
+                  )}
                 </button>
               ))}
             </div>

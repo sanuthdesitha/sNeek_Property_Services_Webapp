@@ -18,6 +18,7 @@ import {
 } from "@/lib/inventory/locations";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle, EEyebrow, EPageHeader } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 interface ClientOption {
   id: string;
@@ -78,6 +79,9 @@ export function PropertyCreateForm({
     suburb: "",
     state: "NSW",
     postcode: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    placeId: null as string | null,
     notes: "",
     linenBufferSets: "0",
     defaultCleanDurationHours: "3",
@@ -158,6 +162,9 @@ export function PropertyCreateForm({
             suburb: copySource.suburb ?? "",
             state: copySource.state ?? "NSW",
             postcode: copySource.postcode ?? "",
+            latitude: typeof copySource.latitude === "number" ? copySource.latitude : null,
+            longitude: typeof copySource.longitude === "number" ? copySource.longitude : null,
+            placeId: typeof copySource.placeId === "string" ? copySource.placeId : null,
             notes: copySource.notes ?? "",
             linenBufferSets: String(copySource.linenBufferSets ?? 0),
             defaultCleanDurationHours:
@@ -264,6 +271,9 @@ export function PropertyCreateForm({
       suburb: form.suburb,
       state: form.state || "NSW",
       postcode: form.postcode || undefined,
+      latitude: form.latitude ?? undefined,
+      longitude: form.longitude ?? undefined,
+      placeId: form.placeId ?? undefined,
       notes: form.notes || undefined,
       accessInfo: accessPayload,
       linenBufferSets: Number(form.linenBufferSets) || 0,
@@ -366,10 +376,22 @@ export function PropertyCreateForm({
           </div>
 
           <EField label="Address">
-            <EInput
+            <EAddressInput
               value={form.address}
-              placeholder="Street address"
-              onChange={(e) => setF("address", e.target.value)}
+              placeholder="Start typing an address…"
+              onChange={(text) => setF("address", text)}
+              onSelect={(r) =>
+                setForm((prev) => ({
+                  ...prev,
+                  address: r.formattedAddress,
+                  suburb: r.suburb ?? prev.suburb,
+                  state: r.state ?? prev.state,
+                  postcode: r.postcode ?? prev.postcode,
+                  latitude: r.lat,
+                  longitude: r.lng,
+                  placeId: r.placeId,
+                }))
+              }
             />
           </EField>
 
