@@ -21,8 +21,22 @@ export function buildSpokenScript(
   const parts: string[] = [];
   const name = b.greetingName?.trim() || "there";
 
-  // Opening + job count.
+  // Accept gate — the cleaner has PENDING (unaccepted) assignments to accept.
+  const pendingCount = b.acceptGate?.items.length ?? 0;
   const count = b.jobsOverview?.count ?? 0;
+
+  if (pendingCount > 0) {
+    parts.push(
+      `Hi ${name}. First up, you've got ${pendingCount} ${pendingCount === 1 ? "job" : "jobs"} waiting for you to accept — head to Jobs and accept ${pendingCount === 1 ? "it" : "them"} to lock ${pendingCount === 1 ? "it" : "them"} in.`
+    );
+    if (count === 0) {
+      // Nothing accepted yet — the accept prompt is the whole briefing.
+      parts.push("Once you've accepted, refresh and I'll walk you through the day.");
+      return parts.join(" ");
+    }
+  }
+
+  // Opening + job count (accepted jobs).
   if (count === 0) {
     parts.push(
       `Hi ${name}. You have no jobs booked ${dayWord}, so enjoy the ${dayWord === "today" ? "day" : "downtime"}.`
@@ -35,7 +49,9 @@ export function buildSpokenScript(
   }
 
   parts.push(
-    `Hi ${name}, here's your briefing for ${dayWord}. You've got ${count} ${count === 1 ? "job" : "jobs"} lined up.`
+    pendingCount > 0
+      ? `For the ${count} ${count === 1 ? "job" : "jobs"} you've already accepted, here's the plan for ${dayWord}.`
+      : `Hi ${name}, here's your briefing for ${dayWord}. You've got ${count} ${count === 1 ? "job" : "jobs"} lined up.`
   );
 
   // Schedule highlights — first stop + any timing flags.
@@ -54,6 +70,21 @@ export function buildSpokenScript(
   const lateOnes = jobs.filter((j) => j.lateCheckout).map((j) => j.propertyName);
   if (lateOnes.length > 0) {
     parts.push(`${joinNatural(lateOnes)} ${lateOnes.length === 1 ? "has" : "have"} a later checkout, so no rush getting in there.`);
+  }
+
+  // New-to-you properties.
+  if (b.newProperties && b.newProperties.items.length > 0) {
+    const names = b.newProperties.items.map((p) => p.propertyName);
+    const withRef = b.newProperties.items.some((p) => p.hasReferencePhotos);
+    parts.push(
+      `${names.length === 1 ? "A new property for you today" : "Some new properties for you today"}: ${joinNatural(names)}.${withRef ? " Check the reference photos before you start." : ""}`
+    );
+  }
+
+  // Turnaround / priority watch.
+  if (b.priorityWatch && b.priorityWatch.items.length > 0) {
+    const top = b.priorityWatch.items[0];
+    parts.push(`Keep an eye on timing at ${top.propertyName}. ${top.reason}`);
   }
 
   // Weather + traffic.
@@ -81,9 +112,25 @@ export function buildSpokenScript(
     parts.push(b.laundry.line);
   }
 
+  // Supplies to bring.
+  if (b.supplies && b.supplies.items.length > 0) {
+    const items = b.supplies.items.slice(0, 4).map((s) => s.item);
+    parts.push(`Pack the right gear: ${joinNatural(items)}.`);
+  }
+
   // Earnings + finish time.
   if (b.earnings) {
-    parts.push(`You're on track to earn about ${Math.round(b.earnings.amount)} dollars ${dayWord}, estimated.`);
+    let line = `You're on track to earn about ${Math.round(b.earnings.amount)} dollars ${dayWord}, estimated.`;
+    if (
+      typeof b.earnings.weekToDate === "number" &&
+      typeof b.earnings.lastWeek === "number" &&
+      b.earnings.lastWeek > 0
+    ) {
+      const wtd = Math.round(b.earnings.weekToDate);
+      const trend = b.earnings.weekToDate >= b.earnings.lastWeek ? "ahead of" : "behind";
+      line += ` That puts you around ${wtd} dollars for the week so far, ${trend} last week.`;
+    }
+    parts.push(line);
   }
   if (b.finishTime) {
     const startPhrase = b.finishTime.assumedStart
@@ -102,6 +149,14 @@ export function buildSpokenScript(
   if (b.complaints && b.complaints.items.length > 0) {
     const c = b.complaints.items[0];
     parts.push(`Also, ${c.property} had some recent feedback, so give it that bit of extra care.`);
+  }
+
+  // Last-visit context — surface the most useful flagged item.
+  if (b.lastVisit && b.lastVisit.items.length > 0) {
+    const flagged = b.lastVisit.items.find((v) => v.flags.length > 0);
+    if (flagged) {
+      parts.push(`Last visit at ${flagged.propertyName}, ${joinNatural(flagged.flags).toLowerCase()} ${flagged.flags.length === 1 ? "was" : "were"} flagged — double-check ${flagged.flags.length === 1 ? "it" : "them"} this time.`);
+    }
   }
 
   // Reminders.

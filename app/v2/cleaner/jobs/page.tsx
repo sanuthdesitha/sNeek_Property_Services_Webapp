@@ -15,6 +15,13 @@ import {
 import { EInput } from "@/components/v2/cleaner/fields";
 import { ChevronRight, Clock, Search } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import {
+  sydneyTodayKey,
+  sydneyDayStart,
+  sydneyDayEndInclusive,
+  addDaysToKey,
+  weekMondayKey,
+} from "@/lib/time/sydney-range";
 
 export const metadata = { title: "Jobs · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -55,10 +62,10 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function parseDateValue(value?: string) {
+/** yyyy-MM-dd (or undefined) if the value is a valid date key. */
+function dateKeyOrUndefined(value?: string): string | undefined {
   if (!value) return undefined;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
 }
 
 /**
@@ -102,6 +109,12 @@ async function getCleanerJobs(
         startTime: true,
         dueTime: true,
         property: { select: { name: true, suburb: true, address: true } },
+        // The current cleaner's own assignment — gates Accept/Decline per-assignment
+        // (responseStatus === "PENDING"), not on the shared job status.
+        assignments: {
+          where: { userId, removedAt: null },
+          select: { responseStatus: true },
+        },
       },
       orderBy:
         opts.scope === "history"
@@ -120,25 +133,69 @@ async function getCleanerJobs(
 export default async function CleanerJobsPage({
   searchParams,
 }: {
-  searchParams?: { scope?: string; q?: string; from?: string; to?: string };
+  searchParams?: { scope?: string; q?: string; from?: string; to?: string; preset?: string };
 }) {
   const session = await requireRole([Role.CLEANER]);
 
   const scope: "open" | "history" =
     (searchParams?.scope ?? "open").toLowerCase() === "history" ? "history" : "open";
   const q = (searchParams?.q ?? "").trim();
-  const from = parseDateValue(searchParams?.from);
-  const to = searchParams?.to ? new Date(`${searchParams.to}T23:59:59.999`) : undefined;
-  const toDate = to && !Number.isNaN(to.getTime()) ? to : undefined;
 
-  const jobs = await getCleanerJobs(session.user.id, { scope, q, from, to: toDate });
+  // Date range — a quick preset (today/tomorrow/week) wins over the custom
+  // from/to inputs. All boundaries are Sydney calendar days so a near-midnight
+  // job buckets under the date the UI shows.
+  const todayKey = sydneyTodayKey();
+  const preset = (searchParams?.preset ?? "").toLowerCase();
+  let fromKey: string | undefined;
+  let toKey: string | undefined;
+  if (preset === "today") {
+    fromKey = todayKey;
+    toKey = todayKey;
+  } else if (preset === "tomorrow") {
+    fromKey = addDaysToKey(todayKey, 1);
+    toKey = fromKey;
+  } else if (preset === "week") {
+    fromKey = weekMondayKey(todayKey);
+    toKey = addDaysToKey(fromKey, 6);
+  } else {
+    // Custom (or none): honour the free from/to inputs.
+    fromKey = dateKeyOrUndefined(searchParams?.from);
+    toKey = dateKeyOrUndefined(searchParams?.to);
+  }
+  const activePreset =
+    preset === "today" || preset === "tomorrow" || preset === "week"
+      ? preset
+      : fromKey || toKey || preset === "custom"
+        ? "custom"
+        : "";
+
+  const from = fromKey ? sydneyDayStart(fromKey) : undefined;
+  const to = toKey ? sydneyDayEndInclusive(toKey) : undefined;
+
+  const jobs = await getCleanerJobs(session.user.id, { scope, q, from, to });
 
   const keepParams = (nextScope: "open" | "history") => {
     const params = new URLSearchParams();
     if (nextScope === "history") params.set("scope", "history");
     if (q) params.set("q", q);
+    if (searchParams?.preset) params.set("preset", searchParams.preset);
     if (searchParams?.from) params.set("from", searchParams.from);
     if (searchParams?.to) params.set("to", searchParams.to);
+    const str = params.toString();
+    return str ? `/v2/cleaner/jobs?${str}` : "/v2/cleaner/jobs";
+  };
+
+  // Quick-preset chip link — preserves scope + search, drops the free date
+  // inputs except for the Custom chip (which keeps whatever range is set).
+  const presetHref = (p: "" | "today" | "tomorrow" | "week" | "custom") => {
+    const params = new URLSearchParams();
+    if (scope === "history") params.set("scope", "history");
+    if (q) params.set("q", q);
+    if (p) params.set("preset", p);
+    if (p === "custom") {
+      if (searchParams?.from) params.set("from", searchParams.from);
+      if (searchParams?.to) params.set("to", searchParams.to);
+    }
     const str = params.toString();
     return str ? `/v2/cleaner/jobs?${str}` : "/v2/cleaner/jobs";
   };
@@ -174,29 +231,46 @@ export default async function CleanerJobsPage({
             History
           </Link>
         </div>
+        {/* Quick date presets — Today / Tomorrow / This week / Custom */}
+        <div className="flex flex-wrap gap-2">
+          <Link href={presetHref("today")} className={tabClass(activePreset === "today")}>
+            Today
+          </Link>
+          <Link href={presetHref("tomorrow")} className={tabClass(activePreset === "tomorrow")}>
+            Tomorrow
+          </Link>
+          <Link href={presetHref("week")} className={tabClass(activePreset === "week")}>
+            This week
+          </Link>
+          <Link href={presetHref("custom")} className={tabClass(activePreset === "custom")}>
+            Custom
+          </Link>
+        </div>
         <form method="GET" className="flex flex-wrap items-end gap-2">
           {scope === "history" ? <input type="hidden" name="scope" value="history" /> : null}
+          {/* Submitting the free date inputs is the Custom path. */}
+          <input type="hidden" name="preset" value="custom" />
           <div className="min-w-[12rem] flex-1">
             <EInput name="q" defaultValue={q} placeholder="Search property or suburb" aria-label="Search jobs" />
           </div>
           <EInput
             type="date"
             name="from"
-            defaultValue={searchParams?.from ?? ""}
+            defaultValue={fromKey ?? ""}
             aria-label="From date"
             className="w-auto"
           />
           <EInput
             type="date"
             name="to"
-            defaultValue={searchParams?.to ?? ""}
+            defaultValue={toKey ?? ""}
             aria-label="To date"
             className="w-auto"
           />
           <EButton type="submit" variant="outline" size="sm">
             <Search className="h-4 w-4" /> Filter
           </EButton>
-          {q || searchParams?.from || searchParams?.to ? (
+          {q || activePreset ? (
             <EButton asChild variant="ghost" size="sm">
               <Link href={scope === "history" ? "/v2/cleaner/jobs?scope=history" : "/v2/cleaner/jobs"}>Clear</Link>
             </EButton>
@@ -217,20 +291,18 @@ export default async function CleanerJobsPage({
       ) : (
         <div className="space-y-3">
           {jobs.map((j) => {
-            const isOffered = j.status === "OFFERED";
+            // Gate Accept/Decline on the cleaner's OWN assignment response, not the
+            // shared job status — a job can be ASSIGNED to someone else yet still
+            // OFFERED to this cleaner (or vice-versa).
+            const isPending = j.assignments[0]?.responseStatus === "PENDING";
             const body = (
               <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
-                <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-                  <span className="text-[0.625rem] font-medium uppercase tracking-[0.04em] text-[hsl(var(--e-muted-foreground))]">
-                    {format(toZonedTime(j.scheduledDate, TZ), "MMM")}
-                  </span>
-                  <span className="text-[0.9375rem] font-semibold leading-none tabular-nums">
-                    {format(toZonedTime(j.scheduledDate, TZ), "d")}
-                  </span>
-                </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
-                  <p className="flex flex-wrap items-center gap-x-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    <span className="font-medium text-[hsl(var(--e-foreground))] tabular-nums">
+                      {format(toZonedTime(j.scheduledDate, TZ), "EEE dd MMM yyyy")}
+                    </span>
                     <span>{titleCase(j.jobType)}</span>
                     {j.startTime ? (
                       <span className="flex items-center gap-1">
@@ -243,7 +315,7 @@ export default async function CleanerJobsPage({
                 <EBadge tone={statusTone(j.status)} soft>
                   {titleCase(j.status)}
                 </EBadge>
-                {isOffered ? (
+                {isPending ? (
                   <div className="w-full">
                     <JobOfferActions jobId={j.id} size="sm" />
                   </div>
@@ -252,9 +324,9 @@ export default async function CleanerJobsPage({
                 )}
               </ECardBody>
             );
-            // OFFERED rows carry inline Accept/Decline buttons, so they must not
-            // be wrapped in an anchor (no interactive controls inside a link).
-            return isOffered ? (
+            // Pending-offer rows carry inline Accept/Decline buttons, so they must
+            // not be wrapped in an anchor (no interactive controls inside a link).
+            return isPending ? (
               <ECard key={j.id}>{body}</ECard>
             ) : (
               <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">

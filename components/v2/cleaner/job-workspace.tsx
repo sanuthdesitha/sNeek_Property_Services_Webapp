@@ -38,8 +38,11 @@ import {
   BookOpen,
   Package,
   Square,
-  LogOut,
   Megaphone,
+  WashingMachine,
+  Forward,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   EBadge,
@@ -49,7 +52,7 @@ import {
   EAlert,
 } from "@/components/v2/ui/primitives";
 import { EModal } from "@/components/v2/admin/estate-kit";
-import { ETextarea } from "@/components/v2/cleaner/fields";
+import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { JobActions } from "@/components/v2/cleaner/job-actions";
@@ -113,6 +116,17 @@ interface ImportantRequest {
 
 const LOCKED = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"];
 
+type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
+const LAUNDRY_SKIP_REASONS: Array<{ value: string; label: string }> = [
+  { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
+  { value: "LINEN_STILL_DRYING", label: "Linen still drying" },
+  { value: "NO_LINEN_ON_SITE", label: "No linen on site" },
+  { value: "NO_PICKUP_REQUIRED", label: "No pickup required" },
+  { value: "OTHER", label: "Other" },
+];
+/** Upload key the submit route reads for the laundry-ready photo. */
+const LAUNDRY_PHOTO_KEY = "laundry_photo";
+
 export function JobWorkspace({ jobId }: { jobId: string }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -122,6 +136,21 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [answers, setAnswers] = React.useState<AnswerMap>({});
   const [uploads, setUploads] = React.useState<UploadMap>({});
   const [taskDrafts, setTaskDrafts] = React.useState<Record<string, TaskDraft>>({});
+
+  // Laundry captured on final submit (laundry-enabled jobs only). Sent alongside
+  // the form so the linen pickup is recorded at completion — same fields the
+  // standalone early-update card in JobActions sends.
+  const [laundryOutcome, setLaundryOutcome] = React.useState<LaundryOutcome | "">("");
+  const [laundryBagLocation, setLaundryBagLocation] = React.useState("");
+  const [laundryPhoto, setLaundryPhoto] = React.useState<CapturedMedia[]>([]);
+  const [laundrySkipCode, setLaundrySkipCode] = React.useState("LINEN_STILL_WASHING");
+  const [laundrySkipNote, setLaundrySkipNote] = React.useState("");
+
+  // Pass-to-next-cleaner: free-text flags (+ optional photo) that become
+  // CARRY_FORWARD tasks on the next clean at this property.
+  const [carryHasNew, setCarryHasNew] = React.useState(false);
+  const [carryNotes, setCarryNotes] = React.useState<string[]>([""]);
+  const [carryPhotos, setCarryPhotos] = React.useState<CapturedMedia[]>([]);
 
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
@@ -167,6 +196,33 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         }
         return next;
       });
+    }
+    const laundry = state.laundry;
+    if (laundry && typeof laundry === "object") {
+      if (
+        laundry.outcome === "READY_FOR_PICKUP" ||
+        laundry.outcome === "NOT_READY" ||
+        laundry.outcome === "NO_PICKUP_REQUIRED"
+      ) {
+        setLaundryOutcome(laundry.outcome);
+      }
+      if (typeof laundry.bagLocation === "string") setLaundryBagLocation(laundry.bagLocation);
+      if (typeof laundry.skipCode === "string" && laundry.skipCode) setLaundrySkipCode(laundry.skipCode);
+      if (typeof laundry.skipNote === "string") setLaundrySkipNote(laundry.skipNote);
+      if (Array.isArray(laundry.photo)) {
+        setLaundryPhoto(laundry.photo.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[]);
+      }
+    }
+    const carry = state.carryForward;
+    if (carry && typeof carry === "object") {
+      setCarryHasNew(carry.hasNew === true);
+      if (Array.isArray(carry.notes)) {
+        const notes = carry.notes.filter((n: any) => typeof n === "string");
+        setCarryNotes(notes.length > 0 ? notes : [""]);
+      }
+      if (Array.isArray(carry.photos)) {
+        setCarryPhotos(carry.photos.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[]);
+      }
     }
   }, []);
 
@@ -256,6 +312,16 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const hasCheckin = Boolean(job?.gpsCheckInAt);
   const propertyId: string | null = job?.propertyId ?? (property as any)?.id ?? null;
 
+  // Accept gate: gate on THIS cleaner's own assignment response, not the job's
+  // global status (a job can be ASSIGNED overall while still PENDING for me).
+  const responseStatus: string | null = payload?.assignmentState?.responseStatus ?? null;
+  const needsAcceptance = responseStatus === "PENDING";
+
+  // Laundry is captured on submit only when the property has laundry enabled and
+  // this isn't a rework (reworks reuse the original clean's linen) — mirrors the
+  // submit route's `laundrySuppressed` rule so the UI matches what's persisted.
+  const laundryEnabled = (property as any)?.laundryEnabled !== false && job?.isRework !== true;
+
   // Client / admin-flagged requests for THIS job — sourced from the same jobTasks
   // the checklist uses (source CLIENT / ADMIN) plus the quote's client-requested
   // additionals (payload.jobMeta.additionals — the form's "Additionals
@@ -294,7 +360,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const importantShownRef = React.useRef(false);
   React.useEffect(() => {
     if (importantShownRef.current || loading) return;
-    if (locked || status === "OFFERED") return;
+    if (locked || needsAcceptance) return;
     if (importantRequests.length === 0) return;
     importantShownRef.current = true;
     let acked = false;
@@ -305,7 +371,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     }
     setImportantAck(acked);
     if (!acked) setImportantOpen(true);
-  }, [loading, locked, status, importantRequests.length, ackKey]);
+  }, [loading, locked, needsAcceptance, importantRequests.length, ackKey]);
 
   function acknowledgeImportant() {
     try {
@@ -329,6 +395,18 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         answers,
         uploads,
         taskDrafts,
+        laundry: {
+          outcome: laundryOutcome,
+          bagLocation: laundryBagLocation,
+          skipCode: laundrySkipCode,
+          skipNote: laundrySkipNote,
+          photo: laundryPhoto,
+        },
+        carryForward: {
+          hasNew: carryHasNew,
+          notes: carryNotes,
+          photos: carryPhotos,
+        },
       };
       void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
         method: "PATCH",
@@ -340,7 +418,22 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answers, uploads, taskDrafts, locked, loading, jobId]);
+  }, [
+    answers,
+    uploads,
+    taskDrafts,
+    laundryOutcome,
+    laundryBagLocation,
+    laundrySkipCode,
+    laundrySkipNote,
+    laundryPhoto,
+    carryHasNew,
+    carryNotes,
+    carryPhotos,
+    locked,
+    loading,
+    jobId,
+  ]);
 
   function flash(tone: "success" | "danger" | "info", text: string) {
     setNotice({ tone, text });
@@ -437,20 +530,6 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     }
   }
 
-  async function clockOutGps() {
-    setBusy("checkout");
-    try {
-      const gps = await getGps();
-      await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng });
-      flash("success", "Check-out location recorded.");
-      await load();
-    } catch (e: any) {
-      flash("danger", e.message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   function setTask(id: string, patch: Partial<TaskDraft>) {
     setTaskDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
@@ -469,6 +548,27 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           "danger",
           `${formErrors.length} required item${formErrors.length > 1 ? "s" : ""} incomplete — please review the highlighted fields.`
         );
+        return;
+      }
+    }
+    // Laundry capture gate (laundry-enabled jobs) — mirrors the submit route's
+    // laundry rules so the cleaner sees exactly what's missing.
+    if (laundryEnabled) {
+      if (!laundryOutcome) {
+        flash("danger", "Choose a laundry outcome before submitting.");
+        return;
+      }
+      if (laundryOutcome === "READY_FOR_PICKUP") {
+        if (!laundryBagLocation.trim()) {
+          flash("danger", "Bag location is required when laundry is ready for pickup.");
+          return;
+        }
+        if (laundryPhoto.length === 0) {
+          flash("danger", "A laundry photo is required when laundry is marked ready.");
+          return;
+        }
+      } else if (!laundrySkipCode) {
+        flash("danger", "Select a reason when laundry isn't ready for pickup.");
         return;
       }
     }
@@ -491,11 +591,42 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         };
       });
 
-      const body = {
+      // Carry-forward block for the next cleaner at this property. resolvedTaskIds
+      // stays empty in v2 — incoming carry-forward tasks are resolved through the
+      // unified checklist above; this card only raises NEW flags. New-flag photos
+      // are namespaced so the route never confuses them with resolved-task proofs.
+      const cleanCarryNotes = carryNotes.map((n) => n.trim()).filter(Boolean);
+      const carryForwardPayload = {
+        resolvedTaskIds: [] as string[],
+        hasNew: carryHasNew && cleanCarryNotes.length > 0,
+        newTaskNotes: carryHasNew ? cleanCarryNotes : [],
+        taskPhotoKeys:
+          carryHasNew && carryPhotos.length > 0
+            ? { __carryForwardNew: carryPhotos.map((m) => m.key) }
+            : {},
+      };
+
+      // Laundry captured at submit → same upload key + top-level fields the route
+      // already reads (extractUploads → laundry_photo; body.laundryOutcome …).
+      if (laundryEnabled && laundryOutcome === "READY_FOR_PICKUP" && laundryPhoto.length > 0) {
+        uploadKeys[LAUNDRY_PHOTO_KEY] = laundryPhoto.map((m) => m.key);
+      }
+
+      const body: Record<string, unknown> = {
         templateId: template?.id,
-        data: { ...answers, uploads: uploadKeys },
+        data: { ...answers, uploads: uploadKeys, carryForward: carryForwardPayload },
         jobTasks: jobTasksPayload,
       };
+      if (laundryEnabled && laundryOutcome) {
+        body.laundryOutcome = laundryOutcome;
+        body.laundryReady = laundryOutcome === "READY_FOR_PICKUP";
+        if (laundryOutcome === "READY_FOR_PICKUP") {
+          body.bagLocation = laundryBagLocation.trim();
+        } else {
+          body.laundrySkipReasonCode = laundrySkipCode;
+          if (laundrySkipNote.trim()) body.laundrySkipReasonNote = laundrySkipNote.trim();
+        }
+      }
       const data = await post(`/api/cleaner/jobs/${jobId}/submit`, body);
       // The job is done — clear the shared draft so no one resumes stale state.
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -656,8 +787,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </div>
       </EModal>
 
-      {/* Offer — accept or decline before starting */}
-      {status === "OFFERED" ? (
+      {/* Offer — accept or decline before starting. Gated on MY assignment's
+          response (PENDING), not the job's global status. */}
+      {needsAcceptance ? (
         <ECard>
           <ECardBody className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -712,7 +844,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       </ECard>
 
       {/* Job briefing — prior QA warning, rework notes, linen drop, access vault */}
-      {!locked && status !== "OFFERED" ? <BriefingCard briefing={briefing} /> : null}
+      {!locked && !needsAcceptance ? <BriefingCard briefing={briefing} /> : null}
 
       {/* Shared draft resumed from another device / co-cleaner */}
       {!locked && draftInfo.updatedAt ? (
@@ -741,7 +873,6 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         busy={busy}
         onClockIn={clockIn}
         onPause={pauseClock}
-        onCheckout={clockOutGps}
       />
 
       {/* Form still pending after an early clock-out */}
@@ -874,7 +1005,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
       {/* Per-job requests & reports — parity with the v1 cleaner job actions.
           Hidden while the job is still OFFERED (accept first) or fully locked. */}
-      {status !== "OFFERED" && !locked ? (
+      {!needsAcceptance && !locked ? (
         <JobActions
           jobId={job.id}
           requiresSafetyCheckin={Boolean(job.requiresSafetyCheckin)}
@@ -882,6 +1013,162 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           hasStarted={Boolean(hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0)}
           onChanged={() => void load()}
         />
+      ) : null}
+
+      {/* Laundry on submit — laundry-enabled jobs record the linen pickup as part
+          of completion. The standalone early-update card (in JobActions) still
+          works; this is the outcome saved when the job is submitted. */}
+      {laundryEnabled && !needsAcceptance && !locked ? (
+        <ECard>
+          <ECardBody className="space-y-3 pt-6">
+            <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+              <WashingMachine className="h-4 w-4" /> Laundry
+            </p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              Record the linen status for this clean — saved when you submit and sent to the laundry team.
+            </p>
+            <EField label="Outcome (required)">
+              <ESelect
+                value={laundryOutcome}
+                disabled={locked}
+                onChange={(e) => setLaundryOutcome(e.target.value as LaundryOutcome | "")}
+              >
+                <option value="">Select an outcome…</option>
+                <option value="READY_FOR_PICKUP">Ready for pickup</option>
+                <option value="NOT_READY">Not ready</option>
+                <option value="NO_PICKUP_REQUIRED">No pickup required</option>
+              </ESelect>
+            </EField>
+            {laundryOutcome === "READY_FOR_PICKUP" ? (
+              <>
+                <EField label="Bag location (required)">
+                  <EInput
+                    placeholder="e.g. Laundry room shelf, labeled bags"
+                    value={laundryBagLocation}
+                    disabled={locked}
+                    onChange={(e) => setLaundryBagLocation(e.target.value)}
+                  />
+                </EField>
+                <EField label="Laundry photo (required)">
+                  <MediaCapture
+                    value={laundryPhoto}
+                    onChange={setLaundryPhoto}
+                    mode="photo"
+                    folder="laundry"
+                    disabled={locked}
+                    stamp={{
+                      address: addressLine || undefined,
+                      reference: (property.name as string) || undefined,
+                      tag: "laundry",
+                      contextLabel: "Laundry bags ready for pickup",
+                    }}
+                  />
+                </EField>
+              </>
+            ) : laundryOutcome ? (
+              <>
+                <EField label="Reason (required)">
+                  <ESelect
+                    value={laundrySkipCode}
+                    disabled={locked}
+                    onChange={(e) => setLaundrySkipCode(e.target.value)}
+                  >
+                    {LAUNDRY_SKIP_REASONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </ESelect>
+                </EField>
+                <EField label="Note (optional)">
+                  <ETextarea
+                    value={laundrySkipNote}
+                    disabled={locked}
+                    onChange={(e) => setLaundrySkipNote(e.target.value)}
+                  />
+                </EField>
+              </>
+            ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {/* Pass to next clean — flags that carry forward as tasks on the next visit. */}
+      {!needsAcceptance && !locked ? (
+        <ECard>
+          <ECardBody className="space-y-3 pt-6">
+            <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+              <Forward className="h-4 w-4" /> Pass to next clean
+            </p>
+            <label className="flex items-start gap-2 text-[0.875rem]">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
+                checked={carryHasNew}
+                disabled={locked}
+                onChange={(e) => setCarryHasNew(e.target.checked)}
+              />
+              <span>Anything to flag for the next visit?</span>
+            </label>
+            {carryHasNew ? (
+              <div className="space-y-3">
+                {carryNotes.map((note, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <ETextarea
+                      placeholder="e.g. Oven needs a deeper clean next time — ran out of time today"
+                      value={note}
+                      disabled={locked}
+                      onChange={(e) =>
+                        setCarryNotes((prev) => prev.map((n, idx) => (idx === i ? e.target.value : n)))
+                      }
+                    />
+                    {carryNotes.length > 1 ? (
+                      <button
+                        type="button"
+                        disabled={locked}
+                        onClick={() => setCarryNotes((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="mt-2 shrink-0 text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))] disabled:opacity-50"
+                        aria-label="Remove note"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setCarryNotes((prev) => [...prev, ""])}
+                  className="inline-flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))] underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add another flag
+                </button>
+                <div>
+                  <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    <Camera className="h-3.5 w-3.5" /> Photo (optional)
+                  </p>
+                  <MediaCapture
+                    value={carryPhotos}
+                    onChange={setCarryPhotos}
+                    mode="photo"
+                    folder="evidence"
+                    multiple
+                    disabled={locked}
+                    stamp={{
+                      address: addressLine || undefined,
+                      reference: (property.name as string) || undefined,
+                      contextLabel: "Flag for next clean",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                Tick the box to leave notes or a photo for whoever cleans here next.
+              </p>
+            )}
+          </ECardBody>
+        </ECard>
       ) : null}
 
       {/* Submit */}
@@ -927,7 +1214,6 @@ function ClockCard({
   busy,
   onClockIn,
   onPause,
-  onCheckout,
 }: {
   status: string;
   locked: boolean;
@@ -939,7 +1225,6 @@ function ClockCard({
   busy: string | null;
   onClockIn: () => void;
   onPause: () => void;
-  onCheckout: () => void;
 }) {
   // Re-render every second while the clock runs so the live elapsed keeps
   // advancing. `tick` isn't read directly — it exists purely to schedule the
@@ -994,6 +1279,26 @@ function ClockCard({
             ) : null}
           </span>
         </div>
+
+        {/* Unambiguous clock state + a subtle "GPS captured" indicator so it's
+            clear whether the clock is running and that location was recorded. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                isRunning ? "bg-[hsl(var(--e-success))]" : "bg-[hsl(var(--e-text-faint))]"
+              )}
+            />
+            {isRunning ? "Clock running" : hasCheckin ? "Clock stopped" : "Not clocked in"}
+          </span>
+          {hasCheckin ? (
+            <span className="inline-flex items-center gap-1 text-[hsl(var(--e-text-faint))]">
+              <MapPin className="h-3.5 w-3.5" /> GPS captured at check-in
+            </span>
+          ) : null}
+        </div>
+
         <div className="flex flex-wrap gap-2">
           {!isRunning && !locked ? (
             <EButton variant="primary" disabled={busy === "clockin"} onClick={onClockIn}>
@@ -1007,21 +1312,15 @@ function ClockCard({
               Pause clock
             </EButton>
           ) : null}
-          {hasCheckin && !locked ? (
-            <EButton
-              variant="primary"
-              className="w-full sm:w-auto"
-              disabled={busy === "checkout"}
-              onClick={onCheckout}
-            >
-              {busy === "checkout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-              Check out
-            </EButton>
-          ) : null}
         </div>
         {!hasCheckin && !locked ? (
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Clocking in captures your GPS location at the property.
+          </p>
+        ) : (hasCheckin || isRunning) && !locked ? (
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            To finish, use <strong>Submit &amp; clock out</strong> below. Need to leave before finishing the form?
+            Use <strong>Clock out (finish form later)</strong>.
           </p>
         ) : null}
       </ECardBody>

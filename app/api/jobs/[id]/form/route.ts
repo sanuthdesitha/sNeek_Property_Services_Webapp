@@ -49,6 +49,7 @@ export async function GET(
             bedrooms: true,
             bathrooms: true,
             inventoryEnabled: true,
+            laundryEnabled: true,
           },
         },
         assignments: {
