@@ -20,6 +20,11 @@ import {
 } from "@/components/admin/property-access-fields";
 import { GoogleAddressInput } from "@/components/shared/google-address-input";
 import { AccessInstructionsEditor, type AccessSection } from "@/components/admin/access-instructions-editor";
+import {
+  PropertySetupGuideEditor,
+  LaundryBagColorPicker,
+  type SetupGuideEntry,
+} from "@/components/admin/property-setup-guide-editor";
 import { PropertyChecklistBuilder } from "@/components/admin/property-checklist-builder";
 import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -126,7 +131,13 @@ export default function PropertyDetailPage() {
     latitude: null as number | null,
     longitude: null as number | null,
     placeId: null as string | null,
+    cleaningDurationMinutes: "",
+    cleanerServiceRate: "",
+    laundryBagLabel: "",
+    laundryBagColor: "",
+    sofaBedCount: "0",
   });
+  const [setupGuide, setSetupGuide] = useState<SetupGuideEntry[]>([]);
 
   // Feature 4 — Next Job Checklist
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
@@ -201,7 +212,15 @@ export default function PropertyDetailPage() {
       latitude: typeof data.latitude === "number" ? data.latitude : null,
       longitude: typeof data.longitude === "number" ? data.longitude : null,
       placeId: typeof data.placeId === "string" ? data.placeId : null,
+      cleaningDurationMinutes:
+        typeof data.cleaningDurationMinutes === "number" ? String(data.cleaningDurationMinutes) : "",
+      cleanerServiceRate:
+        typeof data.cleanerServiceRate === "number" ? String(data.cleanerServiceRate) : "",
+      laundryBagLabel: typeof data.laundryBagLabel === "string" ? data.laundryBagLabel : "",
+      laundryBagColor: typeof data.laundryBagColor === "string" ? data.laundryBagColor : "",
+      sofaBedCount: String(data.sofaBedCount ?? 0),
     });
+    setSetupGuide(Array.isArray(data.setupGuide) ? data.setupGuide : []);
     const draft: Record<string, { onHand: string; parLevel: string; reorderThreshold: string }> = {};
     for (const row of data.propertyStock ?? []) {
       draft[row.itemId] = {
@@ -423,6 +442,14 @@ export default function PropertyDetailPage() {
       bedrooms: Number(form.bedrooms || 0),
       bathrooms: Number(form.bathrooms || 0),
       showCleanerContactToClient: form.showCleanerContactToClient,
+      cleaningDurationMinutes:
+        form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      cleanerServiceRate:
+        form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
+      laundryBagLabel: form.laundryBagLabel.trim() || null,
+      laundryBagColor: form.laundryBagColor || null,
+      sofaBedCount: Number(form.sofaBedCount || 0),
+      setupGuide,
     };
     const res = await fetch(`/api/admin/properties/${params.id}`, {
       method: "PATCH",
@@ -1088,6 +1115,68 @@ export default function PropertyDetailPage() {
                   pdfUrl={accessPdfUrl}
                   onChange={({ sections, pdfUrl }) => { setAccessSections(sections); setAccessPdfUrl(pdfUrl); }}
                 />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-border p-4">
+                <div>
+                  <p className="text-sm font-semibold">Quality &amp; accountability</p>
+                  <p className="text-xs text-muted-foreground">
+                    Standard clean duration, per-clean cleaner rate, laundry bag identity, sofa beds, and the
+                    image-backed setup guide cleaners follow.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label>Clean duration (min)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={form.cleaningDurationMinutes}
+                      onChange={(e) => setForm((prev) => ({ ...prev, cleaningDurationMinutes: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Standard clean duration</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cleaner service rate ($)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.cleanerServiceRate}
+                      onChange={(e) => setForm((prev) => ({ ...prev, cleanerServiceRate: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Per-clean cleaner rate — overrides hourly maths</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sofa beds</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={form.sofaBedCount}
+                      onChange={(e) => setForm((prev) => ({ ...prev, sofaBedCount: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Number of sofa beds at this property</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Laundry bag label</Label>
+                    <Input
+                      value={form.laundryBagLabel}
+                      placeholder="e.g. J04"
+                      onChange={(e) => setForm((prev) => ({ ...prev, laundryBagLabel: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Laundry bag colour</Label>
+                    <LaundryBagColorPicker
+                      value={form.laundryBagColor}
+                      onChange={(c) => setForm((prev) => ({ ...prev, laundryBagColor: c }))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Setup guide</Label>
+                  <PropertySetupGuideEditor value={setupGuide} onChange={setSetupGuide} />
+                </div>
               </div>
 
               <div className="flex justify-end">

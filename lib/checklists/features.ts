@@ -65,20 +65,30 @@ export function featuresFromAppliances(
 
 /**
  * Auto-apply rule attached to a checklist module or item:
- *   { feature: "dishwasher" }                       → features.dishwasher === true
- *   { propertyField: "hasBalcony", equals: true }   → property column equals
- *   null / undefined                                → always applies
+ *   { feature: "dishwasher" }                          → features.dishwasher === true
+ *   { propertyField: "hasBalcony", equals: true }      → property column equals
+ *   { propertyField: "sofaBedCount", operator: "gt",
+ *     value: 0 }                                       → numeric comparison
+ *   null / undefined                                   → always applies
+ *
+ * `operator` defaults to "equals" (the historical behaviour); "gt"/"lt" enable
+ * numeric comparisons (e.g. gate a sofa-bed task on sofaBedCount > 0). The
+ * comparison operand is read from either `value` (operator form) or the legacy
+ * `equals` key.
  */
+export type AppliesWhenOperator = "equals" | "gt" | "lt";
+
 export interface AppliesWhenRule {
   feature?: string;
   propertyField?: string;
+  operator?: AppliesWhenOperator;
   equals?: unknown;
 }
 
 export type PropertyForRules = Pick<
   Property,
   "hasBalcony" | "bedrooms" | "bathrooms" | "laundryEnabled" | "inventoryEnabled"
-> & { features?: unknown };
+> & { features?: unknown; sofaBedCount?: number | null };
 
 export function parseAppliesWhen(raw: unknown): AppliesWhenRule | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -87,7 +97,12 @@ export function parseAppliesWhen(raw: unknown): AppliesWhenRule | null {
     return { feature: rule.feature.trim() };
   }
   if (typeof rule.propertyField === "string" && rule.propertyField.trim()) {
-    return { propertyField: rule.propertyField.trim(), equals: "equals" in rule ? rule.equals : true };
+    const operator: AppliesWhenOperator =
+      rule.operator === "gt" || rule.operator === "lt" ? rule.operator : "equals";
+    // Comparison operand: prefer the operator-form `value`, fall back to the
+    // legacy `equals` shape, defaulting to `true` for boolean-style gates.
+    const operand = "equals" in rule ? rule.equals : "value" in rule ? rule.value : true;
+    return { propertyField: rule.propertyField.trim(), operator, equals: operand };
   }
   return null;
 }
@@ -103,6 +118,9 @@ export function ruleApplies(raw: unknown, property: PropertyForRules): boolean {
   if (rule.propertyField) {
     const actual = (property as unknown as Record<string, unknown>)[rule.propertyField];
     const expected = rule.equals ?? true;
+    const operator = rule.operator ?? "equals";
+    if (operator === "gt") return Number(actual) > Number(expected);
+    if (operator === "lt") return Number(actual) < Number(expected);
     if (typeof actual === "boolean") return actual === (expected === true || expected === "true");
     if (typeof actual === "number") return actual === Number(expected);
     return String(actual ?? "") === String(expected ?? "");

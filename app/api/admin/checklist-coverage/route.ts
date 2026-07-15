@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
         bathrooms: true,
         laundryEnabled: true,
         inventoryEnabled: true,
+        sofaBedCount: true,
         features: true,
         checklistProfile: { select: { id: true } },
       },

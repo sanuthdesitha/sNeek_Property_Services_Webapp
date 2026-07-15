@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { updatePropertySchema } from "@/lib/validations/client";
+import { updatePropertySchema, sanitizeSetupGuide } from "@/lib/validations/client";
 import { Role } from "@prisma/client";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
@@ -120,6 +120,8 @@ export async function PATCH(
             : undefined,
         accessInfo: body.accessInfo !== undefined ? (normalizedAccessInfo as any) : undefined,
         preferredCleanerUserId: body.preferredCleanerUserId ?? undefined,
+        setupGuide:
+          body.setupGuide !== undefined ? (sanitizeSetupGuide(body.setupGuide) as any) : undefined,
       },
     });
     return NextResponse.json(property);

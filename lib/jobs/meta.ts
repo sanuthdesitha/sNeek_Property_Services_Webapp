@@ -98,6 +98,15 @@ export interface JobMeta {
   // For rework jobs: present the cleaner's fix checklist grouped by area (true,
   // default) or as a single flat list (false). Set from the QA rework proposal.
   reworkCategorized?: boolean;
+  // Job-start accountability gate: the cleaner confirmed the property code and
+  // the correct laundry bag before clocking in. Recorded by the start route when
+  // the accountability confirmation gate is enforced.
+  startConfirmation?: {
+    propertyCode: boolean;
+    laundryBag: boolean;
+    at: string;
+    byUserId: string;
+  };
 }
 
 const DEFAULT_RULE: JobTimingRule = {
@@ -124,6 +133,22 @@ export function defaultJobMeta(): JobMeta {
     quoteServiceContext: undefined,
     quoteReferenceImages: undefined,
     reworkCategorized: undefined,
+    startConfirmation: undefined,
+  };
+}
+
+/** Normalize the job-start confirmation record ({propertyCode, laundryBag, at, byUserId}). */
+function normalizeStartConfirmation(input: unknown): JobMeta["startConfirmation"] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const source = input as Record<string, unknown>;
+  const at = typeof source.at === "string" && source.at.trim() ? source.at.trim() : "";
+  const byUserId = typeof source.byUserId === "string" ? source.byUserId.trim() : "";
+  if (!at) return undefined;
+  return {
+    propertyCode: source.propertyCode === true,
+    laundryBag: source.laundryBag === true,
+    at,
+    byUserId,
   };
 }
 
@@ -377,6 +402,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       quoteServiceContext: normalizeQuoteServiceContext(parsed.quoteServiceContext),
       quoteReferenceImages: normalizeQuoteReferenceImages(parsed.quoteReferenceImages),
       reworkCategorized: typeof parsed.reworkCategorized === "boolean" ? parsed.reworkCategorized : undefined,
+      startConfirmation: normalizeStartConfirmation(parsed.startConfirmation),
     };
   } catch {
     return { ...fallback, internalNoteText: raw };
@@ -403,6 +429,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     additionalPrices: normalizeAdditionalPrices(input.additionalPrices),
     quoteServiceContext: normalizeQuoteServiceContext(input.quoteServiceContext),
     quoteReferenceImages: normalizeQuoteReferenceImages(input.quoteReferenceImages),
+    startConfirmation: normalizeStartConfirmation(input.startConfirmation),
   };
 
   const hasStructuredData =
@@ -420,7 +447,8 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     Boolean(meta.additionalPrices) ||
     Boolean(meta.quoteServiceContext) ||
     Boolean(meta.quoteReferenceImages && meta.quoteReferenceImages.length > 0) ||
-    typeof meta.reworkCategorized === "boolean";
+    typeof meta.reworkCategorized === "boolean" ||
+    Boolean(meta.startConfirmation);
 
   if (!hasStructuredData) {
     return meta.internalNoteText.trim() || undefined;
@@ -444,6 +472,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     quoteServiceContext: meta.quoteServiceContext,
     quoteReferenceImages: meta.quoteReferenceImages,
     reworkCategorized: meta.reworkCategorized,
+    startConfirmation: meta.startConfirmation,
   });
 }
 

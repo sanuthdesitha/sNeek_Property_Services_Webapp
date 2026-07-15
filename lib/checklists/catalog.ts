@@ -2675,4 +2675,299 @@ export const FEATURE_MODULES: FeatureModuleDef[] = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────
+// Accountability Phase 1a — evidence frequency seed content.
+//
+// Two new families of checklist items layered onto the library:
+//   • ROTATIONAL items (deep-detail tasks that come due every N cleans) attach
+//     to existing room modules (kitchen / living / bedrooms / bathrooms) and the
+//     feature-gated balcony module.
+//   • CONDITIONAL items (exception evidence) live in a dedicated always-present
+//     "exceptions" module and only surface when the cleaner reports the matching
+//     exception on the shared `reported-exceptions` field.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Default cadence (in standard cleans) for rotational deep-detail tasks. */
+export const DEFAULT_ROTATION_EVERY_N_CLEANS = 4;
+
+/** Field id of the shared "Report an exception" multiselect (see compose.ts). */
+export const REPORTED_EXCEPTIONS_FIELD_ID = "reported-exceptions";
+
+/**
+ * The 14 exception keys (stable `conditionKey` values) with human labels. The
+ * multiselect options are the labels; each CONDITIONAL evidence item binds its
+ * visibility to the label matching its `conditionKey`.
+ */
+export const EXCEPTION_DEFS: { key: string; label: string }[] = [
+  { key: "guest_mess", label: "Excessive guest mess" },
+  { key: "damage", label: "Damage to property or contents" },
+  { key: "stains", label: "Stains (linen, carpet, walls)" },
+  { key: "mold", label: "Mould or mildew" },
+  { key: "missing_supplies", label: "Missing or low supplies" },
+  { key: "maintenance", label: "Maintenance issue" },
+  { key: "guest_belongings", label: "Guest belongings left behind" },
+  { key: "broken_appliance", label: "Broken appliance" },
+  { key: "inaccessible", label: "Area inaccessible / locked" },
+  { key: "insufficient_time", label: "Insufficient time to complete" },
+  { key: "dirty_sofa_linen", label: "Dirty sofa-bed linen" },
+  { key: "qa_issue", label: "QA issue flagged" },
+  { key: "qa_rectification_before", label: "QA rectification — before" },
+  { key: "qa_rectification_after", label: "QA rectification — after" },
+];
+
+export interface EvidenceItemDef {
+  key: string;
+  label: string;
+  instructions: string;
+  fieldType: string;
+  minPhotos: number;
+  stampTag: string;
+  severity: string;
+  evidenceCategory?: string;
+  rotationEveryNCleans?: number;
+  conditionKey?: string;
+  maxPhotos?: number;
+}
+
+/** A rotational item plus which existing module it attaches to. */
+export interface RotationalSeedItem extends EvidenceItemDef {
+  moduleKey: string;
+  rotationEveryNCleans: number;
+}
+
+/**
+ * ROTATIONAL deep-detail evidence items, homed on existing room modules. Each
+ * comes due every {@link DEFAULT_ROTATION_EVERY_N_CLEANS} cleans and captures a
+ * single stamped "after" photo.
+ */
+export const ROTATIONAL_EVIDENCE_ITEMS: RotationalSeedItem[] = [
+  {
+    moduleKey: "kitchen",
+    key: "kitchen.rot_top_cupboards",
+    label: "Top of cupboards / overhead cabinetry",
+    instructions:
+      "Wipe the dust and grease film off the tops of the wall cupboards and any overhead cabinetry that isn't reached on a standard clean.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "kitchen",
+    key: "kitchen.rot_inside_cupboards",
+    label: "Inside cupboards",
+    instructions:
+      "Empty a rotating set of cupboards where practical, vacuum crumbs and wipe the shelves and interiors before restacking.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "kitchen",
+    key: "kitchen.rot_drawers",
+    label: "Kitchen drawers",
+    instructions:
+      "Wipe out kitchen drawers and cutlery trays, removing crumbs and debris from the runners and corners.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "kitchen",
+    key: "kitchen.rot_appliance_dusting",
+    label: "Behind / on top of appliances (dusting)",
+    instructions:
+      "Dust and wipe the tops and accessible sides of the fridge and freestanding appliances, and behind them where they can be safely reached.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "living",
+    key: "living.rot_inside_tv_stand",
+    label: "Inside TV stand / media unit",
+    instructions:
+      "Remove items from the TV unit shelves, dust and wipe the interior surfaces, then reset the items.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "living",
+    key: "living.rot_behind_tv_stand",
+    label: "Behind TV stand / media unit",
+    instructions:
+      "Where the unit can be safely moved or reached behind, dust and vacuum the floor and cable area behind the TV stand.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "living",
+    key: "living.rot_plant_dusting",
+    label: "Dust plants and decor",
+    instructions:
+      "Dust the leaves of real or artificial plants and the display decor that a standard clean skips.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "living",
+    key: "living.rot_window_sills",
+    label: "Window sills and tracks",
+    instructions:
+      "Vacuum and wipe the window sills and sliding-door tracks, lifting grit and grime from the channels.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "bedroom.rot_behind_bedside",
+    label: "Behind bedside tables",
+    instructions:
+      "Move the bedside tables where practical and dust / vacuum the floor and skirting behind them.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "bedroom.rot_under_beds",
+    label: "Under beds",
+    instructions:
+      "Vacuum or mop under the beds where accessible, clearing dust build-up that routine cleaning leaves.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "bedroom.rot_wardrobes_deep",
+    label: "Wardrobes (deep detail)",
+    instructions:
+      "Wipe accessible empty wardrobe interiors, shelving and rails, and vacuum the wardrobe floor.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "bathroom.rot_deep_detail",
+    label: "Bathroom deep detail",
+    instructions:
+      "Detail the areas a standard bathroom clean skips: extractor-fan cover, exhaust vents, and behind / beside the vanity and toilet.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+  {
+    moduleKey: "balcony",
+    key: "balcony.rot_deep",
+    label: "Balcony deep detail",
+    instructions:
+      "Deep-clean the balcony: scrub the floor, clear drainage points, and wipe the balustrade, railings and glass thoroughly.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "OUTDOOR",
+    rotationEveryNCleans: DEFAULT_ROTATION_EVERY_N_CLEANS,
+  },
+];
+
+/** Stamp tag for a conditional exception item, by its condition key. */
+function exceptionStampTag(key: string): string {
+  if (key === "qa_rectification_before") return "before";
+  if (key === "qa_rectification_after") return "after";
+  if (key === "damage" || key === "stains" || key === "mold") return "damage";
+  return "after";
+}
+
+/** High-severity exceptions (property/contents at risk). */
+const HIGH_SEVERITY_EXCEPTIONS = new Set(["damage", "mold", "broken_appliance", "maintenance"]);
+
+/**
+ * The always-present "exceptions" module: one CONDITIONAL photo-evidence item
+ * per exception key. Composed with a visibility rule bound to the shared
+ * `reported-exceptions` field (appliesWhen null → the module always applies).
+ */
+export const EXCEPTION_MODULE: {
+  key: string;
+  title: string;
+  category: string;
+  sortOrder: number;
+  jobTypes: JobType[];
+  items: (EvidenceItemDef & { conditionKey: string })[];
+} = {
+  key: "exceptions",
+  title: "Exception evidence",
+  category: "EXTRA",
+  sortOrder: 800,
+  jobTypes: HOME_CLEANING_JOB_TYPES,
+  items: EXCEPTION_DEFS.map((def) => ({
+    key: `exceptions.${def.key}`,
+    conditionKey: def.key,
+    label: `${def.label} — photo evidence`,
+    instructions: `Capture clear photo evidence of: ${def.label.toLowerCase()}.`,
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: exceptionStampTag(def.key),
+    severity: HIGH_SEVERITY_EXCEPTIONS.has(def.key) ? "high" : "medium",
+  })),
+};
+
+/** Module key → evidence taxonomy category, for backfilling existing items. */
+export const MODULE_EVIDENCE_CATEGORY: Record<string, string> = {
+  kitchen: "KITCHEN",
+  bathrooms: "BATHROOM",
+  bedrooms: "BEDROOM",
+  living: "LIVING",
+  balcony: "OUTDOOR",
+  garden: "OUTDOOR",
+  garage: "OUTDOOR",
+  pool: "OUTDOOR",
+  spa: "OUTDOOR",
+  bbq: "OUTDOOR",
+  general: "FINAL",
+  finish: "FINAL",
+  floors: "FINAL",
+};
+
 export default DEFAULT_CHECKLISTS;

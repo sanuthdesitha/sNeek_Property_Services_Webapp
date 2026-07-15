@@ -871,6 +871,18 @@ model Property {
   sizeSqm                    Float?
   floorCount                 Int?
   laundryDetail              Json? // { washerType, dryerType, laundryLocation, detergentType, suppliesProvided, notes }
+  // ── Quality / accountability config ────────────────────────────────────────
+  // Planned standard-clean duration (job-start display + QA duration baseline).
+  cleaningDurationMinutes    Int?
+  // Per-clean cleaner service rate (overrides hourly maths when set).
+  cleanerServiceRate         Float?
+  // Laundry bag identity so the cleaner grabs the right bag: label + colour.
+  laundryBagLabel            String?
+  laundryBagColor            String?
+  sofaBedCount               Int      @default(0)
+  // Setup instructions + reference-position images, same shape as accessGuide:
+  // [{ id, kind: SETUP|REFERENCE_POSITION|SOFA_BED|OTHER, label, instructions, images: [{url,key,caption?}] }]
+  setupGuide                 Json?
   emergencyContact           Json? // { name, phone, relationship }
   recurringSchedule          Json? // { frequency, day, time, notes } captured for recurring services
   latitude                   Float?
@@ -915,6 +927,7 @@ model Property {
   maintenanceItems    PropertyMaintenanceItem[]
   heldStockDeliveries HeldStockDelivery[]
   checklistProfile    PropertyChecklistProfile?
+  rotationStates      PropertyRotationState[]
 
   @@index([placeId])
   @@index([suburb])
@@ -926,6 +939,36 @@ model Property {
 // per-property cleaner form. Modules auto-apply via `appliesWhen` rules
 // against the property's attributes/features and can be toggled per property.
 // ─────────────────────────────────────────────
+
+/// How often a checklist item / evidence requirement applies.
+enum EvidenceFrequency {
+  EVERY_CLEAN
+  CONDITIONAL
+  ROTATIONAL
+}
+
+/// Per-property rotation tracker for ROTATIONAL checklist items: how many
+/// standard cleans have passed since the item was last completed. Updated
+/// inside the cleaner-submit transaction; compose-time applicability includes
+/// a rotational item when cleansSinceDone + 1 >= its rotation cadence.
+model PropertyRotationState {
+  id                 String    @id @default(cuid())
+  propertyId         String
+  /// ChecklistModuleItem.key, e.g. "kitchen.top_cupboards".
+  itemKey            String
+  lastCompletedAt    DateTime?
+  lastCompletedJobId String?
+  cleansSinceDone    Int       @default(0)
+
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lastCompletedJob Job?     @relation(fields: [lastCompletedJobId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([propertyId, itemKey])
+  @@index([propertyId])
+}
 
 model ChecklistModule {
   id          String  @id @default(cuid())
@@ -977,6 +1020,26 @@ model ChecklistModuleItem {
   appliesWhen  Json?
   sortOrder    Int       @default(0)
   isActive     Boolean   @default(true)
+
+  /// Evidence taxonomy — LIVING | KITCHEN | BATHROOM | BEDROOM | OUTDOOR |
+  /// FINAL | PROPERTY_CONFIRM | LAUNDRY_CONFIRM. Drives QA grouping + the
+  /// missing-mandatory-evidence scoring rule.
+  evidenceCategory     String?
+  /// How often this item applies: every clean (default), only when an
+  /// exception is reported (CONDITIONAL + conditionKey), or on a rotation
+  /// (ROTATIONAL + rotationEveryNCleans, tracked per property).
+  frequency            EvidenceFrequency @default(EVERY_CLEAN)
+  /// For CONDITIONAL items: stable exception key (guest_mess | damage |
+  /// stains | mold | missing_supplies | maintenance | guest_belongings |
+  /// broken_appliance | inaccessible | insufficient_time | dirty_sofa_linen |
+  /// qa_issue | qa_rectification_before | qa_rectification_after).
+  conditionKey         String?
+  /// For ROTATIONAL items: due every N standard cleans (property can override
+  /// via its checklist profile selections).
+  rotationEveryNCleans Int?
+  maxPhotos            Int?
+  /// Default issue severity when QA fails this item: low | medium | high.
+  severity             String?
 
   module ChecklistModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
@@ -1198,6 +1261,7 @@ model Job {
   qaFormSubmissions      QaFormSubmission[]
   qaReworkTransfers      QaReworkTransfer[]
   mediaOverrideRequests  MediaOverrideRequest[]
+  rotationCompletions    PropertyRotationState[]
   maintenanceItems       PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?

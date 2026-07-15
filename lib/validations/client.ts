@@ -31,6 +31,64 @@ const accessInfoSchema = z.object({
 
 const inventoryLocationSchema = z.enum(["BATHROOM", "KITCHEN", "CLEANERS_CUPBOARD"]);
 
+/** Colour choices for the property laundry bag swatch picker (stored lowercase). */
+export const LAUNDRY_BAG_COLORS = [
+  "blue",
+  "red",
+  "green",
+  "yellow",
+  "black",
+  "white",
+  "orange",
+  "purple",
+] as const;
+
+/** Setup guide entry kinds — mirrors accessGuide's shape/handling. */
+export const SETUP_GUIDE_KINDS = ["SETUP", "REFERENCE_POSITION", "SOFA_BED", "OTHER"] as const;
+
+const setupGuideImageSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  key: z.string().trim().min(1).max(1024),
+  caption: z.string().trim().max(280).optional(),
+});
+
+const setupGuideEntrySchema = z.object({
+  id: z.string().trim().min(1).max(64),
+  kind: z.enum(SETUP_GUIDE_KINDS),
+  label: z.string().trim().min(1).max(120),
+  instructions: z.string().trim().max(4000).optional(),
+  images: z.array(setupGuideImageSchema).max(24).default([]),
+});
+
+export const setupGuideSchema = z.array(setupGuideEntrySchema).max(40);
+
+/**
+ * Normalise a setupGuide array for persistence — trims empty captions and drops
+ * entries with no useful content. Mirrors the access-guide route's cleaning.
+ */
+export function sanitizeSetupGuide(value: unknown): z.infer<typeof setupGuideEntrySchema>[] {
+  if (!Array.isArray(value)) return [];
+  const out: z.infer<typeof setupGuideEntrySchema>[] = [];
+  for (const raw of value) {
+    const parsed = setupGuideEntrySchema.safeParse(raw);
+    if (!parsed.success) continue;
+    const entry = parsed.data;
+    const cleaned = {
+      id: entry.id,
+      kind: entry.kind,
+      label: entry.label,
+      instructions: entry.instructions?.trim() || undefined,
+      images: entry.images.map((img) => ({
+        url: img.url,
+        key: img.key,
+        caption: img.caption?.trim() || undefined,
+      })),
+    };
+    if (cleaned.label || cleaned.instructions || cleaned.images.length > 0) out.push(cleaned);
+  }
+  return out;
+}
+
 const clientPortalVisibilityOverrideSchema = z
   .object({
     showProperties: z.boolean().optional(),
@@ -108,6 +166,13 @@ export const createPropertySchema = z.object({
   preferredCleanerUserId: z.string().cuid().optional().nullable(),
   showCleanerContactToClient: z.boolean().optional(),
   laundryEnabled: z.boolean().optional(),
+  // ── Quality & accountability config ────────────────────────────────────────
+  cleaningDurationMinutes: z.number().int().min(0).max(1440).optional().nullable(),
+  cleanerServiceRate: z.number().min(0).max(100000).optional().nullable(),
+  laundryBagLabel: z.string().trim().max(120).optional().nullable(),
+  laundryBagColor: z.enum(LAUNDRY_BAG_COLORS).optional().nullable(),
+  sofaBedCount: z.number().int().min(0).max(20).default(0),
+  setupGuide: setupGuideSchema.optional(),
   defaultInventoryItemIds: z.array(z.string().cuid()).optional(),
   customInventoryItems: z
     .array(

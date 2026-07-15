@@ -445,6 +445,9 @@ export default function CleanerJobPage() {
   const [verificationDate, setVerificationDate] = useState("");
   const [confirmOnSite, setConfirmOnSite] = useState(false);
   const [confirmChecklist, setConfirmChecklist] = useState(false);
+  // Job-start accountability gate (Phase 2b): verified property code + laundry bag.
+  const [propertyCodeConfirmed, setPropertyCodeConfirmed] = useState(false);
+  const [laundryBagConfirmed, setLaundryBagConfirmed] = useState(false);
   const [resolvedCarryForwardIds, setResolvedCarryForwardIds] = useState<string[]>([]);
   const [hasMissedTask, setHasMissedTask] = useState(false);
   const [missedTaskNotes, setMissedTaskNotes] = useState<string[]>([""]);
@@ -2408,12 +2411,28 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }
 
   async function handleStart() {
+    // Job-start gate — block until the property code (and laundry bag, when
+    // applicable) are confirmed. The server enforces this too; this gives a clear
+    // message before the POST.
+    if (startGateBlocks && !startGateSatisfied) {
+      showPopupNotification(
+        "Confirm before you start",
+        startGateLaundryBagRequired
+          ? "Tick the property-code and laundry-bag confirmations before clocking in."
+          : "Tick the property-code confirmation before clocking in.",
+        "destructive"
+      );
+      return;
+    }
+
     async function submitStart(allowFutureStart: boolean) {
       const res = await fetch(`/api/cleaner/jobs/${params.id}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           allowFutureStart,
+          propertyCodeConfirmed,
+          laundryBagConfirmed,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -4135,6 +4154,45 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const accessInfo = job?.property?.accessInfo as Record<string, string> | undefined;
   const finished = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job?.status ?? "");
   const hasStartedJob = isRunning || elapsed > 0 || job?.status === "IN_PROGRESS";
+
+  // ── Job-start "Before you start" gate (Phase 2b) ───────────────────────────
+  const startGatePropertyCode = String((property as any)?.name ?? "");
+  const startGateDurationMinutes: number | null =
+    (property as any)?.cleaningDurationMinutes != null
+      ? Number((property as any).cleaningDurationMinutes)
+      : (job as any)?.estimatedHours != null
+      ? Math.round(Number((job as any).estimatedHours) * 60)
+      : null;
+  const startGateBagLabel = String((property as any)?.laundryBagLabel ?? "");
+  const startGateBagColor = String((property as any)?.laundryBagColor ?? "");
+  const startGateSetupEntries: Array<{
+    id?: string;
+    label?: string;
+    instructions?: string;
+    images?: Array<{ url?: string; caption?: string }>;
+  }> = Array.isArray((property as any)?.setupGuide) ? (property as any).setupGuide : [];
+  const startGateRestockNeeds: Array<{ name: string; needed: number; unit?: string | null }> =
+    Array.isArray(payload?.restockNeeds) ? payload.restockNeeds : [];
+  const startGateLaundryEnabled =
+    (property as any)?.laundryEnabled !== false && (job as any)?.isRework !== true;
+  const startGateFlagOn = payload?.requireJobStartConfirmation !== false;
+  const startGateLaundryBagRequired =
+    startGateFlagOn && startGateLaundryEnabled && Boolean(startGateBagLabel);
+  // Gate blocks only before the first clock-in for this cleaner.
+  const startGateBlocks = startGateFlagOn && !hasStartedJob && !finished;
+  const startGateSatisfied =
+    !startGateBlocks ||
+    (propertyCodeConfirmed && (!startGateLaundryBagRequired || laundryBagConfirmed));
+  const startGateDurationLabel =
+    startGateDurationMinutes != null && startGateDurationMinutes > 0
+      ? (() => {
+          const h = Math.floor(startGateDurationMinutes / 60);
+          const m = startGateDurationMinutes % 60;
+          if (h > 0 && m > 0) return `${h}h ${m}m`;
+          if (h > 0) return `${h}h`;
+          return `${m}m`;
+        })()
+      : "Not set";
   const pendingUploadCount = Object.values(uploadStates)
     .flat()
     .filter((item) => item.status === "queued" || item.status === "uploading").length;
@@ -4556,7 +4614,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           </div>
           <div className="flex gap-2">
             {!isRunning ? (
-              <Button className="h-11" onClick={handleStart} disabled={finished}>
+              <Button
+                className="h-11"
+                onClick={handleStart}
+                disabled={finished || (startGateBlocks && !startGateSatisfied)}
+              >
                 <Play className="mr-2 h-4 w-4" />
                 {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume" : "Start"}
               </Button>
@@ -4996,8 +5058,136 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               </div>
             </div>
 
+            {/* Before you start — job-start accountability gate (Phase 2b). */}
+            {!hasStartedJob && !finished ? (
+              <div className="rounded-lg border border-amber-300/70 bg-amber-50/60 p-3 dark:border-amber-500/40 dark:bg-amber-500/5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                  Before you start
+                </p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Property code</p>
+                    <p className="text-2xl font-bold leading-tight">{startGatePropertyCode || "—"}</p>
+                  </div>
+                  <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Expected duration</p>
+                    <p className="mt-1 text-sm font-medium">
+                      <Clock className="mr-1 inline h-3.5 w-3.5" />
+                      {startGateDurationLabel}
+                    </p>
+                  </div>
+                </div>
+
+                {startGateLaundryEnabled && (startGateBagLabel || startGateBagColor) ? (
+                  <div className="mt-3 rounded-md border border-border bg-surface-raised px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Laundry bag</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      {startGateBagColor ? (
+                        <span
+                          className="inline-block h-4 w-4 shrink-0 rounded-full border border-border"
+                          style={{ backgroundColor: startGateBagColor }}
+                          aria-hidden
+                        />
+                      ) : null}
+                      <span className="text-sm font-medium">
+                        {startGateBagLabel || "—"}
+                        {startGateBagColor ? (
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            ({startGateBagColor})
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+
+                {startGateSetupEntries.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground/80">Setup reference</p>
+                    {startGateSetupEntries.map((entry, ei) => {
+                      const imgs = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
+                      return (
+                        <div key={entry.id || `setup-${ei}`} className="rounded-md border border-border px-3 py-2">
+                          {entry.label ? <p className="text-sm font-medium">{entry.label}</p> : null}
+                          {entry.instructions ? (
+                            <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">
+                              {entry.instructions}
+                            </p>
+                          ) : null}
+                          {imgs.length > 0 ? (
+                            <MediaGallery
+                              items={imgs.map((im, ii) => ({
+                                id: `${entry.id || ei}-${ii}`,
+                                url: im.url as string,
+                                label: im.caption || entry.label || undefined,
+                              }))}
+                              title={entry.label || "Setup reference"}
+                              className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {startGateRestockNeeds.length > 0 ? (
+                  <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                    <p className="text-xs font-semibold text-foreground/80">
+                      <Package className="mr-1 inline h-3.5 w-3.5" />
+                      Restock needed
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {startGateRestockNeeds.map((r, ri) => (
+                        <li key={`${r.name}-${ri}`} className="flex items-center justify-between gap-2 text-xs">
+                          <span>{r.name}</span>
+                          <span className="font-medium tabular-nums">
+                            +{r.needed}
+                            {r.unit ? ` ${r.unit}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {startGateBlocks ? (
+                  <div className="mt-3 space-y-2 rounded-md border border-amber-300/70 bg-amber-100/40 px-3 py-2 dark:border-amber-500/40 dark:bg-amber-500/10">
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={propertyCodeConfirmed}
+                        onCheckedChange={(v) => setPropertyCodeConfirmed(v === true)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        I have verified the property code
+                        {startGatePropertyCode ? <strong> — {startGatePropertyCode}</strong> : null}
+                      </span>
+                    </label>
+                    {startGateLaundryBagRequired ? (
+                      <label className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                          checked={laundryBagConfirmed}
+                          onCheckedChange={(v) => setLaundryBagConfirmed(v === true)}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          I am using the correct laundry bag
+                          {startGateBagLabel ? <strong> — {startGateBagLabel}</strong> : null}
+                        </span>
+                      </label>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
-              <Button className="h-11" onClick={handleStart} disabled={finished}>
+              <Button
+                className="h-11"
+                onClick={handleStart}
+                disabled={finished || (startGateBlocks && !startGateSatisfied)}
+              >
                 <Play className="mr-2 h-4 w-4" />
                 {elapsed > 0 || job?.status === "IN_PROGRESS" ? "Resume job" : "Begin job"}
               </Button>

@@ -50,6 +50,14 @@ export async function GET(
             bathrooms: true,
             inventoryEnabled: true,
             laundryEnabled: true,
+            // Job-start gate context (accountability): expected duration, laundry
+            // bag identity, sofa beds, and setup reference images. `name` (already
+            // selected) carries the property short code (e.g. "J04").
+            cleaningDurationMinutes: true,
+            laundryBagLabel: true,
+            laundryBagColor: true,
+            sofaBedCount: true,
+            setupGuide: true,
           },
         },
         assignments: {
@@ -250,6 +258,26 @@ export async function GET(
       }
     }
 
+    // Restock needs for the job-start gate: items at/under their reorder
+    // threshold, with the quantity needed to reach par. Empty when inventory is
+    // disabled for the property (inventoryStock stays []).
+    const restockNeeds = inventoryStock
+      .filter((row: any) => Number(row?.onHand ?? 0) <= Number(row?.reorderThreshold ?? 0))
+      .map((row: any) => ({
+        name: String(row?.item?.name ?? "Item"),
+        needed: Math.max(0, Number(row?.parLevel ?? 0) - Number(row?.onHand ?? 0)),
+        unit: row?.item?.unit ?? null,
+      }))
+      .filter((r: any) => r.needed > 0);
+
+    // Job-start accountability gate flag (Phase 2b) — read defensively; defaults
+    // ON unless explicitly disabled. Surfaced so the cleaner portals know whether
+    // to enforce the confirmation gate (server-side remains authoritative).
+    const requireJobStartConfirmation =
+      (settings as unknown as {
+        accountability?: { requireJobStartConfirmation?: boolean };
+      }).accountability?.requireJobStartConfirmation !== false;
+
     const cleanerTimeLogs =
       session.user.role === Role.CLEANER
         ? await db.timeLog.findMany({
@@ -406,6 +434,8 @@ export async function GET(
       templateSource,
       configuredPropertyTemplateId,
       inventoryStock,
+      restockNeeds,
+      requireJobStartConfirmation,
       carryForwardTasks: unresolvedCarryForwardTasks.map((ticket) => ({
         id: ticket.id,
         description: ticket.description,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { createPropertySchema } from "@/lib/validations/client";
+import { createPropertySchema, sanitizeSetupGuide } from "@/lib/validations/client";
 import { Role } from "@prisma/client";
 import { applyDefaultStockToProperty, ensureDefaultInventoryItems } from "@/lib/inventory/default-items";
 import { getApiErrorStatus } from "@/lib/api/http";
@@ -100,6 +100,10 @@ export async function POST(req: NextRequest) {
           undefined,
         accessInfo: normalizedAccessInfo as any,
         preferredCleanerUserId: propertyData.preferredCleanerUserId ?? undefined,
+        setupGuide:
+          propertyData.setupGuide !== undefined
+            ? (sanitizeSetupGuide(propertyData.setupGuide) as any)
+            : undefined,
         integration: { create: { isEnabled: false } },
       },
     });

@@ -156,6 +156,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
 
+  // Job-start accountability gate (Phase 2b): the cleaner confirms the property
+  // code and the correct laundry bag before clocking in.
+  const [propertyCodeConfirmed, setPropertyCodeConfirmed] = React.useState(false);
+  const [laundryBagConfirmed, setLaundryBagConfirmed] = React.useState(false);
+
   // Shared cross-device draft (same /draft endpoint + envelope as v1).
   const editorSessionIdRef = React.useRef<string>(
     `v2-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
@@ -323,6 +328,50 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // submit route's `laundrySuppressed` rule so the UI matches what's persisted.
   const laundryEnabled = (property as any)?.laundryEnabled !== false && job?.isRework !== true;
 
+  // ── Job-start "Before you start" gate ──────────────────────────────────────
+  const hasStarted = hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0;
+  const propertyCode: string = (property as any)?.name ?? "";
+  const expectedDurationMinutes: number | null =
+    (property as any)?.cleaningDurationMinutes != null
+      ? Number((property as any).cleaningDurationMinutes)
+      : job?.estimatedHours != null
+      ? Math.round(Number(job.estimatedHours) * 60)
+      : null;
+  const bagLabel: string = (property as any)?.laundryBagLabel ?? "";
+  const bagColor: string = (property as any)?.laundryBagColor ?? "";
+  const setupGuideEntries: Array<{
+    id?: string;
+    kind?: string;
+    label?: string;
+    instructions?: string;
+    images?: Array<{ url?: string; caption?: string }>;
+  }> = Array.isArray((property as any)?.setupGuide) ? (property as any).setupGuide : [];
+  const restockNeeds: Array<{ name: string; needed: number; unit?: string | null }> = Array.isArray(
+    payload?.restockNeeds
+  )
+    ? payload.restockNeeds
+    : [];
+  const requireStartConfirmation = payload?.requireJobStartConfirmation !== false;
+  // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
+  const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
+  // Property-code confirmation is always required when the flag is on.
+  const startGateBlocks = requireStartConfirmation && !hasStarted && !locked && !needsAcceptance;
+  const startGateSatisfied =
+    !startGateBlocks ||
+    (propertyCodeConfirmed && (!laundryBagConfirmRequired || laundryBagConfirmed));
+  // Show the info/gate card in the pre-start area (even when non-blocking, so the
+  // cleaner always sees the property code, duration, bag and setup references).
+  const showStartGateCard = !hasStarted && !locked && !needsAcceptance;
+
+  function formatDurationMinutes(mins: number): string {
+    if (mins <= 0) return "—";
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }
+
   // Client / admin-flagged requests for THIS job — sourced from the same jobTasks
   // the checklist uses (source CLIENT / ADMIN) plus the quote's client-requested
   // additionals (payload.jobMeta.additionals — the form's "Additionals
@@ -465,6 +514,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
   // Clock-in: capture GPS → gps-checkin, then start the clock.
   async function clockIn() {
+    // Client-side gate: block until the pre-start confirmations are ticked. The
+    // server enforces this too — this just gives a clear message before the POST.
+    if (startGateBlocks && !startGateSatisfied) {
+      flash(
+        "danger",
+        laundryBagConfirmRequired
+          ? "Confirm the property code and the correct laundry bag before clocking in."
+          : "Confirm the property code before clocking in."
+      );
+      return;
+    }
     setBusy("clockin");
     try {
       let gps: { lat: number; lng: number; accuracy: number | null } | null = null;
@@ -480,7 +540,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         // GPS optional but recorded when available; surface a soft note.
         flash("info", `Starting without GPS (${geoErr.message}).`);
       }
-      await post(`/api/cleaner/jobs/${jobId}/start`, { allowFutureStart: true });
+      await post(`/api/cleaner/jobs/${jobId}/start`, {
+        allowFutureStart: true,
+        propertyCodeConfirmed,
+        laundryBagConfirmed,
+      });
       flash("success", "Clocked in — job started.");
       await load();
     } catch (e: any) {
@@ -862,6 +926,165 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </EAlert>
       ) : null}
 
+      {/* Before you start — job-start accountability gate (Phase 2b). Shows the
+          property code, expected duration, the correct laundry bag, setup
+          reference images and restock needs; blocks clock-in until confirmed. */}
+      {showStartGateCard ? (
+        <ECard className="border-[hsl(var(--e-gold))]">
+          <ECardBody className="space-y-4 pt-6">
+            <div className="flex items-center gap-1.5">
+              <ClipboardCheck className="h-4 w-4 text-[hsl(var(--e-gold))]" />
+              <p className="text-[0.9375rem] font-[600]">Before you start</p>
+            </div>
+
+            {/* Property code — big */}
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+              <p className="text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                Property code
+              </p>
+              <p className="text-[1.75rem] font-[650] leading-tight tracking-[0.02em]">
+                {propertyCode || "—"}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Expected duration */}
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                  <Clock className="h-3.5 w-3.5" /> Expected duration
+                </p>
+                <p className="mt-1 text-[0.9375rem] font-[550]">
+                  {expectedDurationMinutes != null
+                    ? formatDurationMinutes(expectedDurationMinutes)
+                    : "Not set"}
+                </p>
+              </div>
+
+              {/* Laundry bag — label + colour swatch */}
+              {laundryEnabled && (bagLabel || bagColor) ? (
+                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                    <WashingMachine className="h-3.5 w-3.5" /> Laundry bag
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    {bagColor ? (
+                      <span
+                        className="inline-block h-4 w-4 shrink-0 rounded-full border border-[hsl(var(--e-border-strong))]"
+                        style={{ backgroundColor: bagColor }}
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="text-[0.9375rem] font-[550]">
+                      {bagLabel || "—"}
+                      {bagColor ? (
+                        <span className="ml-1 text-[0.8125rem] font-[400] text-[hsl(var(--e-muted-foreground))]">
+                          ({bagColor})
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Setup reference images */}
+            {setupGuideEntries.length > 0 ? (
+              <div className="space-y-2">
+                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+                  <BookOpen className="h-3.5 w-3.5" /> Setup reference
+                </p>
+                {setupGuideEntries.map((entry, ei) => {
+                  const images = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
+                  return (
+                    <div
+                      key={entry.id || `setup-${ei}`}
+                      className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
+                    >
+                      {entry.label ? (
+                        <p className="text-[0.8125rem] font-[550]">{entry.label}</p>
+                      ) : null}
+                      {entry.instructions ? (
+                        <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                          {entry.instructions}
+                        </p>
+                      ) : null}
+                      {images.length > 0 ? (
+                        <MediaGallery
+                          items={images.map((im, ii) => ({
+                            id: `${entry.id || ei}-${ii}`,
+                            url: im.url as string,
+                            label: im.caption || entry.label || undefined,
+                          }))}
+                          title={entry.label || "Setup reference"}
+                          className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {/* Restock needs */}
+            {restockNeeds.length > 0 ? (
+              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+                  <Package className="h-4 w-4" /> Restock needed
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {restockNeeds.map((r, ri) => (
+                    <li
+                      key={`${r.name}-${ri}`}
+                      className="flex items-center justify-between gap-2 text-[0.8125rem]"
+                    >
+                      <span>{r.name}</span>
+                      <span className="font-[550] tabular-nums">
+                        +{r.needed}
+                        {r.unit ? ` ${r.unit}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Confirmation checkboxes — required when the gate blocks. */}
+            {startGateBlocks ? (
+              <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3">
+                <label className="flex items-start gap-2 text-[0.875rem]">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
+                    checked={propertyCodeConfirmed}
+                    onChange={(e) => setPropertyCodeConfirmed(e.target.checked)}
+                  />
+                  <span>
+                    I have verified the property code
+                    {propertyCode ? (
+                      <span className="font-[600]"> — {propertyCode}</span>
+                    ) : null}
+                  </span>
+                </label>
+                {laundryBagConfirmRequired ? (
+                  <label className="flex items-start gap-2 text-[0.875rem]">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
+                      checked={laundryBagConfirmed}
+                      onChange={(e) => setLaundryBagConfirmed(e.target.checked)}
+                    />
+                    <span>
+                      I am using the correct laundry bag
+                      {bagLabel ? <span className="font-[600]"> — {bagLabel}</span> : null}
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
       {/* Clock / GPS control */}
       <ClockCard
         status={status}
@@ -872,6 +1095,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         activeStartedAt={timeState.activeStartedAt ?? null}
         maxAllowedTotalSeconds={timeState.maxAllowedTotalSeconds ?? null}
         busy={busy}
+        clockInDisabled={startGateBlocks && !startGateSatisfied}
         onClockIn={clockIn}
         onPause={pauseClock}
       />
@@ -1213,6 +1437,7 @@ function ClockCard({
   activeStartedAt,
   maxAllowedTotalSeconds,
   busy,
+  clockInDisabled,
   onClockIn,
   onPause,
 }: {
@@ -1224,6 +1449,7 @@ function ClockCard({
   activeStartedAt: string | null;
   maxAllowedTotalSeconds: number | null;
   busy: string | null;
+  clockInDisabled?: boolean;
   onClockIn: () => void;
   onPause: () => void;
 }) {
@@ -1302,7 +1528,11 @@ function ClockCard({
 
         <div className="flex flex-wrap gap-2">
           {!isRunning && !locked ? (
-            <EButton variant="primary" disabled={busy === "clockin"} onClick={onClockIn}>
+            <EButton
+              variant="primary"
+              disabled={busy === "clockin" || clockInDisabled}
+              onClick={onClockIn}
+            >
               {busy === "clockin" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {hasCheckin ? "Resume · clock in" : "Clock in (GPS)"}
             </EButton>
@@ -1314,7 +1544,11 @@ function ClockCard({
             </EButton>
           ) : null}
         </div>
-        {!hasCheckin && !locked ? (
+        {clockInDisabled ? (
+          <p className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-gold-ink))]">
+            <ClipboardCheck className="h-3.5 w-3.5" /> Complete the &ldquo;Before you start&rdquo; confirmations above to clock in.
+          </p>
+        ) : !hasCheckin && !locked ? (
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Clocking in captures your GPS location at the property.
           </p>

@@ -19,6 +19,7 @@ const PROPERTY_RULE_FIELDS = {
   bathrooms: true,
   laundryEnabled: true,
   inventoryEnabled: true,
+  sofaBedCount: true,
   features: true,
 } as const;
 

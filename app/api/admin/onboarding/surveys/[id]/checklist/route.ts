@@ -43,6 +43,7 @@ function pseudoPropertyFromSurvey(
     bathrooms: survey.bathrooms,
     laundryEnabled: survey.laundryDetail?.hasLaundry ?? false,
     inventoryEnabled: false,
+    sofaBedCount: 0,
     features,
   };
 }

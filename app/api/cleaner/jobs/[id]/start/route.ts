@@ -14,12 +14,17 @@ import { toZonedTime } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
+import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   confirmChecklist: z.boolean().optional(),
   confirmOnSite: z.boolean().optional(),
   allowFutureStart: z.boolean().optional(),
+  // Job-start accountability gate (Phase 2b): the cleaner confirmed the property
+  // code and the correct laundry bag before clocking in.
+  propertyCodeConfirmed: z.boolean().optional(),
+  laundryBagConfirmed: z.boolean().optional(),
 });
 
 export async function POST(
@@ -53,9 +58,13 @@ export async function POST(
         status: true,
         scheduledDate: true,
         jobType: true,
+        isRework: true,
+        internalNotes: true,
         property: {
           select: {
             name: true,
+            laundryEnabled: true,
+            laundryBagLabel: true,
           },
         },
       },
@@ -121,6 +130,38 @@ export async function POST(
         },
         { status: 409 }
       );
+    }
+
+    // ── Job-start accountability gate (Phase 2b) ──────────────────────────────
+    // Before the FIRST clock-in for this cleaner, require confirmation that they
+    // verified the property code and (for laundry properties) the correct laundry
+    // bag. Server-side is authoritative; the UI is convenience. Read the settings
+    // flag defensively — it defaults ON unless explicitly disabled.
+    const requireStartConfirmation =
+      (settings as unknown as {
+        accountability?: { requireJobStartConfirmation?: boolean };
+      }).accountability?.requireJobStartConfirmation !== false;
+    // Laundry-bag confirmation only matters for laundry-enabled, non-rework jobs
+    // (reworks reuse the original clean's linen). Property-code is always required
+    // when the flag is on.
+    const laundryConfirmRequired =
+      job.property?.laundryEnabled !== false && job.isRework !== true;
+    if (requireStartConfirmation && isFirstStartForCleaner) {
+      const propertyCodeOk = body.propertyCodeConfirmed === true;
+      const laundryBagOk = !laundryConfirmRequired || body.laundryBagConfirmed === true;
+      if (!propertyCodeOk || !laundryBagOk) {
+        return NextResponse.json(
+          {
+            code: "JOB_START_CONFIRMATION_REQUIRED",
+            error:
+              "Before you clock in, confirm the property code" +
+              (laundryConfirmRequired ? " and the correct laundry bag" : "") +
+              ".",
+            requireLaundryBag: laundryConfirmRequired,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const openOtherLogs = await db.timeLog.findMany({
@@ -237,6 +278,49 @@ export async function POST(
         },
       });
     });
+
+    // Persist the job-start confirmation into job meta + an audit row (only on the
+    // first gated start for this cleaner, so a resume/re-clock-in doesn't overwrite
+    // the original record).
+    if (requireStartConfirmation && isFirstStartForCleaner) {
+      const confirmedAt = new Date().toISOString();
+      const meta = parseJobInternalNotes(job.internalNotes);
+      const nextNotes = serializeJobInternalNotes({
+        ...meta,
+        internalNoteText: meta.internalNoteText,
+        startConfirmation: {
+          propertyCode: true,
+          laundryBag: laundryConfirmRequired ? body.laundryBagConfirmed === true : false,
+          at: confirmedAt,
+          byUserId: session.user.id,
+        },
+      });
+      await db.job.update({
+        where: { id: params.id },
+        data: { internalNotes: nextNotes ?? null },
+      });
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          jobId: job.id,
+          action: "JOB_START_CONFIRMATION",
+          entity: "Job",
+          entityId: job.id,
+          after: {
+            propertyCode: true,
+            laundryBag: laundryConfirmRequired ? body.laundryBagConfirmed === true : false,
+            laundryConfirmRequired,
+            propertyCodeSurface: job.property?.name ?? null,
+            laundryBagLabel: job.property?.laundryBagLabel ?? null,
+            at: confirmedAt,
+          } as any,
+          ipAddress:
+            req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+            req.headers.get("x-real-ip") ||
+            null,
+        },
+      });
+    }
 
     if (isFutureDate && body.allowFutureStart) {
       const actorName = session.user.name ?? session.user.email ?? "Cleaner";

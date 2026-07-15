@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const property = await db.property.findUnique({
       where: { id: params.id },
-      select: { id: true, features: true, bedrooms: true, bathrooms: true, hasBalcony: true, inventoryEnabled: true, laundryEnabled: true },
+      select: { id: true, features: true, bedrooms: true, bathrooms: true, hasBalcony: true, inventoryEnabled: true, laundryEnabled: true, sofaBedCount: true },
     });
     if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
     const body = previewSchema.parse(await req.json());

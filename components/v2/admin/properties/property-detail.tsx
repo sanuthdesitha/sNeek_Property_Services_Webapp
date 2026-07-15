@@ -54,6 +54,11 @@ import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
+import {
+  PropertySetupGuideEditor,
+  LaundryBagColorPicker,
+  type SetupGuideEntry,
+} from "./property-setup-guide-editor";
 
 type TabKey = "profile" | "jobs" | "checklist" | "access" | "inventory" | "billing";
 
@@ -99,7 +104,13 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     bedrooms: "1",
     bathrooms: "1",
     showCleanerContactToClient: false,
+    cleaningDurationMinutes: "",
+    cleanerServiceRate: "",
+    laundryBagLabel: "",
+    laundryBagColor: "",
+    sofaBedCount: "0",
   });
+  const [setupGuide, setSetupGuide] = useState<SetupGuideEntry[]>([]);
   const [access, setAccess] = useState({
     lockbox: "",
     codes: "",
@@ -171,7 +182,15 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       bedrooms: String(data.bedrooms ?? 1),
       bathrooms: String(data.bathrooms ?? 1),
       showCleanerContactToClient: Boolean(data.showCleanerContactToClient),
+      cleaningDurationMinutes:
+        typeof data.cleaningDurationMinutes === "number" ? String(data.cleaningDurationMinutes) : "",
+      cleanerServiceRate:
+        typeof data.cleanerServiceRate === "number" ? String(data.cleanerServiceRate) : "",
+      laundryBagLabel: typeof data.laundryBagLabel === "string" ? data.laundryBagLabel : "",
+      laundryBagColor: typeof data.laundryBagColor === "string" ? data.laundryBagColor : "",
+      sofaBedCount: String(data.sofaBedCount ?? 0),
     });
+    setSetupGuide(Array.isArray(data.setupGuide) ? data.setupGuide : []);
 
     const draft: Record<string, { onHand: string; parLevel: string; reorderThreshold: string }> = {};
     for (const row of data.propertyStock ?? []) {
@@ -233,6 +252,14 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       bedrooms: Number(form.bedrooms || 0),
       bathrooms: Number(form.bathrooms || 0),
       showCleanerContactToClient: form.showCleanerContactToClient,
+      cleaningDurationMinutes:
+        form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      cleanerServiceRate:
+        form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
+      laundryBagLabel: form.laundryBagLabel.trim() || null,
+      laundryBagColor: form.laundryBagColor || null,
+      sofaBedCount: Number(form.sofaBedCount || 0),
+      setupGuide,
     };
     const res = await fetch(`/api/admin/properties/${propertyId}`, {
       method: "PATCH",
@@ -608,6 +635,44 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
               <EField label="Notes">
                 <ETextarea value={form.notes} onChange={(e) => setF("notes", e.target.value)} />
               </EField>
+
+              <div className="space-y-4 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.8125rem] font-[550]">Quality &amp; accountability</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <EField label="Clean duration (min)" hint="Standard clean duration">
+                    <EInput
+                      type="number"
+                      min="0"
+                      value={form.cleaningDurationMinutes}
+                      onChange={(e) => setF("cleaningDurationMinutes", e.target.value)}
+                    />
+                  </EField>
+                  <EField label="Cleaner service rate ($)" hint="Per-clean cleaner rate — overrides hourly maths">
+                    <EInput
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.cleanerServiceRate}
+                      onChange={(e) => setF("cleanerServiceRate", e.target.value)}
+                    />
+                  </EField>
+                  <EField label="Sofa beds" hint="Number of sofa beds at this property">
+                    <EInput
+                      type="number"
+                      min="0"
+                      value={form.sofaBedCount}
+                      onChange={(e) => setF("sofaBedCount", e.target.value)}
+                    />
+                  </EField>
+                  <EField label="Laundry bag label" hint='e.g. "J04"'>
+                    <EInput value={form.laundryBagLabel} onChange={(e) => setF("laundryBagLabel", e.target.value)} />
+                  </EField>
+                </div>
+                <EField label="Laundry bag colour">
+                  <LaundryBagColorPicker value={form.laundryBagColor} onChange={(c) => setF("laundryBagColor", c)} />
+                </EField>
+                <PropertySetupGuideEditor value={setupGuide} onChange={setSetupGuide} />
+              </div>
 
               <div className="flex justify-end">
                 <EButton variant="gold" onClick={saveProperty} disabled={savingProperty}>
