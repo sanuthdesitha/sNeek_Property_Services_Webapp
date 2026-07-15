@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import type { AppSettings } from "@/lib/settings";
 import {
   EMAIL_TEMPLATE_DEFINITIONS,
@@ -810,7 +811,7 @@ export function TemplateEditor({ settings, onSettingsChange, readOnly = false }:
                 SMS template (tokens highlighted)
               </p>
               <p className="whitespace-pre-wrap break-words text-sm leading-snug">
-                {smsTemplate.smsBody ? highlightTokens(smsTemplate.smsBody) : (
+                {smsTemplate.smsBody ? highlightTokens(stripHtmlToText(smsTemplate.smsBody)) : (
                   <span className="text-muted-foreground">No SMS body set.</span>
                 )}
               </p>

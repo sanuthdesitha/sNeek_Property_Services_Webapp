@@ -35,6 +35,7 @@ import {
 } from "@/lib/forms/visibility";
 import { collectFormErrors, type FormFieldError } from "@/lib/forms/validate-submission";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import type { StampOptions } from "@/lib/uploads/stamp";
 import { cn } from "@/lib/utils";
 import { EInput, ETextarea, ESelect, ECheckbox } from "@/components/v2/cleaner/fields";
@@ -245,8 +246,8 @@ function ValidationSummary({
               className="text-left text-[0.8125rem] text-[hsl(var(--e-danger))] underline-offset-2 hover:underline"
             >
               {err.sectionLabel && err.sectionLabel !== err.label
-                ? `${err.sectionLabel}: ${err.label}`
-                : err.label}
+                ? `${stripHtmlToText(err.sectionLabel)}: ${stripHtmlToText(err.label)}`
+                : stripHtmlToText(err.label)}
             </button>
           </li>
         ))}
@@ -316,10 +317,10 @@ function SectionBlock({
         className="flex w-full items-center justify-between gap-2 p-4 text-left"
       >
         <div className="min-w-0">
-          <p className="e-eyebrow">{section.title}</p>
+          <p className="e-eyebrow">{stripHtmlToText(section.title)}</p>
           {section.description ? (
             <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              {section.description}
+              {stripHtmlToText(section.description)}
             </p>
           ) : null}
         </div>
@@ -634,11 +635,11 @@ function FieldBlock({
     return (
       <div className={cn("rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3", indent)}>
         <p className="flex items-center gap-1.5 text-[0.875rem] font-[550]">
-          <Info className="h-4 w-4" /> {field.label}
+          <Info className="h-4 w-4" /> {stripHtmlToText(field.label)}
         </p>
         {field.helpText ? (
           <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-            {field.helpText}
+            {stripHtmlToText(field.helpText)}
           </p>
         ) : null}
         {Array.isArray(field.references) && field.references.length > 0 ? (
@@ -653,7 +654,7 @@ function FieldBlock({
   const label = (
     <div className="flex flex-wrap items-baseline gap-2">
       <label className="text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))]">
-        {field.label}
+        {stripHtmlToText(field.label)}
         {field.required ? <span className="text-[hsl(var(--e-danger))]"> *</span> : null}
       </label>
       {field.severity && field.severity !== "low" ? (
@@ -665,13 +666,13 @@ function FieldBlock({
   );
 
   const help = field.helpText ? (
-    <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{field.helpText}</p>
+    <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{stripHtmlToText(field.helpText)}</p>
   ) : null;
 
   const instructions = field.instructions ? (
     <details className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
       <summary className="cursor-pointer select-none">How to do this</summary>
-      <p className="mt-1 whitespace-pre-wrap">{field.instructions}</p>
+      <p className="mt-1 whitespace-pre-wrap">{stripHtmlToText(field.instructions)}</p>
     </details>
   ) : null;
 
