@@ -283,7 +283,6 @@ export async function POST(
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const unifiedJobTasks = await listCleanerJobTasks(job.id);
     const hasUnifiedAdminTasks = unifiedJobTasks.some((task) => task.source === "ADMIN");
-    const hasUnifiedCarryForwardTasks = unifiedJobTasks.some((task) => task.source === "CARRY_FORWARD");
     const adminRequestedTasks = sanitizeAdminRequestedTasks(
       answers,
       uploads,
@@ -501,32 +500,93 @@ export async function POST(
       await deductStockFromSubmission(job.propertyId, submission.id, inventoryUsage);
     }
 
-    if (carryForward && !hasUnifiedCarryForwardTasks) {
-      if (carryForward.resolvedTaskIds.length > 0) {
-        await db.issueTicket.updateMany({
-          where: {
-            id: { in: carryForward.resolvedTaskIds },
-            title: { startsWith: "Carry-forward task" },
-            status: { not: "RESOLVED" },
-            job: { propertyId: job.propertyId },
-          },
-          data: {
-            status: "RESOLVED",
-            updatedAt: new Date(),
-          },
-        });
-      }
+    // Carry-forward → the NEXT clean at this property. New flags become
+    // CARRY_FORWARD JobTask rows (unified task system, mirroring
+    // applyCleanerJobTaskUpdates) so they surface in the next job's checklist;
+    // incoming carry-forward tasks the cleaner resolved are closed on both the
+    // unified and legacy stores. All best-effort — never block the submission.
+    if (carryForward) {
+      try {
+        if (carryForward.resolvedTaskIds.length > 0) {
+          await db.issueTicket.updateMany({
+            where: {
+              id: { in: carryForward.resolvedTaskIds },
+              title: { startsWith: "Carry-forward task" },
+              status: { not: "RESOLVED" },
+              job: { propertyId: job.propertyId },
+            },
+            data: { status: "RESOLVED", updatedAt: new Date() },
+          });
+          await db.jobTask.updateMany({
+            where: {
+              id: { in: carryForward.resolvedTaskIds },
+              jobId: job.id,
+              source: "CARRY_FORWARD",
+              executionStatus: "OPEN",
+            },
+            data: { executionStatus: "COMPLETED", completedAt: new Date() },
+          });
+        }
 
-      if (carryForward.hasNew && carryForward.newTaskNotes.length > 0) {
-        await db.issueTicket.createMany({
-          data: carryForward.newTaskNotes.map((note) => ({
-            jobId: job.id,
-            title: "Carry-forward task",
-            description: note,
-            severity: "HIGH",
-            status: "OPEN",
-          })),
-        });
+        if (carryForward.hasNew && carryForward.newTaskNotes.length > 0) {
+          // The next non-finished clean at this property (>= this job's date). If
+          // none exists yet, leave jobId null — attachPendingCarryForwardTasksToJob
+          // (in the form route) attaches it to whichever clean is scheduled next.
+          const nextJob = await db.job.findFirst({
+            where: {
+              propertyId: job.propertyId,
+              status: { notIn: lockedStatuses },
+              scheduledDate: { gte: job.scheduledDate },
+              id: { not: job.id },
+            },
+            select: { id: true },
+            orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+          });
+          // New-flag photos are namespaced by the v2 workspace so they're never
+          // confused with resolved-task proofs.
+          const newFlagPhotoKeys = Array.isArray(carryForward.taskPhotoKeys.__carryForwardNew)
+            ? carryForward.taskPhotoKeys.__carryForwardNew
+            : [];
+          for (const note of carryForward.newTaskNotes) {
+            await db.jobTask.create({
+              data: {
+                jobId: nextJob?.id ?? null,
+                propertyId: job.propertyId,
+                clientId: job.property.clientId ?? null,
+                source: "CARRY_FORWARD",
+                approvalStatus: "APPROVED",
+                executionStatus: "OPEN",
+                visibleToCleaner: Boolean(nextJob?.id),
+                title: "Flagged for next visit",
+                description: note,
+                requestedByUserId: session.user.id,
+                approvedByUserId: session.user.id,
+                approvedAt: new Date(),
+                events: {
+                  create: {
+                    actorUserId: session.user.id,
+                    action: "TASK_CARRIED_FORWARD",
+                    note,
+                  },
+                },
+                attachments: {
+                  create: newFlagPhotoKeys
+                    .filter((key) => typeof key === "string" && key.trim().length > 0)
+                    .map((key) => ({
+                      uploadedByUserId: session.user.id,
+                      mediaType: inferMediaType("carry_forward_photo", key),
+                      kind: "REQUEST_REFERENCE",
+                      url: publicUrl(key),
+                      s3Key: key,
+                      label: "Flag for next clean",
+                    })),
+                },
+              },
+            });
+          }
+        }
+      } catch (carryErr) {
+        console.error("[carry-forward] persist failed", carryErr);
       }
     }
 

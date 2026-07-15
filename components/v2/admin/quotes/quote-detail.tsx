@@ -27,7 +27,9 @@ import {
   EEyebrow,
   EThread,
 } from "@/components/v2/ui/primitives";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 import QuoteTimeline from "@/components/v2/admin/quotes/quote-timeline";
 import { formatCurrency } from "@/lib/utils";
 
@@ -106,6 +108,9 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
   const [newAddress, setNewAddress] = useState("");
   const [newSuburb, setNewSuburb] = useState("");
   const [newName, setNewName] = useState("");
+  // Geo captured from the address autocomplete (optional — persisted on the new property).
+  const [newLat, setNewLat] = useState<number | null>(null);
+  const [newLng, setNewLng] = useState<number | null>(null);
   // Create the job now, or just link/create the property + mark the quote won.
   const [createJobNow, setCreateJobNow] = useState(true);
 
@@ -181,6 +186,7 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
           address: newAddress.trim(),
           suburb: newSuburb.trim(),
           ...(newName.trim() ? { name: newName.trim() } : {}),
+          ...(newLat != null && newLng != null ? { latitude: newLat, longitude: newLng } : {}),
         };
       }
       if (createJobNow) payload.scheduledDate = `${convertDate}T00:00:00.000Z`;
@@ -714,7 +720,18 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
                 </p>
               ) : null}
               <EField label="Service address">
-                <EInput value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="12 Beach Rd" />
+                <EAddressInput
+                  value={newAddress}
+                  placeholder="Start typing an address…"
+                  onChange={(text) => setNewAddress(text)}
+                  onSelect={(r) => {
+                    setNewAddress(r.formattedAddress);
+                    // Auto-fill the suburb from the selection — the admin no longer types it.
+                    if (r.suburb) setNewSuburb(r.suburb);
+                    setNewLat(Number.isFinite(r.lat) ? r.lat : null);
+                    setNewLng(Number.isFinite(r.lng) ? r.lng : null);
+                  }}
+                />
               </EField>
               <EField label="Suburb">
                 <EInput value={newSuburb} onChange={(e) => setNewSuburb(e.target.value)} placeholder="Bondi" />
@@ -805,29 +822,16 @@ export function QuoteDetail({ initial, clients }: { initial: QuoteInitial; clien
             {(quote.referenceImages?.length ?? 0) > 0 ? (
               <div>
                 <EEyebrow>Client reference photos</EEyebrow>
-                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  {(quote.referenceImages ?? []).map((img, idx) => (
-                    <a
-                      key={img.key}
-                      href={img.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-1.5 transition-colors hover:border-[hsl(var(--e-border-gold)/0.5)]"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img.url}
-                        alt={img.label || `Reference ${idx + 1}`}
-                        className="h-24 w-full rounded-[var(--e-radius)] object-cover"
-                      />
-                      {img.label ? (
-                        <p className="truncate px-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                          {img.label}
-                        </p>
-                      ) : null}
-                    </a>
-                  ))}
-                </div>
+                <MediaGallery
+                  items={(quote.referenceImages ?? []).map((img, idx) => ({
+                    id: img.key,
+                    url: img.url,
+                    label: img.label || `Reference ${idx + 1}`,
+                    mediaType: (img as any).mediaType,
+                  }))}
+                  title="Client reference photos"
+                  className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+                />
               </div>
             ) : null}
             {quote.serviceContext && Object.keys(quote.serviceContext).length > 0 ? (

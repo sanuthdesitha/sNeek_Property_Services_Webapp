@@ -174,6 +174,77 @@ function proofPhotoChildField(parentId: string, label: string) {
   };
 }
 
+/** Recursively test whether a field (or any of its children) matches `pred`. */
+function anyFieldDeep(fields: unknown, pred: (field: any) => boolean): boolean {
+  if (!Array.isArray(fields)) return false;
+  return fields.some((field: any) => {
+    if (pred(field)) return true;
+    return anyFieldDeep(field?.children, pred);
+  });
+}
+
+/**
+ * Stable "Arrival evidence" section prepended to every generated / legacy job
+ * form: a required arrival walkthrough video + a required set of "before" photos.
+ * Ids are deterministic (never per-request random) so cleaner drafts keyed by
+ * field id survive form reloads / runtime re-injection.
+ */
+function arrivalEvidenceSection() {
+  return {
+    id: "arrival-evidence",
+    title: "Arrival evidence",
+    description: "Capture the state of the property on arrival, before any work begins.",
+    fields: [
+      {
+        id: "arrival-evidence.walkthrough-video",
+        type: "video",
+        label: "Arrival walkthrough video",
+        required: true,
+        instructions:
+          "Record a short walkthrough capturing the property state as you find it on arrival.",
+        maxDurationSec: 120,
+      },
+      {
+        id: "arrival-evidence.before-photos",
+        type: "photo",
+        label: "Before photos",
+        required: true,
+        minPhotos: 3,
+        stampTag: "before",
+        instructions:
+          "Take clear before photos covering the key areas (kitchen, bathrooms, living/bedrooms) as they were on arrival.",
+      },
+    ],
+  };
+}
+
+/**
+ * Prepend the standard "Arrival evidence" section and append the sign-off.
+ *
+ * - Arrival evidence is skipped (idempotent) when the schema already carries any
+ *   `video` field OR any `photo` field with stampTag "before" (top-level or
+ *   nested) — so rework forms and templates that already gather arrival media
+ *   aren't doubled up.
+ * - Sign-off reuses `withSignoffSection` (skipped when a signature already
+ *   exists).
+ * - An empty schema stays empty (no sections in → no sections out).
+ */
+export function withStandardSections(sections: unknown[]): unknown[] {
+  if (sections.length === 0) return sections;
+  const hasArrivalEvidence = sections.some((section: any) =>
+    anyFieldDeep(
+      section?.fields,
+      (field) =>
+        field?.type === "video" ||
+        (field?.type === "photo" && field?.stampTag === "before")
+    )
+  );
+  const withArrival = hasArrivalEvidence
+    ? sections
+    : [arrivalEvidenceSection(), ...sections];
+  return withSignoffSection(withArrival);
+}
+
 /**
  * Append a signature "Sign-off" section to a checklist→form composition unless
  * one already exists. Only ever adds to freshly generated schemas (skipped when
@@ -373,7 +444,7 @@ export function composeFormSchema(
     sections.push(baselineServiceSection());
   }
 
-  return { sections: withSignoffSection(sections) };
+  return { sections: withStandardSections(sections) };
 }
 
 /** A custom checklist item → form field, with optional proof photo + reference image. */

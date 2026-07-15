@@ -8,7 +8,7 @@
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Settings2, UserRound, UserRoundPlus } from "lucide-react";
+import { CalendarDays, Settings2, UserRound, UserRoundPlus } from "lucide-react";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 
 const TZ = "Australia/Sydney";
@@ -169,6 +169,26 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
             .filter(Boolean)
             .join(" · ")}
         </p>
+        {/* Mobile-only date · time · cleaner (desktop uses the dedicated columns) */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem] md:hidden">
+          <span className="inline-flex items-center gap-1 rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))] px-1.5 py-0.5 text-[hsl(var(--e-text-secondary))]">
+            <CalendarDays className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
+            <span className="e-tnum">{scheduledLabel(job?.scheduledDate)}</span>
+            {job?.startTime ? (
+              <span className="e-tnum text-[hsl(var(--e-text-faint))]">· {job.startTime}</span>
+            ) : null}
+          </span>
+          <span className="inline-flex min-w-0 items-center gap-1 text-[hsl(var(--e-text-secondary))]">
+            <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
+            <span className="truncate">
+              {cleaners.length > 0 ? (
+                cleaners.join(", ")
+              ) : (
+                <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>
+              )}
+            </span>
+          </span>
+        </div>
         <div className="mt-1 flex flex-wrap gap-1.5 empty:hidden">
           <FlagPills job={job} />
         </div>

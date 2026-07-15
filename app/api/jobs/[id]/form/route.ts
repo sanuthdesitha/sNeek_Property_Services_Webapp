@@ -13,6 +13,8 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
+import { withStandardSections } from "@/lib/checklists/compose";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import {
   buildReworkFormSchema,
   ensureReworkFormTemplate,
@@ -47,6 +49,7 @@ export async function GET(
             bedrooms: true,
             bathrooms: true,
             inventoryEnabled: true,
+            laundryEnabled: true,
           },
         },
         assignments: {
@@ -327,9 +330,9 @@ export async function GET(
         fields: jobMeta.additionals.map((extra) => ({
           id: extra.id,
           type: "checkbox",
-          label: extra.label,
+          label: stripHtmlToText(extra.label),
           required: false,
-          instructions: extra.instructions,
+          instructions: extra.instructions ? stripHtmlToText(extra.instructions) : undefined,
         })),
       };
       if (templateWithExtras) {
@@ -347,6 +350,23 @@ export async function GET(
           schema: { sections: [additionalsSection] },
         };
       }
+    }
+
+    // Runtime injection for legacy templates: guarantee every job form carries
+    // the standard "Arrival evidence" section (prepended) + sign-off (appended),
+    // even for templates stored before these were standard. Read-time only — the
+    // stored template rows are never mutated. withStandardSections' idempotence
+    // guards mean forms that already include arrival media / a signature (freshly
+    // generated templates, rework forms) are left unchanged. Field ids inside the
+    // injected section are deterministic so cleaner drafts keyed by field id
+    // survive reloads.
+    if (templateWithExtras) {
+      const schema = (templateWithExtras.schema as any) ?? {};
+      const sections = Array.isArray(schema.sections) ? schema.sections : [];
+      templateWithExtras = {
+        ...templateWithExtras,
+        schema: { ...schema, sections: withStandardSections(sections) },
+      };
     }
     const currentAssignment =
       session.user.role === Role.CLEANER

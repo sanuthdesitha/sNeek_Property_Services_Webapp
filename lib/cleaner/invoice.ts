@@ -14,6 +14,14 @@ interface InvoiceOptions {
   startDate?: string;
   endDate?: string;
   showSpentHours?: boolean;
+  /**
+   * When false, the rendered PDF hides ALL hours: the Paid Hours summary tile,
+   * the Paid Hours table column, the Hours Spent column, and the Hours Changed
+   * column. This is the figure cleaners forward to accounts, so hiding hours must
+   * be total — no hour value may leak through any column. Defaults to true (hours
+   * shown). Data/on-screen editing views are unaffected; this only gates the PDF.
+   */
+  showHours?: boolean;
   jobComments?: Record<string, string>;
   jobHourOverrides?: Record<string, number>;
   /**
@@ -62,6 +70,8 @@ export interface CleanerInvoiceData {
   hours: number;
   estimatedPay: number;
   showSpentHours: boolean;
+  /** When false the PDF omits every hours column/tile. Defaults to true. */
+  showHours: boolean;
   rows: Array<{
     jobId: string;
     date: string;
@@ -140,6 +150,7 @@ function resolveDateRange(startDate?: string, endDate?: string) {
 export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<CleanerInvoiceData> {
   const { start, end } = resolveDateRange(options.startDate, options.endDate);
   const showSpentHours = options.showSpentHours === true;
+  const showHours = options.showHours !== false;
   const [user, settings] = await Promise.all([
     db.user.findUnique({
       where: { id: options.userId },
@@ -486,6 +497,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     hours,
     estimatedPay,
     showSpentHours,
+    showHours,
     rows,
     expenseRows,
     expenseTotal,
@@ -510,8 +522,13 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, "")}`;
+  // When hours are hidden, EVERY hours-bearing column disappears — Paid Hours,
+  // Hours Spent, and the Hours Changed override note (which prints hour values).
+  // This is the amount cleaners send to accounts, so no hour may leak through.
+  const showHours = data.showHours !== false;
+  const showSpentHours = showHours && data.showSpentHours;
   const includeTransportColumn = data.rows.some((row) => row.transportAllowance > 0);
-  const includeHoursChangeColumn = data.rows.some((row) => row.isHoursOverridden);
+  const includeHoursChangeColumn = showHours && data.rows.some((row) => row.isHoursOverridden);
   const changedRowsCount = data.rows.filter((row) => row.isHoursOverridden).length;
   const includeCommentColumn = data.rows.some((row) =>
     Boolean((row.comment && row.comment.trim()) || (row.extraRequestNote && row.extraRequestNote.trim()))
@@ -613,9 +630,9 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <td class="cell">${escapeHtml(row.jobType)}</td>
           <td class="cell right">${row.split}</td>
           <td class="cell right">${row.rate != null ? `${formatCurrency(row.rate)}${row.rateMissing ? " (default)" : ""}` : "Not set"}</td>
-          <td class="cell right">${row.hours.toFixed(2)}</td>
+          ${showHours ? `<td class="cell right">${row.hours.toFixed(2)}</td>` : ""}
           ${includeHoursChangeColumn ? `<td class="cell">${row.hoursChangeNote ? escapeHtml(row.hoursChangeNote) : "-"}</td>` : ""}
-          ${data.showSpentHours ? `<td class="cell right">${(row.spentHours ?? 0).toFixed(2)}</td>` : ""}
+          ${showSpentHours ? `<td class="cell right">${(row.spentHours ?? 0).toFixed(2)}</td>` : ""}
           <td class="cell right">${formatCurrency(row.baseAmount)}</td>
           <td class="cell right">${formatCurrency(row.approvedExtraAmount)}</td>
           ${includeTransportColumn ? `<td class="cell right">${formatCurrency(row.transportAllowance)}</td>` : ""}
@@ -677,10 +694,14 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
         ${partiesHtml}
 
         <div class="summary">
-          <div class="box">
+          ${
+            showHours
+              ? `<div class="box">
             <div class="label">Paid Hours</div>
             <div class="value">${data.hours.toFixed(2)}</div>
-          </div>
+          </div>`
+              : ""
+          }
           <div class="box">
             <div class="label">Estimated Pay</div>
             <div class="value">${formatCurrency(data.estimatedPay)}</div>
@@ -704,7 +725,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
         </div>
 
         <p class="rule">Pay rule: fixed/allocated hours are paid in full and split equally across assigned cleaners. If fixed hours are not set, pay uses the cleaner's clocked timer. Approved extras are added per job.</p>
-        ${changedRowsCount > 0 ? `<p class="changed-note">Hours overridden on ${changedRowsCount} row(s). Changed rows are highlighted.</p>` : ""}
+        ${showHours && changedRowsCount > 0 ? `<p class="changed-note">Hours overridden on ${changedRowsCount} row(s). Changed rows are highlighted.</p>` : ""}
 
         ${
           data.expenseRows.length > 0
@@ -778,9 +799,9 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
                     <th>Job Type</th>
                     <th class="right">Split</th>
                     <th class="right">Rate</th>
-                    <th class="right">Paid Hours</th>
+                    ${showHours ? `<th class="right">Paid Hours</th>` : ""}
                     ${includeHoursChangeColumn ? `<th>Hours Changed</th>` : ""}
-                    ${data.showSpentHours ? `<th class="right">Hours Spent</th>` : ""}
+                    ${showSpentHours ? `<th class="right">Hours Spent</th>` : ""}
                     <th class="right">Base</th>
                     <th class="right">Approved Extras</th>
                     ${includeTransportColumn ? `<th class="right">Transport</th>` : ""}

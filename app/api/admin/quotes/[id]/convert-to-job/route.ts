@@ -12,8 +12,12 @@ import {
 } from "@/lib/jobs/meta";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
 import { withSignoffSection } from "@/lib/checklists/compose";
+import { getChecklist } from "@/lib/checklists/store";
+import { checklistToFormSchema } from "@/lib/checklists/to-form";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { recordQuoteEvent } from "@/lib/quotes/events";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { logger } from "@/lib/logger";
 
 /** Recurring cadences a quote can carry (one_off → a single job, no schedule). */
 const RECURRING_FREQUENCIES = new Set(["weekly", "fortnightly", "monthly"]);
@@ -22,6 +26,9 @@ const newPropertySchema = z.object({
   address: z.string().trim().min(1, "A service address is required."),
   suburb: z.string().trim().min(1, "A suburb is required."),
   name: z.string().trim().min(1).max(200).optional(),
+  // Optional geo captured from the address autocomplete; persisted when present.
+  latitude: z.number().finite().optional(),
+  longitude: z.number().finite().optional(),
 });
 
 const schema = z
@@ -132,26 +139,71 @@ function referenceImagesFromQuote(raw: unknown): JobQuoteReferenceImage[] {
  */
 function buildAgreedScopeSchema(override: QuoteChecklistOverride): { sections: unknown[] } {
   const sections: unknown[] = [];
+  // Quote-authored strings (summary + item labels) can carry rich text; strip to
+  // plain text before they enter the cleaner-form schema.
+  const summary = override.summary ? stripHtmlToText(override.summary) : undefined;
   override.sections.forEach((section, si) => {
     const fields = section.items
       .filter((item) => item.covered)
       .map((item, ii) => ({
         id: `quote-scope-${si}-${ii}`,
         type: "checkbox",
-        label: item.label,
+        label: stripHtmlToText(item.label),
         required: false,
       }));
     if (fields.length === 0) return;
     sections.push({
       id: `quote-scope-sec-${si}`,
       title: section.title || `Agreed scope ${si + 1}`,
-      ...(si === 0 && override.summary ? { description: override.summary } : {}),
+      ...(si === 0 && summary ? { description: summary } : {}),
       fields,
     });
   });
   // Every generated cleaner form carries a sign-off section by default
   // (matches composeFormSchema / checklistToFormSchema behaviour).
   return { sections: withSignoffSection(sections) };
+}
+
+/**
+ * Materialise a one-off cleaner FormTemplate from a form schema and register it
+ * as the property's form override for the job type — the same attachment path
+ * generatePropertyTemplates uses, which the job-form pipeline resolves. Returns
+ * the created template id.
+ */
+async function materializeJobFormTemplate({
+  name,
+  serviceType,
+  schema,
+  propertyId,
+}: {
+  name: string;
+  serviceType: JobType;
+  schema: unknown;
+  propertyId: string;
+}): Promise<string> {
+  const template = await db.formTemplate.create({
+    data: {
+      name,
+      serviceType,
+      kind: FormKind.CUSTOM,
+      version: 1,
+      isActive: true,
+      schema: schema as any,
+      publishedAt: new Date(),
+    },
+    select: { id: true },
+  });
+
+  const settings = await getAppSettings();
+  const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
+  const forProperty: Partial<Record<JobType, string>> = {
+    ...(overrides[propertyId] ?? {}),
+  };
+  forProperty[serviceType] = template.id;
+  overrides[propertyId] = forProperty;
+  await saveAppSettings({ propertyFormTemplateOverrides: overrides });
+
+  return template.id;
 }
 
 export async function POST(
@@ -249,6 +301,8 @@ export async function POST(
             name: newProperty!.name?.trim() || newProperty!.address.trim(),
             address: newProperty!.address.trim(),
             suburb: newProperty!.suburb.trim(),
+            ...(newProperty!.latitude != null ? { latitude: newProperty!.latitude } : {}),
+            ...(newProperty!.longitude != null ? { longitude: newProperty!.longitude } : {}),
             ...(recurringSchedule ? { recurringSchedule: recurringSchedule as any } : {}),
             integration: { create: { isEnabled: false } },
           },
@@ -303,40 +357,44 @@ export async function POST(
     const targetPropertyId = result.propertyId;
     const job = result.job;
 
-    // SPECIAL CHECKLIST: when the quote carries a per-quote checklist override
-    // (the "agreed scope" the client accepted), materialise a one-off
-    // FormTemplate from its covered items and register it as this property's
-    // form override for the job type — the same attachment path
-    // generatePropertyTemplates uses, which the job-form pipeline resolves.
-    // Quotes without an override keep the generic property/job-type template.
+    // CUSTOM CHECKLIST: every conversion materialises a one-off FormTemplate for
+    // this property + job type and registers it as the property's form override
+    // — the same attachment path generatePropertyTemplates uses, which the
+    // job-form pipeline resolves. When the quote carries a per-quote checklist
+    // override (the "agreed scope" the client accepted), the template is built
+    // from its covered items; otherwise we fall back to the base service
+    // checklist so the job still gets a custom form (mirrors documents.ts's
+    // `checklistOverrideFromNotes(...) ?? getChecklist(...)`).
     let agreedScopeTemplateId: string | null = null;
     if (job) {
       const checklistOverride = checklistOverrideFromNotes(quote.notes);
       if (checklistOverride) {
         const scopeSchema = buildAgreedScopeSchema(checklistOverride);
         if (scopeSchema.sections.length > 0) {
-          const template = await db.formTemplate.create({
-            data: {
-              name: `Quote ${quoteRef} — agreed scope`,
-              serviceType: quote.serviceType,
-              kind: FormKind.CUSTOM,
-              version: 1,
-              isActive: true,
-              schema: scopeSchema as any,
-              publishedAt: new Date(),
-            },
-            select: { id: true },
+          agreedScopeTemplateId = await materializeJobFormTemplate({
+            name: `Quote ${quoteRef} — agreed scope`,
+            serviceType: quote.serviceType,
+            schema: scopeSchema,
+            propertyId: targetPropertyId,
           });
-          agreedScopeTemplateId = template.id;
-
-          const settings = await getAppSettings();
-          const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
-          const forProperty: Partial<Record<JobType, string>> = {
-            ...(overrides[targetPropertyId] ?? {}),
-          };
-          forProperty[quote.serviceType] = template.id;
-          overrides[targetPropertyId] = forProperty;
-          await saveAppSettings({ propertyFormTemplateOverrides: overrides });
+        }
+      } else {
+        // No override → build from the base service checklist. WS-1A's
+        // checklistToFormSchema auto-includes arrival media + signature.
+        const checklist = await getChecklist(String(quote.serviceType));
+        const standardSchema = checklist ? checklistToFormSchema(checklist) : null;
+        if (standardSchema && standardSchema.sections.length > 0) {
+          agreedScopeTemplateId = await materializeJobFormTemplate({
+            name: `Quote ${quoteRef} — standard scope`,
+            serviceType: quote.serviceType,
+            schema: standardSchema,
+            propertyId: targetPropertyId,
+          });
+        } else {
+          logger.warn(
+            { quoteId: params.id, jobId: job.id, serviceType: quote.serviceType },
+            "convert-to-job: no base checklist to materialise a standard-scope form; job keeps the generic property/job-type form"
+          );
         }
       }
 

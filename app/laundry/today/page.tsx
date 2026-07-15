@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { addDays, format, isSameDay, startOfDay } from "date-fns";
-import { CheckCircle2, MapPin, Package, RefreshCw, Truck } from "lucide-react";
+import { CheckCircle2, MapPin, Navigation, Package, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -74,6 +75,28 @@ function bagCountFromConfirmations(task: LaundryTask): number {
     }
   }
   return task.property?.linenBufferSets ?? 1;
+}
+
+/** Full street address for a task's property; falls back to name. */
+function taskAddressText(task: LaundryTask): string {
+  const full = fullAddressText({
+    address: task.property?.address ?? null,
+    suburb: task.property?.suburb ?? null,
+  });
+  return full || (task.property?.name ?? "Unknown property");
+}
+
+/**
+ * Google Maps directions URL to a task's property — prefers the saved lat/lng
+ * pin, falls back to the full street address. "" when neither exists.
+ */
+function taskNavUrl(task: LaundryTask): string {
+  return googleMapsDirectionsUrl({
+    address: task.property?.address ?? null,
+    suburb: task.property?.suburb ?? null,
+    latitude: task.property?.latitude ?? null,
+    longitude: task.property?.longitude ?? null,
+  });
 }
 
 export default function LaundryTodayPage() {
@@ -384,6 +407,7 @@ function BoardColumn({
         <ul className="space-y-2">
           {tasks.map((task) => {
             const bagCount = bagCountFromConfirmations(task);
+            const navUrl = taskNavUrl(task);
             const showAction =
               (actionKind === "pickup" && (task.status === "CONFIRMED" || task.status === "PENDING")) ||
               (actionKind === "dropoff" && task.status === "PICKED_UP");
@@ -416,10 +440,10 @@ function BoardColumn({
                       ) : null}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                      {task.property?.suburb ? (
+                      {task.property?.address || task.property?.suburb ? (
                         <span className="inline-flex items-center gap-1">
-                          <MapPin className="size-3" />
-                          {task.property.suburb}
+                          <MapPin className="size-3 shrink-0" />
+                          {taskAddressText(task)}
                         </span>
                       ) : null}
                       <span>
@@ -436,16 +460,26 @@ function BoardColumn({
                       <p className="mt-1 line-clamp-2 text-xs text-destructive">{task.flagNotes}</p>
                     ) : null}
                   </div>
-                  {showAction ? (
-                    <Button
-                      disabled={submittingId === task.id}
-                      onClick={() => onConfirm(task, actionKind)}
-                      className="h-11 shrink-0 px-4"
-                    >
-                      <CheckCircle2 className="mr-1.5 size-4" />
-                      {submittingId === task.id ? "Saving…" : actionLabel}
-                    </Button>
-                  ) : null}
+                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                    {showAction ? (
+                      <Button
+                        disabled={submittingId === task.id}
+                        onClick={() => onConfirm(task, actionKind)}
+                        className="h-11 px-4"
+                      >
+                        <CheckCircle2 className="mr-1.5 size-4" />
+                        {submittingId === task.id ? "Saving…" : actionLabel}
+                      </Button>
+                    ) : null}
+                    {navUrl ? (
+                      <Button variant="outline" size="sm" className="h-9" asChild>
+                        <a href={navUrl} target="_blank" rel="noreferrer" aria-label="Open directions in Google Maps">
+                          <Navigation className="mr-1.5 size-3.5" />
+                          Navigate
+                        </a>
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </li>
             );

@@ -40,7 +40,7 @@ import { haversine } from "@/lib/gps/distance";
 import { toast } from "@/hooks/use-toast";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
-type TravelMode = "DRIVING" | "TRANSIT" | "WALKING" | "BICYCLING";
+export type TravelMode = "DRIVING" | "TRANSIT" | "WALKING" | "BICYCLING";
 type RouteMode = "today" | "tomorrow" | "date";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -66,12 +66,29 @@ const STATUS_TONE: Record<string, Tone> = {
   ASSIGNED: "primary",
 };
 
-const TRAVEL_MODES: Array<{ value: TravelMode; label: string; Icon: typeof Car }> = [
-  { value: "DRIVING", label: "Driving", Icon: Car },
-  { value: "TRANSIT", label: "Public transit", Icon: Train },
-  { value: "WALKING", label: "Walking", Icon: Footprints },
-  { value: "BICYCLING", label: "Biking", Icon: Bike },
+export interface TravelModeMeta {
+  value: TravelMode;
+  /** Select-menu label. */
+  label: string;
+  /** Present-tense heading for the "On the way" hero: "Driving to", "Walking to"… */
+  headingVerb: string;
+  Icon: typeof Car;
+  /** Lowercased Google travel mode — matches getEtaMinutes + the maps `travelmode`. */
+  etaMode: "driving" | "walking" | "transit" | "bicycling";
+  /** Pause reasons that make sense for this mode (first is the default). */
+  pauseReasons: string[];
+}
+
+export const TRAVEL_MODES: TravelModeMeta[] = [
+  { value: "DRIVING", label: "Driving", headingVerb: "Driving to", Icon: Car, etaMode: "driving", pauseReasons: ["Fuel", "Parking", "Traffic"] },
+  { value: "TRANSIT", label: "Public transit", headingVerb: "On public transport to", Icon: Train, etaMode: "transit", pauseReasons: ["Waiting for connection", "Service delay"] },
+  { value: "WALKING", label: "Walking", headingVerb: "Walking to", Icon: Footprints, etaMode: "walking", pauseReasons: ["Rest break", "Weather"] },
+  { value: "BICYCLING", label: "Biking", headingVerb: "Riding to", Icon: Bike, etaMode: "bicycling", pauseReasons: ["Rest break", "Weather"] },
 ];
+
+export const TRAVEL_MODE_META = Object.fromEntries(
+  TRAVEL_MODES.map((m) => [m.value, m])
+) as Record<TravelMode, TravelModeMeta>;
 
 export interface RouteStop {
   jobId: string;
@@ -308,16 +325,20 @@ export function RouteTimeline({
   initialDate,
   initialStops,
   userId,
+  preferredTransport = "DRIVING",
 }: {
   initialDate: string;
   initialStops: RouteStop[];
   /** Cleaner id — namespaces the per-day saved order in localStorage. */
   userId?: string;
+  /** The cleaner's saved transport mode — seeds the mode selector below. Changing
+   *  the selector is in-session only; persisting the change is the settings page. */
+  preferredTransport?: TravelMode;
 }) {
   const [stops, setStops] = React.useState<RouteStop[]>(initialStops);
   const [routeMode, setRouteMode] = React.useState<RouteMode>("today");
   const [selectedDate, setSelectedDate] = React.useState(initialDate);
-  const [travelMode, setTravelMode] = React.useState<TravelMode>("DRIVING");
+  const [travelMode, setTravelMode] = React.useState<TravelMode>(preferredTransport);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);

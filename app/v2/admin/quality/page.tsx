@@ -102,7 +102,9 @@ export default async function AdminQualityPage() {
                     <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{jobType} · {cleaner}</p>
                   </div>
                   <EBadge tone={q.status === QaAssignmentStatus.IN_PROGRESS ? "info" : "primary"} soft>{titleCase(q.status)}</EBadge>
-                  <EButton variant="gold" size="sm">Inspect</EButton>
+                  <EButton asChild variant="gold" size="sm">
+                    <Link href={`/v2/admin/quality/${q.id}`}>Inspect</Link>
+                  </EButton>
                 </ECardBody>
               </ECard>
             );

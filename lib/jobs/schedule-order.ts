@@ -51,20 +51,26 @@ export function buildGoogleMapsDirectionsUrl(input: {
 
 export function buildGoogleMapsMultiStopUrl(
   addresses: Array<string | null | undefined>,
-  options?: { fromCurrentLocation?: boolean }
+  options?: {
+    fromCurrentLocation?: boolean;
+    /** Google travel mode (lowercased). Defaults to "driving" so existing
+     *  callers are unchanged. */
+    travelMode?: "driving" | "walking" | "transit" | "bicycling";
+  }
 ) {
+  const travelmode = options?.travelMode ?? "driving";
   const clean = addresses
     .map((item) => String(item ?? "").trim())
     .filter(Boolean);
   if (clean.length === 0) return null;
   if (clean.length === 1) {
-    const params = new URLSearchParams({ api: "1", destination: clean[0], travelmode: "driving" });
+    const params = new URLSearchParams({ api: "1", destination: clean[0], travelmode });
     if (!options?.fromCurrentLocation) params.set("origin", clean[0]);
     return `https://www.google.com/maps/dir/?${params.toString()}`;
   }
   const destination = clean[clean.length - 1];
   const waypointAddresses = clean.slice(0, -1);
-  const params = new URLSearchParams({ api: "1", destination, travelmode: "driving" });
+  const params = new URLSearchParams({ api: "1", destination, travelmode });
   // When fromCurrentLocation=true, omit origin so Maps uses device location
   if (!options?.fromCurrentLocation) {
     params.set("origin", clean[0]);

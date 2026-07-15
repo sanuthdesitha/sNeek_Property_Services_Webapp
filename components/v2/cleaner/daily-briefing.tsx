@@ -16,12 +16,19 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   CloudSun,
   Clock,
   Coins,
+  History,
+  Home,
+  KeyRound,
+  ListChecks,
   MapPin,
   MessageSquareWarning,
+  Navigation,
   Package,
+  ShoppingBag,
   Shirt,
   Sparkles,
   Star,
@@ -150,6 +157,44 @@ export function DailyBriefing() {
               </p>
             ) : !data ? null : (
               <>
+                {/* Accept gate — unaccepted (PENDING) assignments come first */}
+                {data.acceptGate && data.acceptGate.items.length > 0 ? (
+                  <section className="space-y-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                    <SectionLabel icon={<ClipboardCheck className="h-3.5 w-3.5" />}>
+                      Accept your jobs first
+                    </SectionLabel>
+                    <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                      {data.acceptGate.items.length === 1
+                        ? "You have 1 job waiting to be accepted. Open Jobs and accept it to lock it in."
+                        : `You have ${data.acceptGate.items.length} jobs waiting to be accepted. Open Jobs and accept them to lock them in.`}
+                    </p>
+                    <ul className="space-y-1.5">
+                      {data.acceptGate.items.map((j) => (
+                        <li
+                          key={j.id}
+                          className="flex items-center gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2"
+                        >
+                          <div className="flex h-8 w-14 shrink-0 items-center justify-center rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))]">
+                            <span className="text-[0.75rem] font-semibold tabular-nums">{j.startTime || "—"}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[0.8125rem] font-[550]">{j.propertyName}</p>
+                            <p className="truncate text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                              {[j.suburb, j.jobType].filter(Boolean).join(" · ")}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    <a
+                      href="/v2/cleaner/jobs"
+                      className="inline-flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-accent-portal))] underline underline-offset-2"
+                    >
+                      Go to Jobs to accept
+                    </a>
+                  </section>
+                ) : null}
+
                 {/* Schedule strip */}
                 {data.jobsOverview && data.jobsOverview.count > 0 ? (
                   <section className="space-y-2">
@@ -189,14 +234,129 @@ export function DailyBriefing() {
                       ))}
                     </div>
                   </section>
-                ) : (
+                ) : data.acceptGate && data.acceptGate.items.length > 0 ? null : (
                   <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                     No jobs scheduled {day === "today" ? "today" : "tomorrow"} — enjoy the {day === "today" ? "day" : "downtime"}.
                   </p>
                 )}
 
+                {/* ① Travel plan — leg-by-leg leave-by times + tight risks */}
+                {data.travelPlan && data.travelPlan.legs.length > 0 ? (
+                  <section className="space-y-1.5">
+                    <SectionLabel icon={<Navigation className="h-3.5 w-3.5" />}>Travel plan</SectionLabel>
+                    <ul className="space-y-1.5">
+                      {data.travelPlan.legs.map((leg, i) => (
+                        <li
+                          key={i}
+                          className={`rounded-[var(--e-radius)] border px-3 py-2 text-[0.8125rem] ${
+                            leg.tight
+                              ? "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
+                              : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate font-[550]">
+                              {leg.fromProperty} → {leg.toProperty}
+                            </span>
+                            {leg.tight ? (
+                              <EBadge tone="warning" soft>
+                                Tight
+                              </EBadge>
+                            ) : null}
+                          </div>
+                          <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                            {leg.etaMinutes != null ? `~${leg.etaMinutes} min drive${leg.estimated ? " (est.)" : ""}` : "Drive time unknown"}
+                            {leg.leaveBy ? ` · leave by ${leg.leaveBy}` : ""}
+                            {leg.nextStart ? ` · next starts ${leg.nextStart}` : ""}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {/* ⑧ Priority / turnaround watch list */}
+                {data.priorityWatch && data.priorityWatch.items.length > 0 ? (
+                  <section className="space-y-1.5 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                    <SectionLabel icon={<ListChecks className="h-3.5 w-3.5" />}>Watch the clock</SectionLabel>
+                    <ul className="space-y-1">
+                      {data.priorityWatch.items.map((p, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[0.8125rem]">
+                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[hsl(var(--e-warning))]" />
+                          <span>
+                            <span className="font-[550]">{p.propertyName}</span>{" "}
+                            <span className="text-[hsl(var(--e-text-secondary))]">— {p.reason}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {/* ④ New-to-you properties */}
+                {data.newProperties && data.newProperties.items.length > 0 ? (
+                  <section className="space-y-1.5">
+                    <SectionLabel icon={<Home className="h-3.5 w-3.5" />}>New to you</SectionLabel>
+                    <ul className="space-y-1.5">
+                      {data.newProperties.items.map((p) => (
+                        <li
+                          key={p.jobId}
+                          className="flex items-center gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2 text-[0.8125rem]"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-[550]">{p.propertyName}</p>
+                            <p className="truncate text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                              {[
+                                p.suburb,
+                                p.bedrooms != null ? `${p.bedrooms} bed` : null,
+                                p.bathrooms != null ? `${p.bathrooms} bath` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </div>
+                          {p.hasReferencePhotos ? (
+                            <a
+                              href={`/v2/cleaner/jobs/${p.jobId}`}
+                              className="shrink-0 text-[0.75rem] font-[550] text-[hsl(var(--e-accent-portal))] underline underline-offset-2"
+                            >
+                              Reference photos
+                            </a>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {/* ② Access & quirks per stop */}
+                {data.accessNotes && data.accessNotes.stops.length > 0 ? (
+                  <section className="space-y-1.5">
+                    <SectionLabel icon={<KeyRound className="h-3.5 w-3.5" />}>Access & quirks</SectionLabel>
+                    <ul className="space-y-1.5">
+                      {data.accessNotes.stops.map((s, i) => (
+                        <li key={i} className="text-[0.8125rem]">
+                          <span className="font-[550]">{s.propertyName}</span>
+                          <ul className="mt-0.5 space-y-0.5">
+                            {s.items.map((it, k) => (
+                              <li key={k} className="flex items-start gap-2 text-[hsl(var(--e-text-secondary))]">
+                                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[hsl(var(--e-accent-portal))]" />
+                                {it}
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
                 {/* Warnings row: weather / traffic / low stock */}
-                {(data.weather && (data.weather.summary || data.weather.trafficBuffer)) || data.lowStock ? (
+                {(data.weather &&
+                  (data.weather.summary ||
+                    data.weather.trafficBuffer ||
+                    (data.weather.advisories && data.weather.advisories.length > 0))) ||
+                data.lowStock ? (
                   <section className="space-y-1.5">
                     {data.weather && data.weather.summary ? (
                       <p className="flex items-center gap-2 text-[0.8125rem]">
@@ -217,6 +377,12 @@ export function DailyBriefing() {
                         {data.weather.trafficBuffer}
                       </p>
                     ) : null}
+                    {data.weather?.advisories?.map((a, i) => (
+                      <p key={i} className="flex items-start gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
+                        {a}
+                      </p>
+                    ))}
                     {data.lowStock ? (
                       <div className="flex items-start gap-2 text-[0.8125rem]">
                         <Package className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
@@ -255,6 +421,24 @@ export function DailyBriefing() {
                   </p>
                 ) : null}
 
+                {/* ⑤ Supplies to bring */}
+                {data.supplies && data.supplies.items.length > 0 ? (
+                  <section className="space-y-1.5">
+                    <SectionLabel icon={<ShoppingBag className="h-3.5 w-3.5" />}>Supplies to bring</SectionLabel>
+                    <ul className="space-y-1">
+                      {data.supplies.items.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[0.8125rem]">
+                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[hsl(var(--e-accent-portal))]" />
+                          <span>
+                            <span className="font-[550]">{s.item}</span>{" "}
+                            <span className="text-[hsl(var(--e-muted-foreground))]">— {s.reason}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
                 {/* Earnings + finish-time chips */}
                 {data.earnings || data.finishTime ? (
                   <div className="flex flex-wrap gap-2">
@@ -264,7 +448,20 @@ export function DailyBriefing() {
                         <span className="font-[550]">{fmtMoney(data.earnings.amount)}</span>
                         <span className="text-[hsl(var(--e-muted-foreground))]">
                           {data.earnings.label}
+                          {data.earnings.transportAllowance ? ` · incl. ${fmtMoney(data.earnings.transportAllowance)} transport` : ""}
                           {data.earnings.rateMissing ? " · rate not set" : ""}
+                        </span>
+                      </span>
+                    ) : null}
+                    {data.earnings && typeof data.earnings.weekToDate === "number" ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] px-3 py-1 text-[0.8125rem]">
+                        <Coins className="h-3.5 w-3.5 text-[hsl(var(--e-accent-portal))]" />
+                        <span className="font-[550]">{fmtMoney(data.earnings.weekToDate)}</span>
+                        <span className="text-[hsl(var(--e-muted-foreground))]">
+                          this week
+                          {typeof data.earnings.lastWeek === "number"
+                            ? ` · vs ${fmtMoney(data.earnings.lastWeek)} last week`
+                            : ""}
                         </span>
                       </span>
                     ) : null}
@@ -313,6 +510,37 @@ export function DailyBriefing() {
                             <span className="font-[550]">{c.property}</span>{" "}
                             <span className="text-[hsl(var(--e-text-secondary))]">{c.text}</span>{" "}
                             <span className="text-[hsl(var(--e-text-faint))]">({c.date})</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {/* ③ Last-visit context — previous QA outcome per property */}
+                {data.lastVisit && data.lastVisit.items.length > 0 ? (
+                  <section className="space-y-1.5">
+                    <SectionLabel icon={<History className="h-3.5 w-3.5" />}>Last visit</SectionLabel>
+                    <ul className="space-y-1">
+                      {data.lastVisit.items.map((v, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[0.8125rem]">
+                          <span
+                            className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                              v.passed === false ? "bg-[hsl(var(--e-warning))]" : "bg-[hsl(var(--e-success))]"
+                            }`}
+                          />
+                          <span>
+                            <span className="font-[550]">{v.propertyName}</span>
+                            {v.score != null ? (
+                              <span className="text-[hsl(var(--e-muted-foreground))]"> · QA {v.score}</span>
+                            ) : null}
+                            {v.date ? <span className="text-[hsl(var(--e-text-faint))]"> ({v.date})</span> : null}
+                            {v.flags.length > 0 ? (
+                              <span className="text-[hsl(var(--e-text-secondary))]"> — flagged: {v.flags.join(", ")}</span>
+                            ) : null}
+                            {v.reworkReason ? (
+                              <span className="text-[hsl(var(--e-text-secondary))]"> — rework: {v.reworkReason}</span>
+                            ) : null}
                           </span>
                         </li>
                       ))}

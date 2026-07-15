@@ -3,7 +3,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getEtaMinutes, geocodeAddress } from "@/lib/jobs/eta";
+import { getEtaMinutes, geocodeAddress, type EtaMode } from "@/lib/jobs/eta";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 
 const schema = z.object({
@@ -50,6 +50,12 @@ export async function POST(
   try {
     const session = await requireRole([Role.CLEANER]);
     const body = schema.parse(await req.json());
+
+    const cleaner = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { preferredTransport: true },
+    });
+    const travelMode = (cleaner?.preferredTransport ?? "DRIVING").toLowerCase() as EtaMode;
 
     const job = await db.job.findFirst({
       where: {
@@ -140,6 +146,7 @@ export async function POST(
             toLat: resolvedPropLat,
             toLng: resolvedPropLng,
             toAddress: resolvedPropLat == null ? propAddress : null,
+            mode: travelMode,
           })
         : job.enRouteEtaMinutes;
     }

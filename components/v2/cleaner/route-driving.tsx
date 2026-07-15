@@ -6,28 +6,38 @@
  * deep links, RouteTimeline). Both hit the same cleaner route/driving endpoints.
  */
 import * as React from "react";
-import { Navigation, ListOrdered } from "lucide-react";
+import { ListOrdered } from "lucide-react";
 import { EChip } from "@/components/v2/cleaner/fields";
 import { DrivingMode } from "@/components/v2/cleaner/driving-mode";
-import { RouteTimeline, type RouteStop } from "@/components/v2/cleaner/route-timeline";
+import {
+  RouteTimeline,
+  TRAVEL_MODE_META,
+  type RouteStop,
+  type TravelMode,
+} from "@/components/v2/cleaner/route-timeline";
 
 export function RouteDriving({
   initialDate,
   initialStops,
   userId,
+  preferredTransport = "DRIVING",
 }: {
   initialDate: string;
   initialStops: RouteStop[];
   /** Cleaner id — namespaces the saved per-day stop order (localStorage). */
   userId?: string;
+  /** The cleaner's transport mode — drives the "On the way" surface + seeds the
+   *  timeline's mode selector. Defaults to driving. */
+  preferredTransport?: TravelMode;
 }) {
   const [mode, setMode] = React.useState<"drive" | "timeline">("drive");
+  const ModeIcon = TRAVEL_MODE_META[preferredTransport].Icon;
   return (
     <div className="space-y-5">
       <div className="flex gap-2">
         <EChip active={mode === "drive"} onClick={() => setMode("drive")}>
           <span className="inline-flex items-center gap-1.5">
-            <Navigation className="h-3.5 w-3.5" /> Drive mode
+            <ModeIcon className="h-3.5 w-3.5" /> On the way
           </span>
         </EChip>
         <EChip active={mode === "timeline"} onClick={() => setMode("timeline")}>
@@ -37,9 +47,14 @@ export function RouteDriving({
         </EChip>
       </div>
       {mode === "drive" ? (
-        <DrivingMode initialStops={initialStops} userId={userId} />
+        <DrivingMode initialStops={initialStops} userId={userId} mode={preferredTransport} />
       ) : (
-        <RouteTimeline initialDate={initialDate} initialStops={initialStops} userId={userId} />
+        <RouteTimeline
+          initialDate={initialDate}
+          initialStops={initialStops}
+          userId={userId}
+          preferredTransport={preferredTransport}
+        />
       )}
     </div>
   );

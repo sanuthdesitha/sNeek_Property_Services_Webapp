@@ -10,9 +10,9 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { FileVideo, ImageOff } from "lucide-react";
 import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import { EBadge } from "@/components/v2/ui/primitives";
+import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 
 /* ── Serialized shapes (built server-side in the job detail page) ───────── */
 
@@ -91,80 +91,54 @@ function renderFieldValue(field: any, sub: SubmissionRow): string {
   return formatFieldValue(field, (answers as Record<string, unknown>)[field.id]);
 }
 
-/* ── Presigned media thumbnail ──────────────────────────────────────────── */
+/* ── Presigned media set → shared lightbox overlay ──────────────────────────
+ * Resolves fresh presigned URLs for every key in a media set (stored URLs may
+ * have expired, same as AccessImage) then hands them to the shared MediaGallery
+ * so photos + videos open in an in-page overlay with prev/next — never a new
+ * tab. ─────────────────────────────────────────────────────────────────────── */
 
-export function AccessImage({
-  s3Key,
-  url,
+export function AccessMediaGallery({
+  media,
   jobId,
-  label,
-  mediaType,
+  title,
+  className = "grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8",
 }: {
-  s3Key: string | null;
-  url: string | null;
+  media: Array<{ id: string; s3Key: string | null; url: string | null; label: string | null; mediaType?: string | null }>;
   jobId: string;
-  label: string | null;
-  mediaType?: string | null;
+  title?: string;
+  className?: string;
 }) {
-  const [src, setSrc] = useState<string | null>(url);
-  const [failed, setFailed] = useState(false);
+  const [urlByKey, setUrlByKey] = useState<Record<string, string>>({});
+  const keySig = media.map((m) => m.s3Key).join("|");
 
   useEffect(() => {
-    if (!s3Key) return;
     let alive = true;
-    fetch(`/api/uploads/access?key=${encodeURIComponent(s3Key)}&jobId=${encodeURIComponent(jobId)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (alive && body?.url) {
-          setSrc(body.url);
-          setFailed(false);
-        }
-      })
-      .catch(() => {});
+    for (const m of media) {
+      const key = m.s3Key;
+      if (!key) continue;
+      fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          if (alive && body?.url) setUrlByKey((prev) => ({ ...prev, [key]: body.url }));
+        })
+        .catch(() => {});
+    }
     return () => {
       alive = false;
     };
-  }, [s3Key, jobId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keySig, jobId]);
 
-  const isVideo = String(mediaType ?? "").toUpperCase() === "VIDEO";
+  const items: MediaGalleryItem[] = media
+    .map((m) => ({
+      id: m.id,
+      url: (m.s3Key ? urlByKey[m.s3Key] : undefined) ?? m.url ?? "",
+      label: m.label ?? undefined,
+      mediaType: m.mediaType ?? undefined,
+    }))
+    .filter((it) => it.url.length > 0);
 
-  if (!src || failed) {
-    return (
-      <span
-        className="inline-flex h-16 w-16 items-center justify-center rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] text-[hsl(var(--e-text-faint))]"
-        title={label ?? "Media unavailable"}
-      >
-        <ImageOff className="h-4 w-4" />
-      </span>
-    );
-  }
-
-  if (isVideo) {
-    return (
-      <a
-        href={src}
-        target="_blank"
-        rel="noreferrer"
-        title={label ?? "Video"}
-        className="inline-flex h-16 w-16 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] text-[hsl(var(--e-muted-foreground))] transition-colors hover:text-[hsl(var(--e-foreground))]"
-      >
-        <FileVideo className="h-5 w-5" />
-      </a>
-    );
-  }
-
-  return (
-    <a href={src} target="_blank" rel="noreferrer" title={label ?? "Photo"}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={label ?? "Submission photo"}
-        loading="lazy"
-        onError={() => setFailed(true)}
-        className="h-16 w-16 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover"
-      />
-    </a>
-  );
+  return <MediaGallery items={items} title={title ?? "Submission media"} className={className} />;
 }
 
 /* ── Submission review card body ────────────────────────────────────────── */
@@ -252,18 +226,8 @@ export function SubmissionReview({
                   <p className="mb-1.5 text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
                     Submission media
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {sub.media.map((m) => (
-                      <AccessImage
-                        key={m.id}
-                        s3Key={m.s3Key}
-                        url={m.url}
-                        jobId={jobId}
-                        label={m.label ?? m.fieldId}
-                        mediaType={m.mediaType}
-                      />
-                    ))}
-                  </div>
+                  <AccessMediaGallery media={sub.media} jobId={jobId} title="Submission media" />
+
                 </div>
               ) : null}
 
@@ -304,17 +268,13 @@ export function SubmissionReview({
                                 ) : null}
                               </div>
                               {mediaForField.length > 0 ? (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {mediaForField.map((m) => (
-                                    <AccessImage
-                                      key={m.id}
-                                      s3Key={m.s3Key}
-                                      url={m.url}
-                                      jobId={jobId}
-                                      label={m.label ?? m.fieldId}
-                                      mediaType={m.mediaType}
-                                    />
-                                  ))}
+                                <div className="mt-2">
+                                  <AccessMediaGallery
+                                    media={mediaForField}
+                                    jobId={jobId}
+                                    title={String(field.label ?? field.id ?? "Field media")}
+                                    className="grid grid-cols-4 gap-2 sm:grid-cols-6"
+                                  />
                                 </div>
                               ) : null}
                             </div>

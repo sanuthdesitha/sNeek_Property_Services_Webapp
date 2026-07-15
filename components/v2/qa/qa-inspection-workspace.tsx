@@ -67,6 +67,7 @@ import {
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
 import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 
@@ -567,7 +568,16 @@ function ESignaturePad({ value, onChange }: { value: string; onChange: (dataUrl:
 }
 
 /* ── main workspace ───────────────────────────────────────────────────── */
-export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
+export function QaInspectionWorkspace({
+  jobId,
+  returnHref = "/v2/qa",
+}: {
+  jobId: string;
+  /** Where "Back to queue" and the post-submit redirect go. Defaults to the QA
+   *  inspector queue; the admin Quality surface passes its own queue path so the
+   *  same workspace can be deep-linked from /v2/admin/quality. */
+  returnHref?: string;
+}) {
   const router = useRouter();
   const { data: authSession } = useSession();
   const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
@@ -1017,7 +1027,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
     } catch {
       /* ignore */
     }
-    router.push("/v2/qa");
+    router.push(returnHref);
     router.refresh();
   }
 
@@ -1070,7 +1080,7 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
       {/* header */}
       <div className="flex items-start gap-3">
         <EButton asChild variant="ghost" size="icon" className="shrink-0">
-          <Link href="/v2/qa" aria-label="Back to queue">
+          <Link href={returnHref} aria-label="Back to queue">
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </EButton>
@@ -1127,18 +1137,11 @@ export function QaInspectionWorkspace({ jobId }: { jobId: string }) {
               Submitted by {latestSubmission?.submittedBy?.name || latestSubmission?.submittedBy?.email || "Unknown"}.
             </p>
             {mediaItems.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                {mediaItems.map((m: any) =>
-                  m.mediaType === "VIDEO" || isVideoKey(m.url) ? (
-                    <video key={m.id} src={m.url} controls playsInline className="aspect-square w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover" />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <a key={m.id} href={m.url} target="_blank" rel="noreferrer">
-                      <img src={m.url} alt={m.label || "Cleaner media"} className="aspect-square w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] object-cover transition-opacity hover:opacity-80" />
-                    </a>
-                  )
-                )}
-              </div>
+              <MediaGallery
+                items={mediaItems}
+                title="Cleaner submission evidence"
+                className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"
+              />
             ) : (
               <EAlert tone="info">No cleaner media was attached to this submission.</EAlert>
             )}

@@ -1,6 +1,6 @@
 import type { ServiceChecklist } from "./types";
 import type { FormField, FormFieldReference, FormSchema, FormSection } from "@/lib/forms/types";
-import { withSignoffSection } from "./compose";
+import { withStandardSections } from "./compose";
 
 /**
  * Build an editable job-form schema from a service checklist. Each COVERED
@@ -8,8 +8,9 @@ import { withSignoffSection } from "./compose";
  * how-to instructions, any reference image/video, and — when the item is flagged
  * `requiresPhoto` — a required proof-photo sub-field (shown once the task is
  * ticked, enforced by the existing required-upload validation). Not-covered
- * items are exclusions (shown on the quote), so they're skipped here. A
- * signature "Sign-off" section is appended by default. Admins can then tweak the
+ * items are exclusions (shown on the quote), so they're skipped here. A standard
+ * "Arrival evidence" section (walkthrough video + before photos) is prepended and
+ * a signature "Sign-off" section appended by default. Admins can then tweak the
  * form in the builder.
  */
 export function checklistToFormSchema(checklist: ServiceChecklist): FormSchema {
@@ -52,5 +53,5 @@ export function checklistToFormSchema(checklist: ServiceChecklist): FormSchema {
     })
     .filter((section) => section.fields.length > 0);
 
-  return { sections: withSignoffSection(sections) as FormSection[] };
+  return { sections: withStandardSections(sections) as FormSection[] };
 }

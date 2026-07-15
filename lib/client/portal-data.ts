@@ -65,8 +65,24 @@ async function resolvePropertyChecklistTemplates(propertyId: string) {
     orderBy: [{ serviceType: "asc" }, { version: "desc" }],
   });
 
+  // Every template registered as SOME property's per-job-type override. These are
+  // property-specific (e.g. approving a property's checklist profile mints a
+  // high-version active, GLOBAL FormTemplate registered only as THAT property's
+  // override) and must NEVER be picked by the global fallback below — otherwise
+  // one property's newly-generated form, being the newest active template for its
+  // job type, would resolve as the default for every other property that has no
+  // override of its own. The global fallback only considers genuinely global
+  // templates (seeded / builder-published), which are not in this set.
+  const propertyScopedTemplateIds = new Set<string>();
+  for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
+    for (const templateId of Object.values(perProperty ?? {})) {
+      if (typeof templateId === "string" && templateId) propertyScopedTemplateIds.add(templateId);
+    }
+  }
+
   const latestByJobType = new Map<JobType, (typeof activeTemplates)[number]>();
   for (const template of activeTemplates) {
+    if (propertyScopedTemplateIds.has(template.id)) continue;
     if (!latestByJobType.has(template.serviceType)) {
       latestByJobType.set(template.serviceType, template);
     }

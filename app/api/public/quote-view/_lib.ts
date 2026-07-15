@@ -28,6 +28,8 @@ export type PublicQuotePayload = {
   quoteRef: string;
   recipientFirstName: string;
   serviceLabel: string;
+  serviceAddress: string | null;
+  heading: string | null;
   status: "SENT" | "ACCEPTED" | "DECLINED" | "CONVERTED";
   createdAt: string;
   validUntil: string | null;
@@ -58,13 +60,13 @@ type QuoteMetaChecklist = {
 };
 
 export function extractMetaAndNotes(notes: string | null | undefined): {
-  meta: { extras?: QuoteMetaExtras; checklist?: QuoteMetaChecklist } | null;
+  meta: { extras?: QuoteMetaExtras; checklist?: QuoteMetaChecklist; quoteHeading?: string } | null;
   cleanNotes: string | null;
 } {
   if (!notes) return { meta: null, cleanNotes: null };
   const match = notes.match(META_REGEX);
   if (!match) return { meta: null, cleanNotes: notes.trim() || null };
-  let meta: { extras?: QuoteMetaExtras; checklist?: QuoteMetaChecklist } | null = null;
+  let meta: { extras?: QuoteMetaExtras; checklist?: QuoteMetaChecklist; quoteHeading?: string } | null = null;
   try {
     meta = JSON.parse(match[1]);
   } catch {
@@ -222,6 +224,9 @@ export async function buildPublicQuotePayload(
     quoteRef: String(quote.id).slice(-7).toUpperCase(),
     recipientFirstName: firstName(quote.client?.name ?? quote.lead?.name),
     serviceLabel: serviceTypeLabel(quote.serviceType as string),
+    serviceAddress:
+      [quote.serviceAddress, quote.serviceSuburb].filter(Boolean).join(", ") || null,
+    heading: (typeof meta?.quoteHeading === "string" ? meta.quoteHeading.trim() : "") || null,
     status: quote.status as PublicQuotePayload["status"],
     createdAt: quote.createdAt.toISOString(),
     validUntil: quote.validUntil ? quote.validUntil.toISOString() : null,

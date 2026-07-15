@@ -1,0 +1,5 @@
+DO $$ BEGIN
+  CREATE TYPE "TransportMode" AS ENUM ('DRIVING','WALKING','TRANSIT','BICYCLING');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "preferredTransport" "TransportMode" NOT NULL DEFAULT 'DRIVING';

@@ -32,6 +32,7 @@ export default async function CleanerSettingsPage() {
         postcode: true,
         uiDensity: true,
         themePreference: true,
+        preferredTransport: true,
         profileEditingEnabled: true,
       } as any,
     })
@@ -48,6 +49,7 @@ export default async function CleanerSettingsPage() {
           editingEnabled={editingEnabled}
           initialDensity={(user as any).uiDensity ?? undefined}
           initialTheme={(user as any).themePreference ?? undefined}
+          initialTransport={(user as any).preferredTransport ?? undefined}
         />
       ) : (
         <p className="mx-auto max-w-3xl text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">

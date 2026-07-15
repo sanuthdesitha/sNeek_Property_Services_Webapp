@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, startOfDay, startOfWeek } from "date-fns";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, Copy, FilePenLine, History, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, Copy, FilePenLine, History, MapPin, Navigation, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
+import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import jsQR from "jsqr";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,43 @@ type SortMode = "pickup_asc" | "pickup_desc" | "updated_desc" | "property_asc";
 type ViewMode = "compact" | "full";
 type UploadSource = "camera" | "gallery";
 const LAUNDRY_PREFS_KEY = "sneek_laundry_prefs";
+
+/** Full street address for a task's property; falls back to name. */
+function taskAddressText(task: any): string {
+  const full = fullAddressText({
+    address: task?.property?.address ?? null,
+    suburb: task?.property?.suburb ?? null,
+  });
+  return full || task?.property?.name || "Unknown property";
+}
+
+/**
+ * Google Maps directions URL to a task's property — prefers the saved lat/lng
+ * pin, falls back to the full street address. "" when neither exists so the
+ * Navigate button can be hidden.
+ */
+function taskNavUrl(task: any): string {
+  return googleMapsDirectionsUrl({
+    address: task?.property?.address ?? null,
+    suburb: task?.property?.suburb ?? null,
+    latitude: task?.property?.latitude ?? null,
+    longitude: task?.property?.longitude ?? null,
+  });
+}
+
+/** A per-card "Navigate" button — hidden when the task has no usable location. */
+function LaundryNavButton({ task, className }: { task: any; className?: string }) {
+  const url = taskNavUrl(task);
+  if (!url) return null;
+  return (
+    <Button variant="outline" size="sm" className={className} asChild>
+      <a href={url} target="_blank" rel="noreferrer" aria-label="Open directions in Google Maps">
+        <Navigation className="mr-1.5 size-3.5" />
+        Navigate
+      </a>
+    </Button>
+  );
+}
 
 function parseEventNotes(notes: string | null | undefined): any {
   if (!notes) return null;
@@ -1442,7 +1480,12 @@ export default function LaundryPortal() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="font-semibold">{task.property.name}</p>
-                      <p className="text-sm text-muted-foreground">{task.property.suburb}</p>
+                      {task.property?.address || task.property?.suburb ? (
+                        <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <MapPin className="size-3.5 shrink-0" />
+                          <span>{taskAddressText(task)}</span>
+                        </p>
+                      ) : null}
                       <LaundryAccessInstructions task={task} />
                       <p className="mt-2 text-sm">
                         <strong>Scheduled pickup:</strong> {format(new Date(task.pickupDate), "EEE dd MMM yyyy")}
@@ -1588,13 +1631,20 @@ export default function LaundryPortal() {
                 return (
                   <Card key={task.id} className="border-primary/20">
                     <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{task.property.name}</p>
+                        {task.property?.address || task.property?.suburb ? (
+                          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="size-3 shrink-0" />
+                            <span className="truncate">{taskAddressText(task)}</span>
+                          </p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground">
                           Pickup {format(new Date(task.pickupDate), "dd MMM")} · Drop {format(new Date(task.dropoffDate), "dd MMM")}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        <LaundryNavButton task={task} />
                         <Badge variant={task.status === "PICKED_UP" ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
                           {task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
                         </Badge>
@@ -1616,7 +1666,13 @@ export default function LaundryPortal() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <p className="font-semibold">{task.property.name}</p>
-                        <p className="text-sm text-muted-foreground">{task.property.suburb}</p>
+                        {task.property?.address || task.property?.suburb ? (
+                          <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <MapPin className="size-3.5 shrink-0" />
+                            <span>{taskAddressText(task)}</span>
+                          </p>
+                        ) : null}
+                        <LaundryNavButton task={task} className="mt-2" />
                         <LaundryAccessInstructions task={task} />
                         <p className="mt-2 text-sm">
                           <strong>Pickup:</strong> {format(new Date(task.pickupDate), "EEE dd MMM")}

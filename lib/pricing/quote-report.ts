@@ -25,6 +25,10 @@ type QuoteMeta = {
   steamCarpetRooms?: number;
   windowAreaSqm?: number;
   pressureWashSqm?: number;
+  /** Per-quote overrides an admin sets in the quote builder (all optional). */
+  quoteHeading?: string;
+  emailSubject?: string;
+  emailMessage?: string;
 };
 
 function extractMetaAndNotes(notes: string | null | undefined): { meta: QuoteMeta | null; cleanNotes: string | null } {
@@ -75,7 +79,9 @@ export function buildQuoteHtml(
       .filter(Boolean)
       .join(", ") || "";
   const lineItems = Array.isArray(quote.lineItems) ? quote.lineItems : [];
-  const { cleanNotes } = extractMetaAndNotes(quote.notes);
+  const { meta, cleanNotes } = extractMetaAndNotes(quote.notes);
+  const serviceAddress =
+    [quote.serviceAddress, quote.serviceSuburb].filter(Boolean).join(", ") || "";
 
   // Clean, modern palette (matches the reference layout).
   const ink = "#2b3036";
@@ -91,7 +97,8 @@ export function buildQuoteHtml(
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (c: string) => c.toUpperCase());
-  const title = (serviceLabel ? `${serviceLabel} Quote` : "Quote").toUpperCase();
+  const headingOverride = meta?.quoteHeading?.trim();
+  const title = (headingOverride || (serviceLabel ? `${serviceLabel} Quote` : "Quote")).toUpperCase();
   const issued = format(new Date(quote.createdAt), "dd-MM-yyyy");
   const due = quote.validUntil
     ? format(new Date(quote.validUntil), "dd-MM-yyyy")
@@ -127,6 +134,14 @@ export function buildQuoteHtml(
 
   // Optional "view online" call-to-action (email body only; never on the PDF).
   const viewOnlineUrl = (branding?.viewOnlineUrl ?? "").trim();
+
+  // Optional admin-authored intro message — email body only (never the PDF,
+  // which is rendered without a viewOnlineUrl). Line breaks preserved.
+  const emailMessage = meta?.emailMessage?.trim();
+  const emailMessageHtml =
+    viewOnlineUrl && emailMessage
+      ? `<div style="margin:30px 0 4px 0;font-size:14px;line-height:1.7;color:${ink};">${escapeHtml(emailMessage).replace(/\r?\n/g, "<br/>")}</div>`
+      : "";
   const viewOnlineHtml = viewOnlineUrl
     ? `<div style="margin:30px 0 4px 0;text-align:center;">
         <a href="${escapeHtml(viewOnlineUrl)}" style="display:inline-block;background:${slate};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;letter-spacing:.4px;padding:13px 32px;border-radius:6px;">View your quote online</a>
@@ -171,10 +186,13 @@ export function buildQuoteHtml(
               ${metaLabel("Quote #", shortRef)}
               ${metaLabel("Quote date", issued)}
               ${metaLabel("Due date", due)}
+              ${serviceAddress ? metaLabel("Service address", serviceAddress) : ""}
             </table>
           </td>
         </tr>
       </table>
+
+      ${emailMessageHtml}
 
       <!-- Items -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:34px;">

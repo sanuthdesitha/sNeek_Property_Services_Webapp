@@ -29,6 +29,7 @@ import {
   EField,
   ESwitch,
 } from "@/components/v2/admin/estate-kit";
+import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 const JOB_TYPES = [
   "AIRBNB_TURNOVER", "DEEP_CLEAN", "END_OF_LEASE", "MOVE_IN_CLEAN", "GENERAL_CLEAN", "POST_CONSTRUCTION",
@@ -498,7 +499,20 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                   </EField>
                 </div>
                 <EField label="Service address">
-                  <EInput value={form.siteAddress} onChange={(e) => setForm((p) => ({ ...p, siteAddress: e.target.value }))} placeholder="Street address" />
+                  <EAddressInput
+                    value={form.siteAddress}
+                    placeholder="Start typing an address…"
+                    onChange={(text) => setForm((p) => ({ ...p, siteAddress: text }))}
+                    onSelect={(r) =>
+                      setForm((p) => ({
+                        ...p,
+                        siteAddress: r.formattedAddress,
+                        siteSuburb: r.suburb ?? p.siteSuburb,
+                        siteState: r.state ?? p.siteState,
+                        sitePostcode: r.postcode ?? p.sitePostcode,
+                      }))
+                    }
+                  />
                 </EField>
                 <div className="grid gap-4 md:grid-cols-3">
                   <EField label="Suburb"><EInput value={form.siteSuburb} onChange={(e) => setForm((p) => ({ ...p, siteSuburb: e.target.value }))} /></EField>

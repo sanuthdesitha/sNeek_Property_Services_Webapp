@@ -3,13 +3,22 @@ import { JobStatus, Role } from "@prisma/client";
 import { authOptions } from "@/lib/auth/auth-options";
 import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
+import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 
 export const dynamic = "force-dynamic";
 
-const SNAPSHOT_WINDOW_MS = 15 * 60_000;
-// A GPS fix older than this is "stale" — the cleaner is still shown (they have
-// an active job) but flagged so ops knows the dot is a last-known position, not
-// a live one.
+// ── Liveness definition (keep in sync with getLiveNow in app/v2/admin/page.tsx) ──
+// A cleaner is LIVE only when, for TODAY (Australia/Sydney), they have live
+// work: an open timer started today (or on a job scheduled today) OR an
+// EN_ROUTE / IN_PROGRESS / PAUSED job scheduled today. A leftover open timer or
+// an active-status job from a previous day is NOT live and is excluded entirely,
+// and a bare GPS ping with no active work no longer qualifies on its own.
+//
+// Among the today+active set, `stale` distinguishes a genuinely-live dot from a
+// last-known one: a cleaner counts as truly live when they also have a fresh GPS
+// ping (within STALE_AFTER_MS). If their ping is older than that (or absent) they
+// are STILL surfaced — flagged `stale`, positioned from their last ping or the
+// job's property — so ops keeps eyes on today's work without a false "live" dot.
 const STALE_AFTER_MS = 3 * 60_000;
 
 type ActiveJobInfo = {
@@ -41,11 +50,22 @@ export async function GET() {
   }
 
   const now = Date.now();
-  const since = new Date(now - SNAPSHOT_WINDOW_MS);
+  // Today's Sydney calendar day — the only window in which work counts as live.
+  const todayKey = sydneyTodayKey();
+  const todayStart = sydneyDayStart(todayKey);
+  const todayEnd = sydneyDayEndInclusive(todayKey);
 
-  const [runningLogs, activeJobs, freshPings] = await Promise.all([
+  const [runningLogs, activeJobs] = await Promise.all([
     db.timeLog.findMany({
-      where: { stoppedAt: null },
+      // Open timer, but only today's: started today OR on a job scheduled today.
+      // A timer left open from a previous day must not keep a cleaner "live".
+      where: {
+        stoppedAt: null,
+        OR: [
+          { startedAt: { gte: todayStart } },
+          { job: { scheduledDate: { gte: todayStart, lte: todayEnd } } },
+        ],
+      },
       orderBy: { startedAt: "desc" },
       select: {
         userId: true,
@@ -62,9 +82,12 @@ export async function GET() {
       },
     }),
     db.job.findMany({
+      // Active-status job, scheduled for today only — a stale EN_ROUTE /
+      // IN_PROGRESS / PAUSED job from a past day is excluded.
       where: {
         status: { in: [JobStatus.EN_ROUTE, JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
         assignments: { some: { removedAt: null } },
+        scheduledDate: { gte: todayStart, lte: todayEnd },
       },
       orderBy: { updatedAt: "desc" },
       select: {
@@ -77,19 +100,13 @@ export async function GET() {
         assignments: { where: { removedAt: null }, select: { userId: true } },
       },
     }),
-    db.cleanerLocationPing.findMany({
-      where: { timestamp: { gte: since } },
-      orderBy: { timestamp: "desc" },
-      distinct: ["userId"],
-      select: { userId: true },
-    }),
   ]);
 
-  // Union of everyone we should plot.
+  // Who we should plot: cleaners with today's live work only. A bare fresh ping
+  // (no open timer / active job) is intentionally NOT enough to appear here.
   const activeUserIds = new Set<string>();
   runningLogs.forEach((log) => activeUserIds.add(log.userId));
   activeJobs.forEach((job) => job.assignments.forEach((a) => activeUserIds.add(a.userId)));
-  freshPings.forEach((p) => activeUserIds.add(p.userId));
   const userIds = Array.from(activeUserIds);
 
   if (userIds.length === 0) {

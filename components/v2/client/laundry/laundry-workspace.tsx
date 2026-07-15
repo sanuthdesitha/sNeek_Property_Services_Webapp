@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import {
   endOfDay,
   endOfMonth,
@@ -275,19 +276,17 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
         ) : null}
 
         {showLaundryImages && confirmationPhotos.length > 0 ? (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-            {confirmationPhotos.map((item: any, i: number) => (
-              <a
-                key={item.id ?? item.url ?? i}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block aspect-square overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))]"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.url} alt="" className="h-full w-full object-cover" />
-              </a>
-            ))}
+          <div className="mt-3">
+            <MediaGallery
+              items={confirmationPhotos.map((item: any, i: number) => ({
+                id: item.id ?? item.url ?? String(i),
+                url: item.url,
+                label: item.label ?? undefined,
+                mediaType: item.mediaType,
+              }))}
+              title="Laundry confirmation"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4"
+            />
           </div>
         ) : null}
       </div>

@@ -16,7 +16,6 @@
  */
 import * as React from "react";
 import {
-  Navigation,
   MapPin,
   Play,
   Pause,
@@ -33,33 +32,41 @@ import {
   applyStoredOrder,
   isoDay,
   loadStoredOrder,
+  TRAVEL_MODE_META,
   type RouteStop,
+  type TravelMode,
 } from "@/components/v2/cleaner/route-timeline";
 import { cn } from "@/lib/utils";
 
 const PING_INTERVAL_MS = 12_000;
-const REASONS = ["Traffic", "Fuel", "Break", "Previous job ran over", "Parking"];
 
 function fullAddress(s: RouteStop) {
   return [s.address, s.suburb, s.state, s.postcode].filter(Boolean).join(", ");
 }
-function navUrl(s: RouteStop) {
+function navUrl(s: RouteStop, mode: TravelMode) {
   const dest = s.latitude != null && s.longitude != null ? `${s.latitude},${s.longitude}` : fullAddress(s);
-  return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(dest)}`;
+  const travelmode = TRAVEL_MODE_META[mode].etaMode;
+  return `https://www.google.com/maps/dir/?api=1&travelmode=${travelmode}&destination=${encodeURIComponent(dest)}`;
 }
 
 export function DrivingMode({
   initialStops,
   userId,
+  mode = "DRIVING",
 }: {
   initialStops: RouteStop[];
   /** Cleaner id — reads the SAME saved per-day order the timeline writes. */
   userId?: string;
+  /** The cleaner's transport mode — drives the "On the way" copy, icon, nav
+   *  links, and pause reasons. Defaults to driving so nothing breaks for users
+   *  who never set a mode. */
+  mode?: TravelMode;
 }) {
+  const modeMeta = TRAVEL_MODE_META[mode];
   const [stops, setStops] = React.useState<RouteStop[]>(initialStops);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [reason, setReason] = React.useState("Traffic");
+  const [reason, setReason] = React.useState(modeMeta.pauseReasons[0]);
   const [lastPingAt, setLastPingAt] = React.useState<number | null>(null);
 
   // Consume the cleaner's saved order for today so Drive mode and the Timeline
@@ -186,7 +193,7 @@ export function DrivingMode({
         <ECard variant="ceremony">
           <ECardBody className="space-y-4 pt-6">
             <div className="flex items-center justify-between">
-              <p className="e-eyebrow">{activeStop ? "ON THE WAY" : "NEXT STOP"}</p>
+              <p className="e-eyebrow">{activeStop ? modeMeta.headingVerb.toUpperCase() : "NEXT STOP"}</p>
               {activeStop ? (
                 <EBadge tone={arrived ? "success" : paused ? "warning" : "info"} soft>
                   {arrived ? "Arrived" : paused ? "Paused" : "En route"}
@@ -230,9 +237,9 @@ export function DrivingMode({
                 </EButton>
               ) : (
                 <>
-                  <a href={navUrl(activeStop)} target="_blank" rel="noreferrer">
+                  <a href={navUrl(activeStop, mode)} target="_blank" rel="noreferrer">
                     <EButton variant="gold">
-                      <Navigation className="h-4 w-4" /> Navigate
+                      <modeMeta.Icon className="h-4 w-4" /> Navigate
                     </EButton>
                   </a>
                   {!arrived ? (
@@ -259,7 +266,7 @@ export function DrivingMode({
             {activeStop && !arrived ? (
               <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                 <div className="flex flex-wrap gap-1.5">
-                  {REASONS.map((r) => (
+                  {modeMeta.pauseReasons.map((r) => (
                     <button
                       key={r}
                       type="button"
