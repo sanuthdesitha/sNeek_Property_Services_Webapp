@@ -2953,6 +2953,71 @@ export const EXCEPTION_MODULE: {
   })),
 };
 
+/** Module key of the always-present final self-inspection module. */
+export const SELF_INSPECTION_MODULE_KEY = "final-inspection";
+
+/** High-severity self-inspection items (guest-safety / linen / evidence critical). */
+const HIGH_SEVERITY_SELF_INSPECTION = new Set([
+  "beds-setup-correctly",
+  "laundry-bagged-correctly",
+  "fresh-linen-verified",
+  "no-guest-belongings",
+  "windows-doors-secured",
+  "damage-reported",
+  "photos-uploaded",
+  "property-presentation",
+]);
+
+/**
+ * The 14 final self-inspection items (key → label). Each composes to a required
+ * `checkbox` field (EVERY_CLEAN, evidenceCategory FINAL) so the cleaner must
+ * confirm the property is guest-ready before the form can be submitted.
+ */
+const SELF_INSPECTION_ITEM_DEFS: { key: string; label: string }[] = [
+  { key: "beds-setup-correctly", label: "All beds made & set up to the reference standard" },
+  { key: "kitchen-reset", label: "Kitchen fully reset (benches, sink, appliances wiped)" },
+  { key: "bathroom-guest-ready", label: "Bathrooms guest-ready (glass, taps, toilet, floors)" },
+  { key: "floors-done", label: "All floors vacuumed & mopped" },
+  { key: "rubbish-removed", label: "All rubbish removed & bins reset" },
+  { key: "laundry-bagged-correctly", label: "Used linen in the CORRECT laundry bag" },
+  { key: "fresh-linen-verified", label: "Fresh linen count verified against property needs" },
+  { key: "restock-completed", label: "Consumables restocked to par levels" },
+  { key: "no-guest-belongings", label: "No guest belongings left behind (checked all rooms)" },
+  { key: "appliances-off", label: "All appliances off / dishwasher running if needed" },
+  { key: "windows-doors-secured", label: "Windows & doors locked, keys returned to lockbox" },
+  { key: "damage-reported", label: "Any damage/maintenance reported with photos" },
+  { key: "photos-uploaded", label: "All required evidence photos captured" },
+  { key: "property-presentation", label: "Final walkthrough done — property is guest-ready" },
+];
+
+/**
+ * The always-present "final-inspection" module: 14 required self-inspection
+ * checkboxes the cleaner must tick before submit. `appliesWhen` is null (module
+ * always applies) and item `jobTypes` is empty (applies to every job type). Its
+ * high sortOrder makes it compose last, immediately before the sign-off.
+ */
+export const SELF_INSPECTION_MODULE: {
+  key: string;
+  title: string;
+  category: string;
+  sortOrder: number;
+  jobTypes: JobType[];
+  items: { key: string; label: string; severity: string }[];
+} = {
+  key: SELF_INSPECTION_MODULE_KEY,
+  title: "Final self-inspection",
+  category: "EXTRA",
+  // After every room (10-50), feature (210-300) and exception (800) module, so
+  // it renders last among library modules (before the appended sign-off).
+  sortOrder: 850,
+  jobTypes: [], // empty = all job types
+  items: SELF_INSPECTION_ITEM_DEFS.map((def) => ({
+    key: def.key,
+    label: def.label,
+    severity: HIGH_SEVERITY_SELF_INSPECTION.has(def.key) ? "high" : "medium",
+  })),
+};
+
 /** Module key → evidence taxonomy category, for backfilling existing items. */
 export const MODULE_EVIDENCE_CATEGORY: Record<string, string> = {
   kitchen: "KITCHEN",

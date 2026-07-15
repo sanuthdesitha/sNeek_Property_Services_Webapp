@@ -20,7 +20,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -70,6 +70,23 @@ import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
+import { isUploadFieldType } from "@/lib/forms/field-types";
+import {
+  DEFAULT_ACCOUNTABILITY_SCORING,
+  DEFAULT_ISSUE_CATEGORIES,
+  VERDICT_LABELS,
+  VERDICT_OPTIONS,
+  buildAccountabilityBlob,
+  cleanerAnsweredAffirmatively,
+  computeAccountabilityPreview,
+  emptyVerdictState,
+  validateAccountability,
+  verdictRequiresIssue,
+  type AccountabilityScoring,
+  type AccountabilityVerdict,
+  type ItemMeta,
+  type VerdictState,
+} from "@/components/v2/qa/accountability";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -567,6 +584,175 @@ function ESignaturePad({ value, onChange }: { value: string; onChange: (dataUrl:
   );
 }
 
+/* ── Accountability verdict colours (pass green, minor amber, major orange,
+ *    critical red, NA neutral). ──────────────────────────────────────────── */
+const VERDICT_TONE: Record<AccountabilityVerdict, { on: string; onFg: string }> = {
+  PASS: { on: "hsl(var(--e-success))", onFg: "hsl(var(--e-success-foreground, 0 0% 100%))" },
+  MINOR: { on: "hsl(var(--e-warning))", onFg: "hsl(var(--e-warning-foreground, 0 0% 12%))" },
+  MAJOR: { on: "#d9730d", onFg: "#ffffff" },
+  CRITICAL: { on: "hsl(var(--e-danger))", onFg: "hsl(var(--e-danger-foreground))" },
+  NA: { on: "hsl(var(--e-border-strong))", onFg: "hsl(var(--e-foreground))" },
+};
+
+/* ── A single reviewed checklist item's accountability verdict control:
+ *    5-way segmented verdict, issue drawer (category/description/guest-ready/
+ *    QA photos/false-confirmation) for MINOR+, and a missing-evidence toggle
+ *    for required-photo fields. Additive to the legacy scoring input (which the
+ *    parent still renders as `children`). ──────────────────────────────────── */
+function AccountabilityItemV2({
+  field,
+  requiredPhoto,
+  meta,
+  state,
+  onPatch,
+  missing,
+  onToggleMissing,
+  issueCategories,
+  jobId,
+  qaStamp,
+  urlByKey,
+  onAddPhoto,
+  onRemovePhoto,
+  onError,
+  children,
+}: {
+  field: any;
+  requiredPhoto: boolean;
+  meta: ItemMeta;
+  state: VerdictState;
+  onPatch: (patch: Partial<VerdictState>) => void;
+  missing: boolean;
+  onToggleMissing: (v: boolean) => void;
+  issueCategories: { key: string; label: string }[];
+  jobId?: string;
+  qaStamp: StampOptions;
+  urlByKey: Record<string, string>;
+  onAddPhoto: (key: string, url?: string) => void;
+  onRemovePhoto: (key: string) => void;
+  onError: (msg: string) => void;
+  children?: ReactNode;
+}) {
+  const showIssue = verdictRequiresIssue(state.verdict);
+  const missingCategory = showIssue && !(state.category && state.category.trim());
+  const missingDescription = showIssue && !(state.description && state.description.trim());
+  return (
+    <div className="space-y-2.5">
+      {children}
+      <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))]">
+            Verdict
+          </span>
+          {meta.cleanerMarkedComplete ? (
+            <EBadge tone="neutral" soft>Cleaner marked complete</EBadge>
+          ) : null}
+          <div className="ml-auto flex flex-wrap gap-1">
+            {VERDICT_OPTIONS.map((v) => {
+              const active = state.verdict === v;
+              const tone = VERDICT_TONE[v];
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onPatch({ verdict: v })}
+                  className="rounded-[var(--e-radius-sm)] border px-2.5 py-1 text-[0.75rem] font-[600] transition-colors"
+                  style={{
+                    backgroundColor: active ? tone.on : "hsl(var(--e-surface))",
+                    color: active ? tone.onFg : "hsl(var(--e-text-secondary))",
+                    borderColor: active ? tone.on : "hsl(var(--e-border-strong))",
+                  }}
+                >
+                  {VERDICT_LABELS[v]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {requiredPhoto ? (
+          <label className="mt-2 flex items-center gap-2 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[hsl(var(--e-danger))]"
+              checked={missing}
+              onChange={(e) => onToggleMissing(e.target.checked)}
+            />
+            Missing / insufficient evidence (−5)
+          </label>
+        ) : null}
+
+        {showIssue ? (
+          <div className="mt-2.5 space-y-2.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2.5">
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <EField label="Issue category *">
+                <ESelect
+                  value={state.category ?? ""}
+                  onChange={(e) => onPatch({ category: e.target.value || null })}
+                  style={missingCategory ? { borderColor: "hsl(var(--e-danger))" } : undefined}
+                >
+                  <option value="">Select category…</option>
+                  {issueCategories.map((c) => (
+                    <option key={c.key} value={c.key}>{c.label}</option>
+                  ))}
+                </ESelect>
+              </EField>
+              <div className="flex items-end">
+                <ESwitch
+                  checked={Boolean(state.guestReadyImpact)}
+                  onCheckedChange={(v) => onPatch({ guestReadyImpact: v })}
+                  label="Guest-ready impact"
+                />
+              </div>
+            </div>
+            <EField label="Description *">
+              <ETextarea
+                value={state.description ?? ""}
+                onChange={(e) => onPatch({ description: e.target.value })}
+                placeholder="What was wrong and where?"
+                style={missingDescription ? { borderColor: "hsl(var(--e-danger))" } : undefined}
+              />
+            </EField>
+            {state.qaPhotoKeys && state.qaPhotoKeys.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {state.qaPhotoKeys.map((p) => (
+                  <Thumb key={p.key} url={urlByKey[p.key]} onRemove={() => onRemovePhoto(p.key)} />
+                ))}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <Uploader
+                jobId={jobId}
+                folder="qa-accountability"
+                label="Attach QA photo"
+                stamp={{ ...qaStamp, contextLabel: ["QA", typeof field.label === "string" ? field.label : ""].filter(Boolean).join(" · ") }}
+                onUploaded={onAddPhoto}
+                onError={onError}
+              />
+              {meta.cleanerMarkedComplete ? (
+                <label className="flex items-center gap-2 text-[0.75rem] font-medium text-[hsl(var(--e-danger))]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[hsl(var(--e-danger))]"
+                    checked={Boolean(state.falseConfirmation)}
+                    onChange={(e) => onPatch({ falseConfirmation: e.target.checked })}
+                  />
+                  Flag as false confirmation (−10)
+                </label>
+              ) : null}
+            </div>
+            {(missingCategory || missingDescription) ? (
+              <p className="text-[0.6875rem] text-[hsl(var(--e-danger))]">
+                A category and description are required for {VERDICT_LABELS[state.verdict]} verdicts.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* ── main workspace ───────────────────────────────────────────────────── */
 export function QaInspectionWorkspace({
   jobId,
@@ -596,6 +782,10 @@ export function QaInspectionWorkspace({
 
   // key → presigned display URL (seeded from GET, augmented on upload)
   const [urlByKey, setUrlByKey] = useState<Record<string, string>>({});
+
+  // ── Accountability Phase 4b — per-item verdicts + evidence flags ──
+  const [verdicts, setVerdicts] = useState<Record<string, VerdictState>>({});
+  const [missingEvidence, setMissingEvidence] = useState<Record<string, boolean>>({});
 
   // ── local draft autosave ──
   const draftRestoredRef = useRef(false);
@@ -656,6 +846,8 @@ export function QaInspectionWorkspace({
         if (d.data && typeof d.data === "object") setData(d.data);
         if (typeof d.notes === "string") setNotes(d.notes);
         if (d.tools && typeof d.tools === "object") setTools((prev) => ({ ...prev, ...d.tools }));
+        if (d.verdicts && typeof d.verdicts === "object") setVerdicts(d.verdicts);
+        if (d.missingEvidence && typeof d.missingEvidence === "object") setMissingEvidence(d.missingEvidence);
         if (typeof d.savedAt === "number") setDraftSavedAt(d.savedAt);
       }
     } catch {
@@ -669,14 +861,14 @@ export function QaInspectionWorkspace({
     const t = setTimeout(() => {
       try {
         const savedAt = Date.now();
-        localStorage.setItem(draftKey, JSON.stringify({ data, notes, tools, savedAt }));
+        localStorage.setItem(draftKey, JSON.stringify({ data, notes, tools, verdicts, missingEvidence, savedAt }));
         setDraftSavedAt(savedAt);
       } catch {
         /* ignore */
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [data, notes, tools, draftKey]);
+  }, [data, notes, tools, verdicts, missingEvidence, draftKey]);
 
   // seed section photos + urls from payload
   useEffect(() => {
@@ -813,6 +1005,89 @@ export function QaInspectionWorkspace({
     return { score, assessed: maxPoints, passed: score >= 80 && !reworkFlag };
   }, [template, data, tools.rework?.enabled]);
 
+  /* ── Accountability: scoring/categories (settings when exposed, else defaults) ── */
+  const acctScoring: AccountabilityScoring =
+    (payload?.settings?.accountability?.scoring as AccountabilityScoring | undefined) ?? DEFAULT_ACCOUNTABILITY_SCORING;
+  const issueCategories: { key: string; label: string }[] =
+    (payload?.settings?.accountability?.issueCategories as { key: string; label: string }[] | undefined) ??
+    DEFAULT_ISSUE_CATEGORIES;
+
+  // Cleaner-submission signals per field: their affirmative answer (false-
+  // confirmation basis) + their media ids attached to that field.
+  const cleanerMediaByField = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const m of latestSubmission?.media ?? []) {
+      const fid = m?.fieldId;
+      if (!fid) continue;
+      (map[fid] ??= []).push(m.id);
+    }
+    return map;
+  }, [latestSubmission]);
+
+  const cleanerData: Record<string, unknown> = latestSubmission?.data ?? {};
+
+  // Which template fields are reviewed checklist items (answerable OR evidence
+  // uploads; signature/instruction/inventory are display-only). Build per-item
+  // metadata for the verdict entries.
+  const itemMeta = useMemo(() => {
+    const map: Record<string, ItemMeta> = {};
+    const sections = template?.schema?.sections ?? [];
+    for (const section of sections) {
+      for (const field of section.fields ?? []) {
+        if (["signature", "instruction", "inventory"].includes(field.type)) continue;
+        const isUpload = isUploadFieldType(field.type);
+        const mediaIds = cleanerMediaByField[field.id] ?? [];
+        const cleanerMarkedComplete = isUpload
+          ? mediaIds.length > 0
+          : cleanerAnsweredAffirmatively(cleanerData[field.id]);
+        map[field.id] = {
+          fieldId: field.id,
+          label: field.label ?? null,
+          itemKey: field.key ?? null,
+          cleanerMarkedComplete,
+          cleanerMediaIds: mediaIds,
+        };
+      }
+    }
+    return map;
+  }, [template, cleanerMediaByField, cleanerData]);
+
+  const acctPreview = useMemo(
+    () => computeAccountabilityPreview(verdicts, missingEvidence, acctScoring),
+    [verdicts, missingEvidence, acctScoring]
+  );
+
+  function verdictState(fieldId: string): VerdictState {
+    return verdicts[fieldId] ?? emptyVerdictState();
+  }
+  function patchVerdict(fieldId: string, patch: Partial<VerdictState>) {
+    setVerdicts((prev) => ({ ...prev, [fieldId]: { ...(prev[fieldId] ?? emptyVerdictState()), ...patch } }));
+  }
+  function toggleMissing(fieldId: string, value: boolean) {
+    setMissingEvidence((prev) => {
+      const next = { ...prev };
+      if (value) next[fieldId] = true;
+      else delete next[fieldId];
+      return next;
+    });
+  }
+  function addVerdictPhoto(fieldId: string, key: string, url?: string) {
+    if (url) setUrlByKey((p) => ({ ...p, [key]: url }));
+    setVerdicts((prev) => {
+      const cur = prev[fieldId] ?? emptyVerdictState();
+      const existing = cur.qaPhotoKeys ?? [];
+      if (existing.some((p) => p.key === key)) return prev;
+      return { ...prev, [fieldId]: { ...cur, qaPhotoKeys: [...existing, { key }] } };
+    });
+  }
+  function removeVerdictPhoto(fieldId: string, key: string) {
+    setVerdicts((prev) => {
+      const cur = prev[fieldId];
+      if (!cur) return prev;
+      return { ...prev, [fieldId]: { ...cur, qaPhotoKeys: (cur.qaPhotoKeys ?? []).filter((p) => p.key !== key) } };
+    });
+  }
+
   /* ── damage ── */
   function addDamage() {
     setTools((prev) => ({
@@ -945,6 +1220,15 @@ export function QaInspectionWorkspace({
         }
       }
     }
+    const acctInvalid = validateAccountability(verdicts, itemMeta);
+    if (acctInvalid.length > 0) {
+      pushToast({
+        title: "Add a category and description for flagged items",
+        description: `${acctInvalid.length} flagged item(s) need an issue category and description: ${acctInvalid.map((i) => i.label).join(", ")}.`,
+        tone: "danger",
+      });
+      return;
+    }
     if (!attested) {
       pushToast({ title: "Tick the attestation to sign off this inspection.", tone: "danger" });
       return;
@@ -983,6 +1267,10 @@ export function QaInspectionWorkspace({
       signedAt: new Date().toISOString(),
     };
 
+    // Accountability blob — additive; omitted entirely when no non-PASS verdict,
+    // missing-evidence flag or false-confirmation exists (legacy behaviour).
+    const accountability = buildAccountabilityBlob(verdicts, missingEvidence, itemMeta);
+
     const res = await fetch(`/api/qa/jobs/${jobId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -991,6 +1279,7 @@ export function QaInspectionWorkspace({
         templateId: template.id,
         data,
         notes,
+        ...(accountability ? { accountability } : {}),
         tools: {
           damage: tools.damage,
           nextClean: tools.nextClean,
@@ -1022,6 +1311,8 @@ export function QaInspectionWorkspace({
       tone: "info",
     });
     setTimer({ running: false, elapsedMs: 0, runningSince: null });
+    setVerdicts({});
+    setMissingEvidence({});
     try {
       localStorage.removeItem(draftKey);
     } catch {
@@ -1491,6 +1782,58 @@ export function QaInspectionWorkspace({
           </ECardBody>
         </ECard>
 
+        {/* accountability live score */}
+        <ECard className="sticky top-[68px] z-10">
+          <ECardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <ECardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" style={{ color: "hsl(var(--e-gold))" }} /> Accountability score
+              </ECardTitle>
+              <div className="text-right">
+                <p
+                  className="e-numeral text-[1.5rem] leading-none"
+                  style={{
+                    color: acctPreview.managementReview
+                      ? "hsl(var(--e-danger))"
+                      : acctPreview.rating === "FAILED"
+                        ? "hsl(var(--e-danger))"
+                        : acctPreview.rating === "NEEDS IMPROVEMENT"
+                          ? "hsl(var(--e-warning))"
+                          : "hsl(var(--e-success))",
+                  }}
+                >
+                  {acctPreview.raw}
+                </p>
+                <p className="text-[0.6875rem] uppercase tracking-[0.1em] text-[hsl(var(--e-muted-foreground))]">
+                  {acctPreview.active ? "of 100" : "no findings"}
+                </p>
+              </div>
+            </div>
+          </ECardHeader>
+          <ECardBody className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <EBadge tone={acctPreview.managementReview ? "danger" : acctPreview.rating === "EXCELLENT" || acctPreview.rating === "PASS" ? "success" : acctPreview.rating === "NEEDS IMPROVEMENT" ? "warning" : "danger"}>
+                {acctPreview.managementReview ? "MANAGEMENT REVIEW" : acctPreview.rating}
+              </EBadge>
+              {!acctPreview.active ? (
+                <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  All items pass — no accountability data will be sent.
+                </span>
+              ) : null}
+            </div>
+            {acctPreview.active ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                <span>Minor ×{acctPreview.minor} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.minor * acctScoring.minorDeduction})</span></span>
+                <span>Major ×{acctPreview.major} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.major * acctScoring.majorDeduction})</span></span>
+                <span>Critical ×{acctPreview.critical} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.critical * acctScoring.criticalDeduction})</span></span>
+                <span>Missing evidence ×{acctPreview.missingEvidence} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.missingEvidence * acctScoring.missingMandatoryEvidenceDeduction})</span></span>
+                <span>False confirmations ×{acctPreview.falseConfirmations} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.falseConfirmations * acctScoring.falseConfirmationExtraDeduction})</span></span>
+                {acctPreview.na > 0 ? <span>N/A ×{acctPreview.na}</span> : null}
+              </div>
+            ) : null}
+          </ECardBody>
+        </ECard>
+
         {/* scored form */}
         <ECard>
           <ECardHeader>
@@ -1548,12 +1891,46 @@ export function QaInspectionWorkspace({
                   />
 
                   {(section.fields ?? [])
-                    .filter((field: any) => !SKIP_FIELD_TYPES.has(field.type))
-                    .map((field: any) => (
-                      <div key={field.id} className="space-y-1.5">
-                        <EFieldInput field={field} value={data[field.id]} onChange={(v) => setField(field.id, v)} />
-                      </div>
-                    ))}
+                    .filter((field: any) => !["signature", "instruction", "inventory"].includes(field.type))
+                    .map((field: any) => {
+                      const answerable = !SKIP_FIELD_TYPES.has(field.type);
+                      const requiredPhoto =
+                        isUploadFieldType(field.type) && (Boolean(field.required) || Number(field.minPhotos) > 0);
+                      const meta = itemMeta[field.id];
+                      if (!meta) return null;
+                      return (
+                        <AccountabilityItemV2
+                          key={field.id}
+                          field={field}
+                          requiredPhoto={requiredPhoto}
+                          meta={meta}
+                          state={verdictState(field.id)}
+                          onPatch={(patch) => patchVerdict(field.id, patch)}
+                          missing={Boolean(missingEvidence[field.id])}
+                          onToggleMissing={(v) => toggleMissing(field.id, v)}
+                          issueCategories={issueCategories}
+                          jobId={jobId}
+                          qaStamp={qaStamp}
+                          urlByKey={urlByKey}
+                          onAddPhoto={(key, url) => addVerdictPhoto(field.id, key, url)}
+                          onRemovePhoto={(key) => removeVerdictPhoto(field.id, key)}
+                          onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
+                        >
+                          {answerable ? (
+                            <EFieldInput field={field} value={data[field.id]} onChange={(v) => setField(field.id, v)} />
+                          ) : (
+                            <div className="flex items-center gap-2 text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">
+                              <Camera className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+                              {field.label}
+                              {field.required ? <span className="text-[hsl(var(--e-danger))]">*</span> : null}
+                              <span className="text-[0.75rem] font-normal text-[hsl(var(--e-muted-foreground))]">
+                                · {meta.cleanerMediaIds.length} cleaner photo{meta.cleanerMediaIds.length === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                          )}
+                        </AccountabilityItemV2>
+                      );
+                    })}
                 </div>
               );
             })}

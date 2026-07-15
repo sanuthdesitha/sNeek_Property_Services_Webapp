@@ -22,6 +22,8 @@ import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
 import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
+import { applyRotationCompletion, deriveRotationalCompletion } from "@/lib/accountability/rotation";
+import { SELF_INSPECTION_MODULE_KEY } from "@/lib/checklists/catalog";
 import {
   JobStatus,
   MediaType,
@@ -123,6 +125,35 @@ function sanitizeAdminRequestedTasks(
 
 function unifiedJobTaskProofFieldId(taskId: string) {
   return `__job_task_${taskId}_proof`;
+}
+
+/**
+ * The unticked final self-inspection checkboxes for a submission. Finds the
+ * composed "final-inspection" section (section id === module key) in the schema
+ * snapshot and returns every checkbox field not answered `true`. Legacy
+ * templates without the section yield an empty list (no gate).
+ */
+function collectUntickedSelfInspection(
+  schema: any,
+  answers: Record<string, unknown>
+): { id: string; label: string }[] {
+  const sections = Array.isArray(schema?.sections) ? schema.sections : [];
+  const section = sections.find(
+    (s: any) => typeof s?.id === "string" && s.id === SELF_INSPECTION_MODULE_KEY
+  );
+  if (!section || !Array.isArray(section.fields)) return [];
+  const unticked: { id: string; label: string }[] = [];
+  for (const field of section.fields) {
+    if (!field || typeof field.id !== "string") continue;
+    if (field.type && field.type !== "checkbox") continue;
+    if (answers[field.id] === true) continue;
+    unticked.push({
+      id: field.id,
+      label:
+        typeof field.label === "string" && field.label.trim() ? field.label.trim() : field.id,
+    });
+  }
+  return unticked;
 }
 
 export async function POST(
@@ -356,6 +387,31 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Final self-inspection gate (Accountability Phase 3). The 14 checkboxes are
+    // required in the schema, but an unticked checkbox can arrive as `false`
+    // (which the generic required-answer check treats as answered), so this is
+    // the authoritative server gate. When settings.accountability
+    // .selfInspectionBlocksSubmit is not explicitly false, reject with the list
+    // of unticked labels; when it is off, accept but record the unticked keys
+    // into the submission data for QA visibility.
+    const untickedSelfInspection = collectUntickedSelfInspection(effectiveSchema, answers);
+    let selfInspectionIncompleteKeys: string[] = [];
+    if (untickedSelfInspection.length > 0) {
+      const accountabilitySettings = (await getAppSettings()).accountability;
+      if (accountabilitySettings.selfInspectionBlocksSubmit !== false) {
+        return NextResponse.json(
+          {
+            error: `Complete the final self-inspection: ${untickedSelfInspection
+              .map((f) => f.label)
+              .join(", ")}`,
+            missingRequiredFields: untickedSelfInspection,
+          },
+          { status: 400 }
+        );
+      }
+      selfInspectionIncompleteKeys = untickedSelfInspection.map((f) => f.id);
+    }
+
     const incompleteAdminTask = adminRequestedTasks.find((task) => !task.completed);
     if (incompleteAdminTask) {
       return NextResponse.json(
@@ -470,6 +526,9 @@ export async function POST(
           __templateVersion: template.id,
           __adminRequestedTasks: adminRequestedTasks,
           __jobTasks: unifiedTaskSnapshot,
+          ...(selfInspectionIncompleteKeys.length > 0
+            ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
+            : {}),
         } as any,
         laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
         laundryOutcome,
@@ -493,6 +552,30 @@ export async function POST(
       await db.submissionMedia.createMany({
         data: mediaRows,
       });
+    }
+
+    // Rotational-evidence state (Accountability Phase 3): reset completed
+    // rotational items to 0 and advance the rest, atomically. Derived purely
+    // from the submitted schema snapshot (ROTATIONAL fields) + answers + uploads.
+    // Best-effort — a counter hiccup must never strand an otherwise-good submit.
+    try {
+      const { completedItemKeys, allRotationalItemKeys } = deriveRotationalCompletion(
+        (effectiveSchema as any)?.sections,
+        answers,
+        uploads
+      );
+      if (allRotationalItemKeys.length > 0) {
+        await db.$transaction((tx) =>
+          applyRotationCompletion(tx, {
+            propertyId: job.propertyId,
+            jobId: job.id,
+            completedItemKeys,
+            allRotationalItemKeys,
+          })
+        );
+      }
+    } catch (rotationErr) {
+      console.error("[rotation] state update failed", rotationErr);
     }
 
     const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);

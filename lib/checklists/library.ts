@@ -5,6 +5,7 @@ import {
   FEATURE_MODULES,
   ROTATIONAL_EVIDENCE_ITEMS,
   EXCEPTION_MODULE,
+  SELF_INSPECTION_MODULE,
   MODULE_EVIDENCE_CATEGORY,
 } from "@/lib/checklists/catalog";
 import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
@@ -16,9 +17,10 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * differ, so production libraries pick up new modules/rules without a manual
  * re-seed. (History: v1 = original catalog seed; v2 = feature modules + rule/
  * repeatBy sync onto existing rows; v3 = evidence frequency — rotational +
- * conditional evidence items, evidenceCategory backfill.)
+ * conditional evidence items, evidenceCategory backfill; v4 = final
+ * self-inspection module — 14 required checkboxes composing last.)
  */
-export const CATALOG_VERSION = "3";
+export const CATALOG_VERSION = "4";
 const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
@@ -432,6 +434,62 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           sortOrder: sortIndex,
           frequency: "CONDITIONAL",
           conditionKey: item.conditionKey,
+          severity: item.severity,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── Always-present final self-inspection module ────────────────────────────
+  // 14 required EVERY_CLEAN checkboxes composing last (before sign-off). Upserted
+  // like the exception module so admin edits (instructions/isActive) are kept.
+  {
+    const mod = SELF_INSPECTION_MODULE;
+    const moduleRow = await db.checklistModule.upsert({
+      where: { key: mod.key },
+      create: {
+        key: mod.key,
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      update: {
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      select: { id: true },
+    });
+    moduleCount += 1;
+
+    let sortIndex = 0;
+    for (const item of mod.items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          fieldType: "checkbox",
+          required: true,
+          jobTypes: mod.jobTypes,
+          appliesWhen: null as any,
+          sortOrder: sortIndex,
+          evidenceCategory: "FINAL",
+          frequency: "EVERY_CLEAN",
+          severity: item.severity,
+        },
+        update: {
+          label: item.label,
+          fieldType: "checkbox",
+          required: true,
+          jobTypes: mod.jobTypes,
+          sortOrder: sortIndex,
+          frequency: "EVERY_CLEAN",
           severity: item.severity,
         },
       });

@@ -65,6 +65,71 @@ export async function getRotationDueMap(
 }
 
 /**
+ * Strip a compose repeat suffix (`__bed2`, `__bath3`) off a field id so it maps
+ * back to the underlying library item key. No suffix → returned unchanged.
+ */
+export function stripRepeatSuffix(fieldId: string): string {
+  return fieldId.replace(/__(?:bed|bath)\d+$/, "");
+}
+
+/** A single completed check: a media/upload field with keys, or a truthy answer. */
+function isFieldCompleted(
+  field: { id: string; type?: unknown },
+  answers: Record<string, unknown>,
+  media: Record<string, string[]>
+): boolean {
+  const uploads = media[field.id];
+  if (Array.isArray(uploads) && uploads.length > 0) return true;
+  const value = answers[field.id];
+  if (value === true) return true;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "number") return true;
+  return false;
+}
+
+/**
+ * Pure derivation of rotational completion from a submitted form's schema
+ * snapshot + the cleaner's answers + uploaded media (fieldId → keys).
+ *
+ * A field is rotational when it carries `frequency: "ROTATIONAL"` (emitted by
+ * compose). Field ids are mapped back to library item keys by stripping the
+ * per-room repeat suffix, so a repeated room's rotational field (`x__bed2`)
+ * folds onto the same item key. `allRotationalItemKeys` = every rotational item
+ * present in the schema this clean; `completedItemKeys` = those whose evidence
+ * (photo/answer) is present.
+ */
+export function deriveRotationalCompletion(
+  schemaSections: unknown,
+  answers: Record<string, unknown>,
+  media: Record<string, string[]>
+): { completedItemKeys: string[]; allRotationalItemKeys: string[] } {
+  const all = new Set<string>();
+  const completed = new Set<string>();
+
+  const visit = (field: any) => {
+    if (!field || typeof field !== "object") return;
+    if (typeof field.id === "string" && field.frequency === "ROTATIONAL") {
+      const itemKey = stripRepeatSuffix(field.id);
+      all.add(itemKey);
+      if (isFieldCompleted(field, answers, media)) completed.add(itemKey);
+    }
+    if (Array.isArray(field.children)) field.children.forEach(visit);
+  };
+
+  const sections = Array.isArray(schemaSections) ? schemaSections : [];
+  for (const section of sections as any[]) {
+    if (!section || !Array.isArray(section.fields)) continue;
+    section.fields.forEach(visit);
+  }
+
+  return {
+    completedItemKeys: Array.from(completed),
+    allRotationalItemKeys: Array.from(all),
+  };
+}
+
+/**
  * Prisma client / transaction-client surface used by
  * {@link applyRotationCompletion}. Typed loosely so any of the app's Prisma
  * clients (the root client or an interactive `$transaction` client) can be

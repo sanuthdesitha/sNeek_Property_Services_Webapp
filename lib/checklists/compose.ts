@@ -384,6 +384,10 @@ function libraryItemField(
     ...(item.stampTag ? { stampTag: item.stampTag } : {}),
     ...(severity ? { severity } : {}),
     ...(evidenceCategory ? { evidenceCategory } : {}),
+    // Emit non-default frequency so the submitted schema snapshot is
+    // self-describing (the cleaner-submit route derives rotational completion
+    // from ROTATIONAL fields). EVERY_CLEAN fields stay byte-identical to before.
+    ...(frequency && frequency !== "EVERY_CLEAN" ? { frequency } : {}),
     ...(item.imageUrl || item.videoUrl
       ? {
           references: [

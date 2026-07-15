@@ -11,6 +11,12 @@ import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { QA_TOOLS_DATA_KEY, minutesBetween } from "@/lib/qa/inspection-tools";
 import { publicUrl, getPresignedDownloadUrl } from "@/lib/s3";
+import { getAppSettings } from "@/lib/settings";
+import {
+  computeAccountabilityScore,
+  sanitizeAccountabilityAssessment,
+} from "@/lib/accountability/scoring";
+import { QaIssueSeverity, FalseConfirmationStatus } from "@prisma/client";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -123,6 +129,10 @@ const submitSchema = z.object({
   media: z.any().optional(),
   notes: z.string().trim().max(6000).optional(),
   tools: toolsSchema,
+  // Accountability assessment blob (AccountabilityAssessmentInput). Parsed
+  // defensively via sanitizeAccountabilityAssessment — kept permissive here so a
+  // malformed blob degrades to the legacy path rather than 400-ing the submit.
+  accountability: z.any().optional(),
 });
 
 async function resolveTemplate(jobId: string) {
@@ -322,6 +332,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const result = scoreQaSubmission(template.schema as any, body.data);
     const tools = body.tools ?? null;
 
+    // ACCOUNTABILITY ASSESSMENT (Phase 4a). When the QA submit carries a
+    // non-empty `accountability` blob, the deduction-based accountability score
+    // becomes authoritative for the review's pass/fail (feeding effectivePassed
+    // below), and per-verdict QaIssue rows are created. When the blob is absent
+    // or empty this is null and the legacy percent path is byte-for-byte unchanged.
+    const settings = await getAppSettings();
+    const validCategories = settings.accountability.issueCategories.map((c) => c.key);
+    const accountabilityInput = sanitizeAccountabilityAssessment(body.accountability, validCategories);
+    const accountabilityResult = accountabilityInput
+      ? computeAccountabilityScore(accountabilityInput, settings.accountability.scoring)
+      : null;
+    // When accountability is present its `passed` is authoritative; otherwise the
+    // legacy numeric pass/fail stands.
+    const reviewPassed = accountabilityResult ? accountabilityResult.passed : result.passed;
+
     // If the inspector enabled rework AND flagged areas, a rework job will be
     // created below — so the ORIGINAL job must NOT be marked COMPLETED just
     // because the numeric score passed. Otherwise the job is closed (invoice/
@@ -331,7 +356,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       rkPre?.enabled &&
         (((rkPre.flaggedAreas ?? []).length > 0) || ((rkPre.areas ?? []).length > 0))
     );
-    const effectivePassed = result.passed && !willCreateRework;
+    // effectivePassed keeps its exact meaning — a spawned rework holds the job in
+    // QA_REVIEW — but is now fed the accountability `passed` when present.
+    const effectivePassed = reviewPassed && !willCreateRework;
 
     // A reassigned ("OTHER" cleaner) rework must name the payee + a pay amount,
     // else createReworkJobFromFailure silently falls back to the ORIGINAL
@@ -364,13 +391,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         data: {
           jobId: params.id,
           reviewedById: session.user.id,
-          score: result.score,
-          passed: result.passed,
+          // When an accountability assessment is present, the raw accountability
+          // score is the review score at creation (final = raw; admin adjustments
+          // land later via the adjust endpoint). Legacy percent is used otherwise.
+          score: accountabilityResult ? accountabilityResult.rawScore : result.score,
+          passed: reviewPassed,
           // A real on-site QA inspection — the authoritative score for the job
           // (overrides any earlier admin/auto quick score). See lib/qa/authority.
           kind: "QA",
           notes: body.notes || null,
           flags: { categoryScores: result.categoryScores, data: dataWithTools } as any,
+          ...(accountabilityResult
+            ? {
+                rawScore: accountabilityResult.rawScore,
+                rating: accountabilityResult.rating,
+                managementReview: accountabilityResult.managementReview,
+              }
+            : {}),
         },
       });
       const submission = await tx.qaFormSubmission.create({
@@ -439,6 +476,105 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           after: { score: result.score, passed: result.passed, jobId: params.id } as any,
         },
       });
+
+      // ── ACCOUNTABILITY: create one QaIssue per MINOR/MAJOR/CRITICAL verdict
+      //    plus dedicated issues for unmatched suspected false confirmations, and
+      //    audit the assessment. All inside the same transaction as the review.
+      if (accountabilityInput && accountabilityResult) {
+        // The job's primary assigned cleaner owns the flagged issues (matches
+        // getOriginalPrimaryCleanerId: primary first, then earliest assigned).
+        const primaryAssignment = await tx.jobAssignment.findFirst({
+          where: { jobId: params.id, removedAt: null },
+          orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
+          select: { userId: true },
+        });
+        const cleanerId = primaryAssignment?.userId ?? null;
+
+        if (!cleanerId) {
+          // No resolvable cleaner — skip issue creation gracefully (the review +
+          // score are still recorded). Nothing to attribute the issues to.
+          console.warn("[qa-submit] accountability issues skipped — no primary cleaner", params.id);
+        } else {
+          // fieldId → suspected-false-confirmation (extra description). A verdict
+          // issue on a matching field is flagged SUSPECTED at creation; anything
+          // left over becomes a dedicated MINOR issue below.
+          const falseConfByField = new Map<string, string | null>();
+          for (const fc of accountabilityInput.suspectedFalseConfirmations ?? []) {
+            falseConfByField.set(fc.fieldId, fc.description ?? null);
+          }
+          const matchedFalseConf = new Set<string>();
+
+          const severityMap: Record<"MINOR" | "MAJOR" | "CRITICAL", QaIssueSeverity> = {
+            MINOR: QaIssueSeverity.MINOR,
+            MAJOR: QaIssueSeverity.MAJOR,
+            CRITICAL: QaIssueSeverity.CRITICAL,
+          };
+
+          for (const v of accountabilityInput.verdicts) {
+            if (v.verdict !== "MINOR" && v.verdict !== "MAJOR" && v.verdict !== "CRITICAL") continue;
+            const isFalseConf = falseConfByField.has(v.fieldId);
+            if (isFalseConf) matchedFalseConf.add(v.fieldId);
+            await tx.qaIssue.create({
+              data: {
+                jobId: params.id,
+                propertyId: job.propertyId,
+                cleanerId,
+                qaReviewId: review.id,
+                qaSubmissionId: submission.id,
+                raisedById: session.user.id,
+                category: v.category || "other",
+                fieldId: v.fieldId,
+                itemKey: v.itemKey ?? null,
+                description: v.description || v.label || "QA issue",
+                severity: severityMap[v.verdict],
+                qaPhotoKeys: (v.qaPhotoKeys ?? undefined) as any,
+                cleanerMediaIds: (v.cleanerMediaIds ?? undefined) as any,
+                cleanerMarkedComplete: v.cleanerMarkedComplete ?? false,
+                guestReadyImpact: v.guestReadyImpact ?? false,
+                falseConfirmation: isFalseConf
+                  ? FalseConfirmationStatus.SUSPECTED
+                  : FalseConfirmationStatus.NONE,
+              },
+            });
+          }
+
+          // Dedicated issues for suspected false confirmations that didn't match a
+          // flagged verdict (e.g. a PASS/NA item the cleaner falsely confirmed).
+          for (const [fieldId, description] of Array.from(falseConfByField)) {
+            if (matchedFalseConf.has(fieldId)) continue;
+            await tx.qaIssue.create({
+              data: {
+                jobId: params.id,
+                propertyId: job.propertyId,
+                cleanerId,
+                qaReviewId: review.id,
+                qaSubmissionId: submission.id,
+                raisedById: session.user.id,
+                category: "other",
+                fieldId,
+                description: description || "Suspected false confirmation",
+                severity: QaIssueSeverity.MINOR,
+                falseConfirmation: FalseConfirmationStatus.SUSPECTED,
+              },
+            });
+          }
+        }
+
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "QA_ACCOUNTABILITY_ASSESSMENT",
+            entity: "QAReview",
+            entityId: review.id,
+            after: {
+              rawScore: accountabilityResult.rawScore,
+              rating: accountabilityResult.rating,
+              counts: accountabilityResult.counts,
+            } as any,
+          },
+        });
+      }
+
       return { review, submission };
     });
 
