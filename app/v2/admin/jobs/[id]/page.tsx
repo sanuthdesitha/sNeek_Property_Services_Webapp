@@ -375,18 +375,42 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
     ? (JSON.parse(JSON.stringify(fullProperty)) as Record<string, unknown>)
     : {};
 
+  // Full field set for the manage modal (v1 "Edit Job" parity). The board's
+  // list query already carries these on its job objects; the detail page must
+  // pass them explicitly. All read-only here — the modal owns the mutations.
+  const manageSubmission = job.formSubmissions[0] ?? null;
   const manageJob = {
     id: job.id,
     jobNumber: job.jobNumber,
+    jobType: job.jobType,
     status: job.status,
     scheduledDate: job.scheduledDate.toISOString(),
     startTime: job.startTime,
     dueTime: job.dueTime,
+    endTime: job.endTime,
+    estimatedHours: job.estimatedHours,
+    actualHours: job.actualHours,
+    completedAt: job.completedAt ? job.completedAt.toISOString() : null,
+    notes: job.notes,
     fixedPrice: job.fixedPrice,
     invoiceNote: job.invoiceNote,
     internalNotes: job.internalNotes,
     cleanSkipStatus: job.cleanSkipStatus,
     property: { name: job.property?.name ?? null },
+    assignments: job.assignments.map((a) => ({
+      userId: a.userId,
+      isPrimary: a.isPrimary,
+      payRate: a.payRate,
+      user: { id: a.user?.id ?? a.userId, name: a.user?.name ?? null, email: a.user?.email ?? null },
+    })),
+    submission: manageSubmission
+      ? {
+          id: manageSubmission.id,
+          laundryReady: manageSubmission.laundryReady,
+          laundryOutcome: manageSubmission.laundryOutcome ? String(manageSubmission.laundryOutcome) : null,
+          bagLocation: manageSubmission.bagLocation,
+        }
+      : null,
   };
 
   const pendingTaskCount = taskRows.filter((t) => t.approvalStatus === "PENDING_APPROVAL").length;

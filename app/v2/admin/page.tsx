@@ -5,6 +5,7 @@ import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 import { getAdminAttentionSummary } from "@/lib/dashboard/immediate-attention";
+import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import {
   EBadge,
   EButton,
@@ -113,14 +114,73 @@ async function getTodayDispatch() {
     .catch(() => []);
 }
 
-/** Cleaners on the move right this second — drives the "Live now" strip. */
+/**
+ * Cleaners on the move right this second — drives the "Live now" strip.
+ *
+ * Mirrors the ops live-locations feed's liveness definition (keep in sync with
+ * app/api/admin/ops/live-locations/route.ts): only TODAY's (Sydney) work counts
+ * — an EN_ROUTE / IN_PROGRESS / PAUSED job scheduled today, or an open timer
+ * started today (or on a job scheduled today) — AND the cleaner must have a
+ * fresh GPS ping (within STALE_AFTER_MS). A leftover open timer or active-status
+ * job from a previous day, and cleaners whose only ping is stale, are excluded
+ * so this KPI matches the ops map's live count instead of inflating it.
+ */
 async function getLiveNow() {
-  const [enRouteJobs, onSiteJobs, runningTimers] = await Promise.all([
-    db.job.count({ where: { status: JobStatus.EN_ROUTE } }).catch(() => 0),
-    db.job.count({ where: { status: { in: [JobStatus.IN_PROGRESS, JobStatus.PAUSED] } } }).catch(() => 0),
-    db.timeLog.count({ where: { stoppedAt: null } }).catch(() => 0),
-  ]);
-  return { enRouteJobs, onSiteJobs, runningTimers };
+  const STALE_AFTER_MS = 3 * 60_000;
+  const now = Date.now();
+  const todayKey = sydneyTodayKey();
+  const todayStart = sydneyDayStart(todayKey);
+  const todayEnd = sydneyDayEndInclusive(todayKey);
+
+  try {
+    const [freshPings, enRoute, onSite, timers] = await Promise.all([
+      db.cleanerLocationPing.findMany({
+        where: { timestamp: { gte: new Date(now - STALE_AFTER_MS) } },
+        distinct: ["userId"],
+        select: { userId: true },
+      }),
+      db.job.findMany({
+        where: {
+          status: JobStatus.EN_ROUTE,
+          scheduledDate: { gte: todayStart, lte: todayEnd },
+          assignments: { some: { removedAt: null } },
+        },
+        select: { assignments: { where: { removedAt: null }, select: { userId: true } } },
+      }),
+      db.job.findMany({
+        where: {
+          status: { in: [JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
+          scheduledDate: { gte: todayStart, lte: todayEnd },
+          assignments: { some: { removedAt: null } },
+        },
+        select: { assignments: { where: { removedAt: null }, select: { userId: true } } },
+      }),
+      db.timeLog.findMany({
+        where: {
+          stoppedAt: null,
+          OR: [
+            { startedAt: { gte: todayStart } },
+            { job: { scheduledDate: { gte: todayStart, lte: todayEnd } } },
+          ],
+        },
+        select: { userId: true },
+      }),
+    ]);
+
+    // A cleaner is live only with a fresh ping; a job is live if any of its
+    // active assignees is.
+    const fresh = new Set(freshPings.map((p) => p.userId));
+    const liveJobs = (jobs: { assignments: { userId: string }[] }[]) =>
+      jobs.filter((j) => j.assignments.some((a) => fresh.has(a.userId))).length;
+
+    return {
+      enRouteJobs: liveJobs(enRoute),
+      onSiteJobs: liveJobs(onSite),
+      runningTimers: timers.filter((t) => fresh.has(t.userId)).length,
+    };
+  } catch {
+    return { enRouteJobs: 0, onSiteJobs: 0, runningTimers: 0 };
+  }
 }
 
 async function getTodayStatusCounts() {

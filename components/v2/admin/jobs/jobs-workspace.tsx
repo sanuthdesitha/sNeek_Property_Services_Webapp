@@ -36,9 +36,10 @@ const TZ = "Australia/Sydney";
 const PAGE_SIZE = 50;
 
 /* ── Date scope (Australia/Sydney) ─────────────────────────────────────── */
-type DateScope = "today" | "upcoming" | "past" | "all";
+type DateScope = "today" | "tomorrow" | "upcoming" | "past" | "all";
 const DATE_SCOPES: { id: DateScope; label: string }[] = [
   { id: "today", label: "Today" },
+  { id: "tomorrow", label: "Tomorrow" },
   { id: "upcoming", label: "Upcoming" },
   { id: "past", label: "Past" },
   { id: "all", label: "All" },
@@ -51,6 +52,7 @@ function sydneyKey(offsetDays = 0): string {
 
 function scopeRange(scope: DateScope): { dateFrom?: string; dateTo?: string } {
   if (scope === "today") return { dateFrom: sydneyKey(0), dateTo: sydneyKey(0) };
+  if (scope === "tomorrow") return { dateFrom: sydneyKey(1), dateTo: sydneyKey(1) };
   if (scope === "upcoming") return { dateFrom: sydneyKey(1) };
   if (scope === "past") return { dateTo: sydneyKey(-1) };
   return {};

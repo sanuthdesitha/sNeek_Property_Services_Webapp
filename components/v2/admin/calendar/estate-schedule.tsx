@@ -44,6 +44,8 @@ type JobEntry = {
   startTime?: string | null;
   scheduledDate: string;
   propertyName: string;
+  /** True when the job has no linked property (or a nameless one) — propertyName is a fallback. */
+  orphanedProperty: boolean;
   suburb: string;
   jobType: string;
   jobTypeLabel: string;
@@ -118,13 +120,16 @@ export function EstateSchedule() {
         setJobs(
           data.map((job) => {
             const assignments = Array.isArray(job?.assignments) ? job.assignments : [];
+            const rawName = String(job.property?.name ?? "").trim();
+            const fallbackAddress = String(job.property?.address ?? "").trim();
             return {
               id: job.id,
               status: String(job.status ?? ""),
               day: isoDay(job.scheduledDate),
               startTime: job.startTime ?? null,
               scheduledDate: String(job.scheduledDate ?? ""),
-              propertyName: job.property?.name ?? "Property",
+              propertyName: rawName || fallbackAddress || "Unlinked property",
+              orphanedProperty: !rawName,
               suburb: job.property?.suburb ?? "",
               jobType: String(job.jobType ?? ""),
               jobTypeLabel: String(job.jobType ?? "").replace(/_/g, " "),
@@ -249,14 +254,13 @@ export function EstateSchedule() {
     return list;
   }, [cursor]);
 
-  /* Agenda: next 14 days grouped by day. */
+  /* Agenda: every day of the cursor month that has jobs — paging months moves it. */
   const agendaDays = useMemo(() => {
     const days: Array<{ day: string; label: string; jobs: JobEntry[] }> = [];
-    const base = new Date(`${todayIso}T00:00:00`);
-    for (let i = 0; i < 14; i += 1) {
-      const date = new Date(base);
-      date.setDate(base.getDate() + i);
-      const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const daysInMonth = new Date(cursor.year, cursor.month + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d += 1) {
+      const date = new Date(cursor.year, cursor.month, d);
+      const day = `${cursor.year}-${pad(cursor.month + 1)}-${pad(d)}`;
       const dayJobs = jobsByDay.get(day) ?? [];
       if (dayJobs.length === 0) continue;
       days.push({
@@ -266,7 +270,7 @@ export function EstateSchedule() {
       });
     }
     return days;
-  }, [jobsByDay, todayIso]);
+  }, [jobsByDay, cursor]);
 
   function shiftMonth(delta: number) {
     setCursor((current) => {
@@ -400,7 +404,9 @@ export function EstateSchedule() {
         </div>
 
         {view === "month" ? (
-          <div className="p-2 sm:p-3">
+          <>
+          {/* Desktop / tablet: the 7-column month grid (≥sm) */}
+          <div className="hidden p-2 sm:block sm:p-3">
             {/* Weekday header */}
             <div className="grid grid-cols-7">
               {WEEKDAYS.map((weekday) => (
@@ -504,14 +510,98 @@ export function EstateSchedule() {
               })}
             </div>
           </div>
+
+          {/* Mobile (<sm): a readable vertical day-by-day list for the cursor month */}
+          <div className="sm:hidden">
+            {agendaDays.length === 0 ? (
+              <EEmptyState
+                eyebrow="Schedule"
+                title="Nothing this month"
+                description={loading ? "Loading jobs…" : `No jobs in ${monthLabel(cursor.year, cursor.month)}.`}
+                className="border-0"
+              />
+            ) : (
+              agendaDays.map(({ day, label, jobs: dayJobs }) => (
+                <div key={day} className="border-b border-[hsl(var(--e-border))] last:border-0">
+                  <div className="flex items-center justify-between bg-[hsl(var(--e-surface-raised))] px-4 py-2">
+                    <p className="text-[0.8125rem] font-[550]">
+                      {label}
+                      {day === todayIso ? <span className="ml-2 text-[hsl(var(--e-gold-ink))]">· Today</span> : null}
+                    </p>
+                    <p className="e-numeral text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {dayJobs.length} {dayJobs.length === 1 ? "job" : "jobs"}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 p-3">
+                    {dayJobs.map((job) => {
+                      const meta = STATUS_META[job.status] ?? FALLBACK_META;
+                      const unassigned = job.assignedIds.length === 0;
+                      return (
+                        <div
+                          key={job.id}
+                          className="flex items-center gap-2 rounded-[var(--e-radius)] border px-2.5 py-2"
+                          style={{
+                            borderColor: `color-mix(in srgb, ${meta.color} 45%, transparent)`,
+                            backgroundColor: `color-mix(in srgb, ${meta.color} 8%, transparent)`,
+                          }}
+                        >
+                          <Link href={`/v2/admin/jobs/${job.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
+                            {job.startTime ? (
+                              <span className="e-tnum shrink-0 text-[0.75rem] text-[hsl(var(--e-text-faint))]">{job.startTime}</span>
+                            ) : null}
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className={`block truncate text-[0.8125rem] font-[550] ${
+                                  job.orphanedProperty ? "text-[hsl(var(--e-warning))]" : ""
+                                }`}
+                                title={job.orphanedProperty ? "No linked property" : undefined}
+                              >
+                                {job.propertyName}
+                              </span>
+                              <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                                <span style={{ color: meta.color }}>{meta.label}</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <User2 className="h-2.5 w-2.5 text-[hsl(var(--e-text-faint))]" aria-hidden />
+                                  {job.cleanerName ?? <span className="text-[hsl(var(--e-warning))]">Unassigned</span>}
+                                </span>
+                              </span>
+                            </span>
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setAssignJob(job)}
+                            aria-label={unassigned ? "Assign cleaner" : "Reassign cleaner"}
+                            title={unassigned ? "Assign cleaner" : "Reassign cleaner"}
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--e-radius-sm)] transition-colors ${
+                              unassigned
+                                ? "text-[hsl(var(--e-warning))] hover:bg-[hsl(var(--e-warning-soft))]"
+                                : "text-[hsl(var(--e-text-faint))] hover:bg-[hsl(var(--e-muted))] hover:text-[hsl(var(--e-foreground))]"
+                            }`}
+                          >
+                            <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          </>
         ) : (
-          /* Agenda: next 14 days */
+          /* Agenda: the cursor month, day by day */
           <div>
             {agendaDays.length === 0 ? (
               <EEmptyState
                 eyebrow="Schedule"
-                title="Nothing in the next fortnight"
-                description={loading ? "Loading jobs…" : "No jobs match the current filter over the next 14 days."}
+                title="Nothing this month"
+                description={
+                  loading
+                    ? "Loading jobs…"
+                    : `No jobs match the current filter in ${monthLabel(cursor.year, cursor.month)}.`
+                }
                 className="border-0"
               />
             ) : (
@@ -532,15 +622,22 @@ export function EstateSchedule() {
                     return (
                       <div
                         key={job.id}
-                        className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[hsl(var(--e-muted))]"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-[hsl(var(--e-muted))] sm:px-5"
                       >
-                        <Link href={`/v2/admin/jobs/${job.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                        <Link href={`/v2/admin/jobs/${job.id}`} className="flex min-w-0 flex-1 basis-full items-center gap-3 sm:basis-0">
                           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} aria-hidden />
                           <span className="e-tnum w-14 shrink-0 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                             {job.startTime || "—"}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[0.8125rem] font-[550]">{job.propertyName}</span>
+                            <span
+                              className={`block truncate text-[0.8125rem] font-[550] ${
+                                job.orphanedProperty ? "text-[hsl(var(--e-warning))]" : ""
+                              }`}
+                              title={job.orphanedProperty ? "No linked property" : undefined}
+                            >
+                              {job.propertyName}
+                            </span>
                             <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                               {job.jobTypeLabel}
                               {job.suburb ? ` · ${job.suburb}` : ""}
@@ -552,7 +649,7 @@ export function EstateSchedule() {
                           {job.cleanerName ?? <span className="text-[hsl(var(--e-warning))]">Unassigned</span>}
                         </span>
                         <span
-                          className="hidden shrink-0 rounded-[var(--e-radius-pill)] px-2 py-0.5 text-[0.6875rem] font-[550] sm:inline"
+                          className="shrink-0 rounded-[var(--e-radius-pill)] px-2 py-0.5 text-[0.6875rem] font-[550]"
                           style={{ backgroundColor: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
                         >
                           {meta.label}
