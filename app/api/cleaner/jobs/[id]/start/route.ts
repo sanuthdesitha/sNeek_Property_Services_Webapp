@@ -141,11 +141,14 @@ export async function POST(
       (settings as unknown as {
         accountability?: { requireJobStartConfirmation?: boolean };
       }).accountability?.requireJobStartConfirmation !== false;
-    // Laundry-bag confirmation only matters for laundry-enabled, non-rework jobs
-    // (reworks reuse the original clean's linen). Property-code is always required
-    // when the flag is on.
+    // Laundry-bag confirmation only matters on Airbnb turnovers at
+    // laundry-enabled properties, and never on reworks (reworks reuse the
+    // original clean's linen). Property-code is always required when the flag
+    // is on.
     const laundryConfirmRequired =
-      job.property?.laundryEnabled !== false && job.isRework !== true;
+      job.jobType === "AIRBNB_TURNOVER" &&
+      job.property?.laundryEnabled !== false &&
+      job.isRework !== true;
     if (requireStartConfirmation && isFirstStartForCleaner) {
       const propertyCodeOk = body.propertyCodeConfirmed === true;
       const laundryBagOk = !laundryConfirmRequired || body.laundryBagConfirmed === true;

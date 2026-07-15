@@ -17,6 +17,7 @@ function stubItem(o: {
   frequency?: "EVERY_CLEAN" | "CONDITIONAL" | "ROTATIONAL";
   evidenceCategory?: string | null;
   severity?: string | null;
+  jobTypes?: JobType[];
 }) {
   return {
     id: o.key,
@@ -30,7 +31,7 @@ function stubItem(o: {
     minPhotos: null,
     stampTag: null,
     defaultOn: true,
-    jobTypes: [] as JobType[],
+    jobTypes: (o.jobTypes ?? []) as JobType[],
     appliesWhen: null,
     sortOrder: 0,
     isActive: true,
@@ -83,6 +84,7 @@ const finalInspection = stubModule(
       frequency: "EVERY_CLEAN",
       evidenceCategory: "FINAL",
       severity: it.severity,
+      jobTypes: it.jobTypes,
     })
   )
 );
@@ -102,15 +104,37 @@ describe("final self-inspection module — composition", () => {
   const library = [kitchen, finalInspection];
   const selections = selectionsFor(library);
 
-  it("composes with 14 required checkbox items", () => {
+  it("composes every applicable item as a required checkbox", () => {
     const schema = composeFormSchema(library, selections, JOB);
     const section = sectionById(schema, SELF_INSPECTION_MODULE_KEY);
     expect(section).toBeTruthy();
-    expect(section.fields).toHaveLength(14);
+    const applicable = SELF_INSPECTION_MODULE.items.filter(
+      (it) => it.jobTypes.length === 0 || (it.jobTypes as string[]).includes(JOB)
+    );
+    expect(section.fields).toHaveLength(applicable.length);
     for (const field of section.fields) {
       expect(field.type).toBe("checkbox");
       expect(field.required).toBe(true);
     }
+  });
+
+  it("has no duplicate laundry-bag confirm and keeps linen items turnover-only", () => {
+    // The bag confirmation lives in the job-start gate + laundry outcome flow —
+    // never a third checkbox here.
+    expect(SELF_INSPECTION_MODULE.items.map((it) => it.key)).not.toContain(
+      "laundry-bagged-correctly"
+    );
+    // Linen items exist on turnovers only.
+    const general = composeFormSchema(library, selections, JOB);
+    const generalKeys = (sectionById(general, SELF_INSPECTION_MODULE_KEY)?.fields ?? []).map(
+      (f: any) => f.id
+    );
+    expect(generalKeys).not.toContain("fresh-linen-verified");
+    const turnover = composeFormSchema(library, selections, "AIRBNB_TURNOVER" as JobType);
+    const turnoverKeys = (sectionById(turnover, SELF_INSPECTION_MODULE_KEY)?.fields ?? []).map(
+      (f: any) => f.id
+    );
+    expect(turnoverKeys).toContain("fresh-linen-verified");
   });
 
   it("renders after room sections and before the sign-off", () => {

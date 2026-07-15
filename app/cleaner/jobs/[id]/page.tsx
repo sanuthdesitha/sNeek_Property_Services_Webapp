@@ -1789,6 +1789,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   // on the client too (otherwise a field is shown/hidden inconsistently).
   const laundryReady = laundryOutcome === "READY_FOR_PICKUP";
 
+  // Laundry only exists on Airbnb turnovers at laundry-enabled properties and
+  // never on reworks — mirrors the server's `laundrySuppressed` rule. Gates the
+  // laundry wizard step, the bag confirmation and laundry field routing.
+  const laundryFlowEnabled =
+    (job as any)?.jobType === "AIRBNB_TURNOVER" &&
+    (property as any)?.laundryEnabled !== false &&
+    (job as any)?.isRework !== true;
+
   const visibleSections = useMemo(
     () =>
       sectionsWithAutoInventory
@@ -1799,12 +1807,17 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           // a child is visible only when the parent is visible too.
           fields: flattenFieldsOneLevel(section.fields ?? [])
             .filter((field: any) => isFlattenedFieldVisible(field, formData, property, laundryReady))
-            .map((field: any) => ({
-              ...field,
-              _resolvedStep: resolveFieldStep(field, section),
-            })),
+            .map((field: any) => {
+              let resolved = resolveFieldStep(field, section);
+              // Non-turnover jobs have no laundry step — reroute laundry-slotted
+              // fields (e.g. "Clean laundry tub") so they stay reachable.
+              if (resolved === "laundry" && !laundryFlowEnabled) {
+                resolved = isUploadFieldType(field?.type) ? "uploads" : "checklist";
+              }
+              return { ...field, _resolvedStep: resolved };
+            }),
         })),
-    [sectionsWithAutoInventory, formData, property, laundryReady]
+    [sectionsWithAutoInventory, formData, property, laundryReady, laundryFlowEnabled]
   );
 
   const checklistSections = useMemo(
@@ -3212,9 +3225,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             .map((field: any) => (typeof field.id === "string" ? field.id : ""))
             .filter(Boolean)
         );
-        const hasLaundryUploadMissing = laundryUploadFields.some((field: any) =>
-          missingIds.has(String(field.id))
-        );
+        const hasLaundryUploadMissing =
+          startGateLaundryEnabled &&
+          laundryUploadFields.some((field: any) => missingIds.has(String(field.id)));
         setStep(hasLaundryUploadMissing ? "laundry" : "uploads");
         const readableMissingUploads = missingUploadFields
           .map((field: any) => {
@@ -4177,8 +4190,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const startGateRecurringIssues: string[] = Array.isArray(payload?.recurringIssues)
     ? payload.recurringIssues.filter((r: unknown): r is string => typeof r === "string")
     : [];
-  const startGateLaundryEnabled =
-    (property as any)?.laundryEnabled !== false && (job as any)?.isRework !== true;
+  // Laundry only exists on Airbnb turnovers — non-turnover jobs show no bag
+  // row and need no laundry-bag confirmation.
+  const startGateLaundryEnabled = laundryFlowEnabled;
   const startGateFlagOn = payload?.requireJobStartConfirmation !== false;
   const startGateLaundryBagRequired =
     startGateFlagOn && startGateLaundryEnabled && Boolean(startGateBagLabel);
@@ -4860,11 +4874,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ) : null}
 
       <div className="flex gap-1 text-xs">
-        {["briefing", "checklist", "uploads", "laundry", "submit"].map((item, i) => (
+        {(startGateLaundryEnabled
+          ? ["briefing", "checklist", "uploads", "laundry", "submit"]
+          : ["briefing", "checklist", "uploads", "submit"]
+        ).map((item, i, order) => (
           <div
             key={item}
             className={`h-1.5 flex-1 rounded-full ${
-              step === item ? "bg-primary" : i < ["briefing", "checklist", "uploads", "laundry", "submit"].indexOf(step) ? "bg-primary/40" : "bg-muted"
+              step === item ? "bg-primary" : i < order.indexOf(step) ? "bg-primary/40" : "bg-muted"
             }`}
           />
         ))}
@@ -5752,7 +5769,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             <Button variant="outline" onClick={() => setStep("checklist")}>
               {"<- Back"}
             </Button>
-            <Button className="flex-1" onClick={() => setStep("laundry")} disabled={hasPendingUploads}>
+            <Button
+              className="flex-1"
+              onClick={() => setStep(startGateLaundryEnabled ? "laundry" : "submit")}
+              disabled={hasPendingUploads}
+            >
               {hasPendingUploads ? `Uploading ${pendingUploadCount}...` : "Continue ->"}
             </Button>
           </div>
@@ -5773,7 +5794,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         />
       ) : null}
 
-      {step === "laundry" && (
+      {step === "laundry" && startGateLaundryEnabled && (
         <div className="space-y-4">
           <h3 className="font-semibold">Laundry Confirmation</h3>
           {!laundryUpdateCollapsed ? (
@@ -6480,7 +6501,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           </Card>
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setStep("laundry")}>
+            <Button variant="outline" onClick={() => setStep(startGateLaundryEnabled ? "laundry" : "uploads")}>
               {"<- Back"}
             </Button>
             <Button className="h-11 flex-1" onClick={handleSubmit} disabled={submitting || hasPendingUploads || hasPendingContinuationRequest}>

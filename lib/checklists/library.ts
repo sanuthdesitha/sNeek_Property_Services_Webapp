@@ -6,6 +6,7 @@ import {
   ROTATIONAL_EVIDENCE_ITEMS,
   EXCEPTION_MODULE,
   SELF_INSPECTION_MODULE,
+  SELF_INSPECTION_REMOVED_ITEM_KEYS,
   MODULE_EVIDENCE_CATEGORY,
 } from "@/lib/checklists/catalog";
 import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
@@ -20,7 +21,7 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * conditional evidence items, evidenceCategory backfill; v4 = final
  * self-inspection module — 14 required checkboxes composing last.)
  */
-export const CATALOG_VERSION = "4";
+export const CATALOG_VERSION = "5";
 const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
@@ -476,7 +477,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           label: item.label,
           fieldType: "checkbox",
           required: true,
-          jobTypes: mod.jobTypes,
+          jobTypes: item.jobTypes,
           appliesWhen: null as any,
           sortOrder: sortIndex,
           evidenceCategory: "FINAL",
@@ -487,13 +488,22 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           label: item.label,
           fieldType: "checkbox",
           required: true,
-          jobTypes: mod.jobTypes,
+          jobTypes: item.jobTypes,
           sortOrder: sortIndex,
           frequency: "EVERY_CLEAN",
           severity: item.severity,
         },
       });
       itemCount += 1;
+    }
+
+    // Remove items dropped from the catalog (e.g. the duplicate laundry-bag
+    // confirm) so regenerated templates stop including them. Past submissions
+    // are unaffected — they snapshot their schema.
+    if (SELF_INSPECTION_REMOVED_ITEM_KEYS.length > 0) {
+      await db.checklistModuleItem.deleteMany({
+        where: { moduleId: moduleRow.id, key: { in: SELF_INSPECTION_REMOVED_ITEM_KEYS } },
+      });
     }
   }
 
