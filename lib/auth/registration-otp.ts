@@ -37,6 +37,8 @@ export async function issueSignupOtp(email: string, options: IssueSignupOtpOptio
     to: normalized,
     subject: emailTemplate.subject,
     html: emailTemplate.html,
+    // Signup verification code — must never be silenced by audience controls.
+    critical: true,
   });
 
   if (!sent.ok) {

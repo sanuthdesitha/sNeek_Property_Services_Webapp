@@ -146,6 +146,44 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [laundryPhoto, setLaundryPhoto] = React.useState<CapturedMedia[]>([]);
   const [laundrySkipCode, setLaundrySkipCode] = React.useState("LINEN_STILL_WASHING");
   const [laundrySkipNote, setLaundrySkipNote] = React.useState("");
+  // Early "send to laundry team now" action on the same card (the old separate
+  // Laundry-update card in Requests & reports duplicated these fields).
+  const [laundryEarlySending, setLaundryEarlySending] = React.useState(false);
+  const [laundryEarlySentAt, setLaundryEarlySentAt] = React.useState<string | null>(null);
+  const [laundryEarlyNotice, setLaundryEarlyNotice] = React.useState<
+    { tone: "success" | "danger"; text: string } | null
+  >(null);
+
+  async function sendLaundryEarlyUpdate() {
+    if (!laundryOutcome) return;
+    setLaundryEarlyNotice(null);
+    setLaundryEarlySending(true);
+    try {
+      const res = await fetch(`/api/cleaner/jobs/${jobId}/laundry-status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          laundryOutcome,
+          bagLocation: laundryBagLocation.trim() || undefined,
+          laundryPhotoKey: laundryPhoto[0]?.key,
+          laundrySkipReasonCode: laundryOutcome === "READY_FOR_PICKUP" ? undefined : laundrySkipCode,
+          laundrySkipReasonNote: laundrySkipNote.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Could not send the laundry update.");
+      }
+      setLaundryEarlySentAt(
+        new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
+      );
+      setLaundryEarlyNotice({ tone: "success", text: "Sent to the laundry team and admin." });
+    } catch (e: any) {
+      setLaundryEarlyNotice({ tone: "danger", text: e?.message ?? "Could not send the update." });
+    } finally {
+      setLaundryEarlySending(false);
+    }
+  }
 
   // Pass-to-next-cleaner: free-text flags (+ optional photo) that become
   // CARRY_FORWARD tasks on the next clean at this property.
@@ -1357,6 +1395,42 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                   />
                 </EField>
               </>
+            ) : null}
+
+            {/* Early update — same fields, sent to the laundry team NOW instead of
+                waiting for submit (replaces the old separate "Laundry update" card). */}
+            {laundryOutcome && !locked ? (
+              <div className="space-y-1.5 border-t border-[hsl(var(--e-border))] pt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    Linen ready before the form is done? Send this status to the laundry team now.
+                    {laundryEarlySentAt ? ` Last sent ${laundryEarlySentAt}.` : ""}
+                  </p>
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      laundryEarlySending ||
+                      (laundryOutcome === "READY_FOR_PICKUP" &&
+                        (!laundryBagLocation.trim() || laundryPhoto.length === 0))
+                    }
+                    onClick={() => void sendLaundryEarlyUpdate()}
+                  >
+                    {laundryEarlySending ? "Sending…" : "Send to laundry team now"}
+                  </EButton>
+                </div>
+                {laundryEarlyNotice ? (
+                  <p
+                    className={`text-[0.75rem] ${
+                      laundryEarlyNotice.tone === "success"
+                        ? "text-[hsl(var(--e-success))]"
+                        : "text-[hsl(var(--e-danger))]"
+                    }`}
+                  >
+                    {laundryEarlyNotice.text}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </ECardBody>
         </ECard>

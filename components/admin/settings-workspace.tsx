@@ -52,6 +52,7 @@ const SECTION_REGISTRY: SettingsSectionMeta[] = [
   { value: "xero", label: "Xero", category: "finance", adminOnly: true, keywords: "xero accounting invoice sync" },
   { value: "finance-notifications", label: "Finance Notifications", category: "communications", adminOnly: true, keywords: "finance invoice payment notification" },
   { value: "notifications", label: "Notification tools", category: "communications", keywords: "email sms twilio cellcast test notifications resend" },
+  { value: "message-channels", label: "Message channels", category: "communications", adminOnly: true, keywords: "message channels audience email sms push masters kill switch outbound clients cleaners laundry maintenance qa staff public leads marketing gate" },
   { value: "pricebook", label: "Price book", category: "finance", adminOnly: true, keywords: "price book pricing rate" },
   { value: "audit", label: "Audit log", category: "system", adminOnly: true, keywords: "audit history changes log" },
   { value: "roles", label: "Roles", category: "roles", keywords: "roles permissions rbac access matrix" },
@@ -76,6 +77,10 @@ const SettingsAuditLog = dynamic(
 const NotificationTestForm = dynamic(
   () => import("@/components/admin/notification-test-form").then((mod) => mod.NotificationTestForm),
   { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading notification tools...</div> }
+);
+const NotificationAudienceSettings = dynamic(
+  () => import("@/components/admin/notification-audience-settings").then((mod) => mod.NotificationAudienceSettings),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading message channels...</div> }
 );
 const ScheduledNotificationControls = dynamic(
   () => import("@/components/admin/scheduled-notification-controls").then((mod) => mod.ScheduledNotificationControls),
@@ -253,6 +258,7 @@ export function SettingsWorkspace({
         {isAdmin && visibleValues.has("xero") ? <TabsTrigger value="xero">Xero</TabsTrigger> : null}
         {isAdmin && visibleValues.has("finance-notifications") ? <TabsTrigger value="finance-notifications">Finance Notifications</TabsTrigger> : null}
         {visibleValues.has("notifications") ? <TabsTrigger value="notifications">Notification tools</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("message-channels") ? <TabsTrigger value="message-channels">Message channels</TabsTrigger> : null}
         {isAdmin && visibleValues.has("pricebook") ? <TabsTrigger value="pricebook">Price book</TabsTrigger> : null}
         {isAdmin && visibleValues.has("audit") ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
         {visibleValues.has("roles") ? <TabsTrigger value="roles">Roles</TabsTrigger> : null}
@@ -474,6 +480,15 @@ export function SettingsWorkspace({
           <ScheduledNotificationControls settings={appSettings.scheduledNotifications} />
         </div>
       </TabsContent>
+
+      {isAdmin ? (
+        <TabsContent value="message-channels">
+          <NotificationAudienceSettings
+            initial={appSettings.notificationAudienceControls}
+            readOnly={!isAdmin}
+          />
+        </TabsContent>
+      ) : null}
 
       {isAdmin ? (
         <TabsContent value="finance-notifications">

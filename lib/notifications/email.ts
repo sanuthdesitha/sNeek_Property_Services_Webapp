@@ -5,6 +5,12 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { wrapEmailHtml } from "@/lib/email-templates";
 import { isSuppressed } from "@/lib/email/suppression";
 import { isAutoEmailAllowed, type EmailAutoKind } from "@/lib/notifications/email-kinds";
+import { db } from "@/lib/db";
+import {
+  audienceForRole,
+  isChannelAllowed,
+  type NotificationAudience,
+} from "@/lib/notifications/audience-controls";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -57,10 +63,41 @@ export interface EmailPayload {
    * per-type switch). Manual / admin-clicked sends omit this and always go.
    */
   kind?: EmailAutoKind;
+  /**
+   * When true, SKIP audience gating entirely. Reserved for auth / recovery
+   * emails (password reset, OTP, 2FA, verification codes) that must never be
+   * silenced by an audience toggle. Suppression + EmailAutoKind gating are
+   * independent of this flag.
+   */
+  critical?: boolean;
+  /**
+   * Pre-resolved recipient audience, supplied by callers that already know the
+   * recipient's role (e.g. delivery.ts). When present the chokepoint skips its
+   * own user lookup for a single recipient. Ignored for multi-recipient sends,
+   * which are resolved per address.
+   */
+  audience?: NotificationAudience;
   attachments?: Array<{
     filename: string;
     content: string | Buffer;
   }>;
+}
+
+/**
+ * Resolve the audience for an email address by looking up the matching user's
+ * role (case-insensitive). No matching account → PUBLIC (leads / contacts).
+ */
+async function resolveAudienceForEmail(email: string): Promise<NotificationAudience> {
+  try {
+    const user = await db.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: { role: true },
+    });
+    return audienceForRole(user?.role ?? null);
+  } catch {
+    // Fail-open: if the lookup errors, treat as PUBLIC rather than blocking.
+    return audienceForRole(null);
+  }
 }
 
 export async function sendEmailDetailed(
@@ -83,6 +120,46 @@ export async function sendEmailDetailed(
           "Auto email skipped — disabled in email-automation settings"
         );
         return { ok: false, skipped: true, error: "auto-email-disabled" };
+      }
+    }
+
+    // Audience-level gating (global email master + per-audience email toggle).
+    // Applied IN ADDITION to the EmailAutoKind gating above. `critical` emails
+    // (auth / recovery) bypass this entirely so a login/recovery flow can never
+    // be locked out by an audience toggle.
+    if (!payload.critical) {
+      const settings = await getAppSettings();
+      const controls = settings.notificationAudienceControls;
+      const recipients = Array.isArray(payload.to) ? payload.to : [payload.to];
+      // Resolve each recipient's audience and keep only those still allowed to
+      // receive email. A pre-resolved single-recipient audience skips the lookup.
+      const allowed: string[] = [];
+      const blocked: string[] = [];
+      for (const address of recipients) {
+        const audience =
+          recipients.length === 1 && payload.audience
+            ? payload.audience
+            : await resolveAudienceForEmail(address);
+        if (isChannelAllowed(controls, audience, "email")) {
+          allowed.push(address);
+        } else {
+          blocked.push(address);
+        }
+      }
+      if (allowed.length === 0) {
+        // Every recipient is in a silenced audience — skip entirely.
+        logger.info(
+          { to: payload.to, subject: payload.subject, blocked },
+          "Email skipped — all recipients in an audience with email disabled"
+        );
+        return { ok: false, skipped: true, error: "audience_disabled" };
+      }
+      if (blocked.length > 0) {
+        logger.info(
+          { blocked, subject: payload.subject },
+          "Some recipients in a silenced audience; sending to remainder"
+        );
+        payload = { ...payload, to: allowed };
       }
     }
 

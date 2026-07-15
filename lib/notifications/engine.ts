@@ -1,6 +1,7 @@
 import { NotificationChannel, NotificationLogStatus, NotificationRecipientRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import { audienceForRole, isChannelAllowed } from "@/lib/notifications/audience-controls";
 import { FINANCE_EVENTS } from "./events";
 
 type NotificationContext = Record<string, string | number | null | undefined>;
@@ -109,6 +110,16 @@ async function sendViaChannel(
         if (!appSettings.emailAutomation?.masterEnabled) {
           return { ok: false, error: "auto-email-disabled" };
         }
+        // Audience-level gating: this engine uses its own Resend transport (not
+        // the shared chokepoint), so gate here too. Resolve the recipient's
+        // audience by email → user role (no account → PUBLIC).
+        const emailUser = await db.user.findFirst({
+          where: { email: { equals: options.to, mode: "insensitive" } },
+          select: { role: true },
+        });
+        if (!isChannelAllowed(appSettings.notificationAudienceControls, audienceForRole(emailUser?.role ?? null), "email")) {
+          return { ok: false, error: "audience_disabled" };
+        }
         const creds = await getIntegrationCredentials();
         const resendApiKey = (creds.resendApiKey as string) || process.env.RESEND_API_KEY;
         if (!resendApiKey) return { ok: false, error: "RESEND_API_KEY not configured" };
@@ -145,6 +156,16 @@ async function sendViaChannel(
 
       case NotificationChannel.SMS: {
         if (!content.sms || !options.to) return { ok: false, error: "Missing SMS body or recipient" };
+        // Audience-level gating: own Twilio transport, so gate here. Resolve the
+        // recipient's audience by phone → user role (no account → PUBLIC).
+        const smsSettings = await getAppSettings();
+        const smsUser = await db.user.findFirst({
+          where: { phone: options.to },
+          select: { role: true },
+        });
+        if (!isChannelAllowed(smsSettings.notificationAudienceControls, audienceForRole(smsUser?.role ?? null), "sms")) {
+          return { ok: false, error: "audience_disabled" };
+        }
         const creds = await getIntegrationCredentials();
         const twilioSid = (creds.twilioAccountSid as string) || process.env.TWILIO_ACCOUNT_SID;
         if (!twilioSid) return { ok: false, error: "TWILIO_ACCOUNT_SID not configured" };

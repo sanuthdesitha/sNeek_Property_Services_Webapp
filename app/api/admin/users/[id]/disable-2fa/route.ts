@@ -50,6 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         subject: "Two-step verification was reset",
         html: `<p>Hi ${user.name || "there"},</p><p>An administrator turned off two-step verification on your sNeek account. You can sign in with your password, then set 2FA up again from your profile. If this wasn't expected, contact your administrator.</p>`,
         transactional: true,
+        // Security notice about a 2FA reset — must never be silenced by audience controls.
+        critical: true,
       }).catch(() => {});
     }
 

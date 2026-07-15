@@ -17,6 +17,11 @@ import {
   type EmailAutomationSettings,
 } from "@/lib/notifications/email-kinds";
 import {
+  DEFAULT_NOTIFICATION_AUDIENCE_CONTROLS,
+  sanitizeNotificationAudienceControls,
+  type NotificationAudienceControls,
+} from "@/lib/notifications/audience-controls";
+import {
   DEFAULT_WEBSITE_CONTENT,
   sanitizeWebsiteContent,
   type WebsiteContent,
@@ -324,6 +329,8 @@ export interface AppSettings {
   notificationDefaults: NotificationDefaultsSettings;
   scheduledNotifications: ScheduledNotificationSettings;
   emailAutomation: EmailAutomationSettings;
+  /** Audience-level outbound controls (global + per-audience email/sms/push). */
+  notificationAudienceControls: NotificationAudienceControls;
   autoClockOut: AutoClockOutSettings;
   laundryOperations: LaundryOperationsSettings;
   sla: SlaSettings;
@@ -590,6 +597,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     categories: DEFAULT_NOTIFICATION_PREFERENCES,
   },
   emailAutomation: DEFAULT_EMAIL_AUTOMATION,
+  notificationAudienceControls: DEFAULT_NOTIFICATION_AUDIENCE_CONTROLS,
   scheduledNotifications: {
     reminder24hEnabled: true,
     reminder2hEnabled: true,
@@ -1425,6 +1433,9 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).emailAutomation,
       DEFAULT_SETTINGS.emailAutomation
     ),
+    notificationAudienceControls: sanitizeNotificationAudienceControls(
+      (parsed as any).notificationAudienceControls
+    ),
     autoClockOut: sanitizeAutoClockOut(
       (parsed as any).autoClockOut,
       DEFAULT_SETTINGS.autoClockOut
@@ -1536,6 +1547,9 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     emailAutomation: input.emailAutomation
       ? sanitizeEmailAutomation(input.emailAutomation, current.emailAutomation)
       : current.emailAutomation,
+    notificationAudienceControls: input.notificationAudienceControls
+      ? sanitizeNotificationAudienceControls(input.notificationAudienceControls)
+      : current.notificationAudienceControls,
     autoClockOut: input.autoClockOut ?? current.autoClockOut,
     propertyFormTemplateOverrides:
       input.propertyFormTemplateOverrides ?? current.propertyFormTemplateOverrides,

@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
         subject: "Your sNeek Ops sign-in code",
         html: `<p>Your sign-in code is <strong style="font-size:22px;letter-spacing:2px">${code}</strong></p><p>It expires in 10 minutes. If you didn't try to sign in, ignore this email.</p>`,
         transactional: true,
+        // 2FA sign-in code — must never be silenced by audience controls.
+        critical: true,
       });
     }
 
