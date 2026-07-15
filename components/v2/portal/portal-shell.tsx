@@ -42,7 +42,21 @@ export function PortalShell({
   const displayRole = user?.role ?? roleLabel ?? "";
   const initials = displayName.trim().slice(0, 2).toUpperCase();
   const [open, setOpen] = React.useState(false);
-  const isActive = (href: string) => pathname === href || (href !== "/v2/" + accent && pathname.startsWith(href));
+  // Deepest-match active nav: only the LONGEST href that prefixes the current
+  // path is highlighted, so "Quality" doesn't stay lit on /quality/issues etc.
+  const bestMatchHref = React.useMemo(() => {
+    let best = "";
+    for (const item of nav) {
+      const matches =
+        pathname === item.href ||
+        (item.href !== "/v2/" + accent && pathname.startsWith(item.href + "/")) ||
+        (item.href !== "/v2/" + accent && pathname.startsWith(item.href) &&
+          (pathname.length === item.href.length || pathname[item.href.length] === "?"));
+      if (matches && item.href.length > best.length) best = item.href;
+    }
+    return best;
+  }, [nav, pathname, accent]);
+  const isActive = (href: string) => href === bestMatchHref;
 
   const railInner = (
     <div className="flex h-full flex-col">

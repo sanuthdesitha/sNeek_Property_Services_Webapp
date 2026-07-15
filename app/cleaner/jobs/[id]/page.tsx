@@ -448,6 +448,9 @@ export default function CleanerJobPage() {
   // Job-start accountability gate (Phase 2b): verified property code + laundry bag.
   const [propertyCodeConfirmed, setPropertyCodeConfirmed] = useState(false);
   const [laundryBagConfirmed, setLaundryBagConfirmed] = useState(false);
+  // Mid-clean "Property setup" card (code / duration / bag / setup references
+  // stay available after clock-in) — collapsed by default.
+  const [setupGuideOpen, setSetupGuideOpen] = useState(false);
   const [resolvedCarryForwardIds, setResolvedCarryForwardIds] = useState<string[]>([]);
   const [hasMissedTask, setHasMissedTask] = useState(false);
   const [missedTaskNotes, setMissedTaskNotes] = useState<string[]>([""]);
@@ -4868,6 +4871,80 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               <Button type="button" size="sm" variant="outline" onClick={handleSafetyCheckin} disabled={sendingSafetyCheckin}>
                 {sendingSafetyCheckin ? "Saving..." : "I'm safe"}
               </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Property setup — persists mid-clean so setup references stay at hand. */}
+      {hasStartedJob && !finished ? (
+        <Card>
+          <CardContent className="p-3">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between text-left"
+              onClick={() => setSetupGuideOpen((v) => !v)}
+            >
+              <span className="text-sm font-semibold">Property setup</span>
+              <span className="text-xs text-muted-foreground">{setupGuideOpen ? "Hide" : "Show"}</span>
+            </button>
+            {setupGuideOpen ? (
+              <div className="mt-3 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-md border border-border px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Property code</p>
+                    <p className="text-xl font-bold leading-tight">{startGatePropertyCode || "—"}</p>
+                  </div>
+                  <div className="rounded-md border border-border px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Expected duration</p>
+                    <p className="mt-1 text-sm font-medium">{startGateDurationLabel}</p>
+                  </div>
+                </div>
+                {startGateLaundryEnabled && (startGateBagLabel || startGateBagColor) ? (
+                  <div className="rounded-md border border-border px-3 py-2">
+                    <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Laundry bag</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      {startGateBagColor ? (
+                        <span
+                          className="inline-block h-4 w-4 shrink-0 rounded-full border border-border"
+                          style={{ backgroundColor: startGateBagColor }}
+                          aria-hidden
+                        />
+                      ) : null}
+                      <span className="text-sm font-medium">{startGateBagLabel || "—"}</span>
+                    </div>
+                  </div>
+                ) : null}
+                {startGateSetupEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-foreground/80">Setup reference</p>
+                    {startGateSetupEntries.map((entry, ei) => {
+                      const imgs = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
+                      return (
+                        <div key={entry.id || `mid-setup-${ei}`} className="rounded-md border border-border px-3 py-2">
+                          {entry.label ? <p className="text-sm font-medium">{entry.label}</p> : null}
+                          {entry.instructions ? (
+                            <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">
+                              {entry.instructions}
+                            </p>
+                          ) : null}
+                          {imgs.length > 0 ? (
+                            <MediaGallery
+                              items={imgs.map((im, ii) => ({
+                                id: `${entry.id || ei}-mid-${ii}`,
+                                url: im.url as string,
+                                label: im.caption || entry.label || undefined,
+                              }))}
+                              title={entry.label || "Setup reference"}
+                              className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </CardContent>
         </Card>
