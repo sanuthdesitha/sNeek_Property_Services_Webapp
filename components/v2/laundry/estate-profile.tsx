@@ -16,7 +16,17 @@
  */
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mail, ShieldCheck, ShieldOff, Smartphone } from "lucide-react";
+import {
+  Bike,
+  Car,
+  Footprints,
+  Loader2,
+  Mail,
+  ShieldCheck,
+  ShieldOff,
+  Smartphone,
+  TramFront,
+} from "lucide-react";
 import {
   EAlert,
   EBadge,
@@ -49,6 +59,14 @@ type Cadence = "ON_COMPLETION" | "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "CUSTOM"
 type Density = "COMPACT" | "DEFAULT" | "COMFORTABLE";
 type Theme = "LIGHT" | "DARK" | "SYSTEM";
 type PayoutMethod = "STRIPE_CONNECT" | "ABA_FILE" | "MANUAL_BANK_TRANSFER" | "PAYPAL";
+type TransportMode = "DRIVING" | "WALKING" | "TRANSIT" | "BICYCLING";
+
+const TRANSPORT_OPTIONS: { value: TransportMode; label: string; Icon: typeof Car }[] = [
+  { value: "DRIVING", label: "Car", Icon: Car },
+  { value: "WALKING", label: "Walk", Icon: Footprints },
+  { value: "TRANSIT", label: "Public transport", Icon: TramFront },
+  { value: "BICYCLING", label: "Bike", Icon: Bike },
+];
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -419,6 +437,79 @@ function PreferencesSection({
               <option value="COMFORTABLE">Comfortable</option>
             </ESelect>
           </EField>
+        </div>
+      </ECardBody>
+    </ECard>
+  );
+}
+
+/* ── Transport (POST /api/me/preferences) ──────────────────────────────── */
+function TransportSection({ initialTransport = "DRIVING" }: { initialTransport?: TransportMode }) {
+  const router = useRouter();
+  const [transport, setTransport] = React.useState<TransportMode>(initialTransport);
+  const [saving, setSaving] = React.useState(false);
+
+  async function select(value: TransportMode) {
+    if (value === transport) return;
+    const previous = transport;
+    setTransport(value);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/me/preferences", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ preferredTransport: value }),
+      });
+      if (!res.ok) {
+        setTransport(previous);
+        const body = await res.json().catch(() => ({}));
+        toast({ title: "Could not save", description: body.error, variant: "destructive" });
+        return;
+      }
+      router.refresh();
+    } catch (e: any) {
+      setTransport(previous);
+      toast({ title: "Could not save", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ECard>
+      <ECardHeader>
+        <ECardTitle>How you get to jobs</ECardTitle>
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          We use this to estimate your travel time between jobs.
+        </p>
+      </ECardHeader>
+      <ECardBody>
+        <div
+          role="radiogroup"
+          aria-label="How you get to jobs"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        >
+          {TRANSPORT_OPTIONS.map(({ value, label, Icon }) => {
+            const active = transport === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={saving}
+                onClick={() => void select(value)}
+                className={`flex flex-col items-center justify-center gap-2 rounded-[var(--e-radius)] border px-3 py-4 text-center transition disabled:opacity-60 ${
+                  active
+                    ? "border-[hsl(var(--e-border-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
+                    : "border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:border-[hsl(var(--e-border-gold)/0.5)] hover:bg-[hsl(var(--e-muted))]"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span className="text-[0.8125rem] font-[550] leading-tight">{label}</span>
+              </button>
+            );
+          })}
         </div>
       </ECardBody>
     </ECard>
@@ -816,6 +907,7 @@ export function EstateProfile({
   initialDensity,
   initialTheme,
   initialPayout,
+  initialTransport,
 }: {
   user: EstateProfileUser;
   editingEnabled?: boolean;
@@ -827,6 +919,7 @@ export function EstateProfile({
   initialDensity?: Density;
   initialTheme?: Theme;
   initialPayout?: PayoutMethod;
+  initialTransport?: TransportMode;
 }) {
   const locked = !editingEnabled;
   return (
@@ -848,6 +941,7 @@ export function EstateProfile({
         initialPayout={initialPayout}
         showPayout={showPayout}
       />
+      <TransportSection initialTransport={initialTransport} />
       <PasswordSection />
       <TwoFactorSection />
     </div>

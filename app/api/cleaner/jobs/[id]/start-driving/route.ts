@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
-import { getEtaMinutes, geocodeAddress } from "@/lib/jobs/eta";
+import { getEtaMinutes, geocodeAddress, type EtaMode } from "@/lib/jobs/eta";
 
 const schema = z.object({
   lat: z.number().optional().nullable(),
@@ -18,6 +18,12 @@ export async function POST(
   try {
     const session = await requireRole([Role.CLEANER]);
     const body = schema.parse(await req.json().catch(() => ({})));
+
+    const cleaner = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { preferredTransport: true },
+    });
+    const travelMode = (cleaner?.preferredTransport ?? "DRIVING").toLowerCase() as EtaMode;
 
     const job = await db.job.findFirst({
       where: {
@@ -76,6 +82,7 @@ export async function POST(
         toLat: propLat,
         toLng: propLng,
         toAddress: propLat == null ? [job.property?.address, job.property?.suburb, "Australia"].filter(Boolean).join(", ") : null,
+        mode: travelMode,
       });
     }
 

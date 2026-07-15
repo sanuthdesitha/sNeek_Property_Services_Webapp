@@ -123,14 +123,24 @@ export default async function V2CleanerRoutePage() {
 
   const { stops, isoDate } = await loadTodayStops(session.user.id);
 
+  const cleaner = await db.user
+    .findUnique({ where: { id: session.user.id }, select: { preferredTransport: true } })
+    .catch(() => null);
+  const preferredTransport = cleaner?.preferredTransport ?? "DRIVING";
+
   return (
     <div className="space-y-6">
       <EPageHeader
         eyebrow="Today"
         title="Your route"
-        description="Drive mode with live GPS heartbeat, or the full timeline with navigation deep links."
+        description="Your live en-route surface with a GPS heartbeat, or the full timeline with navigation deep links."
       />
-      <RouteDriving initialDate={isoDate} initialStops={stops} userId={session.user.id} />
+      <RouteDriving
+        initialDate={isoDate}
+        initialStops={stops}
+        userId={session.user.id}
+        preferredTransport={preferredTransport}
+      />
     </div>
   );
 }

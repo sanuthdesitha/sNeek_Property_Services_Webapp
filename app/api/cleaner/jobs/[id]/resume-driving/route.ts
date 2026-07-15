@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getEtaMinutes } from "@/lib/jobs/eta";
+import { getEtaMinutes, type EtaMode } from "@/lib/jobs/eta";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 
 export async function POST(
@@ -14,6 +14,12 @@ export async function POST(
     const body = await req.json().catch(() => ({}));
     const lat = typeof body?.lat === "number" ? body.lat : null;
     const lng = typeof body?.lng === "number" ? body.lng : null;
+
+    const cleaner = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { preferredTransport: true },
+    });
+    const travelMode = (cleaner?.preferredTransport ?? "DRIVING").toLowerCase() as EtaMode;
 
     const job = await db.job.findFirst({
       where: {
@@ -42,6 +48,7 @@ export async function POST(
         fromLng: lng,
         toLat: propLat,
         toLng: propLng,
+        mode: travelMode,
       });
     }
 

@@ -14,6 +14,7 @@ const schema = z.object({
   preferredPayoutMethod: z
     .enum(["STRIPE_CONNECT", "ABA_FILE", "MANUAL_BANK_TRANSFER", "PAYPAL"])
     .optional(),
+  preferredTransport: z.enum(["DRIVING", "WALKING", "TRANSIT", "BICYCLING"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
         invoiceDayOfWeek: true,
         invoiceDayOfMonth: true,
         preferredPayoutMethod: true,
+        preferredTransport: true,
       } as any,
     });
     return NextResponse.json(user);

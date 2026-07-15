@@ -130,6 +130,9 @@ export function InvoicesPanel() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showSpentHours, setShowSpentHours] = useState(true);
+  // Controls whether ANY hours appear on the generated/emailed PDF. On by
+  // default; turned off when the cleaner wants accounts to see amounts only.
+  const [showHours, setShowHours] = useState(true);
   const [invoiceSending, setInvoiceSending] = useState(false);
   const [invoiceDownloading, setInvoiceDownloading] = useState(false);
   const [invoicePreview, setInvoicePreview] = useState<InvoicePreview | null>(null);
@@ -198,6 +201,7 @@ export function InvoicesPanel() {
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       showSpentHours,
+      showHours,
       jobComments: cleanedComments,
       jobHourOverrides: cleanedHourOverrides,
       excludedJobIds,
@@ -310,7 +314,9 @@ export function InvoicesPanel() {
     const res = await fetch("/api/cleaner/invoice/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildInvoicePayload()),
+      // inline: serve the PDF with an inline disposition so it renders inside the
+      // preview iframe (matches exactly what /send will email — same payload).
+      body: JSON.stringify({ ...buildInvoicePayload(), inline: true }),
     });
     setPreviewingPdf(false);
     if (!res.ok) {
@@ -424,15 +430,39 @@ export function InvoicesPanel() {
             </EField>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2">
-            <label className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-              <ESwitch checked={showSpentHours} onCheckedChange={setShowSpentHours} aria-label="Show hours spent" />
-              Show hours spent
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-3">
+            <p className="text-[0.6875rem] font-[600] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
+              PDF options
+            </p>
+            <label className="flex items-start justify-between gap-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              <span>
+                Show hours worked on the PDF
+                <span className="mt-0.5 block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Off = accounts see amounts only, no hours anywhere on the invoice.
+                </span>
+              </span>
+              <ESwitch checked={showHours} onCheckedChange={setShowHours} aria-label="Show hours worked on the PDF" />
             </label>
-            <EButton type="button" size="sm" variant="ghost" onClick={() => void loadInvoicePreview()} disabled={loadingPreview}>
-              <RefreshCw className={`h-4 w-4 ${loadingPreview ? "animate-spin" : ""}`} />
-              {loadingPreview ? "Refreshing…" : "Refresh preview"}
-            </EButton>
+            <label className="flex items-start justify-between gap-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              <span>
+                Show hours spent (timer)
+                <span className="mt-0.5 block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Adds a separate clocked-time column{showHours ? "" : " — hidden while hours are off"}.
+                </span>
+              </span>
+              <ESwitch
+                checked={showSpentHours}
+                onCheckedChange={setShowSpentHours}
+                disabled={!showHours}
+                aria-label="Show hours spent"
+              />
+            </label>
+            <div className="flex justify-end border-t border-[hsl(var(--e-border))] pt-2">
+              <EButton type="button" size="sm" variant="ghost" onClick={() => void loadInvoicePreview()} disabled={loadingPreview}>
+                <RefreshCw className={`h-4 w-4 ${loadingPreview ? "animate-spin" : ""}`} />
+                {loadingPreview ? "Refreshing…" : "Refresh preview"}
+              </EButton>
+            </div>
           </div>
         </ECardBody>
       </ECard>
@@ -648,9 +678,24 @@ export function InvoicesPanel() {
         </ECard>
       ) : null}
 
-      {/* Actions */}
+      {/* Actions — step 3: preview, then download or issue */}
       <ECard>
-        <ECardBody className="space-y-2 pt-6">
+        <ECardHeader>
+          <ECardTitle>Preview &amp; issue</ECardTitle>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Preview the exact PDF{showHours ? "" : " (hours hidden)"}, then download it or email it to accounts.
+          </p>
+        </ECardHeader>
+        <ECardBody className="space-y-2 pt-0">
+          <EButton
+            onClick={() => void previewInvoicePdf()}
+            disabled={previewingPdf || loadingPreview || payableJobs.length === 0}
+            variant="outline"
+            className="w-full"
+          >
+            <ReceiptText className="h-4 w-4" />
+            {previewingPdf ? "Opening preview…" : "Preview PDF"}
+          </EButton>
           <div className="grid gap-2 sm:grid-cols-2">
             <EButton onClick={() => void downloadInvoice()} disabled={invoiceDownloading} variant="outline" className="w-full">
               <Download className="h-4 w-4" />
@@ -706,14 +751,14 @@ export function InvoicesPanel() {
       ) : null}
 
       {/* Email review modal */}
-      <EModal open={emailReviewOpen} onClose={() => setEmailReviewOpen(false)} title="Review invoice PDF" eyebrow="Before you send" wide>
+      <EModal open={emailReviewOpen} onClose={() => setEmailReviewOpen(false)} title="Review invoice PDF" eyebrow="Before you send" size="xl">
         <div className="space-y-4">
           {previewPdfUrl ? (
             <>
               <iframe
                 src={previewPdfUrl}
                 title="Invoice PDF preview"
-                className="hidden h-[60vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] sm:block"
+                className="hidden h-[70vh] w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] sm:block"
               />
               <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-4 text-center sm:hidden">
                 <p className="mb-3 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">

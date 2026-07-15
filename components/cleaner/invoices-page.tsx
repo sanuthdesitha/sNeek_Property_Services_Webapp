@@ -103,6 +103,9 @@ export function CleanerInvoicesPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showSpentHours, setShowSpentHours] = useState(true);
+  // Controls whether ANY hours appear on the generated/emailed PDF. On by
+  // default; turned off when the cleaner wants accounts to see amounts only.
+  const [showHours, setShowHours] = useState(true);
   const [invoiceSending, setInvoiceSending] = useState(false);
   const [invoiceDownloading, setInvoiceDownloading] = useState(false);
   const [invoicePreview, setInvoicePreview] = useState<InvoicePreview | null>(null);
@@ -175,6 +178,7 @@ export function CleanerInvoicesPage() {
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       showSpentHours,
+      showHours,
       jobComments: cleanedComments,
       jobHourOverrides: cleanedHourOverrides,
       excludedJobIds,
@@ -289,7 +293,9 @@ export function CleanerInvoicesPage() {
     const res = await fetch("/api/cleaner/invoice/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildInvoicePayload()),
+      // inline: serve the PDF with an inline disposition so it renders inside the
+      // preview iframe (matches exactly what /send will email — same payload).
+      body: JSON.stringify({ ...buildInvoicePayload(), inline: true }),
     });
     setPreviewingPdf(false);
     if (!res.ok) {
@@ -439,20 +445,42 @@ export function CleanerInvoicesPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <Switch checked={showSpentHours} onCheckedChange={setShowSpentHours} />
-              Show hours spent
+          <div className="space-y-3 rounded-lg border bg-muted/30 px-3 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">PDF options</p>
+            <label className="flex items-start justify-between gap-3 text-sm text-foreground">
+              <span>
+                Show hours worked on the PDF
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Off = accounts see amounts only, no hours anywhere on the invoice.
+                </span>
+              </span>
+              <Switch checked={showHours} onCheckedChange={setShowHours} aria-label="Show hours worked on the PDF" />
             </label>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={loadInvoicePreview}
-              disabled={loadingPreview}
-            >
-              {loadingPreview ? "Refreshing…" : "Refresh preview"}
-            </Button>
+            <label className="flex items-start justify-between gap-3 text-sm text-foreground">
+              <span>
+                Show hours spent (timer)
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Adds a separate clocked-time column{showHours ? "" : " — hidden while hours are off"}.
+                </span>
+              </span>
+              <Switch
+                checked={showSpentHours}
+                onCheckedChange={setShowSpentHours}
+                disabled={!showHours}
+                aria-label="Show hours spent"
+              />
+            </label>
+            <div className="flex justify-end border-t pt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={loadInvoicePreview}
+                disabled={loadingPreview}
+              >
+                {loadingPreview ? "Refreshing…" : "Refresh preview"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

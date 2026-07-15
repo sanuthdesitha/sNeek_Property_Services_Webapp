@@ -284,6 +284,14 @@ enum UiDensity {
   COMFORTABLE
 }
 
+/// Cleaner transport mode — 1:1 with Google Directions/Maps travel modes.
+enum TransportMode {
+  DRIVING
+  WALKING
+  TRANSIT
+  BICYCLING
+}
+
 enum EmailStatus {
   OK
   SOFT_BOUNCE
@@ -743,16 +751,19 @@ model User {
   invitation                   UserInvitation?
   invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
 
-  latitude        Float?
-  longitude       Float?
-  placeId         String?
-  suburb          String?
-  state           String?
-  postcode        String?
-  uiDensity       UiDensity       @default(DEFAULT)
-  themePreference ThemePreference @default(SYSTEM)
-  emailStatus     EmailStatus     @default(OK)
-  lastSeenAt      DateTime?
+  latitude           Float?
+  longitude          Float?
+  placeId            String?
+  suburb             String?
+  state              String?
+  postcode           String?
+  uiDensity          UiDensity       @default(DEFAULT)
+  themePreference    ThemePreference @default(SYSTEM)
+  // How the cleaner gets to jobs — drives ETA, nav links, and the "On the way"
+  // page. Values map 1:1 to Google travel modes (lowercased).
+  preferredTransport TransportMode   @default(DRIVING)
+  emailStatus        EmailStatus     @default(OK)
+  lastSeenAt         DateTime?
 
   invoicingCadence       InvoicingCadence @default(ON_COMPLETION)
   invoiceDayOfWeek       Int?

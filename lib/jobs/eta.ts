@@ -1,7 +1,11 @@
 import { getServerMapsKey } from "@/lib/maps/server-key";
 
+/** Google Distance Matrix / Maps travel modes (lowercased). 1:1 with the
+ *  Prisma `TransportMode` enum (DRIVING/WALKING/TRANSIT/BICYCLING) lowercased. */
+export type EtaMode = "driving" | "walking" | "transit" | "bicycling";
+
 /**
- * Returns estimated driving time in minutes.
+ * Returns estimated travel time in minutes for the given mode (default driving).
  * Origin can be lat/lng coordinates, destination can be lat/lng or an address string.
  * Uses Google Maps Distance Matrix API (server-side).
  * Returns null on failure or if the API key is not configured.
@@ -12,6 +16,7 @@ export async function getEtaMinutes(input: {
   toLat?: number | null;
   toLng?: number | null;
   toAddress?: string | null;
+  mode?: EtaMode;
 }): Promise<number | null> {
   const apiKey = await getServerMapsKey();
   if (!apiKey) return null;
@@ -27,7 +32,7 @@ export async function getEtaMinutes(input: {
     const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
     url.searchParams.set("origins", `${input.fromLat},${input.fromLng}`);
     url.searchParams.set("destinations", destination);
-    url.searchParams.set("mode", "driving");
+    url.searchParams.set("mode", input.mode ?? "driving");
     url.searchParams.set("key", apiKey);
 
     const res = await fetch(url.toString(), { cache: "no-store" });
