@@ -351,6 +351,10 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   )
     ? payload.restockNeeds
     : [];
+  // Recurring-issue watch-outs from previous cleans (Phase 7a).
+  const recurringIssues: string[] = Array.isArray(payload?.recurringIssues)
+    ? payload.recurringIssues.filter((r: unknown): r is string => typeof r === "string")
+    : [];
   const requireStartConfirmation = payload?.requireJobStartConfirmation !== false;
   // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
   const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
@@ -1042,6 +1046,22 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                         +{r.needed}
                         {r.unit ? ` ${r.unit}` : ""}
                       </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Watch-outs from previous cleans (Phase 7a) — recurring QA issues. */}
+            {recurringIssues.length > 0 ? (
+              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+                  <AlertTriangle className="h-4 w-4" /> Watch-outs from previous cleans
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {recurringIssues.map((r, ri) => (
+                    <li key={ri} className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                      {r}
                     </li>
                   ))}
                 </ul>

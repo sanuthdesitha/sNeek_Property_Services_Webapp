@@ -4173,6 +4173,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   }> = Array.isArray((property as any)?.setupGuide) ? (property as any).setupGuide : [];
   const startGateRestockNeeds: Array<{ name: string; needed: number; unit?: string | null }> =
     Array.isArray(payload?.restockNeeds) ? payload.restockNeeds : [];
+  // Recurring-issue watch-outs from previous cleans (Phase 7a).
+  const startGateRecurringIssues: string[] = Array.isArray(payload?.recurringIssues)
+    ? payload.recurringIssues.filter((r: unknown): r is string => typeof r === "string")
+    : [];
   const startGateLaundryEnabled =
     (property as any)?.laundryEnabled !== false && (job as any)?.isRework !== true;
   const startGateFlagOn = payload?.requireJobStartConfirmation !== false;
@@ -5145,6 +5149,22 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                             +{r.needed}
                             {r.unit ? ` ${r.unit}` : ""}
                           </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {startGateRecurringIssues.length > 0 ? (
+                  <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                    <p className="text-xs font-semibold text-foreground/80">
+                      <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+                      Watch-outs from previous cleans
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {startGateRecurringIssues.map((r, ri) => (
+                        <li key={ri} className="text-xs text-muted-foreground">
+                          {r}
                         </li>
                       ))}
                     </ul>

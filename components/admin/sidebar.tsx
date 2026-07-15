@@ -47,6 +47,7 @@ import {
   LayoutTemplate,
   UserPlus,
   Sparkles,
+  GraduationCap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -68,6 +69,8 @@ export const ADMIN_NAV_GROUPS = [
       { label: "Cases", href: "/admin/cases", icon: AlertTriangle },
       { label: "QA Reviews", href: "/qa", icon: ClipboardList },
       { label: "QA Issues", href: "/admin/quality/issues", icon: ClipboardCheck },
+      { label: "Accountability", href: "/admin/quality/accountability", icon: Trophy },
+      { label: "QA Performance", href: "/admin/quality/qa-performance", icon: Activity },
       { label: "Laundry", href: "/admin/laundry", icon: Shirt },
       { label: "Inventory", href: "/admin/inventory", icon: Package },
       { label: "Maintenance", href: "/admin/maintenance", icon: Wrench },
@@ -79,6 +82,7 @@ export const ADMIN_NAV_GROUPS = [
     items: [
       { label: "Cleaners", href: "/admin/cleaners", icon: Sparkles },
       { label: "Workforce", href: "/admin/workforce", icon: Users },
+      { label: "Coaching", href: "/admin/workforce/coaching", icon: GraduationCap },
       { label: "Hiring", href: "/admin/hiring", icon: UserPlus },
       { label: "Accounts", href: "/admin/accounts", icon: Users },
       { label: "Properties", href: "/admin/properties", icon: Building2 },

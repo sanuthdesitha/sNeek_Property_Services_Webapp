@@ -16,6 +16,15 @@ import {
   computeAccountabilityScore,
   sanitizeAccountabilityAssessment,
 } from "@/lib/accountability/scoring";
+import {
+  getCleanerRecurringIssues,
+  getPropertyRecurringIssues,
+} from "@/lib/accountability/patterns";
+import {
+  notifyQaResultToCleaner,
+  notifyManagementReviewFlagged,
+  notifyFalseConfirmationSuspected,
+} from "@/lib/notifications/accountability";
 import { QaIssueSeverity, FalseConfirmationStatus } from "@prisma/client";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
@@ -286,6 +295,29 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    // Recurring-issue watch-outs (Phase 7a) — the property's and the primary
+    // cleaner's repeating QA categories, so the inspector knows where to look.
+    // Read-time; degrades to empty lists and never blocks the QA load.
+    let watchOuts: {
+      cleaner: Awaited<ReturnType<typeof getCleanerRecurringIssues>>;
+      property: Awaited<ReturnType<typeof getPropertyRecurringIssues>>;
+    } = { cleaner: [], property: [] };
+    try {
+      const primaryAssignment = await db.jobAssignment.findFirst({
+        where: { jobId: job.id, removedAt: null },
+        orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
+        select: { userId: true },
+      });
+      const primaryCleanerId = primaryAssignment?.userId ?? null;
+      const [cleaner, property] = await Promise.all([
+        primaryCleanerId ? getCleanerRecurringIssues(primaryCleanerId) : Promise.resolve([]),
+        getPropertyRecurringIssues(job.propertyId),
+      ]);
+      watchOuts = { cleaner, property };
+    } catch {
+      watchOuts = { cleaner: [], property: [] };
+    }
+
     return NextResponse.json({
       job,
       template,
@@ -294,6 +326,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       propertyStock,
       cleanerCandidates,
       sectionPhotos,
+      watchOuts,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
@@ -806,6 +839,56 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     await generateJobReport(params.id).catch(() => null);
+
+    // ── ACCOUNTABILITY NOTIFICATIONS (Phase 8b). Fire-and-forget, post-commit:
+    //    only when an accountability assessment was actually processed. Each helper
+    //    swallows its own errors; we additionally void+catch so nothing here can
+    //    affect the response. Zero behaviour change to the submission itself.
+    if (accountabilityInput && accountabilityResult) {
+      const primaryAssignment = await db.jobAssignment
+        .findFirst({
+          where: { jobId: params.id, removedAt: null },
+          orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
+          select: { userId: true },
+        })
+        .catch(() => null);
+      const notifyCleanerId = primaryAssignment?.userId ?? null;
+      const propertyName = job.property?.name ?? null;
+
+      if (notifyCleanerId) {
+        const counts = accountabilityResult.counts;
+        const issueParts: string[] = [];
+        if (counts.critical) issueParts.push(`${counts.critical} critical`);
+        if (counts.major) issueParts.push(`${counts.major} major`);
+        if (counts.minor) issueParts.push(`${counts.minor} minor`);
+        void notifyQaResultToCleaner({
+          jobId: params.id,
+          cleanerId: notifyCleanerId,
+          score: accountabilityResult.rawScore,
+          rating: accountabilityResult.rating,
+          passed: accountabilityResult.passed,
+          propertyName,
+          issueSummary: issueParts.length ? issueParts.join(", ") : null,
+        }).catch(console.error);
+      }
+
+      if (accountabilityResult.managementReview) {
+        void notifyManagementReviewFlagged({
+          jobId: params.id,
+          propertyName,
+        }).catch(console.error);
+      }
+
+      const falseConfCount = accountabilityResult.counts.falseConfirmations;
+      if (falseConfCount > 0) {
+        void notifyFalseConfirmationSuspected({
+          jobId: params.id,
+          count: falseConfCount,
+          propertyName,
+        }).catch(console.error);
+      }
+    }
+
     return NextResponse.json({
       ...created,
       review: { ...created.review },

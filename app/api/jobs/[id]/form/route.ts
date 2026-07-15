@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
+import { getJobStartReminders } from "@/lib/accountability/patterns";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { buildClockReview } from "@/lib/time/clock-rules";
@@ -331,6 +332,10 @@ export async function GET(
     }
     const continuationProgressSnapshot = await getApprovedContinuationProgressSnapshot(job.id);
 
+    // Recurring-issue watch-outs for the job-start card (Phase 7a). Never fails
+    // the route — the helper degrades to [] internally.
+    const recurringIssues = await getJobStartReminders(job.id).catch(() => [] as string[]);
+
     // Rework job → replace the normal checklist with a dynamic one built from the
     // QA-flagged areas: one section per area showing QA's photo + note and a
     // required "after" photo upload. Reuses a hidden per-job-type template row so
@@ -435,6 +440,7 @@ export async function GET(
       configuredPropertyTemplateId,
       inventoryStock,
       restockNeeds,
+      recurringIssues,
       requireJobStartConfirmation,
       carryForwardTasks: unresolvedCarryForwardTasks.map((ticket) => ({
         id: ticket.id,

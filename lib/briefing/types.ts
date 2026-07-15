@@ -199,6 +199,17 @@ export interface BriefingComplaints {
   items: BriefingComplaint[]; // capped at 3
 }
 
+/** Recurring-issue reminders (Phase 7a): categories flagged repeatedly for this
+ *  cleaner, or at the day's properties, within the pattern window. */
+export interface BriefingRecurringIssue {
+  label: string; // short heading, e.g. "Dusting"
+  detail: string; // one-line reminder
+}
+
+export interface BriefingRecurringIssues {
+  items: BriefingRecurringIssue[]; // capped ~5
+}
+
 export interface CleanerBriefing {
   day: BriefingDay;
   dateLabel: string; // "Saturday · 12 July"
@@ -214,6 +225,8 @@ export interface CleanerBriefing {
   watchOuts: BriefingWatchOuts | null;
   reminders: BriefingReminders | null;
   complaints: BriefingComplaints | null;
+  /** Recurring QA issue reminders (personal + property patterns). */
+  recurringIssues: BriefingRecurringIssues | null;
   /** PENDING assignments the cleaner must accept before working (accept gate). */
   acceptGate: BriefingAcceptGate | null;
   /** ① Ordered travel legs with leave-by times + tight-turnaround risks. */

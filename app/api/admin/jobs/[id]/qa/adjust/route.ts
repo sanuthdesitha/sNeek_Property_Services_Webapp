@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { ratingForScore } from "@/lib/accountability/scoring";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
 import { roundCents } from "@/lib/finance/job-money";
+import { notifyScoreAdjusted } from "@/lib/notifications/accountability";
 
 /**
  * Admin QA score adjustment (Phase 5a).
@@ -100,6 +101,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     await recomputeJobQaOutcome(review.jobId);
+
+    // Fire-and-forget: tell the cleaner their score changed. Never affects the response.
+    void (async () => {
+      const primary = await db.jobAssignment.findFirst({
+        where: { jobId: review.jobId, removedAt: null },
+        orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
+        select: { userId: true, job: { select: { property: { select: { name: true } } } } },
+      });
+      if (!primary?.userId) return;
+      await notifyScoreAdjusted({
+        jobId: review.jobId,
+        cleanerId: primary.userId,
+        newScore: updated.score,
+        reason: body.reason,
+        propertyName: primary.job?.property?.name ?? null,
+      });
+    })().catch(console.error);
 
     return NextResponse.json(updated);
   } catch (err: any) {

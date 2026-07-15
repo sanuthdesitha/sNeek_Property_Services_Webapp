@@ -28,6 +28,10 @@ import { computeFinishTime, formatClock, type FinishTimeStop } from "@/lib/brief
 import { getEtaMinutes } from "@/lib/jobs/eta";
 import { haversine } from "@/lib/gps/distance";
 import { getCleanerCommonMistakes, prettifyFieldId } from "@/lib/workforce/mistakes";
+import {
+  getCleanerRecurringIssues,
+  getPropertyRecurringIssues,
+} from "@/lib/accountability/patterns";
 import { buildSpokenScript } from "@/lib/briefing/spoken-script";
 import type {
   BriefingAcceptGate,
@@ -47,6 +51,7 @@ import type {
   BriefingNewPropertyItem,
   BriefingPriorityItem,
   BriefingPriorityWatch,
+  BriefingRecurringIssues,
   BriefingReminders,
   BriefingSpecialRequests,
   BriefingSupplies,
@@ -794,6 +799,48 @@ export async function assembleCleanerBriefing(input: {
   const travelPlan = travelAndPriority.travelPlan;
   const priorityWatch = travelAndPriority.priorityWatch;
 
+  // Recurring-issue reminders (Phase 7a) — the cleaner's own repeating QA
+  // categories plus any recurring issues at the day's properties. Read-time
+  // computation over QaIssue; degrades to null on any failure.
+  const recurringIssues: BriefingRecurringIssues | null = await (async () => {
+    try {
+      const [cleanerHits, propertyHitsLists] = await Promise.all([
+        getCleanerRecurringIssues(cleanerId),
+        Promise.all(propertyIds.map((pid) => getPropertyRecurringIssues(pid))),
+      ]);
+      const items: { label: string; detail: string }[] = [];
+      const seen = new Set<string>();
+      for (const h of cleanerHits) {
+        if (seen.has(`c:${h.category}`)) continue;
+        seen.add(`c:${h.category}`);
+        items.push({
+          label: h.label,
+          detail: `Flagged ${h.count}× in your recent cleans — give it extra attention.`,
+        });
+      }
+      const propByCategory = new Map<string, (typeof propertyHitsLists)[number][number]>();
+      for (const list of propertyHitsLists) {
+        for (const h of list) {
+          if (!propByCategory.has(h.category) || h.count > propByCategory.get(h.category)!.count) {
+            propByCategory.set(h.category, h);
+          }
+        }
+      }
+      for (const h of Array.from(propByCategory.values())) {
+        if (seen.has(`p:${h.category}`)) continue;
+        seen.add(`p:${h.category}`);
+        items.push({
+          label: h.label,
+          detail: `Recurring at a property on today's run (${h.count}× recently) — double-check it.`,
+        });
+      }
+      const capped = items.slice(0, 5);
+      return capped.length > 0 ? { items: capped } : null;
+    } catch {
+      return null;
+    }
+  })();
+
   // ⑤ Supplies to bring — inferred from each job's extras + laundry (synchronous).
   const supplies: BriefingSupplies | null = (() => {
     const items: BriefingSupplyItem[] = [];
@@ -876,6 +923,7 @@ export async function assembleCleanerBriefing(input: {
     watchOuts: watchOuts ?? null,
     reminders: reminders ?? null,
     complaints: complaints ?? null,
+    recurringIssues: recurringIssues ?? null,
     acceptGate,
     travelPlan: travelPlan ?? null,
     accessNotes: accessNotes ?? null,

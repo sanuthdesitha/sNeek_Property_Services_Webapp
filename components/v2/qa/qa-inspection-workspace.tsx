@@ -889,6 +889,20 @@ export function QaInspectionWorkspace({
   const template = payload?.template;
   const job = payload?.job;
 
+  // Recurring-issue watch-outs (Phase 7a) — where to look, compiled from the
+  // property's + primary cleaner's repeating QA categories. Read-only advisory.
+  const watchOuts = useMemo(() => {
+    const raw = (payload as any)?.watchOuts;
+    const norm = (arr: unknown): Array<{ label: string; count: number; category: string }> =>
+      Array.isArray(arr)
+        ? arr
+            .filter((x): x is { label: string; count: number; category: string } => Boolean(x) && typeof x === "object")
+            .map((x) => ({ label: String((x as any).label ?? ""), count: Number((x as any).count ?? 0), category: String((x as any).category ?? "") }))
+        : [];
+    return { cleaner: norm(raw?.cleaner), property: norm(raw?.property) };
+  }, [payload]);
+  const hasWatchOuts = watchOuts.cleaner.length > 0 || watchOuts.property.length > 0;
+
   // Base evidence-stamp context shared by every QA photo (v1 parity: inspector
   // name, property address + name, "qa" tag). Branding + GPS are added by the
   // shared buildEvidenceStamp helper inside the Uploader.
@@ -1421,6 +1435,21 @@ export function QaInspectionWorkspace({
 
       {/* ── STEP 0: inspect & log findings ── */}
       <div className={step === 0 ? "space-y-6" : "hidden"}>
+        {/* Recurring-issue watch-outs (Phase 7a) — where to look this clean. */}
+        {hasWatchOuts ? (
+          <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
+              <AlertTriangle className="h-4 w-4" /> Recurring — check these closely
+            </p>
+            <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              {[
+                ...watchOuts.cleaner.map((r) => `${r.label.toLowerCase()} ×${r.count} (cleaner)`),
+                ...watchOuts.property.map((r) => `${r.label.toLowerCase()} ×${r.count} (property)`),
+              ].join(", ")}
+            </p>
+          </div>
+        ) : null}
+
         <ECard>
           <ECardHeader><ECardTitle>Cleaner submission evidence</ECardTitle></ECardHeader>
           <ECardBody className="space-y-3">
