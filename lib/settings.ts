@@ -214,6 +214,48 @@ export interface QaAutomationSettings {
   createIssueTicket: boolean;
 }
 
+export interface AccountabilityScoringSettings {
+  minorDeduction: number;
+  majorDeduction: number;
+  criticalDeduction: number;
+  missingMandatoryEvidenceDeduction: number;
+  falseConfirmationExtraDeduction: number;
+  floor: number;
+  excellentMin: number;
+  passMin: number;
+  needsImprovementMin: number;
+  criticalTriggersManagementReview: boolean;
+}
+
+export interface AccountabilityBonusSettings {
+  streakLength: number;
+  streakAmount: number;
+  extendedStreakLength: number;
+  extendedStreakAmount: number;
+  streakMinScore: number;
+  monthlyFirstAmount: number;
+  monthlySecondAmount: number;
+  monthlyMinCleans: number;
+  monthlyMinAvgScore: number;
+}
+
+export interface AccountabilityRectificationSettings {
+  bands: { maxMinutes: number; amount: number }[];
+  managerReviewOverMinutes: number;
+  reworkDeductionsRequireApproval: boolean;
+}
+
+export interface AccountabilitySettings {
+  scoring: AccountabilityScoringSettings;
+  bonuses: AccountabilityBonusSettings;
+  rectification: AccountabilityRectificationSettings;
+  issueCategories: { key: string; label: string }[];
+  patternSameCategoryCount: number;
+  patternWindowDays: number;
+  requireJobStartConfirmation: boolean;
+  selfInspectionBlocksSubmit: boolean;
+}
+
 export interface PricingSettings {
   gstEnabled: boolean;
   /** What a cleaner is paid per hour — the cost base for the margin floor. */
@@ -290,6 +332,7 @@ export interface AppSettings {
   autoAssign: AutoAssignSettings;
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
+  accountability: AccountabilitySettings;
   pricing: PricingSettings;
   evidenceStamp: EvidenceStampSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
@@ -389,6 +432,65 @@ export const NOTIFICATION_CATEGORY_META: Record<
   billing: { label: "Billing & payroll", description: "Invoices, payouts and pay adjustments." },
   approvals: { label: "Approvals", description: "Items waiting on your approval (tasks, pay, time, rework)." },
   ical: { label: "iCal / calendar sync", description: "Automatic iCal sync alerts when bookings create or change jobs." },
+};
+
+/** Seeded accountability issue taxonomy — {key, label} pairs. Admins may
+ *  extend/rename these; keys are deduped and always fall back to this set. */
+export const DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES: { key: string; label: string }[] = [
+  { key: "dusting", label: "Dusting" },
+  { key: "laundry_bag", label: "Laundry bag" },
+  { key: "laundry_linen", label: "Laundry / linen" },
+  { key: "restock", label: "Restock" },
+  { key: "kitchen_reset", label: "Kitchen reset" },
+  { key: "bathroom_detail", label: "Bathroom detail" },
+  { key: "bed_setup", label: "Bed setup" },
+  { key: "furniture_reset", label: "Furniture reset" },
+  { key: "balcony_setup", label: "Balcony setup" },
+  { key: "rubbish", label: "Rubbish" },
+  { key: "damage_missed", label: "Damage missed" },
+  { key: "evidence_quality", label: "Evidence quality" },
+  { key: "coffee_machine", label: "Coffee machine" },
+  { key: "other", label: "Other" },
+];
+
+export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
+  scoring: {
+    minorDeduction: 3,
+    majorDeduction: 10,
+    criticalDeduction: 25,
+    missingMandatoryEvidenceDeduction: 5,
+    falseConfirmationExtraDeduction: 10,
+    floor: 0,
+    excellentMin: 97,
+    passMin: 93,
+    needsImprovementMin: 85,
+    criticalTriggersManagementReview: true,
+  },
+  bonuses: {
+    streakLength: 5,
+    streakAmount: 20,
+    extendedStreakLength: 10,
+    extendedStreakAmount: 40,
+    streakMinScore: 97,
+    monthlyFirstAmount: 75,
+    monthlySecondAmount: 40,
+    monthlyMinCleans: 10,
+    monthlyMinAvgScore: 95,
+  },
+  rectification: {
+    bands: [
+      { maxMinutes: 10, amount: 5 },
+      { maxMinutes: 20, amount: 10 },
+      { maxMinutes: 30, amount: 15 },
+    ],
+    managerReviewOverMinutes: 30,
+    reworkDeductionsRequireApproval: true,
+  },
+  issueCategories: DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES,
+  patternSameCategoryCount: 3,
+  patternWindowDays: 30,
+  requireJobStartConfirmation: true,
+  selfInspectionBlocksSubmit: true,
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -554,6 +656,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reworkDelayHours: 24,
     createIssueTicket: true,
   },
+  accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
   pricing: {
     gstEnabled: true,
     cleanerHourlyCost: 32,
@@ -974,6 +1077,125 @@ function sanitizeQaAutomationSettings(
   };
 }
 
+export function sanitizeAccountabilitySettings(
+  input: unknown,
+  fallback: AccountabilitySettings
+): AccountabilitySettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+
+  // Clamp any finite number to >= 0, otherwise fall back.
+  const nonNeg = (value: unknown, fb: number) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, numeric) : fb;
+  };
+
+  const scoringRow =
+    row.scoring && typeof row.scoring === "object" && !Array.isArray(row.scoring)
+      ? (row.scoring as Record<string, unknown>)
+      : {};
+  const scoring: AccountabilityScoringSettings = {
+    minorDeduction: nonNeg(scoringRow.minorDeduction, fallback.scoring.minorDeduction),
+    majorDeduction: nonNeg(scoringRow.majorDeduction, fallback.scoring.majorDeduction),
+    criticalDeduction: nonNeg(scoringRow.criticalDeduction, fallback.scoring.criticalDeduction),
+    missingMandatoryEvidenceDeduction: nonNeg(
+      scoringRow.missingMandatoryEvidenceDeduction,
+      fallback.scoring.missingMandatoryEvidenceDeduction
+    ),
+    falseConfirmationExtraDeduction: nonNeg(
+      scoringRow.falseConfirmationExtraDeduction,
+      fallback.scoring.falseConfirmationExtraDeduction
+    ),
+    floor: nonNeg(scoringRow.floor, fallback.scoring.floor),
+    excellentMin: nonNeg(scoringRow.excellentMin, fallback.scoring.excellentMin),
+    passMin: nonNeg(scoringRow.passMin, fallback.scoring.passMin),
+    needsImprovementMin: nonNeg(scoringRow.needsImprovementMin, fallback.scoring.needsImprovementMin),
+    criticalTriggersManagementReview:
+      typeof scoringRow.criticalTriggersManagementReview === "boolean"
+        ? scoringRow.criticalTriggersManagementReview
+        : fallback.scoring.criticalTriggersManagementReview,
+  };
+
+  const bonusRow =
+    row.bonuses && typeof row.bonuses === "object" && !Array.isArray(row.bonuses)
+      ? (row.bonuses as Record<string, unknown>)
+      : {};
+  const bonuses: AccountabilityBonusSettings = {
+    streakLength: nonNeg(bonusRow.streakLength, fallback.bonuses.streakLength),
+    streakAmount: nonNeg(bonusRow.streakAmount, fallback.bonuses.streakAmount),
+    extendedStreakLength: nonNeg(bonusRow.extendedStreakLength, fallback.bonuses.extendedStreakLength),
+    extendedStreakAmount: nonNeg(bonusRow.extendedStreakAmount, fallback.bonuses.extendedStreakAmount),
+    streakMinScore: nonNeg(bonusRow.streakMinScore, fallback.bonuses.streakMinScore),
+    monthlyFirstAmount: nonNeg(bonusRow.monthlyFirstAmount, fallback.bonuses.monthlyFirstAmount),
+    monthlySecondAmount: nonNeg(bonusRow.monthlySecondAmount, fallback.bonuses.monthlySecondAmount),
+    monthlyMinCleans: nonNeg(bonusRow.monthlyMinCleans, fallback.bonuses.monthlyMinCleans),
+    monthlyMinAvgScore: nonNeg(bonusRow.monthlyMinAvgScore, fallback.bonuses.monthlyMinAvgScore),
+  };
+
+  const rectRow =
+    row.rectification && typeof row.rectification === "object" && !Array.isArray(row.rectification)
+      ? (row.rectification as Record<string, unknown>)
+      : {};
+  let bands: { maxMinutes: number; amount: number }[] = [];
+  if (Array.isArray(rectRow.bands)) {
+    bands = rectRow.bands
+      .filter((b): b is Record<string, unknown> => Boolean(b) && typeof b === "object")
+      .map((b) => ({
+        maxMinutes: nonNeg(b.maxMinutes, 0),
+        amount: nonNeg(b.amount, 0),
+      }))
+      .sort((a, b) => a.maxMinutes - b.maxMinutes);
+  }
+  if (bands.length === 0) {
+    bands = fallback.rectification.bands.map((b) => ({ ...b }));
+  }
+  const rectification: AccountabilityRectificationSettings = {
+    bands,
+    managerReviewOverMinutes: nonNeg(
+      rectRow.managerReviewOverMinutes,
+      fallback.rectification.managerReviewOverMinutes
+    ),
+    reworkDeductionsRequireApproval:
+      typeof rectRow.reworkDeductionsRequireApproval === "boolean"
+        ? rectRow.reworkDeductionsRequireApproval
+        : fallback.rectification.reworkDeductionsRequireApproval,
+  };
+
+  let issueCategories: { key: string; label: string }[] = [];
+  if (Array.isArray(row.issueCategories)) {
+    const seen = new Set<string>();
+    for (const raw of row.issueCategories) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const key = typeof item.key === "string" ? item.key.trim() : "";
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const label = typeof item.label === "string" && item.label.trim() ? item.label.trim() : key;
+      issueCategories.push({ key, label });
+    }
+  }
+  if (issueCategories.length === 0) {
+    issueCategories = fallback.issueCategories.map((c) => ({ ...c }));
+  }
+
+  return {
+    scoring,
+    bonuses,
+    rectification,
+    issueCategories,
+    patternSameCategoryCount: nonNeg(row.patternSameCategoryCount, fallback.patternSameCategoryCount),
+    patternWindowDays: nonNeg(row.patternWindowDays, fallback.patternWindowDays),
+    requireJobStartConfirmation:
+      typeof row.requireJobStartConfirmation === "boolean"
+        ? row.requireJobStartConfirmation
+        : fallback.requireJobStartConfirmation,
+    selfInspectionBlocksSubmit:
+      typeof row.selfInspectionBlocksSubmit === "boolean"
+        ? row.selfInspectionBlocksSubmit
+        : fallback.selfInspectionBlocksSubmit,
+  };
+}
+
 function sanitizePricingSettings(input: unknown, fallback: PricingSettings): PricingSettings {
   if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
   const row = input as Record<string, unknown>;
@@ -1229,6 +1451,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).qaAutomation,
       DEFAULT_SETTINGS.qaAutomation
     ),
+    accountability: sanitizeAccountabilitySettings(
+      (parsed as any).accountability,
+      DEFAULT_SETTINGS.accountability
+    ),
     pricing: sanitizePricingSettings((parsed as any).pricing, DEFAULT_SETTINGS.pricing),
     evidenceStamp: sanitizeEvidenceStamp(
       (parsed as any).evidenceStamp,
@@ -1301,6 +1527,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    accountability: input.accountability ?? current.accountability,
     pricing: { ...current.pricing, ...(input.pricing ?? {}) },
     evidenceStamp: input.evidenceStamp ?? current.evidenceStamp,
     websiteContent: input.websiteContent ?? current.websiteContent,

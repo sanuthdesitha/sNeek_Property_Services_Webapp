@@ -46,7 +46,10 @@ function lastWhere() {
   return jobFindMany.mock.calls[0][0] as { where: any };
 }
 
-describe("getCleanerInvoiceData paid-job idempotency filter (C1)", () => {
+// The dynamic import of lib/cleaner/invoice pulls a heavy module graph; under a
+// full parallel suite run on this machine the first cold import can exceed the
+// default 5s test timeout, so give this file headroom.
+describe("getCleanerInvoiceData paid-job idempotency filter (C1)", { timeout: 30000 }, () => {
   beforeEach(() => {
     jobFindMany.mockClear();
   });

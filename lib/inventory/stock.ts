@@ -1,6 +1,19 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { NotificationChannel, NotificationStatus, Role, StockTxType } from "@prisma/client";
+import { NotificationChannel, NotificationStatus, Role, ShoppingRunStatus, StockTxType } from "@prisma/client";
+import { notifyRestockRunCreated } from "@/lib/notifications/accountability";
+
+/** A stock row that has fallen to/below its reorder threshold in a submission. */
+type LowStockRow = {
+  stockId: string;
+  itemId: string;
+  itemName: string;
+  category: string;
+  supplier: string | null;
+  unit: string;
+  onHand: number;
+  parLevel: number;
+};
 
 /** Deduct inventory used in a form submission. */
 export async function deductStockFromSubmission(
@@ -8,6 +21,10 @@ export async function deductStockFromSubmission(
   submissionId: string,
   usageMap: Record<string, number> // itemId → quantity used
 ): Promise<void> {
+  // Collected across the loop, then folded into a single auto-ShoppingRun so a
+  // multi-item submission produces one run, not one per item.
+  const lowStockRows: LowStockRow[] = [];
+
   for (const [itemId, qty] of Object.entries(usageMap)) {
     if (qty <= 0) continue;
 
@@ -73,6 +90,17 @@ export async function deductStockFromSubmission(
         "Stock below reorder threshold"
       );
 
+      lowStockRows.push({
+        stockId: stock.id,
+        itemId: stock.itemId,
+        itemName: stock.item.name,
+        category: stock.item.category,
+        supplier: stock.item.supplier ?? null,
+        unit: stock.item.unit,
+        onHand: newOnHand,
+        parLevel: stock.parLevel,
+      });
+
       const admins = await db.user.findMany({
         where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
         select: { id: true },
@@ -90,6 +118,112 @@ export async function deductStockFromSubmission(
         });
       }
     }
+  }
+
+  // Auto-restock: fold every low item into an open shopping run for the
+  // property's client (reuse the earliest non-completed run, else create one).
+  // Fully guarded — a failure here must never break the submission's stock write.
+  if (lowStockRows.length > 0) {
+    try {
+      await upsertAutoShoppingRun(propertyId, lowStockRows);
+    } catch (err) {
+      logger.error({ err, propertyId }, "Auto shopping run upsert failed (non-fatal)");
+    }
+  }
+}
+
+/**
+ * Find (or create) an open shopping run covering `propertyId`'s client and
+ * upsert a line for each low-stock item. Needed qty = max(parLevel − onHand, 1).
+ * Existing lines are raised (never lowered); a brand-new run also fires an admin
+ * alert. Returns nothing — best-effort, called inside a try/catch.
+ */
+async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[]): Promise<void> {
+  const property = await db.property.findUnique({
+    where: { id: propertyId },
+    select: { id: true, name: true, clientId: true },
+  });
+  if (!property) return;
+
+  // The earliest non-completed status is DRAFT — reuse any open run for this
+  // client so low items keep accumulating onto one shopping trip.
+  const OPEN_STATUSES: ShoppingRunStatus[] = [
+    ShoppingRunStatus.DRAFT,
+    ShoppingRunStatus.ACTIVE,
+  ];
+  let run = await db.shoppingRun.findFirst({
+    where: { clientId: property.clientId, status: { in: OPEN_STATUSES } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+
+  let createdNew = false;
+  if (!run) {
+    // ShoppingRun.ownerUserId is required — fall back to a system admin/ops user.
+    const owner = await db.user.findFirst({
+      where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (!owner) return; // no one to own the run — skip gracefully
+    run = await db.shoppingRun.create({
+      data: {
+        ownerUserId: owner.id,
+        clientId: property.clientId,
+        status: ShoppingRunStatus.DRAFT,
+        title: `Auto — low stock at ${property.name}`,
+        notes: "Automatically created from low stock detected during a job submission.",
+      },
+      select: { id: true },
+    });
+    createdNew = true;
+  }
+
+  // Existing lines for this run + property so we upsert (raise) instead of
+  // duplicating. Match on itemId when present, else on itemName.
+  const existingLines = await db.shoppingRunLine.findMany({
+    where: { shoppingRunId: run.id, propertyId },
+    select: { id: true, itemId: true, itemName: true, plannedQty: true },
+  });
+
+  for (const row of lowRows) {
+    const needed = Math.max(row.parLevel - row.onHand, 1);
+    const match = existingLines.find((l) =>
+      row.itemId ? l.itemId === row.itemId : l.itemName === row.itemName
+    );
+    if (match) {
+      // Raise the planned quantity only if the new need is greater.
+      if (needed > match.plannedQty) {
+        await db.shoppingRunLine.update({
+          where: { id: match.id },
+          data: { plannedQty: needed },
+        });
+      }
+    } else {
+      await db.shoppingRunLine.create({
+        data: {
+          shoppingRunId: run.id,
+          propertyId,
+          itemId: row.itemId,
+          itemName: row.itemName,
+          category: row.category,
+          supplier: row.supplier,
+          unit: row.unit,
+          plannedQty: needed,
+          note: "Auto-added from low stock at submission.",
+        },
+      });
+    }
+  }
+
+  // Only alert admins when a brand-new run was created (an extension of an
+  // existing run is silent — admins already know about the open run).
+  if (createdNew) {
+    void notifyRestockRunCreated({
+      runId: run.id,
+      propertyName: property.name,
+      itemCount: lowRows.length,
+    }).catch((err) => logger.error({ err }, "notifyRestockRunCreated failed"));
   }
 }
 

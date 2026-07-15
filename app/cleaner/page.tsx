@@ -32,6 +32,7 @@ import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
 import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 import { formatAssignmentResponseLabel, formatJobStatusLabel } from "@/lib/jobs/assignment-workflow";
 import { CleanerJobOfferActions } from "@/components/cleaner/job-offer-actions";
+import { CleanerCoachingCard } from "@/components/cleaner/coaching-card";
 import { ChartCard, KpiTile, BarCompare } from "@/components/charts";
 
 const TZ = "Australia/Sydney";
@@ -558,6 +559,9 @@ export default async function CleanerDashboard() {
         description="Items that need action before moving to the next task."
         items={urgentItems}
       />
+
+      {/* ── COACHING & FEEDBACK (self-hides when no records) ── */}
+      <CleanerCoachingCard />
 
       {/* ── AWAITING CONFIRMATION ── */}
       {visibility.showJobs && awaitingConfirmationJobs.length > 0 && (

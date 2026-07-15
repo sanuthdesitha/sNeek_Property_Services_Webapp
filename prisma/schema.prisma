@@ -671,6 +671,11 @@ model User {
   qaAssignmentsPickedUp        QaAssignment[]              @relation("QaAssignmentPickedUpBy")
   qaFormSubmissions            QaFormSubmission[]          @relation("QaFormSubmissionSubmittedBy")
   qaReviews                    QAReview[]                  @relation("QAReviewReviewedBy")
+  qaIssuesAsCleaner            QaIssue[]                   @relation("QaIssueCleaner")
+  qaIssuesRaised               QaIssue[]                   @relation("QaIssueRaisedBy")
+  qaIssuesRectified            QaIssue[]                   @relation("QaIssueRectifiedBy")
+  coachingRecords              CoachingRecord[]            @relation("CoachingRecordCleaner")
+  coachingRecordsCreated       CoachingRecord[]            @relation("CoachingRecordCreatedBy")
   qaReworkAsQa                 QaReworkTransfer[]          @relation("QaReworkQa")
   qaReworkAsCleaner            QaReworkTransfer[]          @relation("QaReworkCleaner")
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
@@ -871,6 +876,18 @@ model Property {
   sizeSqm                    Float?
   floorCount                 Int?
   laundryDetail              Json? // { washerType, dryerType, laundryLocation, detergentType, suppliesProvided, notes }
+  // ── Quality / accountability config ────────────────────────────────────────
+  // Planned standard-clean duration (job-start display + QA duration baseline).
+  cleaningDurationMinutes    Int?
+  // Per-clean cleaner service rate (overrides hourly maths when set).
+  cleanerServiceRate         Float?
+  // Laundry bag identity so the cleaner grabs the right bag: label + colour.
+  laundryBagLabel            String?
+  laundryBagColor            String?
+  sofaBedCount               Int      @default(0)
+  // Setup instructions + reference-position images, same shape as accessGuide:
+  // [{ id, kind: SETUP|REFERENCE_POSITION|SOFA_BED|OTHER, label, instructions, images: [{url,key,caption?}] }]
+  setupGuide                 Json?
   emergencyContact           Json? // { name, phone, relationship }
   recurringSchedule          Json? // { frequency, day, time, notes } captured for recurring services
   latitude                   Float?
@@ -915,6 +932,8 @@ model Property {
   maintenanceItems    PropertyMaintenanceItem[]
   heldStockDeliveries HeldStockDelivery[]
   checklistProfile    PropertyChecklistProfile?
+  rotationStates      PropertyRotationState[]
+  qaIssues            QaIssue[]
 
   @@index([placeId])
   @@index([suburb])
@@ -926,6 +945,36 @@ model Property {
 // per-property cleaner form. Modules auto-apply via `appliesWhen` rules
 // against the property's attributes/features and can be toggled per property.
 // ─────────────────────────────────────────────
+
+/// How often a checklist item / evidence requirement applies.
+enum EvidenceFrequency {
+  EVERY_CLEAN
+  CONDITIONAL
+  ROTATIONAL
+}
+
+/// Per-property rotation tracker for ROTATIONAL checklist items: how many
+/// standard cleans have passed since the item was last completed. Updated
+/// inside the cleaner-submit transaction; compose-time applicability includes
+/// a rotational item when cleansSinceDone + 1 >= its rotation cadence.
+model PropertyRotationState {
+  id                 String    @id @default(cuid())
+  propertyId         String
+  /// ChecklistModuleItem.key, e.g. "kitchen.top_cupboards".
+  itemKey            String
+  lastCompletedAt    DateTime?
+  lastCompletedJobId String?
+  cleansSinceDone    Int       @default(0)
+
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lastCompletedJob Job?     @relation(fields: [lastCompletedJobId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([propertyId, itemKey])
+  @@index([propertyId])
+}
 
 model ChecklistModule {
   id          String  @id @default(cuid())
@@ -977,6 +1026,26 @@ model ChecklistModuleItem {
   appliesWhen  Json?
   sortOrder    Int       @default(0)
   isActive     Boolean   @default(true)
+
+  /// Evidence taxonomy — LIVING | KITCHEN | BATHROOM | BEDROOM | OUTDOOR |
+  /// FINAL | PROPERTY_CONFIRM | LAUNDRY_CONFIRM. Drives QA grouping + the
+  /// missing-mandatory-evidence scoring rule.
+  evidenceCategory     String?
+  /// How often this item applies: every clean (default), only when an
+  /// exception is reported (CONDITIONAL + conditionKey), or on a rotation
+  /// (ROTATIONAL + rotationEveryNCleans, tracked per property).
+  frequency            EvidenceFrequency @default(EVERY_CLEAN)
+  /// For CONDITIONAL items: stable exception key (guest_mess | damage |
+  /// stains | mold | missing_supplies | maintenance | guest_belongings |
+  /// broken_appliance | inaccessible | insufficient_time | dirty_sofa_linen |
+  /// qa_issue | qa_rectification_before | qa_rectification_after).
+  conditionKey         String?
+  /// For ROTATIONAL items: due every N standard cleans (property can override
+  /// via its checklist profile selections).
+  rotationEveryNCleans Int?
+  maxPhotos            Int?
+  /// Default issue severity when QA fails this item: low | medium | high.
+  severity             String?
 
   module ChecklistModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
@@ -1198,6 +1267,8 @@ model Job {
   qaFormSubmissions      QaFormSubmission[]
   qaReworkTransfers      QaReworkTransfer[]
   mediaOverrideRequests  MediaOverrideRequest[]
+  rotationCompletions    PropertyRotationState[]
+  qaIssues               QaIssue[]
   maintenanceItems       PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?
@@ -1247,6 +1318,13 @@ model CleanerPayAdjustment {
   // never be included in a second run (idempotency — mirrors Job.payrollRunId
   // and ShoppingSettlement.includedInPayrollRunId).
   includedInPayrollRunId String?
+  // Accountability provenance. source: STREAK_5 | STREAK_10 | MONTHLY_RANK_1 |
+  // MONTHLY_RANK_2 | QA_RECTIFICATION_PAY | RECTIFICATION_DEDUCTION |
+  // REWORK_DEDUCTION (null = manual/legacy). sourceKey is the dedupe key for
+  // auto-proposals (e.g. "streak5:<cleanerId>:<jobId>", "monthly:2026-07:1") —
+  // proposers must check (source, sourceKey, cleanerId) before creating.
+  source                 String?
+  sourceKey              String?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 
@@ -1259,6 +1337,7 @@ model CleanerPayAdjustment {
   @@index([jobId, status])
   @@index([propertyId, status])
   @@index([includedInPayrollRunId])
+  @@index([source, sourceKey])
 }
 
 model JobAssignment {
@@ -1402,31 +1481,164 @@ model SubmissionMedia {
 }
 
 model QAReview {
-  id           String    @id @default(cuid())
-  jobId        String
-  reviewedById String? // null if auto-generated
-  score        Float
-  passed       Boolean
-  notes        String?   @db.Text
-  flags        Json? // array of field ids that failed
+  id               String    @id @default(cuid())
+  jobId            String
+  reviewedById     String? // null if auto-generated
+  score            Float
+  passed           Boolean
+  notes            String?   @db.Text
+  flags            Json? // array of field ids that failed
   // Authority of this review. "QA" = a real on-site QA inspection (highest
   // authority — overrides any earlier admin/auto score for the job). "ADMIN" =
   // an admin/ops quick score. "AUTO" = system-generated. The authoritative
   // outcome for a job is the latest QA review if one exists, else the latest of
   // any kind (see lib/qa/authority.ts).
-  kind         String    @default("QA") // QA | ADMIN | AUTO
-  editedById   String? // admin who last edited this score
-  editedAt     DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @default(now()) @updatedAt
+  kind             String    @default("QA") // QA | ADMIN | AUTO
+  editedById       String? // admin who last edited this score
+  editedAt         DateTime?
+  // Accountability scoring: `score` stays the FINAL approved percent (all
+  // existing consumers unchanged). rawScore = pre-adjustment computed value;
+  // adjustmentReason is mandatory whenever score != rawScore.
+  rawScore         Float?
+  adjustmentReason String?   @db.Text
+  /// EXCELLENT | PASS | NEEDS_IMPROVEMENT | FAILED | MANAGEMENT_REVIEW (null = legacy)
+  rating           String?
+  managementReview Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
 
   job               Job                @relation(fields: [jobId], references: [id])
   reviewedBy        User?              @relation("QAReviewReviewedBy", fields: [reviewedById], references: [id])
   qaFormSubmissions QaFormSubmission[]
+  issues            QaIssue[]
 
   @@index([jobId])
   @@index([jobId, kind, createdAt])
   @@index([createdAt])
+}
+
+/// Accountability issue severity (QA per-item verdicts). Coexists intentionally
+/// with the damage-entry LOW–CRITICAL scale in QaFormSubmission __qaTools.
+enum QaIssueSeverity {
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+enum FalseConfirmationStatus {
+  NONE
+  SUSPECTED
+  CONFIRMED
+  REJECTED
+}
+
+enum RectificationStatus {
+  PENDING
+  FIXED_BY_QA
+  RETURNED_TO_CLEANER
+  FIXED_BY_OTHER_CLEANER
+  FIXED_BY_MANAGER
+  NOT_FIXED
+  ESCALATED
+}
+
+enum CoachingRecordType {
+  COACHING
+  WARNING
+  MANAGEMENT_REVIEW
+}
+
+enum CoachingRecordStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  ESCALATED
+}
+
+/// Structured, queryable QA issue raised against a clean — one row per
+/// Minor/Major/Critical verdict or free-form finding. Powers scoring,
+/// false-confirmation review, rectification tracking and recurring-issue
+/// pattern detection (read-time queries over the cleaner/property indexes).
+model QaIssue {
+  id             String  @id @default(cuid())
+  jobId          String
+  propertyId     String
+  cleanerId      String
+  qaReviewId     String?
+  qaSubmissionId String?
+  raisedById     String
+
+  /// settings.accountability.issueCategories key
+  category              String
+  fieldId               String?
+  itemKey               String?
+  description           String          @db.Text
+  severity              QaIssueSeverity
+  /// [{key, annotatedKey?}] — QA evidence photos
+  qaPhotoKeys           Json?
+  /// SubmissionMedia ids of the cleaner evidence under review
+  cleanerMediaIds       Json?
+  cleanerMarkedComplete Boolean         @default(false)
+  guestReadyImpact      Boolean         @default(false)
+
+  falseConfirmation     FalseConfirmationStatus @default(NONE)
+  falseConfReviewedById String?
+  falseConfReviewedAt   DateTime?
+
+  rectificationStatus     RectificationStatus @default(PENDING)
+  rectifiedById           String?
+  rectificationMinutes    Int?
+  rectificationCost       Float?
+  rectificationBeforeKeys Json?
+  rectificationAfterKeys  Json?
+  /// proposed PENDING CleanerPayAdjustment created for this issue (if any)
+  payAdjustmentId         String?
+  escalatedAt             DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job         Job       @relation(fields: [jobId], references: [id])
+  property    Property  @relation(fields: [propertyId], references: [id])
+  cleaner     User      @relation("QaIssueCleaner", fields: [cleanerId], references: [id])
+  raisedBy    User      @relation("QaIssueRaisedBy", fields: [raisedById], references: [id])
+  rectifiedBy User?     @relation("QaIssueRectifiedBy", fields: [rectifiedById], references: [id])
+  qaReview    QAReview? @relation(fields: [qaReviewId], references: [id])
+
+  @@index([jobId])
+  @@index([cleanerId, category, createdAt])
+  @@index([propertyId, category, createdAt])
+  @@index([rectificationStatus])
+  @@index([falseConfirmation])
+}
+
+/// Coaching / warning / management-review record for a cleaner. Created by
+/// managers (or recommended by pattern detection) — never automatic discipline.
+model CoachingRecord {
+  id                 String               @id @default(cuid())
+  cleanerId          String
+  createdById        String
+  type               CoachingRecordType
+  status             CoachingRecordStatus @default(OPEN)
+  reason             String               @db.Text
+  notes              String?              @db.Text
+  /// QaIssue ids backing this record
+  issueIds           Json?
+  patternKey         String?
+  retrainingRequired Boolean              @default(false)
+  reviewDate         DateTime?
+  acknowledgedAt     DateTime?
+  /// NONE | RETRAINED | SUSPENDED | TERMINATED
+  outcome            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cleaner   User @relation("CoachingRecordCleaner", fields: [cleanerId], references: [id])
+  createdBy User @relation("CoachingRecordCreatedBy", fields: [createdById], references: [id])
+
+  @@index([cleanerId, status])
+  @@index([type, status])
 }
 
 model QaFormTemplate {

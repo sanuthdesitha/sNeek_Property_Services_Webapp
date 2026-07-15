@@ -106,6 +106,10 @@ export interface FormField {
   locationTag?: string;
   // Priority flag surfaced to the cleaner and weighted in stats.
   severity?: FieldSeverity;
+  // Evidence taxonomy carried through from the checklist library item
+  // (LIVING | KITCHEN | BATHROOM | BEDROOM | OUTDOOR | FINAL | PROPERTY_CONFIRM
+  // | LAUNDRY_CONFIRM). Drives QA grouping + missing-mandatory-evidence scoring.
+  evidenceCategory?: string;
   // yes/no: when answered "No", a details note (stored as `${id}_details` in
   // the submission data) becomes required.
   detailsWhenNo?: boolean;

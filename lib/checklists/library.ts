@@ -1,6 +1,13 @@
 import { JobType } from "@prisma/client";
 import { db } from "@/lib/db";
-import { DEFAULT_CHECKLISTS, FEATURE_MODULES } from "@/lib/checklists/catalog";
+import {
+  DEFAULT_CHECKLISTS,
+  FEATURE_MODULES,
+  ROTATIONAL_EVIDENCE_ITEMS,
+  EXCEPTION_MODULE,
+  SELF_INSPECTION_MODULE,
+  MODULE_EVIDENCE_CATEGORY,
+} from "@/lib/checklists/catalog";
 import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
 
 /**
@@ -9,9 +16,11 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * the stored marker and re-runs the idempotent sync once per deploy when they
  * differ, so production libraries pick up new modules/rules without a manual
  * re-seed. (History: v1 = original catalog seed; v2 = feature modules + rule/
- * repeatBy sync onto existing rows.)
+ * repeatBy sync onto existing rows; v3 = evidence frequency — rotational +
+ * conditional evidence items, evidenceCategory backfill; v4 = final
+ * self-inspection module — 14 required checkboxes composing last.)
  */
-export const CATALOG_VERSION = "2";
+export const CATALOG_VERSION = "4";
 const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
@@ -36,6 +45,13 @@ export interface LibraryItem {
   appliesWhen: unknown;
   sortOrder: number;
   isActive: boolean;
+  // ── Evidence frequency (Accountability Phase 1a) ──────────────────────────
+  evidenceCategory: string | null;
+  frequency: "EVERY_CLEAN" | "CONDITIONAL" | "ROTATIONAL";
+  conditionKey: string | null;
+  rotationEveryNCleans: number | null;
+  maxPhotos: number | null;
+  severity: string | null;
 }
 
 export interface LibraryModule {
@@ -243,6 +259,16 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
       });
       itemCount += 1;
     }
+
+    // Backfill evidenceCategory on this module's items ONLY where still null, so
+    // admin edits are preserved. Rooms map by module key; other modules stay null.
+    const evidenceCategory = MODULE_EVIDENCE_CATEGORY[moduleKey];
+    if (evidenceCategory) {
+      await db.checklistModuleItem.updateMany({
+        where: { moduleId: moduleRow.id, evidenceCategory: null },
+        data: { evidenceCategory },
+      });
+    }
   }
 
   // ── Feature-gated add-on modules (pool, bbq, spa, balcony, pets, …) ────────
@@ -287,6 +313,184 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           label: item.label,
           jobTypes: mod.jobTypes,
           sortOrder: sortIndex,
+        },
+      });
+      itemCount += 1;
+    }
+
+    const featureEvidenceCategory = MODULE_EVIDENCE_CATEGORY[mod.key];
+    if (featureEvidenceCategory) {
+      await db.checklistModuleItem.updateMany({
+        where: { moduleId: moduleRow.id, evidenceCategory: null },
+        data: { evidenceCategory: featureEvidenceCategory },
+      });
+    }
+  }
+
+  // ── ROTATIONAL deep-detail items on existing room / balcony modules ────────
+  // Homed on modules the catalog + feature loops above already upserted; if a
+  // module is somehow missing (custom-only DB) the item is skipped rather than
+  // orphaned.
+  const rotationalByModule = new Map<string, typeof ROTATIONAL_EVIDENCE_ITEMS>();
+  for (const item of ROTATIONAL_EVIDENCE_ITEMS) {
+    const list = rotationalByModule.get(item.moduleKey) ?? [];
+    list.push(item);
+    rotationalByModule.set(item.moduleKey, list);
+  }
+  for (const [moduleKey, items] of Array.from(rotationalByModule.entries())) {
+    const moduleRow = await db.checklistModule.findUnique({
+      where: { key: moduleKey },
+      select: { id: true },
+    });
+    if (!moduleRow) continue;
+    // Rotational items keep the room module's own sort range but sit after the
+    // every-clean items (high sortOrder).
+    let sortIndex = 700;
+    for (const item of items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          instructions: item.instructions,
+          fieldType: item.fieldType,
+          required: false,
+          minPhotos: item.minPhotos,
+          stampTag: item.stampTag,
+          jobTypes: [],
+          appliesWhen: null as any,
+          sortOrder: sortIndex,
+          evidenceCategory: item.evidenceCategory ?? null,
+          frequency: "ROTATIONAL",
+          rotationEveryNCleans: item.rotationEveryNCleans,
+          severity: item.severity,
+        },
+        update: {
+          label: item.label,
+          fieldType: item.fieldType,
+          minPhotos: item.minPhotos,
+          stampTag: item.stampTag,
+          sortOrder: sortIndex,
+          frequency: "ROTATIONAL",
+          rotationEveryNCleans: item.rotationEveryNCleans,
+          severity: item.severity,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── CONDITIONAL exception-evidence module ──────────────────────────────────
+  {
+    const mod = EXCEPTION_MODULE;
+    const moduleRow = await db.checklistModule.upsert({
+      where: { key: mod.key },
+      create: {
+        key: mod.key,
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      update: {
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      select: { id: true },
+    });
+    moduleCount += 1;
+
+    let sortIndex = 0;
+    for (const item of mod.items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          instructions: item.instructions,
+          fieldType: item.fieldType,
+          required: false,
+          minPhotos: item.minPhotos,
+          stampTag: item.stampTag,
+          jobTypes: mod.jobTypes,
+          appliesWhen: null as any,
+          sortOrder: sortIndex,
+          frequency: "CONDITIONAL",
+          conditionKey: item.conditionKey,
+          severity: item.severity,
+        },
+        update: {
+          label: item.label,
+          fieldType: item.fieldType,
+          minPhotos: item.minPhotos,
+          stampTag: item.stampTag,
+          jobTypes: mod.jobTypes,
+          sortOrder: sortIndex,
+          frequency: "CONDITIONAL",
+          conditionKey: item.conditionKey,
+          severity: item.severity,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── Always-present final self-inspection module ────────────────────────────
+  // 14 required EVERY_CLEAN checkboxes composing last (before sign-off). Upserted
+  // like the exception module so admin edits (instructions/isActive) are kept.
+  {
+    const mod = SELF_INSPECTION_MODULE;
+    const moduleRow = await db.checklistModule.upsert({
+      where: { key: mod.key },
+      create: {
+        key: mod.key,
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      update: {
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: null as any,
+        sortOrder: mod.sortOrder,
+      },
+      select: { id: true },
+    });
+    moduleCount += 1;
+
+    let sortIndex = 0;
+    for (const item of mod.items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          fieldType: "checkbox",
+          required: true,
+          jobTypes: mod.jobTypes,
+          appliesWhen: null as any,
+          sortOrder: sortIndex,
+          evidenceCategory: "FINAL",
+          frequency: "EVERY_CLEAN",
+          severity: item.severity,
+        },
+        update: {
+          label: item.label,
+          fieldType: "checkbox",
+          required: true,
+          jobTypes: mod.jobTypes,
+          sortOrder: sortIndex,
+          frequency: "EVERY_CLEAN",
+          severity: item.severity,
         },
       });
       itemCount += 1;

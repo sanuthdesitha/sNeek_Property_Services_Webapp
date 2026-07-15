@@ -263,6 +263,10 @@ const updateSchema = z.object({
   // enforced/coerced by sanitizePricingVariables in lib/settings.ts). Accept an
   // array of passthrough objects so the editor can add/remove variables freely.
   pricingVariables: z.array(z.object({}).passthrough()).optional(),
+  // Accountability config — loosely validated here (the shape is enforced/coerced
+  // by sanitizeAccountabilitySettings in lib/settings.ts). Passthrough so the
+  // settings editor can send the full nested blob.
+  accountability: z.object({}).passthrough().optional(),
 });
 
 export async function GET() {

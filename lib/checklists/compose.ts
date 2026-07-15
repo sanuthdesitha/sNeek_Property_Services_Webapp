@@ -3,6 +3,26 @@ import { db } from "@/lib/db";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
 import { getChecklistLibrary, type LibraryModule } from "@/lib/checklists/library";
 import { ruleApplies, type PropertyForRules } from "@/lib/checklists/features";
+import { EXCEPTION_DEFS, REPORTED_EXCEPTIONS_FIELD_ID } from "@/lib/checklists/catalog";
+
+/**
+ * Optional per-composition context for evidence-frequency handling:
+ *  - `rotationDue`: `{ itemKey → due }` — ROTATIONAL items are included only
+ *    when their key is present and true. An absent map excludes ALL rotational
+ *    items (so preview / legacy callers aren't spammed).
+ *  - `activeConditionKeys`: exception keys that are already active (e.g.
+ *    QA-triggered) — matching CONDITIONAL items render unconditionally + required
+ *    instead of hidden behind the reported-exceptions field.
+ */
+export interface ComposeOptions {
+  rotationDue?: Record<string, boolean>;
+  activeConditionKeys?: string[];
+}
+
+/** Human label for an exception key (falls back to the key itself). */
+function exceptionLabel(conditionKey: string): string {
+  return EXCEPTION_DEFS.find((d) => d.key === conditionKey)?.label ?? conditionKey;
+}
 
 /**
  * Per-property checklist composition:
@@ -219,14 +239,44 @@ function arrivalEvidenceSection() {
 }
 
 /**
- * Prepend the standard "Arrival evidence" section and append the sign-off.
+ * The shared "Report an exception" section: a multiselect where the cleaner
+ * flags anything unusual. CONDITIONAL evidence items reveal themselves off the
+ * options selected here. Deterministic ids so drafts survive form reloads.
+ */
+function exceptionsReportSection() {
+  return {
+    id: "reported-exceptions-section",
+    title: "Report an exception",
+    description:
+      "Flag anything unusual you encountered on this clean. Selecting an item reveals a short evidence capture for it.",
+    fields: [
+      {
+        id: REPORTED_EXCEPTIONS_FIELD_ID,
+        type: "multiselect",
+        label: "Did you encounter any of these?",
+        required: false,
+        instructions:
+          "Select all that apply. Each selection reveals a photo-evidence field so the exception is documented.",
+        options: EXCEPTION_DEFS.map((d) => d.label),
+      },
+    ],
+  };
+}
+
+/**
+ * Prepend the standard "Arrival evidence" section, insert the shared "Report an
+ * exception" section, and append the sign-off.
  *
  * - Arrival evidence is skipped (idempotent) when the schema already carries any
- *   `video` field OR any `photo` field with stampTag "before" (top-level or
- *   nested) — so rework forms and templates that already gather arrival media
- *   aren't doubled up.
+ *   UNCONDITIONAL `video` field OR `photo` field with stampTag "before" (top-
+ *   level or nested) — so rework forms and templates that already gather arrival
+ *   media aren't doubled up. Conditional fields (e.g. a hidden
+ *   qa_rectification_before photo) are ignored so they don't suppress arrival
+ *   evidence.
+ * - The exception-report section is skipped when a `reported-exceptions` field
+ *   already exists.
  * - Sign-off reuses `withSignoffSection` (skipped when a signature already
- *   exists).
+ *   exists), keeping it last.
  * - An empty schema stays empty (no sections in → no sections out).
  */
 export function withStandardSections(sections: unknown[]): unknown[] {
@@ -235,14 +285,23 @@ export function withStandardSections(sections: unknown[]): unknown[] {
     anyFieldDeep(
       section?.fields,
       (field) =>
-        field?.type === "video" ||
-        (field?.type === "photo" && field?.stampTag === "before")
+        !field?.conditional &&
+        (field?.type === "video" ||
+          (field?.type === "photo" && field?.stampTag === "before"))
     )
   );
   const withArrival = hasArrivalEvidence
     ? sections
     : [arrivalEvidenceSection(), ...sections];
-  return withSignoffSection(withArrival);
+
+  const hasExceptionsField = withArrival.some((section: any) =>
+    anyFieldDeep(section?.fields, (field) => field?.id === REPORTED_EXCEPTIONS_FIELD_ID)
+  );
+  const withExceptions = hasExceptionsField
+    ? withArrival
+    : [...withArrival, exceptionsReportSection()];
+
+  return withSignoffSection(withExceptions);
 }
 
 /**
@@ -293,7 +352,8 @@ function repeatCountFor(repeatBy: string | null | undefined, property?: Property
 function libraryItemField(
   item: LibraryModule["items"][number],
   requiresPhoto: boolean,
-  idSuffix: string
+  idSuffix: string,
+  opts?: { activeConditionKeys?: string[] }
 ) {
   const fieldId = `${item.key}${idSuffix}`;
   const fieldType = item.fieldType || "checkbox";
@@ -301,20 +361,50 @@ function libraryItemField(
   // media/upload field.
   const wantsProofPhoto =
     requiresPhoto && fieldType !== "photo" && fieldType !== "video" && fieldType !== "file";
+
+  // ── Evidence frequency (Accountability Phase 1a) ──────────────────────────
+  const frequency = (item as any).frequency ?? "EVERY_CLEAN";
+  const conditionKey = (item as any).conditionKey as string | null | undefined;
+  const isConditional = frequency === "CONDITIONAL" && !!conditionKey;
+  // QA-triggered exception keys force the item visible + required; otherwise a
+  // conditional item stays hidden until the cleaner reports the exception.
+  const qaActive = isConditional && (opts?.activeConditionKeys?.includes(conditionKey!) ?? false);
+  const maxPhotos = (item as any).maxPhotos as number | null | undefined;
+  const severity = (item as any).severity as string | null | undefined;
+  const evidenceCategory = (item as any).evidenceCategory as string | null | undefined;
+
   return {
     id: fieldId,
     type: fieldType,
     label: item.label,
-    required: item.required,
+    required: qaActive ? true : item.required,
     instructions: item.instructions || undefined,
     ...(item.minPhotos != null ? { minPhotos: item.minPhotos } : {}),
+    ...(maxPhotos != null ? { maxFiles: maxPhotos } : {}),
     ...(item.stampTag ? { stampTag: item.stampTag } : {}),
+    ...(severity ? { severity } : {}),
+    ...(evidenceCategory ? { evidenceCategory } : {}),
+    // Emit non-default frequency so the submitted schema snapshot is
+    // self-describing (the cleaner-submit route derives rotational completion
+    // from ROTATIONAL fields). EVERY_CLEAN fields stay byte-identical to before.
+    ...(frequency && frequency !== "EVERY_CLEAN" ? { frequency } : {}),
     ...(item.imageUrl || item.videoUrl
       ? {
           references: [
             ...(item.imageUrl ? [{ kind: "image", url: item.imageUrl }] : []),
             ...(item.videoUrl ? [{ kind: "video", url: item.videoUrl }] : []),
           ],
+        }
+      : {}),
+    // CONDITIONAL: reveal only when the cleaner selects the matching exception
+    // on the shared reported-exceptions field. QA-active items skip the gate.
+    ...(isConditional && !qaActive
+      ? {
+          conditional: {
+            fieldId: REPORTED_EXCEPTIONS_FIELD_ID,
+            operator: "oneOf",
+            value: [exceptionLabel(conditionKey!)],
+          },
         }
       : {}),
     ...(wantsProofPhoto ? { children: [proofPhotoChildField(fieldId, item.label)] } : {}),
@@ -377,10 +467,13 @@ export function composeFormSchema(
   library: LibraryModule[],
   selections: ProfileSelections,
   jobType: JobType,
-  property?: PropertyForRules
+  property?: PropertyForRules,
+  options?: ComposeOptions
 ): { sections: unknown[] } {
   const sections: unknown[] = [];
   const emittedCustomModuleKeys = new Set<string>();
+  const rotationDue = options?.rotationDue;
+  const activeConditionKeys = options?.activeConditionKeys;
 
   for (const module of library) {
     const moduleSel = selections.modules[module.key];
@@ -399,7 +492,13 @@ export function composeFormSchema(
         const itemSel = moduleSel.items[item.key];
         if (!itemSel?.enabled) continue;
         if (!itemIncludesJobType(item.jobTypes, itemSel.jobTypes, jobType)) continue;
-        fields.push(libraryItemField(item, itemSel.requiresPhoto === true, idSuffix));
+        // ROTATIONAL items only appear when the due-map says so. No map (preview
+        // / legacy / static-template callers) → excluded so they aren't spammed.
+        const frequency = (item as any).frequency ?? "EVERY_CLEAN";
+        if (frequency === "ROTATIONAL" && rotationDue?.[item.key] !== true) continue;
+        fields.push(
+          libraryItemField(item, itemSel.requiresPhoto === true, idSuffix, { activeConditionKeys })
+        );
       }
       // Custom items attached to this module — only on the first block so they
       // aren't duplicated across repeated rooms.
@@ -481,6 +580,7 @@ export async function generatePropertyTemplates(params: {
       bathrooms: true,
       laundryEnabled: true,
       inventoryEnabled: true,
+      sofaBedCount: true,
       features: true,
       checklistProfile: true,
     },

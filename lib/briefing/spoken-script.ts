@@ -151,6 +151,14 @@ export function buildSpokenScript(
     parts.push(`Also, ${c.property} had some recent feedback, so give it that bit of extra care.`);
   }
 
+  // Recurring-issue reminders — repeated QA categories worth a nudge.
+  if (b.recurringIssues && b.recurringIssues.items.length > 0) {
+    const labels = b.recurringIssues.items.slice(0, 3).map((r) => r.label.toLowerCase());
+    parts.push(
+      `A couple of things that keep coming up: ${joinNatural(labels)}. Give ${labels.length === 1 ? "it" : "those"} a bit of extra care today.`
+    );
+  }
+
   // Last-visit context — surface the most useful flagged item.
   if (b.lastVisit && b.lastVisit.items.length > 0) {
     const flagged = b.lastVisit.items.find((v) => v.flags.length > 0);

@@ -13,9 +13,13 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  Gift,
   RefreshCw,
   RotateCcw,
+  Scale,
+  ShieldAlert,
   Shirt,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -40,19 +44,27 @@ type AllApprovals = {
   rescheduleRequests: any[];
   qaReworkTransfers: any[];
   skipRequests: any[];
+  rectificationAdjustments: any[];
+  bonusProposals: any[];
+  falseConfirmations: any[];
+  managementReviews: any[];
   counts: Record<string, number>;
 };
 
 const TABS = [
-  { key: "continuations",      label: "Job Continuations",   icon: RefreshCw },
-  { key: "timingRequests",     label: "Timing Requests",     icon: Clock },
-  { key: "payAdjustments",     label: "Pay Requests",        icon: DollarSign },
-  { key: "timeAdjustments",    label: "Clock Adjustments",   icon: Clock },
-  { key: "clientApprovals",    label: "Client Approvals",    icon: CheckCircle2 },
-  { key: "flaggedLaundry",     label: "Flagged Laundry",     icon: Shirt },
-  { key: "rescheduleRequests", label: "Reschedule Requests", icon: CalendarClock },
-  { key: "qaReworkTransfers",  label: "QA Reworks",          icon: RotateCcw },
-  { key: "skipRequests",       label: "Skip Requests",       icon: XCircle },
+  { key: "continuations",           label: "Job Continuations",   icon: RefreshCw },
+  { key: "timingRequests",          label: "Timing Requests",     icon: Clock },
+  { key: "payAdjustments",          label: "Pay Requests",        icon: DollarSign },
+  { key: "timeAdjustments",         label: "Clock Adjustments",   icon: Clock },
+  { key: "clientApprovals",         label: "Client Approvals",    icon: CheckCircle2 },
+  { key: "flaggedLaundry",          label: "Flagged Laundry",     icon: Shirt },
+  { key: "rescheduleRequests",      label: "Reschedule Requests", icon: CalendarClock },
+  { key: "qaReworkTransfers",       label: "QA Reworks",          icon: RotateCcw },
+  { key: "skipRequests",            label: "Skip Requests",       icon: XCircle },
+  { key: "rectificationAdjustments", label: "Rectifications",     icon: Wrench },
+  { key: "bonusProposals",          label: "Bonuses",             icon: Gift },
+  { key: "falseConfirmations",      label: "False Confirmations", icon: ShieldAlert },
+  { key: "managementReviews",       label: "Management Reviews",  icon: Scale },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -110,6 +122,11 @@ function ApprovalsPageInner() {
   const [sendClientAmount, setSendClientAmount] = useState("");
   const [sendClientTitle, setSendClientTitle] = useState("");
   const [sendClientDescription, setSendClientDescription] = useState("");
+  // Management-review score adjustment dialog.
+  const [adjustReviewFor, setAdjustReviewFor] = useState<any | null>(null);
+  const [adjustScore, setAdjustScore] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,6 +226,60 @@ function ApprovalsPageInner() {
       return;
     }
     toast({ title: "Client approval reversed", description: "The request was removed from the client portal." });
+    await load();
+  }
+
+  async function decideFalseConfirmation(row: any, decision: "CONFIRMED" | "REJECTED") {
+    const confirmed = window.confirm(
+      decision === "CONFIRMED"
+        ? "Confirm this false confirmation?\n\nConfirming keeps the extra −10 score penalty on this clean."
+        : "Reject this false confirmation?\n\nRejecting reverses the extra −10 score penalty."
+    );
+    if (!confirmed) return;
+    await act(
+      `/api/admin/qa/issues/${row.id}`,
+      "PATCH",
+      { action: "falseConfirmation", decision },
+      decision === "CONFIRMED" ? "Confirmed — penalty kept" : "Rejected — penalty reversed"
+    );
+  }
+
+  function openAdjustReview(row: any) {
+    setAdjustReviewFor(row);
+    setAdjustScore(row.score != null ? String(row.score) : "");
+    setAdjustReason("");
+  }
+
+  async function submitAdjustReview() {
+    if (!adjustReviewFor) return;
+    const row = adjustReviewFor;
+    const n = Number(adjustScore);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      toast({ title: "Enter a score from 0 to 100.", variant: "destructive" });
+      return;
+    }
+    if (!adjustReason.trim()) {
+      toast({ title: "A reason is required.", variant: "destructive" });
+      return;
+    }
+    if (!row.jobId) {
+      toast({ title: "This review has no linked job.", variant: "destructive" });
+      return;
+    }
+    setAdjustSubmitting(true);
+    const res = await fetch(`/api/admin/jobs/${row.jobId}/qa/adjust`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewId: row.id, score: n, reason: adjustReason.trim() }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setAdjustSubmitting(false);
+    if (!res.ok) {
+      toast({ title: "Failed to adjust score", description: json.error ?? "Action failed", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Score adjusted" });
+    setAdjustReviewFor(null);
     await load();
   }
 
@@ -673,6 +744,142 @@ function ApprovalsPageInner() {
               </Card>
             ))
           )}
+
+          {/* ── Rectification Adjustments ── */}
+          {activeTab === "rectificationAdjustments" && (
+            (data.rectificationAdjustments?.length ?? 0) === 0 ? <Empty /> : data.rectificationAdjustments.map((row) => (
+              <AccountabilityPayCardV1
+                key={row.id}
+                row={row}
+                label="Rectification adjustment"
+                acting={acting}
+                onApprove={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Rectification approved")}
+                onDecline={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Rectification declined")}
+              />
+            ))
+          )}
+
+          {/* ── Bonus Proposals ── */}
+          {activeTab === "bonusProposals" && (
+            (data.bonusProposals?.length ?? 0) === 0 ? <Empty /> : data.bonusProposals.map((row) => (
+              <AccountabilityPayCardV1
+                key={row.id}
+                row={row}
+                label="Bonus proposal"
+                acting={acting}
+                onApprove={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "APPROVED" }, "Bonus approved")}
+                onDecline={() => act(`/api/admin/pay-adjustments/${row.id}`, "PATCH", { status: "REJECTED" }, "Bonus declined")}
+              />
+            ))
+          )}
+
+          {/* ── Suspected False Confirmations ── */}
+          {activeTab === "falseConfirmations" && (
+            (data.falseConfirmations?.length ?? 0) === 0 ? <Empty /> : data.falseConfirmations.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ShieldAlert className="h-4 w-4 text-red-500" />
+                      <p className="font-semibold">
+                        {row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner"} —{" "}
+                        {row.job?.property?.name ?? row.property?.name ?? "Property"}
+                      </p>
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 border border-red-200">
+                        {row.severity}
+                      </span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {row.category}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb ?? row.property?.suburb}
+                      {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+                      {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+                    </p>
+                    {row.description && <p className="text-sm">{row.description}</p>}
+                    {row.cleanerMarkedComplete && (
+                      <p className="text-xs text-muted-foreground">Cleaner marked this item complete.</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Raised: {fmt(row.createdAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={!!acting}
+                      onClick={() => decideFalseConfirmation(row, "CONFIRMED")}
+                    >
+                      <ShieldAlert className="mr-1.5 h-3.5 w-3.5" />
+                      Confirm
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!acting}
+                      onClick={() => decideFalseConfirmation(row, "REJECTED")}
+                    >
+                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    {row.jobId && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/admin/jobs/${row.jobId}`}>View job</Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+
+          {/* ── Management Reviews ── */}
+          {activeTab === "managementReviews" && (
+            (data.managementReviews?.length ?? 0) === 0 ? <Empty /> : data.managementReviews.map((row) => (
+              <Card key={row.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Scale className="h-4 w-4 text-amber-500" />
+                      <p className="font-semibold">
+                        Job #{row.job?.jobNumber ?? row.jobId?.slice(0, 8)}
+                        {row.job?.property?.name ? ` — ${row.job.property.name}` : ""}
+                      </p>
+                      <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-700 border border-purple-200">
+                        Management review
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {row.job?.property?.suburb}
+                      {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+                    </p>
+                    <p className="text-sm">Cleaner: {row.cleaner?.name ?? "—"}</p>
+                    <p className="text-sm tabular-nums">
+                      <span className="font-medium">Score:</span>{" "}
+                      {row.score != null ? `${Number(row.score).toFixed(0)}%` : "—"}
+                      {row.rawScore != null && row.rawScore !== row.score ? (
+                        <span className="ml-2 text-xs text-muted-foreground">raw {Number(row.rawScore).toFixed(0)}%</span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Filed: {fmt(row.createdAt)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" disabled={!!acting} onClick={() => openAdjustReview(row)}>
+                      <Scale className="mr-1.5 h-3.5 w-3.5" />
+                      Adjust score
+                    </Button>
+                    {row.jobId && (
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/jobs/${row.jobId}`}>
+                          QA detail <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
         </div>
       )}
 
@@ -735,7 +942,127 @@ function ApprovalsPageInner() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Management-review score adjustment */}
+      <Dialog
+        open={Boolean(adjustReviewFor)}
+        onOpenChange={(open) => {
+          if (!open) setAdjustReviewFor(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adjust QA score</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Set the final approved score for this clean. A reason is mandatory and recorded on the review.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="adjust-score">Score (0–100)</Label>
+              <Input
+                id="adjust-score"
+                type="number"
+                min="0"
+                max="100"
+                value={adjustScore}
+                onChange={(event) => setAdjustScore(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="adjust-reason">Reason (required)</Label>
+              <Textarea
+                id="adjust-reason"
+                rows={3}
+                value={adjustReason}
+                onChange={(event) => setAdjustReason(event.target.value)}
+                placeholder="Why the score is being adjusted…"
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setAdjustReviewFor(null)} disabled={adjustSubmitting}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={submitAdjustReview} disabled={adjustSubmitting}>
+                {adjustSubmitting ? "Saving..." : "Save adjustment"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// Approve/decline an accountability pay adjustment (rectification or bonus).
+function AccountabilityPayCardV1({
+  row,
+  label,
+  acting,
+  onApprove,
+  onDecline,
+}: {
+  row: any;
+  label: string;
+  acting: string | null;
+  onApprove: () => void;
+  onDecline: () => void;
+}) {
+  const amount = Number(row.requestedAmount ?? 0);
+  const isDeduction = amount < 0 || String(row.source ?? "").includes("DEDUCTION");
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold">
+              {row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner"} —{" "}
+              {row.title ?? row.job?.property?.name ?? row.property?.name ?? "Adjustment"}
+            </p>
+            <StatusBadge status={row.status} />
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border",
+                isDeduction
+                  ? "bg-red-100 text-red-700 border-red-200"
+                  : "bg-green-100 text-green-700 border-green-200"
+              )}
+            >
+              {String(row.source ?? "").replace(/_/g, " ")}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {label}
+            {row.job?.property?.suburb ? ` · ${row.job.property.suburb}` : ""}
+            {row.job?.jobNumber ? ` · Job #${row.job.jobNumber}` : ""}
+            {row.job?.scheduledDate ? ` · ${format(new Date(row.job.scheduledDate), "dd MMM yyyy")}` : ""}
+          </p>
+          <p className="text-sm tabular-nums">
+            <span className="font-medium">{isDeduction ? "Deduction" : "Amount"}:</span>{" "}
+            <span className={isDeduction ? "text-destructive" : ""}>
+              {isDeduction ? "−" : ""}${Math.abs(amount).toFixed(2)}
+            </span>
+          </p>
+          {row.cleanerNote && <p className="text-sm text-muted-foreground">{row.cleanerNote}</p>}
+          <p className="text-xs text-muted-foreground">Requested: {fmt(row.requestedAt ?? row.createdAt)}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={!!acting} onClick={onApprove}>
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+            Approve
+          </Button>
+          <Button size="sm" variant="outline" disabled={!!acting} onClick={onDecline}>
+            <XCircle className="mr-1.5 h-3.5 w-3.5" />
+            Decline
+          </Button>
+          {row.job?.id && (
+            <Button asChild size="sm" variant="ghost">
+              <Link href={`/admin/jobs/${row.job.id}`}>View job</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 

@@ -8,6 +8,9 @@ import {
   Inbox,
   Building2,
   ShieldCheck,
+  ShieldAlert,
+  Trophy,
+  Activity,
   ClipboardCheck,
   Shirt,
   Users,
@@ -16,6 +19,7 @@ import {
   Megaphone,
   Settings,
   PackageSearch,
+  GraduationCap,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -25,7 +29,11 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/approvals", label: "Approvals", icon: Inbox },
   { href: "/v2/admin/properties", label: "Properties", icon: Building2 },
   { href: "/v2/admin/clients", label: "Clients", icon: Users },
+  { href: "/v2/admin/workforce/coaching", label: "Coaching", icon: GraduationCap },
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck },
+  { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert },
+  { href: "/v2/admin/quality/accountability", label: "Accountability", icon: Trophy },
+  { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity },
   { href: "/v2/admin/cases", label: "Cases", icon: ClipboardCheck },
   { href: "/v2/admin/lost-found", label: "Lost & found", icon: PackageSearch },
   { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt },

@@ -496,6 +496,21 @@ export function DailyBriefing() {
                   </section>
                 ) : null}
 
+                {/* Recurring issues (Phase 7a) — repeating QA categories */}
+                {data.recurringIssues && data.recurringIssues.items.length > 0 ? (
+                  <section className="space-y-1.5 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                    <SectionLabel icon={<AlertTriangle className="h-3.5 w-3.5" />}>Keeps coming up</SectionLabel>
+                    <ul className="space-y-1.5">
+                      {data.recurringIssues.items.map((r, i) => (
+                        <li key={i} className="text-[0.8125rem]">
+                          <span className="font-[550]">{r.label}</span>
+                          <span className="text-[hsl(var(--e-text-secondary))]"> — {r.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
                 {/* Prior feedback */}
                 {data.complaints ? (
                   <section className="space-y-1.5">

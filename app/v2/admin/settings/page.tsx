@@ -23,6 +23,7 @@ import {
   Send,
   KeyRound,
   History,
+  ClipboardCheck,
 } from "lucide-react";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
 import { BankSection } from "@/components/v2/admin/settings/bank-section";
@@ -43,6 +44,7 @@ import { OverviewSection } from "@/components/v2/admin/settings/overview-section
 import { NotificationToolsSection } from "@/components/v2/admin/settings/notification-tools-section";
 import { RolesSection } from "@/components/v2/admin/settings/roles-section";
 import { AuditSection } from "@/components/v2/admin/settings/audit-section";
+import { AccountabilitySection } from "@/components/v2/admin/settings/accountability-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -55,6 +57,7 @@ type TabKey =
   | "notifications"
   | "rates"
   | "pricing-variables"
+  | "accountability"
   | "portals"
   | "laundry"
   | "public-widgets"
@@ -76,6 +79,7 @@ const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly
   { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
   { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true },
   { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true },
+  { key: "accountability", label: "Accountability", icon: <ClipboardCheck className="h-4 w-4" />, adminOnly: true },
   { key: "portals", label: "Portal visibility", icon: <Eye className="h-4 w-4" />, adminOnly: true },
   { key: "laundry", label: "Laundry & locations", icon: <Shirt className="h-4 w-4" />, adminOnly: true },
   { key: "public-widgets", label: "Public site widgets", icon: <Globe className="h-4 w-4" />, adminOnly: true },
@@ -226,6 +230,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
       {activeTab === "pricing-variables" && isAdmin ? (
         <PricingVariablesSection initial={appSettings.pricingVariables} readOnly={!isAdmin} />
+      ) : null}
+
+      {activeTab === "accountability" && isAdmin ? (
+        <AccountabilitySection initial={appSettings.accountability} readOnly={!isAdmin} />
       ) : null}
 
       {activeTab === "portals" && isAdmin ? (

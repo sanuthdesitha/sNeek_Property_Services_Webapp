@@ -493,6 +493,7 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         bathrooms: true,
         laundryEnabled: true,
         inventoryEnabled: true,
+        sofaBedCount: true,
         features: true,
       },
     });

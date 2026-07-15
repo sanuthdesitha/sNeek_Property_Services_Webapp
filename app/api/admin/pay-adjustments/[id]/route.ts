@@ -13,6 +13,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { listClientApprovals, deleteClientApprovalById } from "@/lib/commercial/client-approvals";
 import { roundCents } from "@/lib/finance/job-money";
+import { notifyBonusOutcomeToCleaner } from "@/lib/notifications/accountability";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -141,6 +142,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         : roundCents(Number(approvedAmountRaw));
 
     if (body.status === PayAdjustmentStatus.APPROVED) {
+      // Self-approval guard: the payee of their OWN QA rectification pay cannot
+      // approve it — a different ADMIN/OPS reviewer must. (Rectification pay is
+      // paid to the QA who fixed the issue, so the reviewer must not be that QA.)
+      if (existing.source === "QA_RECTIFICATION_PAY" && existing.cleanerId === session.user.id) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot approve your own QA rectification pay. Another admin or ops manager must review it.",
+          },
+          { status: 403 }
+        );
+      }
       const linkedApprovals = (await listClientApprovals()).filter((approval) => {
         const metadata = approval.metadata as Record<string, unknown> | null;
         return metadata?.source === "pay_adjustment" && metadata?.payAdjustmentId === existing.id;
@@ -274,6 +287,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
         `,
       });
+    }
+
+    // Accountability bonus outcome (Phase 8b): when an auto-proposed streak /
+    // monthly-ranking bonus is approved or rejected, additionally notify the
+    // cleaner through the accountability channel. Fire-and-forget; the generic
+    // notification above still stands, this just adds the bonus-specific message.
+    if (
+      isStatusChange &&
+      (updated.status === PayAdjustmentStatus.APPROVED ||
+        updated.status === PayAdjustmentStatus.REJECTED) &&
+      typeof existing.source === "string" &&
+      (existing.source.startsWith("STREAK_") || existing.source.startsWith("MONTHLY_"))
+    ) {
+      void notifyBonusOutcomeToCleaner({
+        cleanerId: updated.cleaner.id,
+        title: updated.title ?? "Bonus proposal",
+        approved: updated.status === PayAdjustmentStatus.APPROVED,
+        amount: updated.approvedAmount,
+        jobId: updated.job?.id ?? null,
+      }).catch(console.error);
     }
 
     // Notify the cleaner when the underlying request they can see changes

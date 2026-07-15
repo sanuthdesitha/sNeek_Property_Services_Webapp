@@ -38,6 +38,7 @@ import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 import { dispatchClientPostJobAutomationRule } from "@/lib/notifications/client-automation";
+import { runAccountabilityNightly } from "@/lib/accountability/streaks";
 
 const TZ = "Australia/Sydney";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -362,6 +363,19 @@ async function main() {
       const result = await runRecognitionCheck(new Date());
       if (result.created > 0) {
         logger.info({ ...result }, "Automatic staff recognitions awarded");
+      }
+    }));
+  }
+
+  // Accountability nightly — quality-streak + monthly-ranking bonus proposals.
+  // Offset to 20:30 so it doesn't pile onto the 03:00/07:00/08:00 nightly cluster.
+  // All output is PENDING pay-adjustment proposals (manager approves before payroll).
+  if (jobEnabled("accountability-nightly")) {
+    await boss.schedule("accountability-nightly", "30 20 * * *", {});
+    await boss.work("accountability-nightly", safeHandler("accountability-nightly", async () => {
+      const result = await runAccountabilityNightly({ now: new Date() });
+      if (result.streakProposals > 0 || result.monthlyProposals > 0) {
+        logger.info({ ...result }, "Accountability bonus proposals created");
       }
     }));
   }

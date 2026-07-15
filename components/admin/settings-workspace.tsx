@@ -45,6 +45,7 @@ type SettingsSectionMeta = {
 const SECTION_REGISTRY: SettingsSectionMeta[] = [
   { value: "editor", label: "Core settings", category: "operations", keywords: "company branding logo timezone gst pricing core" },
   { value: "overview", label: "Overview", category: "system", keywords: "overview project name app url timezone" },
+  { value: "accountability", label: "Accountability", category: "operations", adminOnly: true, keywords: "accountability qa scoring deductions rating bonus streak rectification rework issue categories pattern gates quality" },
   { value: "integrations", label: "Integrations", category: "integrations", adminOnly: true, keywords: "stripe resend google maps hospitable api credentials" },
   { value: "ical-sync", label: "iCal Sync", category: "integrations", adminOnly: true, keywords: "ical calendar sync reservations airbnb hospitable property feed runs" },
   { value: "payment-gateways", label: "Payment Gateways", category: "finance", adminOnly: true, keywords: "stripe square paypal payments gateway" },
@@ -59,6 +60,10 @@ const SECTION_REGISTRY: SettingsSectionMeta[] = [
 const SettingsEditor = dynamic(
   () => import("@/components/admin/settings-editor").then((mod) => mod.SettingsEditor),
   { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading settings editor...</div> }
+);
+const AccountabilitySettingsEditor = dynamic(
+  () => import("@/components/admin/accountability-settings").then((mod) => mod.AccountabilitySettingsEditor),
+  { loading: () => <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading accountability settings...</div> }
 );
 const PricebookEditor = dynamic(
   () => import("@/components/admin/pricebook-editor").then((mod) => mod.PricebookEditor),
@@ -241,6 +246,7 @@ export function SettingsWorkspace({
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
         {visibleValues.has("editor") ? <TabsTrigger value="editor">Core settings</TabsTrigger> : null}
         {visibleValues.has("overview") ? <TabsTrigger value="overview">Overview</TabsTrigger> : null}
+        {isAdmin && visibleValues.has("accountability") ? <TabsTrigger value="accountability">Accountability</TabsTrigger> : null}
         {isAdmin && visibleValues.has("integrations") ? <TabsTrigger value="integrations">Integrations</TabsTrigger> : null}
         {isAdmin && visibleValues.has("ical-sync") ? <TabsTrigger value="ical-sync">iCal Sync</TabsTrigger> : null}
         {isAdmin && visibleValues.has("payment-gateways") ? <TabsTrigger value="payment-gateways">Payment Gateways</TabsTrigger> : null}
@@ -255,6 +261,12 @@ export function SettingsWorkspace({
       <TabsContent value="editor">
         <SettingsEditor initialSettings={appSettings} cleanerOptions={cleaners} readOnly={!isAdmin} />
       </TabsContent>
+
+      {isAdmin ? (
+        <TabsContent value="accountability">
+          <AccountabilitySettingsEditor initial={appSettings.accountability} readOnly={!isAdmin} />
+        </TabsContent>
+      ) : null}
 
       <TabsContent value="overview">
         <Card>

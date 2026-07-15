@@ -30,6 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       hasBalcony: survey.hasBalcony ?? false,
       inventoryEnabled: false,
       laundryEnabled: false,
+      sofaBedCount: 0,
     };
     const schema = composeFormSchema(library, sanitizeSelections(body.selections), body.jobType, pseudoProperty);
     return NextResponse.json({ schema, jobType: body.jobType });

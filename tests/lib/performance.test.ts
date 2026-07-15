@@ -11,6 +11,8 @@ vi.mock("@/lib/db", () => ({
     staffDocument: { findMany: vi.fn().mockResolvedValue([]) },
     learningAssignment: { findMany: vi.fn().mockResolvedValue([]) },
     issueTicket: { count: vi.fn().mockResolvedValue(0) },
+    job: { findMany: vi.fn().mockResolvedValue([]) },
+    appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
   },
 }));
 
@@ -29,6 +31,7 @@ describe("getPerformanceMetrics", () => {
     (db.staffDocument.findMany as any).mockResolvedValue([]);
     (db.learningAssignment.findMany as any).mockResolvedValue([]);
     (db.issueTicket.count as any).mockResolvedValue(0);
+    (db.job.findMany as any).mockResolvedValue([]);
   });
 
   it("returns nulls and zero counts when no data exists", async () => {

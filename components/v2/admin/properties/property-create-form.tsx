@@ -19,6 +19,11 @@ import {
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle, EEyebrow, EPageHeader } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
+import {
+  PropertySetupGuideEditor,
+  LaundryBagColorPicker,
+  type SetupGuideEntry,
+} from "./property-setup-guide-editor";
 
 interface ClientOption {
   id: string;
@@ -93,7 +98,14 @@ export function PropertyCreateForm({
     hasBalcony: false,
     bedrooms: "1",
     bathrooms: "1",
+    cleaningDurationMinutes: "",
+    cleanerServiceRate: "",
+    laundryBagLabel: "",
+    laundryBagColor: "",
+    sofaBedCount: "0",
   });
+
+  const [setupGuide, setSetupGuide] = useState<SetupGuideEntry[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +189,19 @@ export function PropertyCreateForm({
             hasBalcony: Boolean(copySource.hasBalcony),
             bedrooms: String(copySource.bedrooms ?? 1),
             bathrooms: String(copySource.bathrooms ?? 1),
+            cleaningDurationMinutes:
+              typeof copySource.cleaningDurationMinutes === "number"
+                ? String(copySource.cleaningDurationMinutes)
+                : "",
+            cleanerServiceRate:
+              typeof copySource.cleanerServiceRate === "number"
+                ? String(copySource.cleanerServiceRate)
+                : "",
+            laundryBagLabel: typeof copySource.laundryBagLabel === "string" ? copySource.laundryBagLabel : "",
+            laundryBagColor: typeof copySource.laundryBagColor === "string" ? copySource.laundryBagColor : "",
+            sofaBedCount: String(copySource.sofaBedCount ?? 0),
           }));
+          setSetupGuide(Array.isArray(copySource.setupGuide) ? copySource.setupGuide : []);
 
           const defaultIdSet = new Set(defaults.map((item) => item.id));
           const stockRows = Array.isArray(copySource.propertyStock) ? copySource.propertyStock : [];
@@ -284,6 +308,14 @@ export function PropertyCreateForm({
       hasBalcony: form.hasBalcony,
       bedrooms: Number(form.bedrooms) || 0,
       bathrooms: Number(form.bathrooms) || 0,
+      cleaningDurationMinutes:
+        form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      cleanerServiceRate:
+        form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
+      laundryBagLabel: form.laundryBagLabel.trim() || null,
+      laundryBagColor: form.laundryBagColor || null,
+      sofaBedCount: Number(form.sofaBedCount) || 0,
+      setupGuide,
       defaultInventoryItemIds: form.inventoryEnabled ? selectedDefaultItemIds : [],
       customInventoryItems: form.inventoryEnabled
         ? customItems
@@ -743,6 +775,49 @@ export function PropertyCreateForm({
               )}
             </div>
           ) : null}
+        </ECardBody>
+      </ECard>
+
+      {/* Quality & accountability */}
+      <ECard>
+        <ECardHeader className="pb-2">
+          <ECardTitle className="text-[0.95rem]">Quality &amp; accountability</ECardTitle>
+        </ECardHeader>
+        <ECardBody className="space-y-4 pt-0">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <EField label="Clean duration (min)" hint="Standard clean duration">
+              <EInput
+                type="number"
+                min="0"
+                value={form.cleaningDurationMinutes}
+                onChange={(e) => setF("cleaningDurationMinutes", e.target.value)}
+              />
+            </EField>
+            <EField label="Cleaner service rate ($)" hint="Per-clean cleaner rate — overrides hourly maths">
+              <EInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.cleanerServiceRate}
+                onChange={(e) => setF("cleanerServiceRate", e.target.value)}
+              />
+            </EField>
+            <EField label="Sofa beds" hint="Number of sofa beds at this property">
+              <EInput
+                type="number"
+                min="0"
+                value={form.sofaBedCount}
+                onChange={(e) => setF("sofaBedCount", e.target.value)}
+              />
+            </EField>
+            <EField label="Laundry bag label" hint='e.g. "J04"'>
+              <EInput value={form.laundryBagLabel} onChange={(e) => setF("laundryBagLabel", e.target.value)} />
+            </EField>
+          </div>
+          <EField label="Laundry bag colour">
+            <LaundryBagColorPicker value={form.laundryBagColor} onChange={(c) => setF("laundryBagColor", c)} />
+          </EField>
+          <PropertySetupGuideEditor value={setupGuide} onChange={setSetupGuide} />
         </ECardBody>
       </ECard>
 
