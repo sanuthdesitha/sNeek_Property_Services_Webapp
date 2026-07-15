@@ -10,6 +10,16 @@ export async function POST(
   try {
     const session = await requireRole([Role.CLEANER]);
 
+    // Ownership: only the assigned cleaner may pause this job (parity with every
+    // other job-scoped cleaner route).
+    const assignment = await db.jobAssignment.findFirst({
+      where: { jobId: params.id, userId: session.user.id, removedAt: null },
+      select: { id: true },
+    });
+    if (!assignment) {
+      return NextResponse.json({ error: "Not assigned to this job" }, { status: 403 });
+    }
+
     const openLog = await db.timeLog.findFirst({
       where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
       orderBy: { startedAt: "desc" },
@@ -26,8 +36,21 @@ export async function POST(
       data: { stoppedAt: now, durationM },
     });
 
-    await db.job.update({
-      where: { id: params.id },
+    // Only move an actively-running job to PAUSED — never drag a job that has
+    // advanced to SUBMITTED/QA_REVIEW/COMPLETED/INVOICED back (a stale open log
+    // or another cleaner's clock-out shouldn't reopen a finished job).
+    await db.job.updateMany({
+      where: {
+        id: params.id,
+        status: {
+          notIn: [
+            JobStatus.SUBMITTED,
+            JobStatus.QA_REVIEW,
+            JobStatus.COMPLETED,
+            JobStatus.INVOICED,
+          ],
+        },
+      },
       data: { status: JobStatus.PAUSED },
     });
 

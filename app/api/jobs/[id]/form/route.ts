@@ -508,6 +508,8 @@ export async function GET(
       laundryGuidance,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    const status =
+      err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message }, { status });
   }
 }

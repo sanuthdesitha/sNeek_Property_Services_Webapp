@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { submitJobSchema } from "@/lib/validations/job";
-import { deductStockFromSubmission } from "@/lib/inventory/stock";
+import { deductStockFromSubmission, fireLowStockSideEffects } from "@/lib/inventory/stock";
 import { generateJobReport } from "@/lib/reports/generator";
 import { publicUrl } from "@/lib/s3";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -517,49 +517,98 @@ export async function POST(
     }
     claimedFromStatus = job.status;
 
-    const submission = await db.formSubmission.create({
-      data: {
-        jobId: params.id,
-        templateId: body.templateId,
-        submittedById: session.user.id,
-        data: {
-          ...(body.data as Record<string, unknown>),
-          __templateSchema: effectiveSchema,
-          __templateVersion: template.id,
-          __adminRequestedTasks: adminRequestedTasks,
-          __jobTasks: unifiedTaskSnapshot,
-          ...(selfInspectionIncompleteKeys.length > 0
-            ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
-            : {}),
-        } as any,
-        laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
-        laundryOutcome,
-        laundrySkipReasonCode,
-        laundrySkipReasonNote,
-        bagLocation,
-      },
-    });
+    // BUG 1 FIX — atomic critical section. The FormSubmission, its media, the
+    // stock deduction, and clearing the form-pending flag are now ONE
+    // transaction. Previously these were separate awaits after the status claim;
+    // if a later write threw (esp. stock deduction, whose own per-item tx could
+    // fail), the FormSubmission + media rows survived while the outer catch
+    // reverted the job to IN_PROGRESS — so a retry created a SECOND submission
+    // and deducted the same stock AGAIN (double-charge). Wrapping them means any
+    // throw rolls the whole clean back together with the status revert: no
+    // orphaned submission, no double deduction. `deductStockFromSubmission` runs
+    // on `tx` (no inner transaction) and returns the low-stock rows so the
+    // best-effort notifications / auto-restock fire AFTER commit, where their
+    // failure can never roll back a recorded clean.
+    const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
+    const { submission, lowStockRows } = await db.$transaction(
+      async (tx) => {
+        const created = await tx.formSubmission.create({
+          data: {
+            jobId: params.id,
+            templateId: body.templateId,
+            submittedById: session.user.id,
+            data: {
+              ...(body.data as Record<string, unknown>),
+              __templateSchema: effectiveSchema,
+              __templateVersion: template.id,
+              __adminRequestedTasks: adminRequestedTasks,
+              __jobTasks: unifiedTaskSnapshot,
+              ...(selfInspectionIncompleteKeys.length > 0
+                ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
+                : {}),
+            } as any,
+            laundryReady: laundryOutcome ? legacyReady : body.laundryReady,
+            laundryOutcome,
+            laundrySkipReasonCode,
+            laundrySkipReasonNote,
+            bagLocation,
+          },
+        });
 
-    if (Object.keys(uploads).length > 0) {
-      const mediaRows = Object.entries(uploads).flatMap(([fieldId, keys]) =>
-        keys.map((key) => ({
-          submissionId: submission.id,
-          fieldId,
-          mediaType: inferMediaType(fieldId, key),
-          url: publicUrl(key),
-          s3Key: key,
-          label: fieldId.replace(/_/g, " "),
-        }))
-      );
-      await db.submissionMedia.createMany({
-        data: mediaRows,
-      });
-    }
+        if (Object.keys(uploads).length > 0) {
+          const mediaRows = Object.entries(uploads).flatMap(([fieldId, keys]) =>
+            keys.map((key) => ({
+              submissionId: created.id,
+              fieldId,
+              mediaType: inferMediaType(fieldId, key),
+              url: publicUrl(key),
+              s3Key: key,
+              label: fieldId.replace(/_/g, " "),
+            }))
+          );
+          await tx.submissionMedia.createMany({ data: mediaRows });
+        }
+
+        let low: Awaited<ReturnType<typeof deductStockFromSubmission>>["lowStockRows"] = [];
+        if (inventoryUsage && job.property.inventoryEnabled) {
+          ({ lowStockRows: low } = await deductStockFromSubmission(
+            job.propertyId,
+            created.id,
+            inventoryUsage,
+            tx
+          ));
+        }
+
+        // Clear the "form pending after early clock-out" park flag inside the
+        // same tx (status is already SUBMITTED from the atomic claim above).
+        await tx.job.update({
+          where: { id: params.id },
+          data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
+        });
+
+        return { submission: created, lowStockRows: low };
+      },
+      // Generous timeout: media createMany + a multi-item stock loop can exceed
+      // Prisma's 5s interactive-tx default on large submissions.
+      { timeout: 20_000 }
+    );
+
+    // The submission + stock deduction + status are now durably committed. From
+    // here on the work is best-effort side-effects — notifications, QA
+    // scaffolding, cleanup — and NONE of it may revert the claim (the job really
+    // is submitted). Clearing the revert target makes the outer catch a no-op for
+    // the status, so a downstream hiccup can never strand a recorded clean or
+    // re-open it for a duplicate submission.
+    claimedFromStatus = null;
+
+    // Low-stock notifications + auto-restock: best-effort, post-commit (guarded
+    // internally so they never throw into this handler).
+    await fireLowStockSideEffects(job.propertyId, lowStockRows);
 
     // Rotational-evidence state (Accountability Phase 3): reset completed
-    // rotational items to 0 and advance the rest, atomically. Derived purely
-    // from the submitted schema snapshot (ROTATIONAL fields) + answers + uploads.
-    // Best-effort — a counter hiccup must never strand an otherwise-good submit.
+    // rotational items to 0 and advance the rest. Kept OUT of the critical
+    // transaction and best-effort by design — a counter hiccup must never strand
+    // or roll back an otherwise-good submit.
     try {
       const { completedItemKeys, allRotationalItemKeys } = deriveRotationalCompletion(
         (effectiveSchema as any)?.sections,
@@ -578,11 +627,6 @@ export async function POST(
       }
     } catch (rotationErr) {
       console.error("[rotation] state update failed", rotationErr);
-    }
-
-    const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
-    if (inventoryUsage && job.property.inventoryEnabled) {
-      await deductStockFromSubmission(job.propertyId, submission.id, inventoryUsage);
     }
 
     // Carry-forward → the NEXT clean at this property. New flags become
@@ -675,18 +719,25 @@ export async function POST(
       }
     }
 
+    // Post-commit side-effect: laundry status. Guarded so a failure here can
+    // never bubble to the outer catch and (now that the clean is committed)
+    // strand a recorded submission.
     if (laundryOutcome !== undefined) {
-      await applyCleanerLaundryStatusUpdate({
-        jobId: job.id,
-        cleanerId: session.user.id,
-        laundryOutcome,
-        bagLocation,
-        laundryPhotoKey,
-        laundrySkipReasonCode,
-        laundrySkipReasonNote,
-        source: "FINAL_SUBMISSION",
-        portalUrl: resolveAppUrl("/laundry", req),
-      });
+      try {
+        await applyCleanerLaundryStatusUpdate({
+          jobId: job.id,
+          cleanerId: session.user.id,
+          laundryOutcome,
+          bagLocation,
+          laundryPhotoKey,
+          laundrySkipReasonCode,
+          laundrySkipReasonNote,
+          source: "FINAL_SUBMISSION",
+          portalUrl: resolveAppUrl("/laundry", req),
+        });
+      } catch (laundryErr) {
+        console.error("[laundry] status update failed", laundryErr);
+      }
     }
 
     // Damage items: accept both the new multi-item array and the legacy single
@@ -697,48 +748,54 @@ export async function POST(
       ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
     ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0);
 
+    // Post-commit, guarded — each case is opened independently so one failure
+    // doesn't drop the rest, and none can strand the recorded clean.
     for (const damage of damageItems) {
-      const damageTitle = (damage.title ?? "").trim();
-      if (!damageTitle) continue;
-      const damageArea = damage.area?.trim();
-      const damageBody = [
-        damageArea ? `Area / room: ${damageArea}` : "",
-        damage.description?.trim() || "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const createdCase = await createCase({
-        title: `Damage: ${damageTitle}`,
-        description: damageBody,
-        severity: damage.severity ?? "HIGH",
-        status: "OPEN",
-        caseType: "DAMAGE",
-        source: "CLEANER_SUBMIT",
-        jobId: job.id,
-        clientId: job.property.clientId,
-        propertyId: job.propertyId,
-        clientVisible: true,
-        clientCanReply: true,
-        metadata: {
-          estimatedCost: damage.estimatedCost ?? null,
-          area: damageArea || null,
-          tags: ["damage", "submission"],
-        },
-        comment: {
-          authorUserId: session.user.id,
-          body: damageBody || damageTitle,
-          isInternal: false,
-        },
-        attachments: (damage.mediaKeys ?? []).map((key) => ({
-          uploadedByUserId: session.user.id,
-          s3Key: key,
-        })),
-      });
-      if (createdCase) {
-        await notifyCaseCreated({
-          caseItem: createdCase,
-          actorLabel: session.user.name || session.user.email || "Cleaner",
+      try {
+        const damageTitle = (damage.title ?? "").trim();
+        if (!damageTitle) continue;
+        const damageArea = damage.area?.trim();
+        const damageBody = [
+          damageArea ? `Area / room: ${damageArea}` : "",
+          damage.description?.trim() || "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const createdCase = await createCase({
+          title: `Damage: ${damageTitle}`,
+          description: damageBody,
+          severity: damage.severity ?? "HIGH",
+          status: "OPEN",
+          caseType: "DAMAGE",
+          source: "CLEANER_SUBMIT",
+          jobId: job.id,
+          clientId: job.property.clientId,
+          propertyId: job.propertyId,
+          clientVisible: true,
+          clientCanReply: true,
+          metadata: {
+            estimatedCost: damage.estimatedCost ?? null,
+            area: damageArea || null,
+            tags: ["damage", "submission"],
+          },
+          comment: {
+            authorUserId: session.user.id,
+            body: damageBody || damageTitle,
+            isInternal: false,
+          },
+          attachments: (damage.mediaKeys ?? []).map((key) => ({
+            uploadedByUserId: session.user.id,
+            s3Key: key,
+          })),
         });
+        if (createdCase) {
+          await notifyCaseCreated({
+            caseItem: createdCase,
+            actorLabel: session.user.name || session.user.email || "Cleaner",
+          });
+        }
+      } catch (damageErr) {
+        console.error("[damage] case creation failed", damageErr);
       }
     }
 
@@ -749,54 +806,55 @@ export async function POST(
       ...(body.draftPayRequestPayload ? [body.draftPayRequestPayload] : []),
     ].filter((item) => item && item.requestedAmount != null && Number(item.requestedAmount) > 0);
 
+    // Post-commit, guarded — one failed pay request must not drop the others or
+    // strand the recorded clean.
     for (const payRequest of payRequestItems) {
-      await db.cleanerPayAdjustment.create({
-        data: {
+      try {
+        await db.cleanerPayAdjustment.create({
+          data: {
+            jobId: job.id,
+            propertyId: job.propertyId,
+            cleanerId: session.user.id,
+            scope: "JOB",
+            title: payRequest.title?.trim() || "Extra payment request",
+            type: payRequest.type === "HOURLY" ? "HOURLY" : "FIXED",
+            requestedHours:
+              payRequest.requestedHours != null ? Number(payRequest.requestedHours) : null,
+            requestedRate:
+              payRequest.requestedRate != null ? Number(payRequest.requestedRate) : null,
+            requestedAmount: Number(payRequest.requestedAmount),
+            cleanerNote: payRequest.cleanerNote?.trim() || payRequest.title?.trim() || null,
+            attachmentKeys:
+              payRequest.mediaKeys && payRequest.mediaKeys.length > 0
+                ? (payRequest.mediaKeys as any)
+                : undefined,
+          },
+        });
+      } catch (payErr) {
+        console.error("[pay-request] persist failed", payErr);
+      }
+    }
+
+    // Post-commit, guarded.
+    if (unifiedJobTasks.length > 0) {
+      try {
+        await applyCleanerJobTaskUpdates({
           jobId: job.id,
           propertyId: job.propertyId,
+          clientId: job.property.clientId,
           cleanerId: session.user.id,
-          scope: "JOB",
-          title: payRequest.title?.trim() || "Extra payment request",
-          type: payRequest.type === "HOURLY" ? "HOURLY" : "FIXED",
-          requestedHours:
-            payRequest.requestedHours != null ? Number(payRequest.requestedHours) : null,
-          requestedRate:
-            payRequest.requestedRate != null ? Number(payRequest.requestedRate) : null,
-          requestedAmount: Number(payRequest.requestedAmount),
-          cleanerNote: payRequest.cleanerNote?.trim() || payRequest.title?.trim() || null,
-          attachmentKeys:
-            payRequest.mediaKeys && payRequest.mediaKeys.length > 0
-              ? (payRequest.mediaKeys as any)
-              : undefined,
-        },
-      });
+          taskUpdates: submittedUnifiedTaskUpdates.map((task) => ({
+            id: task.id,
+            decision: task.decision,
+            note: task.note,
+            proofKeys: task.proofKeys ?? [],
+          })),
+          baseUrl: req,
+        });
+      } catch (taskErr) {
+        console.error("[job-tasks] update failed", taskErr);
+      }
     }
-
-    if (unifiedJobTasks.length > 0) {
-      await applyCleanerJobTaskUpdates({
-        jobId: job.id,
-        propertyId: job.propertyId,
-        clientId: job.property.clientId,
-        cleanerId: session.user.id,
-        taskUpdates: submittedUnifiedTaskUpdates.map((task) => ({
-          id: task.id,
-          decision: task.decision,
-          note: task.note,
-          proofKeys: task.proofKeys ?? [],
-        })),
-        baseUrl: req,
-      });
-    }
-
-    await db.job.update({
-      where: { id: params.id },
-      // Clear the "form pending after early clock-out" park flag now the form is in.
-      data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
-    });
-    // The submission + stock deduction + status are now durably committed. From
-    // here on the work is QA scaffolding / notifications / cleanup — a failure in
-    // those must NOT revert the claim (the job really is submitted).
-    claimedFromStatus = null;
 
     // QA: as soon as the cleaner submits, open a QA assignment so an
     // inspector / ops / admin can claim it from the queue. Idempotent +

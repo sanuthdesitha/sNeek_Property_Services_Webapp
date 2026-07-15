@@ -655,7 +655,15 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     if (schema) {
       const uploadCounts: Record<string, number> = {};
       for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
-      const formErrors = collectFormErrors(schema, answers, uploadCounts, property ?? {});
+      // Pass the same laundry-ready state the server uses so laundry-conditional
+      // fields validate identically client- and server-side (turnover jobs only).
+      const formErrors = collectFormErrors(
+        schema,
+        answers,
+        uploadCounts,
+        property ?? {},
+        laundryEnabled ? laundryOutcome === "READY_FOR_PICKUP" : undefined
+      );
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
         flash(
@@ -912,7 +920,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                 Accept to add it to your schedule, or decline so it can be reassigned.
               </p>
             </div>
-            <JobOfferActions jobId={job.id} size="md" />
+            {/* Reload the workspace's own client fetch after accept/decline so
+                the gated sections (actions, laundry, submit) appear without a
+                manual page refresh — router.refresh() alone doesn't re-run this
+                client component's load(). */}
+            <JobOfferActions jobId={job.id} size="md" onDone={() => void load()} />
           </ECardBody>
         </ECard>
       ) : null}

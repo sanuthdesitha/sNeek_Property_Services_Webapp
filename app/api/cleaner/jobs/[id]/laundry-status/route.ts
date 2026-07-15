@@ -46,10 +46,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       select: {
         id: true,
         status: true,
+        jobType: true,
+        isRework: true,
+        property: { select: { laundryEnabled: true } },
       },
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+
+    // Laundry only exists on Airbnb turnovers at laundry-enabled properties, and
+    // never on reworks — mirror the submit route's `laundrySuppressed` rule so
+    // this standalone endpoint stays server-authoritative and can't pollute the
+    // laundry queue for a job that should have no laundry task.
+    const laundrySuppressed =
+      job.jobType !== "AIRBNB_TURNOVER" ||
+      job.isRework ||
+      job.property?.laundryEnabled === false;
+    if (laundrySuppressed) {
+      return NextResponse.json(
+        { error: "This job has no laundry step." },
+        { status: 400 }
+      );
     }
 
     const lockedStatuses: JobStatus[] = [

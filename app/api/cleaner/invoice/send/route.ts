@@ -86,6 +86,88 @@ export async function POST(req: NextRequest) {
     if (!accountsEmail) {
       return NextResponse.json({ error: "Accounts email is not configured." }, { status: 400 });
     }
+    // Snapshot the invoice so admin can review it + push it to Xero as a bill.
+    const billLines = [
+      ...data.rows.map((r) => ({ description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.extraLineRows.map((r) => ({ description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.expenseRows.map((r) => ({ description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.shoppingTimeRows.map((r) => ({ description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+    ].filter((l) => Number.isFinite(l.unitAmount));
+    const lineData = {
+      contact: {
+        name: data.cleanerName,
+        email: data.cleanerEmail,
+        phone: data.cleanerPhone ?? null,
+        address: data.cleanerAddress ?? null,
+        abn: data.cleanerAbn ?? null,
+      },
+      lines: billLines,
+      // Jobs invoiced here — used to exclude them from future invoices so a
+      // job can't be submitted twice and won't reappear once invoiced.
+      jobIds: data.rows.map((r) => r.jobId),
+    } as any;
+
+    // BUG 2 FIX — idempotency anchor. Previously the email was sent FIRST and the
+    // CleanerInvoiceSubmission snapshot created AFTER, with no guard, so a
+    // double-tap / two in-flight sends emailed accounts twice AND created two pay
+    // claims (double payment). We now create the snapshot BEFORE emailing, in a
+    // per-cleaner serialized transaction, and reject a rapid duplicate for the
+    // same period with a 409 before any email goes out. The row starts as
+    // "SENDING" and only flips to the terminal "SUBMITTED" once the email + the
+    // invoiced-marking both succeed; a failed send deletes the anchor so a
+    // legitimate retry can proceed.
+    let anchorId: string;
+    try {
+      anchorId = await db.$transaction(async (tx) => {
+        // Transaction-scoped advisory lock keyed on the cleaner: serializes
+        // concurrent sends for THIS cleaner so the duplicate check + insert below
+        // are atomic (two simultaneous requests can't both pass the check).
+        // Released automatically when the tx ends.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${session.user.id}))`;
+        // A row for the same cleaner + period created within the last 2 minutes
+        // means a send is in flight or just completed — treat this as the
+        // duplicate tap. periodStart is stable across taps; periodEnd defaults to
+        // "now" so we deliberately match on periodStart only. The 2-minute window
+        // also self-heals a stale "SENDING" row left by a crashed request.
+        const recent = await tx.cleanerInvoiceSubmission.findFirst({
+          where: {
+            cleanerId: session.user.id,
+            periodStart: data.start,
+            createdAt: { gte: new Date(Date.now() - 2 * 60_000) },
+          },
+          select: { id: true },
+        });
+        if (recent) {
+          throw new Error("__DUPLICATE_INVOICE_SEND__");
+        }
+        const created = await tx.cleanerInvoiceSubmission.create({
+          data: {
+            cleanerId: session.user.id,
+            periodStart: data.start,
+            periodEnd: data.end,
+            hours: data.hours,
+            totalAmount: data.estimatedPay,
+            jobCount: data.rows.length,
+            status: "SENDING",
+            lineData,
+          },
+          select: { id: true },
+        });
+        return created.id;
+      });
+    } catch (guardErr: any) {
+      if (guardErr?.message === "__DUPLICATE_INVOICE_SEND__") {
+        return NextResponse.json(
+          {
+            error:
+              "An invoice for this period was just sent. Refresh to see it before sending again.",
+          },
+          { status: 409 }
+        );
+      }
+      throw guardErr;
+    }
+
     const html = buildCleanerInvoiceHtml(data);
     const pdf = await renderCleanerInvoicePdf(html);
     const fileName = `cleaner-invoice-${session.user.id}-${data.start.toISOString().slice(0, 10)}-to-${data.end
@@ -105,6 +187,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (!emailResult.ok) {
+      // Send failed — release the anchor so the cleaner can legitimately retry
+      // (and so the jobs aren't left marked-invoiced against a send that never
+      // reached accounts).
+      await db.cleanerInvoiceSubmission.delete({ where: { id: anchorId } }).catch(() => {});
       return NextResponse.json({ error: emailResult.error ?? "Failed to send invoice email." }, { status: 502 });
     }
 
@@ -118,36 +204,10 @@ export async function POST(req: NextRequest) {
       ),
     });
 
-    // Snapshot the invoice so admin can review it + push it to Xero as a bill.
-    const billLines = [
-      ...data.rows.map((r) => ({ description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.extraLineRows.map((r) => ({ description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.expenseRows.map((r) => ({ description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.shoppingTimeRows.map((r) => ({ description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-    ].filter((l) => Number.isFinite(l.unitAmount));
-    await db.cleanerInvoiceSubmission.create({
-      data: {
-        cleanerId: session.user.id,
-        periodStart: data.start,
-        periodEnd: data.end,
-        hours: data.hours,
-        totalAmount: data.estimatedPay,
-        jobCount: data.rows.length,
-        status: "SUBMITTED",
-        lineData: {
-          contact: {
-            name: data.cleanerName,
-            email: data.cleanerEmail,
-            phone: data.cleanerPhone ?? null,
-            address: data.cleanerAddress ?? null,
-            abn: data.cleanerAbn ?? null,
-          },
-          lines: billLines,
-          // Jobs invoiced here — used to exclude them from future invoices so a
-          // job can't be submitted twice and won't reappear once invoiced.
-          jobIds: data.rows.map((r) => r.jobId),
-        } as any,
-      },
+    // Email + invoiced-marking succeeded → flip the anchor to its terminal state.
+    await db.cleanerInvoiceSubmission.update({
+      where: { id: anchorId },
+      data: { status: "SUBMITTED" },
     });
 
     return NextResponse.json({

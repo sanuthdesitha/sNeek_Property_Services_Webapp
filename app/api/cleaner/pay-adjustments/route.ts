@@ -225,6 +225,27 @@ export async function POST(req: NextRequest) {
       if (body.scope === PayAdjustmentScope.PROPERTY && !linkedProperty) {
         return NextResponse.json({ error: "Property not found." }, { status: 404 });
       }
+      // A cleaner may only raise a property-scoped request for a property they
+      // have actually worked (current or past assignment) — otherwise anyone
+      // could seed pay-adjustment rows against arbitrary properties. (A
+      // job-scoped request already passed the assignment check above, and a
+      // job's own property trivially satisfies this.)
+      if (linkedProperty) {
+        const workedHere = await db.jobAssignment.findFirst({
+          where: {
+            userId: session.user.id,
+            removedAt: null,
+            job: { propertyId: linkedProperty.id },
+          },
+          select: { id: true },
+        });
+        if (!workedHere) {
+          return NextResponse.json(
+            { error: "You can only raise property pay requests for properties you've worked." },
+            { status: 403 }
+          );
+        }
+      }
     }
 
     let requestedHours: number | undefined;
