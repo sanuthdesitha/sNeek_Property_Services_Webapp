@@ -1,6 +1,13 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { NotificationChannel, NotificationStatus, Role, ShoppingRunStatus, StockTxType } from "@prisma/client";
+import {
+  NotificationChannel,
+  NotificationStatus,
+  Prisma,
+  Role,
+  ShoppingRunStatus,
+  StockTxType,
+} from "@prisma/client";
 import { notifyRestockRunCreated } from "@/lib/notifications/accountability";
 
 /** A stock row that has fallen to/below its reorder threshold in a submission. */
@@ -15,122 +22,182 @@ type LowStockRow = {
   parLevel: number;
 };
 
-/** Deduct inventory used in a form submission. */
-export async function deductStockFromSubmission(
+/** Anything that can run our stock reads/writes — the shared Prisma client OR an
+ *  interactive transaction handle passed in by a caller that owns the tx. */
+type StockClient = typeof db | Prisma.TransactionClient;
+
+/**
+ * Deduct the on-hand stock for a single item on the given client, log the USED
+ * StockTx, and (if the item drops to/below its reorder threshold) return a
+ * LowStockRow. This performs ONLY the data writes — no notifications, no
+ * shopping-run — so it is safe to run inside a caller-owned transaction. Returns
+ * null when there's nothing to deduct or the row still sits above threshold.
+ */
+async function deductOneItem(
+  client: StockClient,
   propertyId: string,
   submissionId: string,
-  usageMap: Record<string, number> // itemId → quantity used
-): Promise<void> {
-  // Collected across the loop, then folded into a single auto-ShoppingRun so a
-  // multi-item submission produces one run, not one per item.
-  const lowStockRows: LowStockRow[] = [];
+  itemId: string,
+  qty: number
+): Promise<LowStockRow | null> {
+  const stock = await client.propertyStock.findUnique({
+    where: { propertyId_itemId: { propertyId, itemId } },
+    include: { item: true },
+  });
+  if (!stock) {
+    logger.warn({ propertyId, itemId }, "PropertyStock not found; skipping deduction");
+    return null;
+  }
 
-  for (const [itemId, qty] of Object.entries(usageMap)) {
-    if (qty <= 0) continue;
-
-    const stock = await db.propertyStock.findUnique({
-      where: { propertyId_itemId: { propertyId, itemId } },
-      include: { item: true },
+  // Atomic decrement + reconciled ledger. Two concurrent submissions must not
+  // both read the same onHand and lose an update (last-write-wins). Try the
+  // full decrement conditionally; if there isn't enough on hand, fall back to
+  // draining to zero. Either way the StockTx logs the quantity ACTUALLY
+  // removed so onHand and the ledger stay reconciled.
+  const full = await client.propertyStock.updateMany({
+    where: { id: stock.id, onHand: { gte: qty } },
+    data: { onHand: { decrement: qty } },
+  });
+  let removed = qty;
+  if (full.count !== 1) {
+    // Not enough on hand (or a concurrent writer moved it) — re-read and drain
+    // whatever remains to zero rather than writing a stale value.
+    const current = await client.propertyStock.findUnique({
+      where: { id: stock.id },
+      select: { onHand: true },
     });
-
-    if (!stock) {
-      logger.warn({ propertyId, itemId }, "PropertyStock not found; skipping deduction");
-      continue;
-    }
-
-    // Atomic decrement + reconciled ledger. Two concurrent submissions must not
-    // both read the same onHand and lose an update (last-write-wins). Try the
-    // full decrement conditionally; if there isn't enough on hand, fall back to
-    // draining to zero. Either way the StockTx logs the quantity ACTUALLY
-    // removed so onHand and the ledger stay reconciled.
-    const { newOnHand, removed } = await db.$transaction(async (tx) => {
-      const full = await tx.propertyStock.updateMany({
-        where: { id: stock.id, onHand: { gte: qty } },
-        data: { onHand: { decrement: qty } },
-      });
-      let removed = qty;
-      if (full.count !== 1) {
-        // Not enough on hand (or a concurrent writer moved it) — re-read and
-        // drain whatever remains to zero rather than writing a stale value.
-        const current = await tx.propertyStock.findUnique({
-          where: { id: stock.id },
-          select: { onHand: true },
-        });
-        removed = Math.max(0, current?.onHand ?? 0);
-        if (removed > 0) {
-          await tx.propertyStock.update({
-            where: { id: stock.id },
-            data: { onHand: 0 },
-          });
-        }
-      }
-      if (removed > 0) {
-        await tx.stockTx.create({
-          data: {
-            propertyStockId: stock.id,
-            submissionId,
-            txType: StockTxType.USED,
-            quantity: -removed,
-            notes: `Used in submission ${submissionId}`,
-          },
-        });
-      }
-      const after = await tx.propertyStock.findUnique({
+    removed = Math.max(0, current?.onHand ?? 0);
+    if (removed > 0) {
+      await client.propertyStock.update({
         where: { id: stock.id },
-        select: { onHand: true },
+        data: { onHand: 0 },
       });
-      return { newOnHand: after?.onHand ?? 0, removed };
+    }
+  }
+  if (removed > 0) {
+    await client.stockTx.create({
+      data: {
+        propertyStockId: stock.id,
+        submissionId,
+        txType: StockTxType.USED,
+        quantity: -removed,
+        notes: `Used in submission ${submissionId}`,
+      },
     });
-    void removed;
+  }
+  const after = await client.propertyStock.findUnique({
+    where: { id: stock.id },
+    select: { onHand: true },
+  });
+  const newOnHand = after?.onHand ?? 0;
 
-    // Alert if below reorder threshold
-    if (newOnHand <= stock.reorderThreshold) {
-      logger.warn(
-        { propertyId, itemId, onHand: newOnHand, threshold: stock.reorderThreshold },
-        "Stock below reorder threshold"
-      );
+  if (newOnHand <= stock.reorderThreshold) {
+    logger.warn(
+      { propertyId, itemId, onHand: newOnHand, threshold: stock.reorderThreshold },
+      "Stock below reorder threshold"
+    );
+    return {
+      stockId: stock.id,
+      itemId: stock.itemId,
+      itemName: stock.item.name,
+      category: stock.item.category,
+      supplier: stock.item.supplier ?? null,
+      unit: stock.item.unit,
+      onHand: newOnHand,
+      parLevel: stock.parLevel,
+    };
+  }
+  return null;
+}
 
-      lowStockRows.push({
-        stockId: stock.id,
-        itemId: stock.itemId,
-        itemName: stock.item.name,
-        category: stock.item.category,
-        supplier: stock.item.supplier ?? null,
-        unit: stock.item.unit,
-        onHand: newOnHand,
-        parLevel: stock.parLevel,
-      });
+/**
+ * Post-deduction side-effects for low-stock rows: alert admins and fold every
+ * low item into a single auto ShoppingRun. Deliberately kept OUT of any stock
+ * transaction — these are best-effort and their failure must never roll back a
+ * committed clean. Fully guarded.
+ */
+async function fireLowStockSideEffects(
+  propertyId: string,
+  lowStockRows: LowStockRow[]
+): Promise<void> {
+  if (lowStockRows.length === 0) return;
 
-      const admins = await db.user.findMany({
-        where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
-        select: { id: true },
-      });
-      if (admins.length > 0) {
+  try {
+    const admins = await db.user.findMany({
+      where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
+      select: { id: true },
+    });
+    if (admins.length > 0) {
+      for (const row of lowStockRows) {
         await db.notification.createMany({
           data: admins.map((admin) => ({
             userId: admin.id,
             channel: NotificationChannel.PUSH,
             subject: "Low stock alert",
-            body: `${stock.item.name} is low at this property (${newOnHand} remaining, threshold ${stock.reorderThreshold}).`,
+            body: `${row.itemName} is low at this property (${row.onHand} remaining).`,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),
         });
       }
     }
+  } catch (err) {
+    logger.error({ err, propertyId }, "Low-stock admin alert failed (non-fatal)");
   }
 
   // Auto-restock: fold every low item into an open shopping run for the
   // property's client (reuse the earliest non-completed run, else create one).
-  // Fully guarded — a failure here must never break the submission's stock write.
-  if (lowStockRows.length > 0) {
-    try {
-      await upsertAutoShoppingRun(propertyId, lowStockRows);
-    } catch (err) {
-      logger.error({ err, propertyId }, "Auto shopping run upsert failed (non-fatal)");
-    }
+  try {
+    await upsertAutoShoppingRun(propertyId, lowStockRows);
+  } catch (err) {
+    logger.error({ err, propertyId }, "Auto shopping run upsert failed (non-fatal)");
   }
 }
+
+/**
+ * Deduct inventory used in a form submission.
+ *
+ * When `tx` is provided the caller owns an interactive transaction and we run
+ * every stock read/write ON that handle (no inner `$transaction`), so the whole
+ * critical section commits or rolls back as one unit with the caller's other
+ * writes (form submission, media, status). In that mode we do NOT fire the
+ * low-stock notifications / auto-restock here — those are best-effort external
+ * side-effects that must not roll back the clean; we return the low-stock rows
+ * so the caller can fire `fireLowStockSideEffects` AFTER the tx commits.
+ *
+ * When `tx` is omitted we keep the original standalone behaviour: each item's
+ * decrement + ledger write runs in its own `$transaction`, and the side-effects
+ * fire here.
+ */
+export async function deductStockFromSubmission(
+  propertyId: string,
+  submissionId: string,
+  usageMap: Record<string, number>, // itemId → quantity used
+  tx?: Prisma.TransactionClient
+): Promise<{ lowStockRows: LowStockRow[] }> {
+  const lowStockRows: LowStockRow[] = [];
+
+  for (const [itemId, qty] of Object.entries(usageMap)) {
+    if (qty <= 0) continue;
+    const low = tx
+      ? // Caller-owned tx: run directly on it (outer tx provides atomicity).
+        await deductOneItem(tx, propertyId, submissionId, itemId, qty)
+      : // Standalone: preserve the original per-item atomic transaction.
+        await db.$transaction((inner) =>
+          deductOneItem(inner, propertyId, submissionId, itemId, qty)
+        );
+    if (low) lowStockRows.push(low);
+  }
+
+  // In tx mode the caller fires side-effects post-commit; standalone fires now.
+  if (!tx) {
+    await fireLowStockSideEffects(propertyId, lowStockRows);
+  }
+
+  return { lowStockRows };
+}
+
+export { fireLowStockSideEffects };
 
 /**
  * Find (or create) an open shopping run covering `propertyId`'s client and

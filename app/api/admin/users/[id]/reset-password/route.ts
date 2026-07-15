@@ -51,6 +51,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       to: user.email,
       subject: emailTemplate.subject,
       html: emailTemplate.html,
+      // Admin-issued temporary password (account recovery) — must never be
+      // silenced by audience controls.
+      critical: true,
     });
 
     await db.auditLog.create({

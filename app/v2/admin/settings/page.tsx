@@ -24,6 +24,7 @@ import {
   KeyRound,
   History,
   ClipboardCheck,
+  Megaphone,
 } from "lucide-react";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
 import { BankSection } from "@/components/v2/admin/settings/bank-section";
@@ -45,6 +46,7 @@ import { NotificationToolsSection } from "@/components/v2/admin/settings/notific
 import { RolesSection } from "@/components/v2/admin/settings/roles-section";
 import { AuditSection } from "@/components/v2/admin/settings/audit-section";
 import { AccountabilitySection } from "@/components/v2/admin/settings/accountability-section";
+import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -55,6 +57,7 @@ type TabKey =
   | "bank"
   | "safeguards"
   | "notifications"
+  | "message-channels"
   | "rates"
   | "pricing-variables"
   | "accountability"
@@ -77,6 +80,7 @@ const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly
   { key: "bank", label: "Bank & payment", icon: <Landmark className="h-4 w-4" />, adminOnly: false },
   { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true },
   { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
+  { key: "message-channels", label: "Message channels", icon: <Megaphone className="h-4 w-4" />, adminOnly: true },
   { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true },
   { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true },
   { key: "accountability", label: "Accountability", icon: <ClipboardCheck className="h-4 w-4" />, adminOnly: true },
@@ -216,6 +220,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               >,
             },
           }}
+          readOnly={!isAdmin}
+        />
+      ) : null}
+
+      {activeTab === "message-channels" && isAdmin ? (
+        <NotificationAudienceSection
+          initial={appSettings.notificationAudienceControls}
           readOnly={!isAdmin}
         />
       ) : null}

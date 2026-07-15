@@ -29,7 +29,6 @@ import {
   Shield,
   ShieldCheck,
   Shirt,
-  WashingMachine,
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
@@ -78,8 +77,6 @@ export function JobActions({
       <EarlyCheckoutStatus jobId={jobId} />
 
       <ContinuationRequest jobId={jobId} hasStarted={hasStarted} onChanged={onChanged} />
-
-      <LaundryUpdate jobId={jobId} hasStarted={hasStarted} onChanged={onChanged} />
 
       <ExtraPayRequest jobId={jobId} onChanged={onChanged} />
 
@@ -370,142 +367,7 @@ function ContinuationRequest({
   );
 }
 
-/* ── Early laundry update ────────────────────────────────────────────────── */
-type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
-const LAUNDRY_SKIP_REASONS: Array<{ value: string; label: string }> = [
-  { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
-  { value: "LINEN_STILL_DRYING", label: "Linen still drying" },
-  { value: "NO_LINEN_ON_SITE", label: "No linen on site" },
-  { value: "NO_PICKUP_REQUIRED", label: "No pickup required" },
-  { value: "OTHER", label: "Other" },
-];
-
-function LaundryUpdate({
-  jobId,
-  hasStarted,
-  onChanged,
-}: {
-  jobId: string;
-  hasStarted?: boolean;
-  onChanged?: () => void;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const [outcome, setOutcome] = React.useState<LaundryOutcome>("READY_FOR_PICKUP");
-  const [bagLocation, setBagLocation] = React.useState("");
-  const [skipReasonCode, setSkipReasonCode] = React.useState("LINEN_STILL_WASHING");
-  const [skipReasonNote, setSkipReasonNote] = React.useState("");
-  const [photo, setPhoto] = React.useState<CapturedMedia[]>([]);
-  const [busy, setBusy] = React.useState(false);
-  const [notice, setNotice] = React.useState<Notice>(null);
-
-  async function submit() {
-    setNotice(null);
-    if (outcome === "READY_FOR_PICKUP") {
-      if (!bagLocation.trim()) {
-        setNotice({ tone: "danger", text: "Bag location is required when laundry is ready." });
-        return;
-      }
-      if (photo.length === 0) {
-        setNotice({ tone: "danger", text: "A laundry photo is required when marked ready." });
-        return;
-      }
-    } else if (!skipReasonCode) {
-      setNotice({ tone: "danger", text: "Select a reason." });
-      return;
-    }
-    setBusy(true);
-    try {
-      await postJson(`/api/cleaner/jobs/${jobId}/laundry-status`, {
-        laundryOutcome: outcome,
-        bagLocation: bagLocation.trim() || undefined,
-        laundryPhotoKey: photo[0]?.key,
-        laundrySkipReasonCode: outcome === "READY_FOR_PICKUP" ? undefined : skipReasonCode,
-        laundrySkipReasonNote: skipReasonNote.trim() || undefined,
-      });
-      setNotice({ tone: "success", text: "Laundry update sent to the laundry team and admin." });
-      setOpen(false);
-      onChanged?.();
-    } catch (e: any) {
-      setNotice({ tone: "danger", text: e.message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-          <WashingMachine className="h-4 w-4" /> Laundry update
-        </p>
-        {!open ? (
-          <>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Send an early laundry status so the laundry team knows what&apos;s ready.
-            </p>
-            <EButton variant="outline" size="sm" disabled={!hasStarted} onClick={() => setOpen(true)}>
-              <Shirt className="h-4 w-4" /> Send laundry update
-            </EButton>
-            {!hasStarted ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Start the job before sending laundry updates.</p>
-            ) : null}
-          </>
-        ) : (
-          <div className="space-y-3">
-            <EField label="Outcome">
-              <ESelect value={outcome} onChange={(e) => setOutcome(e.target.value as LaundryOutcome)}>
-                <option value="READY_FOR_PICKUP">Ready for pickup</option>
-                <option value="NOT_READY">Not ready</option>
-                <option value="NO_PICKUP_REQUIRED">No pickup required</option>
-              </ESelect>
-            </EField>
-            {outcome === "READY_FOR_PICKUP" ? (
-              <>
-                <EField label="Bag location (required)">
-                  <EInput
-                    placeholder="e.g. Laundry room shelf, labeled bags"
-                    value={bagLocation}
-                    onChange={(e) => setBagLocation(e.target.value)}
-                  />
-                </EField>
-                <EField label="Laundry photo (required)">
-                  <MediaCapture value={photo} onChange={setPhoto} mode="photo" folder="laundry" stamp={{ tag: "laundry", contextLabel: "Laundry bags ready for pickup" }} />
-                </EField>
-              </>
-            ) : (
-              <>
-                <EField label="Reason (required)">
-                  <ESelect value={skipReasonCode} onChange={(e) => setSkipReasonCode(e.target.value)}>
-                    {LAUNDRY_SKIP_REASONS.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </ESelect>
-                </EField>
-                <EField label="Note (optional)">
-                  <ETextarea value={skipReasonNote} onChange={(e) => setSkipReasonNote(e.target.value)} />
-                </EField>
-              </>
-            )}
-            <div className="flex gap-2">
-              <EButton variant="gold" size="sm" disabled={busy} onClick={submit}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Send update
-              </EButton>
-              <EButton variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
-                Cancel
-              </EButton>
-            </div>
-          </div>
-        )}
-        <LocalNotice notice={notice} />
-      </ECardBody>
-    </ECard>
-  );
-}
-
-/* ── Extra pay request (per-job) ─────────────────────────────────────────── */
+/* ── Extra pay request ───────────────────────────────────────────────────── */
 function ExtraPayRequest({ jobId, onChanged }: { jobId: string; onChanged?: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");

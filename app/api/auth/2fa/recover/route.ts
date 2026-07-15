@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
         subject: "Turn off two-step verification",
         html: `<p>Hi ${user.name || "there"},</p><p>You asked to recover access because you can't complete two-step verification. Click below to switch 2FA off — this link expires in ${RECOVERY_TTL_MINUTES} minutes. After signing in, set up 2FA again from your profile.</p><p><a href="${link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Turn off 2FA</a></p><p>If you didn't request this, ignore this email and your 2FA stays on.</p>`,
         transactional: true,
+        // 2FA recovery link — must never be silenced by audience controls.
+        critical: true,
       });
     }
 

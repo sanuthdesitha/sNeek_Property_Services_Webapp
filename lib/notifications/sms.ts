@@ -1,6 +1,12 @@
 import twilio from "twilio";
 import { logger } from "@/lib/logger";
+import { db } from "@/lib/db";
 import { getAppSettings, type SmsProvider } from "@/lib/settings";
+import {
+  audienceForRole,
+  isChannelAllowed,
+  type NotificationAudience,
+} from "@/lib/notifications/audience-controls";
 
 export type SmsSendStatus = "sent" | "disabled" | "not_configured" | "failed";
 
@@ -183,12 +189,48 @@ export async function getSmsProviderState() {
   };
 }
 
-export async function sendSmsDetailed(to: string, body: string): Promise<SmsSendResult> {
+/**
+ * Resolve the audience for a phone number by looking up the matching user's
+ * role. No matching account → PUBLIC. Best-effort / fail-open.
+ */
+async function resolveAudienceForPhone(to: string): Promise<NotificationAudience> {
+  try {
+    const user = await db.user.findFirst({
+      where: { phone: to },
+      select: { role: true },
+    });
+    return audienceForRole(user?.role ?? null);
+  } catch {
+    return audienceForRole(null);
+  }
+}
+
+/**
+ * @param audience Pre-resolved recipient audience (callers that know the role,
+ *   e.g. delivery.ts, pass it to skip the phone lookup). When omitted the
+ *   audience is resolved by phone→user lookup.
+ */
+export async function sendSmsDetailed(
+  to: string,
+  body: string,
+  audience?: NotificationAudience
+): Promise<SmsSendResult> {
   const { provider } = await getSmsProviderState();
 
   if (provider === "none") {
     logger.info({ to }, "SMS sending skipped because provider is disabled");
     return { ok: false, status: "disabled", provider: "none", error: "SMS delivery is disabled." };
+  }
+
+  // Audience-level gating (global sms master + per-audience sms toggle).
+  const settings = await getAppSettings();
+  const resolvedAudience = audience ?? (await resolveAudienceForPhone(to));
+  if (!isChannelAllowed(settings.notificationAudienceControls, resolvedAudience, "sms")) {
+    logger.info(
+      { to, audience: resolvedAudience },
+      "SMS skipped — audience has SMS disabled"
+    );
+    return { ok: false, status: "disabled", provider, error: "SMS disabled for this audience." };
   }
 
   const clamped = clampSmsBody(body);
@@ -200,7 +242,11 @@ export async function sendSmsDetailed(to: string, body: string): Promise<SmsSend
   return sendViaTwilio(to, clamped);
 }
 
-export async function sendSms(to: string, body: string): Promise<boolean> {
-  const result = await sendSmsDetailed(to, body);
+export async function sendSms(
+  to: string,
+  body: string,
+  audience?: NotificationAudience
+): Promise<boolean> {
+  const result = await sendSmsDetailed(to, body, audience);
   return result.ok;
 }

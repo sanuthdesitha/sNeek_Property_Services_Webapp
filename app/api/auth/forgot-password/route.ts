@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
         subject: "Reset your sNeek password",
         html: `<p>Hi ${user.name || "there"},</p><p>We received a request to reset your password. Click below to set a new one — this link expires in ${RECOVERY_TTL_MINUTES} minutes.</p><p><a href="${link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Reset password</a></p><p>If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
         transactional: true,
+        // Password recovery — must never be silenced by audience controls.
+        critical: true,
       });
     }
 

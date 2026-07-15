@@ -142,13 +142,17 @@ export async function POST(
         accountability?: { requireJobStartConfirmation?: boolean };
       }).accountability?.requireJobStartConfirmation !== false;
     // Laundry-bag confirmation only matters on Airbnb turnovers at
-    // laundry-enabled properties, and never on reworks (reworks reuse the
-    // original clean's linen). Property-code is always required when the flag
-    // is on.
+    // laundry-enabled properties WITH a labelled bag, and never on reworks
+    // (reworks reuse the original clean's linen). Property-code is always
+    // required when the flag is on. The bag-label check MUST match the UI
+    // (job-workspace.tsx / v1 page only render the bag checkbox when a label
+    // exists) — otherwise the server demands a confirmation the cleaner has no
+    // control to give and clock-in is impossible.
     const laundryConfirmRequired =
       job.jobType === "AIRBNB_TURNOVER" &&
       job.property?.laundryEnabled !== false &&
-      job.isRework !== true;
+      job.isRework !== true &&
+      Boolean(job.property?.laundryBagLabel?.trim());
     if (requireStartConfirmation && isFirstStartForCleaner) {
       const propertyCodeOk = body.propertyCodeConfirmed === true;
       const laundryBagOk = !laundryConfirmRequired || body.laundryBagConfirmed === true;

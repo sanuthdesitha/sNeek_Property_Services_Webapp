@@ -1800,6 +1800,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     (property as any)?.laundryEnabled !== false &&
     (job as any)?.isRework !== true;
 
+  // Never strand the wizard on the laundry step when laundry doesn't apply
+  // (e.g. a draft saved on "laundry" restored on a now-suppressed job, or the
+  // property's laundry toggled off) — that step's body + nav are gated on the
+  // flag, so re-home to uploads.
+  useEffect(() => {
+    if (step === "laundry" && !laundryFlowEnabled) setStep("uploads");
+  }, [step, laundryFlowEnabled]);
+
   const visibleSections = useMemo(
     () =>
       sectionsWithAutoInventory

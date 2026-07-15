@@ -1,8 +1,13 @@
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
-import { type NotificationCategory } from "@/lib/settings";
+import { getAppSettings, type NotificationCategory } from "@/lib/settings";
 import { type EmailAutoKind } from "@/lib/notifications/email-kinds";
+import {
+  audienceForRole,
+  isChannelAllowed,
+  type NotificationAudience,
+} from "@/lib/notifications/audience-controls";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
@@ -149,12 +154,19 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
   }
 }
 
-async function sendEmailNotification(input: DeliveryInput, recipient: Recipient, emailPayload: EmailPayload) {
+async function sendEmailNotification(
+  input: DeliveryInput,
+  recipient: Recipient,
+  emailPayload: EmailPayload,
+  audience: NotificationAudience
+) {
   const result = await sendEmailDetailed({
     kind: input.kind ?? CATEGORY_TO_EMAIL_KIND[input.category] ?? "admin_alert",
     to: recipient.email!,
     subject: emailPayload.subject,
     html: emailPayload.html,
+    // Pass the already-resolved audience so the chokepoint skips a second lookup.
+    audience,
   });
 
   await db.notification.create({
@@ -173,8 +185,13 @@ async function sendEmailNotification(input: DeliveryInput, recipient: Recipient,
   });
 }
 
-async function sendSmsNotification(input: DeliveryInput, recipient: Recipient, smsBody: string) {
-  const result = await sendSmsDetailed(recipient.phone!, smsBody);
+async function sendSmsNotification(
+  input: DeliveryInput,
+  recipient: Recipient,
+  smsBody: string,
+  audience: NotificationAudience
+) {
+  const result = await sendSmsDetailed(recipient.phone!, smsBody, audience);
   if (result.status !== "sent" && result.status !== "failed") return;
 
   await db.notification.create({
@@ -194,8 +211,18 @@ async function sendSmsNotification(input: DeliveryInput, recipient: Recipient, s
 export async function deliverNotificationToRecipients(input: DeliveryInput) {
   const recipients = dedupeRecipients(input.recipients);
 
+  // Audience-level controls apply on top of the per-user category preferences:
+  // a silenced audience/channel blocks delivery even when the user opted in.
+  // Web push maps to the "push" channel.
+  const controls = (await getAppSettings()).notificationAudienceControls;
+
   for (const recipient of recipients) {
-    const { allowWeb, allowEmail, allowSms } = await getChannelPermissions(recipient, input.category);
+    const perms = await getChannelPermissions(recipient, input.category);
+    const audience = audienceForRole(recipient.role ?? null);
+
+    const allowWeb = perms.allowWeb && isChannelAllowed(controls, audience, "push");
+    const allowEmail = perms.allowEmail && isChannelAllowed(controls, audience, "email");
+    const allowSms = perms.allowSms && isChannelAllowed(controls, audience, "sms");
 
     if (allowWeb) {
       await createWebNotification(input, recipient);
@@ -203,12 +230,12 @@ export async function deliverNotificationToRecipients(input: DeliveryInput) {
 
     const emailPayload = resolveEmailPayload(input, recipient);
     if (allowEmail && recipient.email && emailPayload?.subject && emailPayload.html) {
-      await sendEmailNotification(input, recipient, emailPayload);
+      await sendEmailNotification(input, recipient, emailPayload, audience);
     }
 
     const smsBody = resolveSmsBody(input, recipient);
     if (allowSms && recipient.phone && smsBody) {
-      await sendSmsNotification(input, recipient, smsBody);
+      await sendSmsNotification(input, recipient, smsBody, audience);
     }
   }
 }

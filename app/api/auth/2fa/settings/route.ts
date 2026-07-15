@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
     subject: "Confirm two-step verification",
     html: `<p>Your verification code is <strong style="font-size:22px;letter-spacing:2px">${code}</strong></p><p>It expires in 10 minutes.</p>`,
     transactional: true,
+    // 2FA enrolment verification code — must never be silenced by audience controls.
+    critical: true,
   });
   return NextResponse.json({ method });
 }
