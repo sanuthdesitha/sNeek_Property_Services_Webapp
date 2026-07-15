@@ -639,10 +639,14 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
               <div className="space-y-4 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                 <p className="text-[0.8125rem] font-[550]">Quality &amp; accountability</p>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <EField label="Clean duration (min)" hint="Standard clean duration">
+                  <EField
+                    label="Clean duration (min)"
+                    hint="Standard clean duration — when empty, jobs fall back to their estimated hours"
+                  >
                     <EInput
                       type="number"
                       min="0"
+                      placeholder="e.g. 120"
                       value={form.cleaningDurationMinutes}
                       onChange={(e) => setF("cleaningDurationMinutes", e.target.value)}
                     />

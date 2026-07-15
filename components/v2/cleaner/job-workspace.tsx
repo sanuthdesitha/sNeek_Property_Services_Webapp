@@ -368,9 +368,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const startGateSatisfied =
     !startGateBlocks ||
     (propertyCodeConfirmed && (!laundryBagConfirmRequired || laundryBagConfirmed));
-  // Show the info/gate card in the pre-start area (even when non-blocking, so the
-  // cleaner always sees the property code, duration, bag and setup references).
-  const showStartGateCard = !hasStarted && !locked && !needsAcceptance;
+  // Show the info/gate card before AND during the clean (so setup references,
+  // bag and code stay available mid-clean) — collapsed by default once started.
+  const showStartGateCard = !locked && !needsAcceptance;
+  const [setupCardOpen, setSetupCardOpen] = React.useState(false);
+  const setupCardExpanded = !hasStarted || setupCardOpen;
 
   function formatDurationMinutes(mins: number): string {
     if (mins <= 0) return "—";
@@ -939,13 +941,28 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           property code, expected duration, the correct laundry bag, setup
           reference images and restock needs; blocks clock-in until confirmed. */}
       {showStartGateCard ? (
-        <ECard className="border-[hsl(var(--e-gold))]">
+        <ECard className={hasStarted ? undefined : "border-[hsl(var(--e-gold))]"}>
           <ECardBody className="space-y-4 pt-6">
-            <div className="flex items-center gap-1.5">
-              <ClipboardCheck className="h-4 w-4 text-[hsl(var(--e-gold))]" />
-              <p className="text-[0.9375rem] font-[600]">Before you start</p>
-            </div>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-1.5"
+              onClick={() => (hasStarted ? setSetupCardOpen((v) => !v) : undefined)}
+            >
+              <span className="flex items-center gap-1.5">
+                <ClipboardCheck className="h-4 w-4 text-[hsl(var(--e-gold))]" />
+                <span className="text-[0.9375rem] font-[600]">
+                  {hasStarted ? "Property setup" : "Before you start"}
+                </span>
+              </span>
+              {hasStarted ? (
+                <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {setupCardExpanded ? "Hide" : "Show"}
+                </span>
+              ) : null}
+            </button>
 
+            {setupCardExpanded ? (
+            <div className="space-y-4">
             {/* Property code — big */}
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
               <p className="text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
@@ -1105,6 +1122,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
                   </label>
                 ) : null}
               </div>
+            ) : null}
+            </div>
             ) : null}
           </ECardBody>
         </ECard>
