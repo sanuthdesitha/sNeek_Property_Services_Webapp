@@ -25,11 +25,13 @@ import {
   Package,
   Square,
 } from "lucide-react";
+import Link from "next/link";
 import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
+import { formatDuration } from "@/lib/time/format-duration";
 import { LAUNDRY_SKIP_REASONS, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 const LAUNDRY_CARD_ID = "wrapup-laundry";
@@ -50,13 +52,45 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
     addressLine,
   } = api;
 
-  // Locked → the submitted review state is the whole stage.
+  // Locked → the submitted review state is the whole stage (design "Job
+  // submitted" screen: confirmation, quality-pending, time on site, back home).
   if (locked) {
+    const onSiteSeconds = Number(api.timeState?.completedSeconds ?? 0);
     return (
       <div className="space-y-5">
-        <EAlert tone="success" title="Submitted">
-          This job has been submitted{status === "COMPLETED" ? " and completed" : ""}. No further action needed.
-        </EAlert>
+        <ECard>
+          <ECardBody className="space-y-4 pt-6 text-center">
+            <CheckCircle2 className="mx-auto h-10 w-10 text-[hsl(var(--e-success))]" />
+            <div>
+              <p className="e-serif text-[1.375rem] font-[650] leading-tight">Job submitted</p>
+              <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+                {api.propertyCode ? `${api.propertyCode} — ` : ""}
+                {addressLine || "This job"} is done
+                {status === "COMPLETED" ? " and completed" : ""}.
+              </p>
+            </div>
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5 text-left">
+              <p className="text-[0.8125rem]">
+                Your quality score is{" "}
+                <span className="font-[600]">pending review</span> — you'll see it in
+                My performance.
+              </p>
+            </div>
+            {onSiteSeconds > 0 ? (
+              <div className="flex items-center justify-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                <span className="e-eyebrow">Time on site</span>
+                <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
+                  {formatDuration(onSiteSeconds)}
+                </span>
+              </div>
+            ) : null}
+            <Link href="/v2/cleaner" className="block">
+              <EButton variant="gold" className="w-full">
+                Back to Today
+              </EButton>
+            </Link>
+          </ECardBody>
+        </ECard>
       </div>
     );
   }
@@ -112,8 +146,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
       {laundryEnabled ? (
         <ECard id={LAUNDRY_CARD_ID}>
           <ECardBody className="space-y-3 pt-6">
-            <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-              <WashingMachine className="h-4 w-4" /> Laundry
+            <p className="e-eyebrow flex items-center gap-1.5">
+              <WashingMachine className="h-3.5 w-3.5" /> Laundry
             </p>
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               Record the linen status for this clean — saved when you submit and sent to the laundry team.
@@ -214,8 +248,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
       {property?.inventoryEnabled === true ? (
         <ECard>
           <ECardBody className="flex items-center justify-between gap-3 pt-6">
-            <p className="flex items-center gap-1.5 text-[0.875rem] font-[550]">
-              <Package className="h-4 w-4" /> Stock used
+            <p className="e-eyebrow flex items-center gap-1.5">
+              <Package className="h-3.5 w-3.5" /> Restock used today
             </p>
             <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               {usedCount > 0 ? `${usedCount} item${usedCount === 1 ? "" : "s"} recorded in Clean` : "None recorded"}
@@ -227,8 +261,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
       {/* Pass to next clean */}
       <ECard>
         <ECardBody className="space-y-3 pt-6">
-          <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-            <Forward className="h-4 w-4" /> Pass to next clean
+          <p className="e-eyebrow flex items-center gap-1.5">
+            <Forward className="h-3.5 w-3.5" /> Pass to next clean (optional)
           </p>
           <label className="flex items-start gap-2 text-[0.875rem]">
             <input

@@ -132,9 +132,12 @@ function ReadFirstRow({ item }: { item: ReadFirstItem }) {
 export function ReadFirstBlock({
   items,
   defaultVisible = 3,
+  heading = "Read first",
 }: {
   items: ReadFirstItem[];
   defaultVisible?: number;
+  /** Kicker shown at the top of the block (rendered uppercase). */
+  heading?: string;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   if (!items || items.length === 0) return null;
@@ -146,7 +149,7 @@ export function ReadFirstBlock({
   return (
     <section className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] border-l-[3px] border-l-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-4">
       <p className="mb-3 inline-flex items-center gap-2 text-[0.6875rem] font-[600] uppercase tracking-[0.14em] text-[hsl(var(--e-foreground))]">
-        Read first
+        {heading}
       </p>
       <div className="space-y-3.5">
         {visible.map((item, i) => (

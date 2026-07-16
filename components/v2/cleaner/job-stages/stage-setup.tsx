@@ -56,9 +56,9 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
 
       <ECard className={api.hasStarted ? undefined : "border-[hsl(var(--e-gold))]"}>
         <ECardBody className="space-y-4 pt-6">
-          <p className="flex items-center gap-1.5">
-            <ClipboardCheck className="h-4 w-4 text-[hsl(var(--e-gold))]" />
-            <span className="text-[0.9375rem] font-[600]">Property setup</span>
+          <p className="e-eyebrow flex items-center gap-1.5">
+            <ClipboardCheck className="h-3.5 w-3.5 text-[hsl(var(--e-gold))]" />
+            Confirm you&apos;re at the right door
           </p>
 
           {/* Property code — big */}
@@ -103,11 +103,16 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
             ) : null}
           </div>
 
-          {readFirstItems.length > 0 ? <ReadFirstBlock items={readFirstItems} /> : null}
+          {readFirstItems.length > 0 ? (
+            <ReadFirstBlock
+              items={readFirstItems}
+              heading={`Read first — ${readFirstItems.length} note${readFirstItems.length === 1 ? "" : "s"} for this job`}
+            />
+          ) : null}
 
           {setupGuideEntries.length > 0 ? (
             <div className="space-y-2">
-              <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+              <p className="e-eyebrow flex items-center gap-1.5">
                 <BookOpen className="h-3.5 w-3.5" /> Setup reference
               </p>
               {setupGuideEntries.map((entry, ei) => {
@@ -139,8 +144,8 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
 
           {restockNeeds.length > 0 ? (
             <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
-              <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-                <Package className="h-4 w-4" /> Restock needed
+              <p className="e-eyebrow flex items-center gap-1.5">
+                <Package className="h-3.5 w-3.5" /> Restock this property
               </p>
               <ul className="mt-1.5 space-y-1">
                 {restockNeeds.map((r, ri) => (
