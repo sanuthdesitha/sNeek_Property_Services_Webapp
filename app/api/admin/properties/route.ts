@@ -52,14 +52,35 @@ function buildPropertyAccessInfo(input: Record<string, any>) {
   };
 }
 
+// Mirrors FALLBACK_CLIENT_NAME in lib/jobs/service-site.ts — the client that
+// owns auto-created one-off / service-site properties.
+const ONE_OFF_FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
+
 export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
     const clientId = searchParams.get("clientId");
+    // One-off / service-site properties are hidden from the portfolio list by
+    // default (they exist only to carry an ad-hoc address). Pass ?includeOneOff=1
+    // to surface them.
+    const includeOneOff = searchParams.get("includeOneOff") === "1";
 
     const properties = await db.property.findMany({
-      where: { isActive: true, ...(clientId ? { clientId } : {}) },
+      where: {
+        isActive: true,
+        ...(clientId ? { clientId } : {}),
+        ...(includeOneOff
+          ? {}
+          : {
+              NOT: {
+                OR: [
+                  { accessInfo: { path: ["serviceSite"], equals: true } },
+                  { client: { name: ONE_OFF_FALLBACK_CLIENT_NAME } },
+                ],
+              },
+            }),
+      },
       include: {
         client: { select: { id: true, name: true } },
         integration: true,

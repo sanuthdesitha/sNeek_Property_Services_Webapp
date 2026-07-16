@@ -56,7 +56,7 @@ type FormState = {
   siteName: string; siteAddress: string; siteSuburb: string; siteState: string; sitePostcode: string;
   siteBedrooms: string; siteBathrooms: string; siteHasBalcony: boolean;
   siteContactName: string; siteContactPhone: string; serviceAreaSqm: string; floorCount: string;
-  scopeOfWork: string; accessInstructions: string; parkingInstructions: string; hazardNotes: string; equipmentNotes: string;
+  scopeOfWork: string; accessInstructions: string; parkingInstructions: string; hazardNotes: string; equipmentNotes: string; keyPickupLocation: string;
   earlyCheckin: TimingRule; lateCheckout: TimingRule;
 };
 
@@ -69,7 +69,7 @@ const initialForm = (propertyId = ""): FormState => ({
   siteName: "", siteAddress: "", siteSuburb: "", siteState: "NSW", sitePostcode: "",
   siteBedrooms: "", siteBathrooms: "", siteHasBalcony: false,
   siteContactName: "", siteContactPhone: "", serviceAreaSqm: "", floorCount: "",
-  scopeOfWork: "", accessInstructions: "", parkingInstructions: "", hazardNotes: "", equipmentNotes: "",
+  scopeOfWork: "", accessInstructions: "", parkingInstructions: "", hazardNotes: "", equipmentNotes: "", keyPickupLocation: "",
   earlyCheckin: { preset: "none", time: "" }, lateCheckout: { preset: "none", time: "" },
 });
 
@@ -210,6 +210,23 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
   const isAirbnb = form.jobType === AIRBNB_JOB_TYPE;
   const usesExistingProperty = isAirbnb || form.siteMode === "existing_property";
 
+  // Top-level clarity toggle. "turnover" = Airbnb turnover against an existing
+  // property; "oneoff" = any other job type entered as a plain address (a
+  // service site is auto-created server-side — no real property is required).
+  const bookingMode: "turnover" | "oneoff" = isAirbnb ? "turnover" : "oneoff";
+  function setBookingMode(next: "turnover" | "oneoff") {
+    if (next === "turnover") {
+      setForm((p) => ({ ...p, jobType: AIRBNB_JOB_TYPE, siteMode: "existing_property" }));
+    } else {
+      setForm((p) => ({
+        ...p,
+        jobType: p.jobType === AIRBNB_JOB_TYPE ? "GENERAL_CLEAN" : p.jobType,
+        siteMode: "service_site",
+        propertyId: "",
+      }));
+    }
+  }
+
   const cleanerOptions = useMemo(
     () =>
       cleaners.map((c) => ({
@@ -330,7 +347,8 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           form.guestCheckoutAtLocal || form.guestLocationText;
         const hasServiceContext =
           !isAirbnb || form.scopeOfWork || form.accessInstructions || form.parkingInstructions || form.hazardNotes ||
-          form.equipmentNotes || form.siteContactName || form.siteContactPhone || form.serviceAreaSqm || form.floorCount;
+          form.equipmentNotes || form.siteContactName || form.siteContactPhone || form.serviceAreaSqm || form.floorCount ||
+          form.keyPickupLocation;
 
         const payload = {
           propertyId: usesExistingProperty ? item.propertyId : undefined,
@@ -386,6 +404,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 siteContactPhone: form.siteContactPhone.trim() || undefined,
                 serviceAreaSqm: form.serviceAreaSqm ? Number(form.serviceAreaSqm) : undefined,
                 floorCount: form.floorCount ? Number(form.floorCount) : undefined,
+                keyPickupLocation: form.keyPickupLocation.trim() || undefined,
               }
             : undefined,
         };
@@ -441,6 +460,34 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
           <Section title="Job details">
+            <EField label="What kind of job is this?" hint="Turnovers run against a saved property; one-off jobs just need an address.">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {([
+                  { id: "turnover", title: "Airbnb turnover", sub: "Choose a property" },
+                  { id: "oneoff", title: "One-off job", sub: "Just enter an address" },
+                ] as const).map((opt) => {
+                  const on = bookingMode === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setBookingMode(opt.id)}
+                      aria-pressed={on}
+                      className={
+                        "flex flex-col items-start rounded-[var(--e-radius)] border px-3 py-2.5 text-left transition-colors " +
+                        (on
+                          ? "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-gold-soft))]"
+                          : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] hover:bg-[hsl(var(--e-muted))]")
+                      }
+                    >
+                      <span className="text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">{opt.title}</span>
+                      <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{opt.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </EField>
+
             <EField label="Job type" hint="Cleaner forms resolve by job type first, then any property-specific override.">
               <ESelect value={form.jobType} onChange={(e) => setForm((p) => ({ ...p, jobType: e.target.value as JobType }))}>
                 {JOB_TYPES.map((t) => (
@@ -547,6 +594,9 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                   <EField label="Hazards / safety notes"><ETextarea value={form.hazardNotes} onChange={(e) => setForm((p) => ({ ...p, hazardNotes: e.target.value }))} placeholder="Pets, sharps, mould, restricted areas, chemicals." /></EField>
                   <EField label="Equipment / utilities notes"><ETextarea value={form.equipmentNotes} onChange={(e) => setForm((p) => ({ ...p, equipmentNotes: e.target.value }))} placeholder="Water and power access, onsite equipment, consumables." /></EField>
                 </div>
+                <EField label="Key pickup location" hint="Where the cleaner collects keys, if not a lockbox at the property.">
+                  <EInput value={form.keyPickupLocation} onChange={(e) => setForm((p) => ({ ...p, keyPickupLocation: e.target.value }))} placeholder="e.g. Reception desk, neighbour at #4, office safe." />
+                </EField>
               </div>
             ) : null}
 

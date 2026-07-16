@@ -54,6 +54,20 @@ function fmtMoney(n: number): string {
   return `$${n.toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+/** Human word for a travel mode: car / public transport / bike / on foot. */
+function transportWord(mode: string): string {
+  switch (mode) {
+    case "transit":
+      return "public transport";
+    case "bicycling":
+      return "bike";
+    case "walking":
+      return "foot";
+    default:
+      return "car";
+  }
+}
+
 export function DailyBriefing() {
   const [day, setDay] = useState<BriefingDay>("today");
   const [collapsed, setCollapsed] = useState(false);
@@ -239,6 +253,19 @@ export function DailyBriefing() {
                     No jobs scheduled {day === "today" ? "today" : "tomorrow"} — enjoy the {day === "today" ? "day" : "downtime"}.
                   </p>
                 )}
+
+                {/* First-leg travel — home → first job in the cleaner's mode */}
+                {data.firstLegTravel ? (
+                  <p className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                    <Navigation className="h-4 w-4 shrink-0 text-[hsl(var(--e-accent-portal))]" />
+                    <span>
+                      <span className="font-[550] text-[hsl(var(--e-foreground))]">
+                        ~{data.firstLegTravel.minutes} min
+                      </span>{" "}
+                      from home to your first job by {transportWord(data.firstLegTravel.mode)}.
+                    </span>
+                  </p>
+                ) : null}
 
                 {/* ① Travel plan — leg-by-leg leave-by times + tight risks */}
                 {data.travelPlan && data.travelPlan.legs.length > 0 ? (

@@ -359,24 +359,6 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const locked = LOCKED.includes(status);
   const property = job?.property ?? {};
   const addressLine = [property.address, property.suburb, property.state, property.postcode].filter(Boolean).join(", ");
-  // accessInfo may be a plain string OR a structured object (codes/lockbox/
-  // parking/instructions/accessNotesSummary…). Render it as safe text either way.
-  const rawAccess: any = (property as any).accessInfo;
-  const accessText: string =
-    typeof rawAccess === "string"
-      ? rawAccess
-      : rawAccess && typeof rawAccess === "object"
-      ? [
-          rawAccess.accessNotesSummary,
-          rawAccess.instructions,
-          rawAccess.codes && typeof rawAccess.codes === "string" ? `Codes: ${rawAccess.codes}` : null,
-          rawAccess.lockbox && typeof rawAccess.lockbox === "string" ? `Lockbox: ${rawAccess.lockbox}` : null,
-          rawAccess.parking && typeof rawAccess.parking === "string" ? `Parking: ${rawAccess.parking}` : null,
-          rawAccess.other && typeof rawAccess.other === "string" ? rawAccess.other : null,
-        ]
-          .filter((x) => typeof x === "string" && x.trim())
-          .join("\n")
-      : "";
   const hasCheckin = Boolean(job?.gpsCheckInAt);
   const propertyId: string | null = job?.propertyId ?? (property as any)?.id ?? null;
 
@@ -1040,6 +1022,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         open={infoDrawerOpen}
         onClose={() => setInfoDrawerOpen(false)}
         property={property}
+        propertyId={propertyId}
+        keyPickupLocation={payload?.keyPickupLocation ?? null}
         contact={contact}
         readFirstItems={readFirstItems}
         restockNeeds={restockNeeds}

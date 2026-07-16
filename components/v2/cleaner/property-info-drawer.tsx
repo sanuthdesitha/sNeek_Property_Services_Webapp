@@ -7,9 +7,10 @@
  * context, restock needs, and contact numbers. Pure props — no data fetching.
  */
 import * as React from "react";
-import { Check, Copy, KeyRound, Shirt, Package, X } from "lucide-react";
+import { Check, Copy, KeyRound, MapPin, Shirt, Package, X } from "lucide-react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
+import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import { ReadFirstBlock, type ReadFirstItem } from "./read-first-block";
 import { ContactRows, type JobContact } from "./contact-sheet";
 
@@ -161,6 +162,8 @@ export function PropertyInfoDrawer({
   open,
   onClose,
   property,
+  propertyId,
+  keyPickupLocation,
   contact,
   readFirstItems,
   restockNeeds,
@@ -168,10 +171,29 @@ export function PropertyInfoDrawer({
   open: boolean;
   onClose: () => void;
   property: any;
+  /** Drives the canonical access guide render (the single access surface). */
+  propertyId?: string | null;
+  /** Where the cleaner collects keys (jobMeta.serviceContext.keyPickupLocation). */
+  keyPickupLocation?: string | null;
   contact: JobContact | null;
   readFirstItems: ReadFirstItem[];
   restockNeeds: { name: string; needed: number; unit?: string | null }[];
 }) {
+  // Text from the canonical access guide, so the flat accessInfo fallback below
+  // never repeats a datum the guide already shows.
+  const [guideTexts, setGuideTexts] = React.useState<string[]>([]);
+  const handleGuideEntries = React.useCallback((entries: any[]) => {
+    const texts: string[] = [];
+    for (const e of entries ?? []) {
+      if (typeof e?.label === "string" && e.label.trim()) texts.push(e.label);
+      if (typeof e?.instructions === "string" && e.instructions.trim()) texts.push(e.instructions);
+      for (const img of Array.isArray(e?.images) ? e.images : []) {
+        if (typeof img?.caption === "string" && img.caption.trim()) texts.push(img.caption);
+      }
+    }
+    setGuideTexts(texts);
+  }, []);
+
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -182,6 +204,7 @@ export function PropertyInfoDrawer({
   }, [open, onClose]);
 
   if (!open) return null;
+  const keyPickup = typeof keyPickupLocation === "string" ? keyPickupLocation.trim() : "";
   const title =
     (typeof property?.name === "string" && property.name.trim()) ||
     (typeof property?.suburb === "string" && property.suburb.trim()) ||
@@ -205,10 +228,31 @@ export function PropertyInfoDrawer({
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <AddressBlock property={property} />
 
-          {property?.accessInfo ? (
+          {keyPickup ? (
+            <div className="space-y-2">
+              <SectionHeading icon={<MapPin className="h-3.5 w-3.5" />}>Key pickup</SectionHeading>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-foreground))]">{keyPickup}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {propertyId || property?.accessInfo ? (
             <div className="space-y-2">
               <SectionHeading icon={<KeyRound className="h-3.5 w-3.5" />}>Access</SectionHeading>
-              <EAccessInfo accessInfo={property.accessInfo} title="Access instructions" defaultOpen />
+              {/* Canonical access surface — the SAME guide used across the portal. */}
+              {propertyId ? (
+                <PropertyAccessGuide propertyId={propertyId} embedded onEntriesLoaded={handleGuideEntries} />
+              ) : null}
+              {/* Flat accessInfo fallback, deduped against the guide above. */}
+              {property?.accessInfo ? (
+                <EAccessInfo
+                  accessInfo={property.accessInfo}
+                  title="Access instructions"
+                  defaultOpen
+                  excludeTexts={guideTexts}
+                />
+              ) : null}
             </div>
           ) : null}
 

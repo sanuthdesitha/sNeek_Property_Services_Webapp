@@ -604,6 +604,7 @@ async function syncTurnoverJobsForReservations(params: {
     defaultCheckoutTime: string;
     defaultCheckinTime: string;
     defaultEstimatedHours: number | null;
+    cleaningDurationMinutes: number | null;
     maxGuestCount: number | null;
     jobTimeSource: string;
   };
@@ -649,6 +650,15 @@ async function syncTurnoverJobsForReservations(params: {
   // event time. Only "ICAL" lets the imported feed times drive the job, falling
   // back to the property defaults when the feed omits a time.
   const useIcalTimes = params.property.jobTimeSource === "ICAL";
+
+  // Expected duration for turnover jobs. Prefer the property's explicit
+  // cleaningDurationMinutes (in hours) so accountability / clock rules that read
+  // job.estimatedHours get the configured duration; fall back to the legacy
+  // accessInfo defaultEstimatedHours when it isn't set.
+  const defaultTurnoverHours =
+    params.property.cleaningDurationMinutes && params.property.cleaningDurationMinutes > 0
+      ? params.property.cleaningDurationMinutes / 60
+      : params.property.defaultEstimatedHours;
 
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
@@ -708,7 +718,7 @@ async function syncTurnoverJobsForReservations(params: {
           scheduledDate: turnoverDate,
           startTime,
           dueTime: sameDayCheckinTime,
-          estimatedHours: params.property.defaultEstimatedHours ?? undefined,
+          estimatedHours: defaultTurnoverHours ?? undefined,
           internalNotes: mergeReservationContextIntoInternalNotes(undefined, reservationContext),
           priorityBucket: priority.priorityBucket,
           priorityReason: priority.priorityReason,
@@ -811,7 +821,7 @@ async function syncTurnoverJobsForReservations(params: {
 
     const currentEstimatedHours = normalizeEstimatedHours(existingJob.estimatedHours);
     const shouldBackfillEstimatedHours =
-      currentEstimatedHours == null && params.property.defaultEstimatedHours != null;
+      currentEstimatedHours == null && defaultTurnoverHours != null;
     const mergedInternalNotes = mergeReservationContextIntoInternalNotes(existingJob.internalNotes, reservationContext);
     const shouldUpdateReservationContext = (mergedInternalNotes ?? null) !== (existingJob.internalNotes ?? null);
     if (!params.syncOptions.updateExistingLinkedJobs && !shouldBackfillEstimatedHours && !shouldUpdateReservationContext) continue;
@@ -829,7 +839,7 @@ async function syncTurnoverJobsForReservations(params: {
         : existingJob.scheduledDate.toISOString(),
       startTime: syncDates ? startTime : existingJob.startTime ?? null,
       dueTime: syncDates ? sameDayCheckinTime : existingJob.dueTime ?? null,
-      estimatedHours: shouldBackfillEstimatedHours ? params.property.defaultEstimatedHours : currentEstimatedHours,
+      estimatedHours: shouldBackfillEstimatedHours ? defaultTurnoverHours : currentEstimatedHours,
       internalNotes: shouldUpdateReservationContext ? mergedInternalNotes ?? null : existingJob.internalNotes ?? null,
       status: existingJob.status,
       priorityBucket: syncDates
@@ -861,7 +871,7 @@ async function syncTurnoverJobsForReservations(params: {
               sameDayCheckinTime: priority.sameDayCheckinTime,
             }
           : {}),
-        ...(shouldBackfillEstimatedHours ? { estimatedHours: params.property.defaultEstimatedHours } : {}),
+        ...(shouldBackfillEstimatedHours ? { estimatedHours: defaultTurnoverHours } : {}),
         ...(shouldUpdateReservationContext ? { internalNotes: mergedInternalNotes } : {}),
       },
     });
@@ -1186,6 +1196,7 @@ export async function syncPropertyIcal(
         defaultCheckoutTime: integration.property.defaultCheckoutTime,
         defaultCheckinTime: integration.property.defaultCheckinTime,
         defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
+        cleaningDurationMinutes: integration.property.cleaningDurationMinutes,
         maxGuestCount: getPropertyMaxGuestCount(integration.property.accessInfo),
         jobTimeSource: integration.property.jobTimeSource,
       },

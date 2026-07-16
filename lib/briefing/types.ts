@@ -229,6 +229,8 @@ export interface CleanerBriefing {
   recurringIssues: BriefingRecurringIssues | null;
   /** PENDING assignments the cleaner must accept before working (accept gate). */
   acceptGate: BriefingAcceptGate | null;
+  /** Travel from the cleaner's home to the first job (their preferred mode). */
+  firstLegTravel: { minutes: number; mode: string } | null;
   /** ① Ordered travel legs with leave-by times + tight-turnaround risks. */
   travelPlan: BriefingTravelPlan | null;
   /** ② Access & quirks per stop (parking, lockbox, alarm, pet). */

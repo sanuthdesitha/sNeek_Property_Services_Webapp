@@ -49,6 +49,7 @@ import {
 } from "@/components/v2/admin/estate-kit";
 import {
   parseJobInternalNotes,
+  type JobServiceContext,
   type JobSpecialRequestTask,
   type JobTimingPreset,
 } from "@/lib/jobs/meta";
@@ -158,6 +159,10 @@ export function JobManageModal({
   const [tagsText, setTagsText] = useState("");
   const [isDraft, setIsDraft] = useState(false);
   const [specialTasks, setSpecialTasks] = useState<JobSpecialRequestTask[]>([]);
+  const [keyPickupLocation, setKeyPickupLocation] = useState("");
+  // Preserve the rest of serviceContext (access/parking/site-contact/etc.) so
+  // saving key pickup doesn't wipe the other keys the PATCH route replaces.
+  const [serviceContext, setServiceContext] = useState<JobServiceContext | undefined>(undefined);
   const [savingScope, setSavingScope] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -235,6 +240,8 @@ export function JobManageModal({
     setTagsText(meta.tags.join(", "));
     setIsDraft(meta.isDraft);
     setSpecialTasks(meta.specialRequestTasks.map((t) => ({ ...t })));
+    setServiceContext(meta.serviceContext);
+    setKeyPickupLocation(meta.serviceContext?.keyPickupLocation ?? "");
     setTemplateName(job.jobType ? `${String(job.jobType).replace(/_/g, " ")} template` : "Job template");
 
     // Billing
@@ -367,6 +374,12 @@ export function JobManageModal({
         internalNotes: internalNotes || undefined,
         isDraft,
         tags: tagsText.split(",").map((v) => v.trim()).filter(Boolean),
+        // Merge onto the preserved serviceContext so other access keys survive
+        // (the PATCH route replaces serviceContext wholesale with what we send).
+        serviceContext: {
+          ...(serviceContext ?? {}),
+          keyPickupLocation: keyPickupLocation.trim() || undefined,
+        },
         specialRequestTasks: specialTasks
           .map((t) => ({
             ...t,
@@ -752,6 +765,13 @@ export function JobManageModal({
               </EField>
               <EField label="Internal note" hint="Visible to admin and assigned cleaners only.">
                 <ETextarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} placeholder="Team-only context for this job" />
+              </EField>
+              <EField label="Key pickup location" hint="Where the cleaner collects keys, if not a lockbox at the property.">
+                <EInput
+                  value={keyPickupLocation}
+                  onChange={(e) => setKeyPickupLocation(e.target.value)}
+                  placeholder="e.g. Reception desk, neighbour at #4, office safe."
+                />
               </EField>
               <div className="grid gap-4 sm:grid-cols-2">
                 <EField label="Tags" hint="Comma-separated, free text.">
