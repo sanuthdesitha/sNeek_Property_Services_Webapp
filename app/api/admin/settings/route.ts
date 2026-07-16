@@ -157,6 +157,8 @@ const pricingSchema = z.object({
 
 const updateSchema = z.object({
   companyName: z.string().trim().min(1).optional(),
+  companyPhone: z.string().trim().optional(),
+  cleanerClientContact: z.boolean().optional(),
   projectName: z.string().trim().min(1).optional(),
   logoUrl: z.string().trim().optional(),
   logoDarkBgUrl: z.string().trim().optional(),

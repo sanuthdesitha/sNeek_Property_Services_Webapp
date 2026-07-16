@@ -13,12 +13,11 @@ import {
   EEmptyState,
   EStatCard,
 } from "@/components/v2/ui/primitives";
-import { AlertTriangle, CheckCircle2, ChevronRight, Clock, MapPin, BellRing, Megaphone, Pin } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Clock, MapPin, Timer } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { DailyBriefing } from "@/components/v2/cleaner/daily-briefing";
 import { CleanerCoachingCard } from "@/components/v2/cleaner/coaching-card";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
-import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 
 export const metadata = { title: "Today · Estate cleaner" };
@@ -68,6 +67,23 @@ function isSameLocalDay(date: Date, now: Date) {
   );
 }
 
+/** Full, never-truncated address line: "address, suburb STATE postcode". */
+function fullAddress(p: { address: string | null; suburb: string | null; state: string | null; postcode: string | null }): string {
+  const locality = [p.suburb, p.state, p.postcode].filter(Boolean).join(" ");
+  return [p.address, locality].filter(Boolean).join(", ");
+}
+
+/** Expected on-site duration — minutes preferred, hours as a fallback. */
+function durationLabel(minutes: number | null | undefined, hours: number | null | undefined): string | null {
+  if (minutes && minutes > 0) {
+    if (minutes < 60) return `~${minutes} min`;
+    const h = minutes / 60;
+    return `~${Number.isInteger(h) ? h : h.toFixed(1)} h`;
+  }
+  if (hours && hours > 0) return `~${Number.isInteger(hours) ? hours : hours.toFixed(1)} h`;
+  return null;
+}
+
 /**
  * This cleaner's active jobs for the next 7 days — mirrors the live cleaner
  * dashboard query (assignments scoped to the session user, removedAt null,
@@ -88,7 +104,17 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
         scheduledDate: true,
         startTime: true,
         dueTime: true,
-        property: { select: { name: true, address: true, suburb: true } },
+        estimatedHours: true,
+        property: {
+          select: {
+            name: true,
+            address: true,
+            suburb: true,
+            state: true,
+            postcode: true,
+            cleaningDurationMinutes: true,
+          },
+        },
       },
       orderBy: [
         { scheduledDate: "asc" },
@@ -114,17 +140,22 @@ export default async function CleanerTodayPage() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const nextWeek = new Date(todayStart.getTime() + 7 * 86_400_000);
 
-  const [jobs, urgentItems, teamPosts] = await Promise.all([
+  const [jobs, urgentItems] = await Promise.all([
     getCleanerWeekJobs(session.user.id, todayStart, nextWeek),
     getCleanerImmediateAttention(session.user.id).catch(() => []),
-    getWorkforceDashboardPosts(session.user.id, 3).catch(() => []),
   ]);
 
   const visibleUrgent = urgentItems.filter((item) => Number(item.count) > 0);
   const offeredJobs = jobs.filter((j) => j.status === "OFFERED");
   const todayJobs = jobs.filter((j) => isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now));
-  const laterToday = todayJobs.slice(1);
   const nextJob = todayJobs[0] ?? jobs[0] ?? null;
+
+  // "My day" = everything that wants your attention today: today's scheduled
+  // jobs plus any outstanding offers (which may be for a future day). `jobs` is
+  // already ordered by date → priority → time, so the timeline stays in order.
+  const myDay = jobs.filter(
+    (j) => j.status === "OFFERED" || isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now)
+  );
 
   const dateLine = format(now, "EEEE · d MMMM").toUpperCase();
   const greeting = now.getHours() < 12 ? "Morning" : now.getHours() < 17 ? "Afternoon" : "Evening";
@@ -144,7 +175,7 @@ export default async function CleanerTodayPage() {
         </p>
       </header>
 
-      {/* Cleaner daily briefing — concise plan-your-day panel (Today | Tomorrow) */}
+      {/* Cleaner daily briefing — concise plan-your-day panel with weather */}
       <DailyBriefing />
 
       {/* Coaching & feedback — self-hides when the cleaner has no records */}
@@ -200,96 +231,95 @@ export default async function CleanerTodayPage() {
         </section>
       ) : null}
 
-      {/* Offered jobs — accept or decline before they land in the schedule */}
-      {offeredJobs.length > 0 ? (
+      {/* My day — one vertical timeline of today's jobs + outstanding offers */}
+      {myDay.length > 0 ? (
         <section className="space-y-3">
-          <span className="e-eyebrow flex items-center gap-1.5">
-            <BellRing className="h-3.5 w-3.5" /> NEW OFFERS ({offeredJobs.length})
-          </span>
-          {offeredJobs.map((j) => (
-            <ECard key={j.id} variant="ceremony">
-              <ECardBody className="space-y-3 pt-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/v2/cleaner/jobs/${j.id}`}
-                      className="truncate text-[0.9375rem] font-[600] hover:underline"
-                    >
-                      {j.property.name}
-                    </Link>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {[
-                        format(toZonedTime(j.scheduledDate, TZ), "EEE d MMM"),
-                        j.startTime || null,
-                        titleCase(j.jobType),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
+          <span className="e-eyebrow">MY DAY</span>
+          {myDay.map((j) => {
+            const isOffered = j.status === "OFFERED";
+            const isToday = isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now);
+            const timeWindow = j.startTime
+              ? j.dueTime
+                ? `${j.startTime}–${j.dueTime}`
+                : j.startTime
+              : "Time TBC";
+            const address = fullAddress(j.property);
+            const duration = durationLabel(j.property.cleaningDurationMinutes, j.estimatedHours);
+            const mapsHref = address
+              ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`
+              : null;
+            return (
+              <ECard key={j.id} variant={isOffered ? "ceremony" : "default"}>
+                <ECardBody className="space-y-3 pt-6">
+                  {/* Time window + status */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5 text-[0.8125rem] font-[550] tabular-nums text-[hsl(var(--e-text-secondary))]">
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      {timeWindow}
+                      {!isToday ? (
+                        <span className="text-[hsl(var(--e-muted-foreground))]">
+                          · {format(toZonedTime(j.scheduledDate, TZ), "EEE d MMM")}
+                        </span>
+                      ) : null}
+                    </span>
+                    <EBadge tone={statusTone(j.status)} soft>
+                      {titleCase(j.status)}
+                    </EBadge>
                   </div>
-                  <EBadge tone="warning" soft>
-                    Offered
-                  </EBadge>
-                </div>
-                <JobOfferActions jobId={j.id} size="md" />
-              </ECardBody>
-            </ECard>
-          ))}
-        </section>
-      ) : null}
 
-      {/* Next job — the hero card */}
-      {nextJob ? (
-        <ECard variant="ceremony">
-          <ECardBody className="space-y-3 pt-6">
-            <div className="flex items-center justify-between">
-              <EEyebrow>
-                {todayJobs[0]?.id === nextJob.id ? "NEXT JOB · TODAY" : "NEXT JOB"}
-              </EEyebrow>
-              <EBadge tone="info" soft>
-                <Clock className="h-3 w-3" />{" "}
-                {nextJob.startTime ? `Due ${nextJob.startTime}` : "TBC"}
-              </EBadge>
-            </div>
-            <p className="e-display-sm">{nextJob.property.name}</p>
-            <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
-              {[nextJob.property.suburb, titleCase(nextJob.jobType)].filter(Boolean).join(" · ")}
-            </p>
-            <p className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).join(", ")}
-              </span>
-            </p>
-            {nextJob.status === "OFFERED" ? (
-              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
-                <p className="mb-2 text-[0.8125rem] font-[550]">
-                  You've been offered this job — respond to add it to your schedule.
-                </p>
-                <JobOfferActions jobId={nextJob.id} size="md" />
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-              <EButton asChild variant="gold" className="w-full"><Link href={`/v2/cleaner/jobs/${nextJob.id}`} className="flex-1">
-                  Open job <ChevronRight className="h-4 w-4" />
-                </Link></EButton>
-              {[nextJob.property.address, nextJob.property.suburb].filter(Boolean).length > 0 ? (
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                    [nextJob.property.address, nextJob.property.suburb].filter(Boolean).join(", ")
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex-1"
-                >
-                  <EButton variant="outline" className="w-full">
-                    <MapPin className="h-4 w-4" /> Navigate
-                  </EButton>
-                </a>
-              ) : null}
-            </div>
-          </ECardBody>
-        </ECard>
+                  {/* Property name (large) */}
+                  <p className="e-display-sm leading-tight">{j.property.name}</p>
+
+                  {/* Full address — never truncated */}
+                  {address ? (
+                    <p className="flex items-start gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span className="break-words">{address}</span>
+                    </p>
+                  ) : null}
+
+                  {/* Job type + expected duration */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <EBadge tone="neutral" soft>
+                      {titleCase(j.jobType)}
+                    </EBadge>
+                    {duration ? (
+                      <span className="flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        <Timer className="h-3.5 w-3.5" /> {duration}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* OFFERED jobs respond inline before landing in the schedule */}
+                  {isOffered ? (
+                    <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                      <p className="mb-2 text-[0.8125rem] font-[550]">
+                        You&apos;ve been offered this job — respond to add it to your schedule.
+                      </p>
+                      <JobOfferActions jobId={j.id} size="md" />
+                    </div>
+                  ) : null}
+
+                  {/* One primary action per card + optional navigate */}
+                  <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+                    <EButton asChild variant="gold" className="w-full sm:flex-1">
+                      <Link href={`/v2/cleaner/jobs/${j.id}`}>
+                        Open job <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </EButton>
+                    {mapsHref ? (
+                      <a href={mapsHref} target="_blank" rel="noreferrer" className="sm:flex-1">
+                        <EButton variant="outline" className="w-full">
+                          <MapPin className="h-4 w-4" /> Navigate
+                        </EButton>
+                      </a>
+                    ) : null}
+                  </div>
+                </ECardBody>
+              </ECard>
+            );
+          })}
+        </section>
       ) : (
         <EEmptyState
           eyebrow="All clear"
@@ -297,86 +327,6 @@ export default async function CleanerTodayPage() {
           description="You have no jobs booked for today or the days ahead."
         />
       )}
-
-      {/* Later today */}
-      {laterToday.length > 0 ? (
-        <section className="space-y-3">
-          <span className="e-eyebrow">LATER TODAY</span>
-          {laterToday.map((j) => {
-            const isOffered = j.status === "OFFERED";
-            const body = (
-              <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
-                <div className="flex h-11 w-11 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-                  <span className="text-[0.8125rem] font-semibold tabular-nums">
-                    {j.startTime || "—"}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {titleCase(j.jobType)}
-                  </p>
-                </div>
-                <EBadge tone={statusTone(j.status)} soft>
-                  {titleCase(j.status)}
-                </EBadge>
-                {isOffered ? (
-                  <div className="w-full">
-                    <JobOfferActions jobId={j.id} size="sm" />
-                  </div>
-                ) : null}
-              </ECardBody>
-            );
-            // OFFERED rows carry inline Accept/Decline buttons, so they must not
-            // be wrapped in an anchor (no interactive controls inside a link).
-            return isOffered ? (
-              <ECard key={j.id}>{body}</ECard>
-            ) : (
-              <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
-                <ECard>{body}</ECard>
-              </Link>
-            );
-          })}
-        </section>
-      ) : null}
-
-      {/* Team updates — the latest workforce posts, same feed as the v1 dashboard */}
-      {teamPosts.length > 0 ? (
-        <section className="space-y-3">
-          <span className="e-eyebrow flex items-center gap-1.5">
-            <Megaphone className="h-3.5 w-3.5" /> TEAM UPDATES
-          </span>
-          {teamPosts.map((post: any) => (
-            <ECard key={post.id} variant={post.pinned ? "ceremony" : "default"}>
-              <ECardBody className="space-y-2 pt-6">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    {post.pinned ? <Pin className="h-3.5 w-3.5 text-[hsl(var(--e-gold-ink))]" /> : null}
-                    <EBadge tone={post.type === "RECOGNITION" ? "gold" : "info"} soft>
-                      {titleCase(String(post.type || "UPDATE"))}
-                    </EBadge>
-                  </div>
-                  <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                    {format(toZonedTime(new Date(post.createdAt), TZ), "d MMM")}
-                  </span>
-                </div>
-                <p className="text-[0.9375rem] font-[550]">{post.title}</p>
-                <p className="line-clamp-3 whitespace-pre-wrap text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
-                  {post.body}
-                </p>
-                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {post.createdBy?.name || "Team"}
-                </p>
-              </ECardBody>
-            </ECard>
-          ))}
-          <EButton asChild variant="ghost" size="sm">
-            <Link href="/v2/cleaner/hub">
-              Open team hub <ChevronRight className="h-4 w-4" />
-            </Link>
-          </EButton>
-        </section>
-      ) : null}
 
       {/* End of day (signature moment) */}
       {jobCount > 0 ? (

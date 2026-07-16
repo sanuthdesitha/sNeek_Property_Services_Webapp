@@ -86,6 +86,8 @@ export function FormRenderer({
   onAnswer,
   onUpload,
   disabled = false,
+  collapsibleSections = false,
+  sectionProgress,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
@@ -96,8 +98,27 @@ export function FormRenderer({
   onAnswer: (fieldId: string, value: unknown) => void;
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled?: boolean;
+  /**
+   * Opt-in "room accordion" mode: every section becomes collapsible, collapsed
+   * by default except the first incomplete one. Default false → unchanged
+   * behaviour (each section honours its own `section.collapsible`, open).
+   */
+  collapsibleSections?: boolean;
+  /** Optional per-section "done/total" tally shown in the section header. */
+  sectionProgress?: (sectionId: string) => { done: number; total: number } | undefined;
 }) {
   const sections = Array.isArray(schema?.sections) ? schema.sections : [];
+
+  // In accordion mode, open only the first section that still has incomplete
+  // required items (falls back to the first section when all are complete).
+  const firstIncompleteSectionId = React.useMemo(() => {
+    if (!collapsibleSections || !sectionProgress) return null;
+    for (const section of sections) {
+      const p = sectionProgress(section.id);
+      if (p && p.done < p.total) return section.id;
+    }
+    return sections[0]?.id ?? null;
+  }, [collapsibleSections, sectionProgress, sections]);
 
   // Track which fields the cleaner has touched so inline errors don't scream
   // before they've had a chance to fill anything in.
@@ -175,6 +196,24 @@ export function FormRenderer({
     return () => window.removeEventListener("sneek:validate-form", onValidate as EventListener);
   }, [errors, scrollToField]);
 
+  // External integration point: `sneek:focus-field` { detail: { match } } scrolls
+  // to and focuses the first field whose id contains `match` (case-insensitive).
+  // Used by the Clean stage's "Report an exception" shortcut to jump to the
+  // exceptions field. No-op when nothing matches.
+  React.useEffect(() => {
+    const onFocusField = (e: Event) => {
+      const match = String((e as CustomEvent)?.detail?.match ?? "").toLowerCase();
+      if (!match) return;
+      const id = Array.from(anchorsRef.current.keys()).find((k) => k.toLowerCase().includes(match));
+      if (id) {
+        setRevealAll(true);
+        requestAnimationFrame(() => scrollToField(id));
+      }
+    };
+    window.addEventListener("sneek:focus-field", onFocusField as EventListener);
+    return () => window.removeEventListener("sneek:focus-field", onFocusField as EventListener);
+  }, [scrollToField]);
+
   const validation = React.useMemo<ValidationCtx>(
     () => ({
       errorFor: (fieldId: string) => errorMap.get(fieldId),
@@ -207,6 +246,9 @@ export function FormRenderer({
             onAnswer={handleAnswer}
             onUpload={handleUpload}
             disabled={disabled}
+            forceCollapsible={collapsibleSections}
+            defaultOpen={collapsibleSections ? section.id === firstIncompleteSectionId : true}
+            progress={sectionProgress?.(section.id)}
           />
         ))}
 
@@ -266,6 +308,9 @@ function SectionBlock({
   onAnswer,
   onUpload,
   disabled,
+  forceCollapsible = false,
+  defaultOpen = true,
+  progress,
 }: {
   section: FormSection;
   answers: AnswerMap;
@@ -274,9 +319,17 @@ function SectionBlock({
   onAnswer: (fieldId: string, value: unknown) => void;
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled: boolean;
+  /** Accordion mode — makes this section collapsible regardless of schema flag. */
+  forceCollapsible?: boolean;
+  /** Initial open state in accordion mode. */
+  defaultOpen?: boolean;
+  /** Optional "done/total" tally for the header badge. */
+  progress?: { done: number; total: number };
 }) {
-  const [open, setOpen] = React.useState(true);
+  const [open, setOpen] = React.useState(defaultOpen);
   const [guided, setGuided] = React.useState(false);
+  const collapsible = forceCollapsible || Boolean(section.collapsible);
+  const complete = progress != null && progress.total > 0 && progress.done >= progress.total;
   if (!isTemplateNodeVisible(section as any, answers, property)) return null;
 
   const fields = flattenFieldsOneLevel(section.fields);
@@ -313,7 +366,7 @@ function SectionBlock({
     <section className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <button
         type="button"
-        onClick={() => section.collapsible && setOpen((v) => !v)}
+        onClick={() => collapsible && setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-2 p-4 text-left"
       >
         <div className="min-w-0">
@@ -324,9 +377,23 @@ function SectionBlock({
             </p>
           ) : null}
         </div>
-        {section.collapsible ? (
-          open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {progress && progress.total > 0 ? (
+            <span
+              className={cn(
+                "rounded-[var(--e-radius-pill)] px-2 py-0.5 text-[0.6875rem] font-[600] tabular-nums",
+                complete
+                  ? "bg-[hsl(var(--e-success-soft))] text-[hsl(var(--e-success))]"
+                  : "bg-[hsl(var(--e-muted))] text-[hsl(var(--e-muted-foreground))]"
+              )}
+            >
+              {progress.done}/{progress.total}
+            </span>
+          ) : null}
+          {collapsible ? (
+            open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />
+          ) : null}
+        </div>
       </button>
       {open ? (
         <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">

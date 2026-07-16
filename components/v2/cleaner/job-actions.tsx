@@ -18,6 +18,10 @@
  *
  * Rendered inside JobWorkspace once the job is live (not while OFFERED / locked).
  * Zero dependency on the v1 component tree — Estate primitives + tokens only.
+ *
+ * Each inner block is also EXPORTED and accepts an `embedded` prop so the
+ * journey-stage ActionFab can render just its body inside a bottom sheet
+ * (no card chrome, form open by default). `JobActions` itself is unchanged.
  */
 import * as React from "react";
 import {
@@ -50,6 +54,25 @@ async function postJson(url: string, body: unknown) {
 
 function titleCase(v: string) {
   return v.toLowerCase().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+/**
+ * Chrome wrapper: full card (default) OR a bare block when `embedded` — so the
+ * same body renders standalone inside the ActionFab sheet.
+ */
+function Block({
+  embedded,
+  children,
+}: {
+  embedded?: boolean;
+  children: React.ReactNode;
+}) {
+  if (embedded) return <div className="space-y-3">{children}</div>;
+  return (
+    <ECard>
+      <ECardBody className="space-y-3 pt-6">{children}</ECardBody>
+    </ECard>
+  );
 }
 
 export function JobActions({
@@ -97,14 +120,16 @@ function LocalNotice({ notice }: { notice: Notice }) {
 }
 
 /* ── Safety check-in ─────────────────────────────────────────────────────── */
-function SafetyCheckin({
+export function SafetyCheckin({
   jobId,
   safetyCheckinAt,
   onChanged,
+  embedded,
 }: {
   jobId: string;
   safetyCheckinAt?: string | null;
   onChanged?: () => void;
+  embedded?: boolean;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState(Boolean(safetyCheckinAt));
@@ -126,37 +151,32 @@ function SafetyCheckin({
   }
 
   return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-            {done ? <ShieldCheck className="h-4 w-4 text-[hsl(var(--e-success))]" /> : <Shield className="h-4 w-4" />}
-            {done ? "Safety check-in confirmed" : "Safety check-in required"}
+    <Block embedded={embedded}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+          {done ? <ShieldCheck className="h-4 w-4 text-[hsl(var(--e-success))]" /> : <Shield className="h-4 w-4" />}
+          {done ? "Safety check-in confirmed" : "Safety check-in required"}
+        </p>
+        {done ? <EBadge tone="success" soft>Confirmed</EBadge> : <EBadge tone="warning" soft>Pending</EBadge>}
+      </div>
+      {!done ? (
+        <>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            This job needs a safety confirmation. Tap once you&apos;re on site and safe.
           </p>
-          {done ? <EBadge tone="success" soft>Confirmed</EBadge> : <EBadge tone="warning" soft>Pending</EBadge>}
-        </div>
-        {!done ? (
-          <>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              This job needs a safety confirmation. Tap once you&apos;re on site and safe.
-            </p>
-            <EButton variant="primary" size="sm" disabled={busy} onClick={confirm}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              I&apos;m safe
-            </EButton>
-          </>
-        ) : null}
-        <LocalNotice notice={notice} />
-      </ECardBody>
-    </ECard>
+          <EButton variant="primary" size="sm" disabled={busy} onClick={confirm}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            I&apos;m safe
+          </EButton>
+        </>
+      ) : null}
+      <LocalNotice notice={notice} />
+    </Block>
   );
 }
 
-/* ── Early checkout / check-in requests — view + approve/decline ──────────
-   PENDING requests raised by admin can be approved or declined by the
-   assigned cleaner: PATCH /api/cleaner/job-early-checkouts/[requestId]
-   { decision: "APPROVE" | "DECLINE" } — same contract as v1. */
-function EarlyCheckoutStatus({ jobId }: { jobId: string }) {
+/* ── Early checkout / check-in requests — view + approve/decline ──────────── */
+export function EarlyCheckoutStatus({ jobId, embedded }: { jobId: string; embedded?: boolean }) {
   const [rows, setRows] = React.useState<any[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<Notice>(null);
@@ -202,55 +222,55 @@ function EarlyCheckoutStatus({ jobId }: { jobId: string }) {
   const latest = rows[0];
   const pending = String(latest.status ?? "").toUpperCase() === "PENDING";
 
+  const content = (
+    <>
+      <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+        <LogOut className="h-4 w-4" /> Timing request
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+        <EBadge tone="info" soft>
+          {latest.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}
+        </EBadge>
+        {latest.status ? (
+          <EBadge tone={pending ? "warning" : "neutral"} soft>
+            {titleCase(String(latest.status))}
+          </EBadge>
+        ) : null}
+      </div>
+      {latest.reason ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{latest.reason}</p> : null}
+      <LocalNotice notice={notice} />
+      {pending ? (
+        <div className="flex flex-wrap gap-2 pt-1">
+          <EButton size="sm" disabled={busy !== null} onClick={() => void respond(latest.id, "APPROVE")}>
+            {busy === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Approve
+          </EButton>
+          <EButton size="sm" variant="outline" disabled={busy !== null} onClick={() => void respond(latest.id, "DECLINE")}>
+            {busy === "DECLINE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Decline
+          </EButton>
+        </div>
+      ) : null}
+    </>
+  );
+
+  if (embedded) return <div className="space-y-2">{content}</div>;
   return (
     <ECard variant={pending ? "ceremony" : "default"}>
-      <ECardBody className="space-y-2 pt-6">
-        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-          <LogOut className="h-4 w-4" /> Timing request
-        </p>
-        <div className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-          <EBadge tone="info" soft>
-            {latest.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}
-          </EBadge>
-          {latest.status ? (
-            <EBadge tone={pending ? "warning" : "neutral"} soft>
-              {titleCase(String(latest.status))}
-            </EBadge>
-          ) : null}
-        </div>
-        {latest.reason ? (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{latest.reason}</p>
-        ) : null}
-        <LocalNotice notice={notice} />
-        {pending ? (
-          <div className="flex flex-wrap gap-2 pt-1">
-            <EButton size="sm" disabled={busy !== null} onClick={() => void respond(latest.id, "APPROVE")}>
-              {busy === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Approve
-            </EButton>
-            <EButton
-              size="sm"
-              variant="outline"
-              disabled={busy !== null}
-              onClick={() => void respond(latest.id, "DECLINE")}
-            >
-              {busy === "DECLINE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Decline
-            </EButton>
-          </div>
-        ) : null}
-      </ECardBody>
+      <ECardBody className="space-y-2 pt-6">{content}</ECardBody>
     </ECard>
   );
 }
 
 /* ── Continuation / reschedule request ───────────────────────────────────── */
-function ContinuationRequest({
+export function ContinuationRequest({
   jobId,
   hasStarted,
   onChanged,
+  embedded,
 }: {
   jobId: string;
   hasStarted?: boolean;
   onChanged?: () => void;
+  embedded?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
@@ -259,6 +279,7 @@ function ContinuationRequest({
   const [busy, setBusy] = React.useState(false);
   const [notice, setNotice] = React.useState<Notice>(null);
   const [pending, setPending] = React.useState(false);
+  const showForm = embedded || open;
 
   React.useEffect(() => {
     let alive = true;
@@ -307,74 +328,78 @@ function ContinuationRequest({
   }
 
   return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-          <CalendarClock className="h-4 w-4" /> Can&apos;t finish today?
-        </p>
-        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          Request continuation approval to finish this job on another visit.
-        </p>
-        {pending ? (
-          <EBadge tone="warning" soft>Waiting for continuation approval</EBadge>
-        ) : !open ? (
-          <EButton
-            variant="outline"
-            size="sm"
-            disabled={!hasStarted}
-            onClick={() => setOpen(true)}
-          >
-            <CalendarClock className="h-4 w-4" /> Request continuation
-          </EButton>
-        ) : (
-          <div className="space-y-3">
-            <EField label="Reason (required)">
-              <ETextarea
-                placeholder="Why can't the job be completed today?"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-            </EField>
-            <EField label="Preferred continuation date (optional)">
-              <EInput type="date" value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
-            </EField>
-            <EField label="Estimated remaining hours (optional)">
-              <EInput
-                type="number"
-                min="0"
-                step="0.5"
-                value={remainingHours}
-                onChange={(e) => setRemainingHours(e.target.value)}
-              />
-            </EField>
-            <div className="flex gap-2">
-              <EButton variant="gold" size="sm" disabled={busy} onClick={submit}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Send request
-              </EButton>
+    <Block embedded={embedded}>
+      <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+        <CalendarClock className="h-4 w-4" /> Can&apos;t finish today?
+      </p>
+      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        Request continuation approval to finish this job on another visit.
+      </p>
+      {pending ? (
+        <EBadge tone="warning" soft>Waiting for continuation approval</EBadge>
+      ) : !showForm ? (
+        <EButton variant="outline" size="sm" disabled={!hasStarted} onClick={() => setOpen(true)}>
+          <CalendarClock className="h-4 w-4" /> Request continuation
+        </EButton>
+      ) : (
+        <div className="space-y-3">
+          <EField label="Reason (required)">
+            <ETextarea
+              placeholder="Why can't the job be completed today?"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </EField>
+          <EField label="Preferred continuation date (optional)">
+            <EInput type="date" value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+          </EField>
+          <EField label="Estimated remaining hours (optional)">
+            <EInput
+              type="number"
+              min="0"
+              step="0.5"
+              value={remainingHours}
+              onChange={(e) => setRemainingHours(e.target.value)}
+            />
+          </EField>
+          <div className="flex gap-2">
+            <EButton variant="gold" size="sm" disabled={busy || !hasStarted} onClick={submit}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Send request
+            </EButton>
+            {!embedded ? (
               <EButton variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
                 Cancel
               </EButton>
-            </div>
+            ) : null}
           </div>
-        )}
-        {!hasStarted && !pending ? (
-          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Start the job before requesting continuation.</p>
-        ) : null}
-        <LocalNotice notice={notice} />
-      </ECardBody>
-    </ECard>
+        </div>
+      )}
+      {!hasStarted && !pending ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Start the job before requesting continuation.</p>
+      ) : null}
+      <LocalNotice notice={notice} />
+    </Block>
   );
 }
 
 /* ── Extra pay request ───────────────────────────────────────────────────── */
-function ExtraPayRequest({ jobId, onChanged }: { jobId: string; onChanged?: () => void }) {
+export function ExtraPayRequest({
+  jobId,
+  onChanged,
+  embedded,
+}: {
+  jobId: string;
+  onChanged?: () => void;
+  embedded?: boolean;
+}) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [notice, setNotice] = React.useState<Notice>(null);
+  const showForm = embedded || open;
 
   async function submit() {
     setNotice(null);
@@ -408,52 +433,52 @@ function ExtraPayRequest({ jobId, onChanged }: { jobId: string; onChanged?: () =
   }
 
   return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-          <DollarSign className="h-4 w-4" /> Extra pay request
-        </p>
-        {!open ? (
-          <>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Request additional pay for extra work on this job — routed to admin, never the client.
-            </p>
-            <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
-              <DollarSign className="h-4 w-4" /> Request extra pay
+    <Block embedded={embedded}>
+      <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+        <DollarSign className="h-4 w-4" /> Extra pay request
+      </p>
+      {!showForm ? (
+        <>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Request additional pay for extra work on this job — routed to admin, never the client.
+          </p>
+          <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
+            <DollarSign className="h-4 w-4" /> Request extra pay
+          </EButton>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <EField label="Title (required)">
+            <EInput placeholder="e.g. Extra bathroom deep clean" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </EField>
+          <EField label="Details (optional)">
+            <ETextarea value={description} onChange={(e) => setDescription(e.target.value)} />
+          </EField>
+          <EField label="Amount (AUD, required)">
+            <EInput
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </EField>
+          <div className="flex gap-2">
+            <EButton variant="gold" size="sm" disabled={busy} onClick={submit}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Send request
             </EButton>
-          </>
-        ) : (
-          <div className="space-y-3">
-            <EField label="Title (required)">
-              <EInput placeholder="e.g. Extra bathroom deep clean" value={title} onChange={(e) => setTitle(e.target.value)} />
-            </EField>
-            <EField label="Details (optional)">
-              <ETextarea value={description} onChange={(e) => setDescription(e.target.value)} />
-            </EField>
-            <EField label="Amount (AUD, required)">
-              <EInput
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </EField>
-            <div className="flex gap-2">
-              <EButton variant="gold" size="sm" disabled={busy} onClick={submit}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Send request
-              </EButton>
+            {!embedded ? (
               <EButton variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
                 Cancel
               </EButton>
-            </div>
+            ) : null}
           </div>
-        )}
-        <LocalNotice notice={notice} />
-      </ECardBody>
-    </ECard>
+        </div>
+      )}
+      <LocalNotice notice={notice} />
+    </Block>
   );
 }
 
@@ -465,7 +490,15 @@ const DAMAGE_SEVERITY: Array<{ value: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"; la
   { value: "CRITICAL", label: "Critical" },
 ];
 
-function DamageReport({ jobId, onChanged }: { jobId: string; onChanged?: () => void }) {
+export function DamageReport({
+  jobId,
+  onChanged,
+  embedded,
+}: {
+  jobId: string;
+  onChanged?: () => void;
+  embedded?: boolean;
+}) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [area, setArea] = React.useState("");
@@ -475,6 +508,7 @@ function DamageReport({ jobId, onChanged }: { jobId: string; onChanged?: () => v
   const [photos, setPhotos] = React.useState<CapturedMedia[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [notice, setNotice] = React.useState<Notice>(null);
+  const showForm = embedded || open;
 
   async function submit() {
     setNotice(null);
@@ -515,69 +549,65 @@ function DamageReport({ jobId, onChanged }: { jobId: string; onChanged?: () => v
   }
 
   return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-          <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" /> Report damage
-        </p>
-        {!open ? (
-          <>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Found damage or something needing cost recovery? Report it with photos.
-            </p>
-            <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
-              <AlertTriangle className="h-4 w-4" /> Report damage
+    <Block embedded={embedded}>
+      <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
+        <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" /> Report damage
+      </p>
+      {!showForm ? (
+        <>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Found damage or something needing cost recovery? Report it with photos.
+          </p>
+          <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
+            <AlertTriangle className="h-4 w-4" /> Report damage
+          </EButton>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <EField label="Title (required)">
+            <EInput placeholder="e.g. Cracked shower screen" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </EField>
+          <EField label="Area / room (optional)">
+            <EInput value={area} onChange={(e) => setArea(e.target.value)} />
+          </EField>
+          <EField label="Severity">
+            <ESelect value={severity} onChange={(e) => setSeverity(e.target.value as any)}>
+              {DAMAGE_SEVERITY.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </ESelect>
+          </EField>
+          <EField label="Description (optional)">
+            <ETextarea value={description} onChange={(e) => setDescription(e.target.value)} />
+          </EField>
+          <EField label="Estimated cost (AUD, optional)">
+            <EInput
+              type="number"
+              min="0"
+              step="0.01"
+              value={estimatedCost}
+              onChange={(e) => setEstimatedCost(e.target.value)}
+            />
+          </EField>
+          <EField label="Evidence photos (required)">
+            <MediaCapture value={photos} onChange={setPhotos} mode="photo" folder="evidence" multiple stamp={{ tag: "damage", contextLabel: "Damage report" }} />
+          </EField>
+          <div className="flex gap-2">
+            <EButton variant="danger" size="sm" disabled={busy} onClick={submit}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Submit damage report
             </EButton>
-          </>
-        ) : (
-          <div className="space-y-3">
-            <EField label="Title (required)">
-              <EInput
-                placeholder="e.g. Cracked shower screen"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </EField>
-            <EField label="Area / room (optional)">
-              <EInput value={area} onChange={(e) => setArea(e.target.value)} />
-            </EField>
-            <EField label="Severity">
-              <ESelect value={severity} onChange={(e) => setSeverity(e.target.value as any)}>
-                {DAMAGE_SEVERITY.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-            <EField label="Description (optional)">
-              <ETextarea value={description} onChange={(e) => setDescription(e.target.value)} />
-            </EField>
-            <EField label="Estimated cost (AUD, optional)">
-              <EInput
-                type="number"
-                min="0"
-                step="0.01"
-                value={estimatedCost}
-                onChange={(e) => setEstimatedCost(e.target.value)}
-              />
-            </EField>
-            <EField label="Evidence photos (required)">
-              <MediaCapture value={photos} onChange={setPhotos} mode="photo" folder="evidence" multiple stamp={{ tag: "damage", contextLabel: "Damage report" }} />
-            </EField>
-            <div className="flex gap-2">
-              <EButton variant="danger" size="sm" disabled={busy} onClick={submit}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Submit damage report
-              </EButton>
+            {!embedded ? (
               <EButton variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
                 Cancel
               </EButton>
-            </div>
+            ) : null}
           </div>
-        )}
-        <LocalNotice notice={notice} />
-      </ECardBody>
-    </ECard>
+        </div>
+      )}
+      <LocalNotice notice={notice} />
+    </Block>
   );
 }

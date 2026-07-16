@@ -290,6 +290,12 @@ export type PortalTheme = "dark" | "light" | "public";
 
 export interface AppSettings {
   companyName: string;
+  /** Office / dispatch phone number surfaced to cleaners on their jobs (and
+   *  usable on documents). Empty string = not configured. */
+  companyPhone: string;
+  /** When true (default) cleaners see the client's name & phone on their jobs;
+   *  when false the client contact is withheld from the cleaner portal. */
+  cleanerClientContact: boolean;
   projectName: string;
   // Primary logo, for LIGHT backgrounds (white/ivory) — quotes, invoices,
   // checklists, reports, emails. Should be the coloured/dark artwork.
@@ -502,6 +508,8 @@ export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
+  companyPhone: "",
+  cleanerClientContact: true,
   projectName: "sneek-ops-dashboard",
   logoUrl: "",
   logoDarkBgUrl: "",
@@ -1346,6 +1354,14 @@ function sanitizeSettings(input: unknown): AppSettings {
     companyName: typeof (parsed as any).companyName === "string" && (parsed as any).companyName.trim()
       ? (parsed as any).companyName.trim()
       : DEFAULT_SETTINGS.companyName,
+    companyPhone:
+      typeof (parsed as any).companyPhone === "string"
+        ? (parsed as any).companyPhone.trim()
+        : DEFAULT_SETTINGS.companyPhone,
+    cleanerClientContact:
+      typeof (parsed as any).cleanerClientContact === "boolean"
+        ? (parsed as any).cleanerClientContact
+        : DEFAULT_SETTINGS.cleanerClientContact,
     projectName: typeof parsed.projectName === "string" && parsed.projectName.trim()
       ? parsed.projectName.trim()
       : DEFAULT_SETTINGS.projectName,

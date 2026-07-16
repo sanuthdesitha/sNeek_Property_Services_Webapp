@@ -2,39 +2,16 @@
 
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
-import {
-  Home,
-  CalendarDays,
-  CalendarRange,
-  Navigation,
-  Users,
-  ShoppingCart,
-  Package,
-  PackageSearch,
-  Receipt,
-  HandCoins,
-  Search,
-  User,
-  Settings,
-} from "lucide-react";
+import { Home, CalendarDays, CalendarRange, LayoutGrid } from "lucide-react";
 
-// Flat NavItem list covering every important cleaner surface. The PortalShell
-// renders it as the rail (desktop) + drawer (mobile); the bottom tab bar shows
-// the first handful. Everything is native Estate — no v1 UI is mounted.
+// Four-item cleaner nav — a clean phone-first bottom tab bar (PortalShell renders
+// nav.slice(0,5) as the mobile tabs and the full list as the desktop rail/drawer).
+// Everything else lives one tap away under "More". Native Estate — no v1 UI.
 const NAV: NavItem[] = [
-  { href: "/v2/cleaner", label: "Home", icon: Home },
-  { href: "/v2/cleaner/jobs", label: "Jobs · Today", icon: CalendarDays },
-  { href: "/v2/cleaner/calendar", label: "Calendar", icon: CalendarRange },
-  { href: "/v2/cleaner/route", label: "Route · Driving", icon: Navigation },
-  { href: "/v2/cleaner/hub", label: "Team hub", icon: Users },
-  { href: "/v2/cleaner/shopping", label: "Shopping", icon: ShoppingCart },
-  { href: "/v2/cleaner/restock", label: "Restock", icon: Package },
-  { href: "/v2/cleaner/stock-runs", label: "Stock runs", icon: PackageSearch },
-  { href: "/v2/cleaner/invoices", label: "Invoices", icon: Receipt },
-  { href: "/v2/cleaner/pay-requests", label: "Pay requests", icon: HandCoins },
-  { href: "/v2/cleaner/lost-found", label: "Lost & found", icon: Search },
-  { href: "/v2/cleaner/profile", label: "Profile", icon: User },
-  { href: "/v2/cleaner/settings", label: "Settings", icon: Settings },
+  { href: "/v2/cleaner", label: "Today", icon: Home },
+  { href: "/v2/cleaner/jobs", label: "Jobs", icon: CalendarDays },
+  { href: "/v2/cleaner/calendar", label: "Schedule", icon: CalendarRange },
+  { href: "/v2/cleaner/more", label: "More", icon: LayoutGrid },
 ];
 
 export default function V2CleanerLayout({ children }: { children: React.ReactNode }) {
