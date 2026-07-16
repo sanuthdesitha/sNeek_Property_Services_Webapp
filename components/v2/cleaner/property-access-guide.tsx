@@ -56,7 +56,17 @@ function metaFor(kind: string) {
   return KIND_META[kind] ?? KIND_META.OTHER;
 }
 
-export default function PropertyAccessGuide({ propertyId }: { propertyId: string }) {
+export default function PropertyAccessGuide({
+  propertyId,
+  embedded = false,
+  onEntriesLoaded,
+}: {
+  propertyId: string;
+  /** Render without the outer section chrome (for use inside another panel). */
+  embedded?: boolean;
+  /** Reports the loaded guide entries so a host can dedupe flat access text. */
+  onEntriesLoaded?: (entries: GuideEntry[]) => void;
+}) {
   const [entries, setEntries] = useState<GuideEntry[] | null>(null);
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -71,14 +81,18 @@ export default function PropertyAccessGuide({ propertyId }: { propertyId: string
         if (cancelled) return;
         const list = Array.isArray(data?.accessGuide) ? (data.accessGuide as GuideEntry[]) : [];
         setEntries(list);
+        onEntriesLoaded?.(list);
       })
       .catch(() => {
-        if (!cancelled) setEntries([]);
+        if (!cancelled) {
+          setEntries([]);
+          onEntriesLoaded?.([]);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [propertyId]);
+  }, [propertyId, onEntriesLoaded]);
 
   const totalImages = useMemo(
     () => (entries ?? []).reduce((sum, e) => sum + (e.images?.length ?? 0), 0),
@@ -89,7 +103,13 @@ export default function PropertyAccessGuide({ propertyId }: { propertyId: string
   if (!entries || entries.length === 0) return null;
 
   return (
-    <section className="overflow-hidden rounded-[var(--e-radius-lg,0.875rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-1)]">
+    <section
+      className={
+        embedded
+          ? "overflow-hidden rounded-[var(--e-radius,0.625rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
+          : "overflow-hidden rounded-[var(--e-radius-lg,0.875rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-1)]"
+      }
+    >
       {/* Header */}
       <button
         type="button"

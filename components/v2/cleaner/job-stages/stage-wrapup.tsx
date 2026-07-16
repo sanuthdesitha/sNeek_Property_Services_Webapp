@@ -56,6 +56,12 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   // submitted" screen: confirmation, quality-pending, time on site, back home).
   if (locked) {
     const onSiteSeconds = Number(api.timeState?.completedSeconds ?? 0);
+    const payForJob: number | null =
+      api.payload?.payForJob != null && Number.isFinite(Number(api.payload.payForJob))
+        ? Number(api.payload.payForJob)
+        : null;
+    const fmtAud = (n: number) =>
+      `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return (
       <div className="space-y-5">
         <ECard>
@@ -76,12 +82,24 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                 My performance.
               </p>
             </div>
-            {onSiteSeconds > 0 ? (
-              <div className="flex items-center justify-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                <span className="e-eyebrow">Time on site</span>
-                <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
-                  {formatDuration(onSiteSeconds)}
-                </span>
+            {onSiteSeconds > 0 || payForJob != null ? (
+              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                {onSiteSeconds > 0 ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="e-eyebrow">Time on site</span>
+                    <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
+                      {formatDuration(onSiteSeconds)}
+                    </span>
+                  </span>
+                ) : null}
+                {payForJob != null ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="e-eyebrow">Pay for this job</span>
+                    <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
+                      {fmtAud(payForJob)}
+                    </span>
+                  </span>
+                ) : null}
               </div>
             ) : null}
             <Link href="/v2/cleaner" className="block">
@@ -147,10 +165,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         <ECard id={LAUNDRY_CARD_ID}>
           <ECardBody className="space-y-3 pt-6">
             <p className="e-eyebrow flex items-center gap-1.5">
-              <WashingMachine className="h-3.5 w-3.5" /> Laundry
+              <WashingMachine className="h-3.5 w-3.5" /> Used linen — ready for pickup?
             </p>
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Record the linen status for this clean — saved when you submit and sent to the laundry team.
+              Tell the laundry service the used-linen bag is ready. They collect it — you don&apos;t take it.
+              Saved when you submit and sent to the laundry team.
             </p>
             <EField label="Outcome (required)">
               <ESelect

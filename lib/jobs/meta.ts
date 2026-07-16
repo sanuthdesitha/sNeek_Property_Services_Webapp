@@ -24,6 +24,9 @@ export interface JobServiceContext {
   siteContactPhone?: string;
   serviceAreaSqm?: number;
   floorCount?: number;
+  // Where the cleaner collects keys, if not a lockbox at the property.
+  // Serializes through the existing internalNotes meta path.
+  keyPickupLocation?: string;
 }
 
 export interface JobReservationContext {
@@ -270,6 +273,7 @@ function normalizeServiceContext(input: unknown): JobServiceContext | undefined 
   assignString("equipmentNotes");
   assignString("siteContactName");
   assignString("siteContactPhone");
+  assignString("keyPickupLocation");
 
   const serviceAreaSqm = Number(source.serviceAreaSqm);
   if (Number.isFinite(serviceAreaSqm) && serviceAreaSqm > 0) {

@@ -53,6 +53,9 @@ const serviceContextSchema = z.object({
   siteContactPhone: optionalAustralianPhoneSchema,
   serviceAreaSqm: z.number().positive().max(100000).optional(),
   floorCount: intCount(1, 200).optional(),
+  // Where the cleaner collects keys, if not a lockbox at the property. Kept in
+  // the whitelist so it survives zod parsing and reaches serializeJobInternalNotes.
+  keyPickupLocation: z.string().max(4000).optional(),
 });
 
 const reservationContextSchema = z.object({

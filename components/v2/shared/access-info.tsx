@@ -123,14 +123,41 @@ export function EAccessInfo({
   title = "Property access instructions",
   defaultOpen = false,
   className,
+  excludeTexts,
 }: {
   accessInfo: unknown;
   title?: string;
   defaultOpen?: boolean;
   className?: string;
+  /**
+   * Text already shown elsewhere (e.g. the canonical access guide) — any flat
+   * row/section whose text overlaps one of these is dropped so access never
+   * renders twice. When everything is deduped away the block renders nothing.
+   */
+  excludeTexts?: string[];
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
-  const data = React.useMemo(() => normalize(accessInfo), [accessInfo]);
+  const base = React.useMemo(() => normalize(accessInfo), [accessInfo]);
+  const data = React.useMemo(() => {
+    if (!base) return null;
+    const excluded = (excludeTexts ?? [])
+      .map((t) => t.toLowerCase().replace(/\s+/g, " ").trim())
+      .filter((t) => t.length > 2);
+    if (excluded.length === 0) return base;
+    const overlaps = (value: string) => {
+      const v = value.toLowerCase().replace(/\s+/g, " ").trim();
+      if (v.length <= 2) return false;
+      return excluded.some((e) => e.includes(v) || v.includes(e));
+    };
+    const textRows = base.textRows.filter((row) => !overlaps(row.value));
+    const sections = base.sections.filter(
+      (s) => !overlaps([s.title, s.code, s.instructions].filter(Boolean).join(" "))
+    );
+    if (textRows.length === 0 && sections.length === 0 && base.attachments.length === 0 && !base.pdfUrl) {
+      return null;
+    }
+    return { ...base, textRows, sections };
+  }, [base, excludeTexts]);
   if (!data) return null;
 
   return (

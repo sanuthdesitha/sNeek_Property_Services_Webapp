@@ -25,7 +25,7 @@ import {
 } from "@/lib/time/sydney-range";
 import { getBriefingWeather } from "@/lib/briefing/weather";
 import { computeFinishTime, formatClock, type FinishTimeStop } from "@/lib/briefing/finish-time";
-import { getEtaMinutes } from "@/lib/jobs/eta";
+import { getEtaMinutes, type EtaMode } from "@/lib/jobs/eta";
 import { haversine } from "@/lib/gps/distance";
 import { getCleanerCommonMistakes, prettifyFieldId } from "@/lib/workforce/mistakes";
 import {
@@ -99,6 +99,7 @@ type LoadedJob = {
   property: {
     name: string;
     suburb: string | null;
+    address: string | null;
     latitude: number | null;
     longitude: number | null;
     bedrooms: number | null;
@@ -217,6 +218,7 @@ export async function assembleCleanerBriefing(input: {
   const propertySelect = {
     name: true,
     suburb: true,
+    address: true,
     latitude: true,
     longitude: true,
     bedrooms: true,
@@ -307,8 +309,51 @@ export async function assembleCleanerBriefing(input: {
   // Fetch settings + user hourly rate up-front (needed by earnings).
   const [settings, cleanerUser] = await Promise.all([
     getAppSettings().catch(() => null),
-    db.user.findUnique({ where: { id: cleanerId }, select: { hourlyRate: true } }).catch(() => null),
+    db.user
+      .findUnique({
+        where: { id: cleanerId },
+        select: {
+          hourlyRate: true,
+          latitude: true,
+          longitude: true,
+          preferredTransport: true,
+          address: true,
+        },
+      })
+      .catch(() => null),
   ]);
+
+  // The cleaner's chosen travel mode (Google-style lowercase: driving/walking/
+  // transit/bicycling), used for BOTH the first-leg ETA and the leg-to-leg plan.
+  const preferredMode = String(cleanerUser?.preferredTransport ?? "DRIVING").toLowerCase() as EtaMode;
+
+  // First-leg travel: from the cleaner's home to the first accepted job, so the
+  // briefing can lead with "how long to get there". Keyless haversine fallback.
+  let firstLegTravel: { minutes: number; mode: string } | null = null;
+  const firstJobProp = loaded[0]?.property;
+  if (
+    cleanerUser?.latitude != null &&
+    cleanerUser?.longitude != null &&
+    firstJobProp &&
+    firstJobProp.latitude != null &&
+    firstJobProp.longitude != null
+  ) {
+    let minutes = await getEtaMinutes({
+      fromLat: cleanerUser.latitude,
+      fromLng: cleanerUser.longitude,
+      toLat: firstJobProp.latitude,
+      toLng: firstJobProp.longitude,
+      toAddress: firstJobProp.address ?? undefined,
+      mode: preferredMode,
+    }).catch(() => null);
+    if (minutes == null) {
+      const km =
+        haversine(cleanerUser.latitude, cleanerUser.longitude, firstJobProp.latitude, firstJobProp.longitude) /
+        1000;
+      minutes = Math.max(5, Math.round((km / URBAN_SPEED_KMH) * 60));
+    }
+    firstLegTravel = { minutes, mode: preferredMode };
+  }
 
   // Sum this cleaner's pay across a set of jobs (reuses the canonical pay math).
   type PayJob = {
@@ -648,7 +693,13 @@ export async function assembleCleanerBriefing(input: {
         let eta: number | null = null;
         let estimated = false;
         if (aLat != null && aLng != null && bLat != null && bLng != null) {
-          eta = await getEtaMinutes({ fromLat: aLat, fromLng: aLng, toLat: bLat, toLng: bLng }).catch(() => null);
+          eta = await getEtaMinutes({
+            fromLat: aLat,
+            fromLng: aLng,
+            toLat: bLat,
+            toLng: bLng,
+            mode: preferredMode,
+          }).catch(() => null);
           if (eta == null) {
             const km = haversine(aLat, aLng, bLat, bLng) / 1000;
             eta = Math.max(5, Math.round((km / URBAN_SPEED_KMH) * 60));
@@ -925,6 +976,7 @@ export async function assembleCleanerBriefing(input: {
     complaints: complaints ?? null,
     recurringIssues: recurringIssues ?? null,
     acceptGate,
+    firstLegTravel,
     travelPlan: travelPlan ?? null,
     accessNotes: accessNotes ?? null,
     lastVisit: lastVisit ?? null,

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/components/v2/ui/primitives";
 import {
-  ChevronRight, ClipboardList, HandCoins, LineChart, Navigation, Package,
+  CalendarRange, ChevronRight, ClipboardList, HandCoins, LineChart, Navigation, Package,
   Receipt, Search, Settings, User, Users,
 } from "lucide-react";
 
@@ -10,6 +10,14 @@ export const metadata = { title: "More · Estate cleaner" };
 // Every surface that isn't a bottom-tab (Today / Jobs / Schedule) lives here, so
 // the flat set covers all former cleaner destinations + orphans in one hub.
 const GROUPS: { title: string; items: { href: string; label: string; desc: string; icon: typeof User }[] }[] = [
+  {
+    title: "Quick access",
+    items: [
+      { href: "/v2/cleaner/pay", label: "Pay & performance", desc: "Earnings & pay history", icon: LineChart },
+      { href: "/v2/cleaner/hub", label: "Team hub", desc: "Feed & recognition", icon: Users },
+      { href: "/v2/cleaner/calendar", label: "Schedule", desc: "Your upcoming shifts", icon: CalendarRange },
+    ],
+  },
   {
     title: "Work",
     items: [

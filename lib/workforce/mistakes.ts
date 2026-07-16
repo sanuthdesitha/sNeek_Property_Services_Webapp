@@ -30,6 +30,25 @@ async function safe<T>(p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+/**
+ * True when a mistake label is obviously test/placeholder junk rather than a
+ * real quality miss — used to keep test rework reasons (e.g. a QA typing
+ * "Test") out of the cleaner's coaching. Pure and exported for testing.
+ *
+ * Drops labels that, once trimmed, are: empty, ≤2 chars, start with "test"
+ * (or are exactly "test"), or are a known placeholder token ("asdf", "xxx",
+ * "n/a", "na", "-", "."). Real labels ("Bathroom glass") always pass.
+ */
+export function isJunkMistakeLabel(label: string): boolean {
+  const l = String(label || "").trim().toLowerCase();
+  if (!l) return true; // empty / whitespace-only
+  if (l.length <= 2) return true; // too short to be a real coaching item
+  if (/^test\b/.test(l) || l === "test") return true; // "test", "Test 1", "test run", …
+  const placeholders = new Set(["asdf", "xxx", "n/a", "na", "-", ".", "..", "..."]);
+  if (placeholders.has(l)) return true;
+  return false;
+}
+
 /** Prettify a form-field id into a readable label. */
 export function prettifyFieldId(raw: string): string {
   const cleaned = String(raw || "").trim();
@@ -155,8 +174,7 @@ export async function getCleanerCommonMistakes(
 
   const ranked = Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map<BriefingMistake>(([key, count]) => {
+    .map<BriefingMistake | null>(([key, count]) => {
       let label: string;
       if (key.startsWith("reason:")) {
         // Recover the original-cased reason from the first matching transfer.
@@ -164,12 +182,19 @@ export async function getCleanerCommonMistakes(
           (t) => `reason:${(t.reason || "").trim().slice(0, 80).toLowerCase()}` === key
         );
         const reason = (match?.reason || "").trim();
+        // Drop test/placeholder rework reasons before they become coaching.
+        if (isJunkMistakeLabel(reason)) return null;
         label = reason.length > 60 ? `${reason.slice(0, 57)}…` : reason || "Rework noted";
       } else {
         label = labelById.get(key) ?? prettifyFieldId(key);
+        // Drop junk field-derived labels too (defensive — real labels pass).
+        if (isJunkMistakeLabel(label)) return null;
       }
       return { label, count, advice: adviceFor(label) };
-    });
+    })
+    // Filter junk rows first, then keep the top 5 real misses.
+    .filter((row): row is BriefingMistake => row !== null)
+    .slice(0, 5);
 
   return {
     cleanerId,

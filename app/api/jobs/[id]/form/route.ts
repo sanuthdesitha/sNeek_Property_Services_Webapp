@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { getJobStartReminders } from "@/lib/accountability/patterns";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
@@ -75,6 +76,7 @@ export async function GET(
           select: {
             id: true,
             userId: true,
+            payRate: true,
             isPrimary: true,
             responseStatus: true,
             respondedAt: true,
@@ -118,6 +120,34 @@ export async function GET(
     }
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
+
+    // Where the cleaner collects keys (from the quote's service context), surfaced
+    // once so the Set-up + info drawer can show a distinct "Key pickup" row.
+    const keyPickupLocation = jobMeta.serviceContext?.keyPickupLocation ?? null;
+
+    // This session cleaner's pay for THIS job — computed with the SAME canonical
+    // math (rework rule honored) as the briefing/payroll. Only for the cleaner
+    // role; admins/ops get null.
+    let payForJob: number | null = null;
+    if (session.user.role === Role.CLEANER) {
+      const cleanerUser = await db.user
+        .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
+        .catch(() => null);
+      payForJob = computeJobPayForCleaner({
+        cleanerId: session.user.id,
+        job: {
+          jobType: job.jobType,
+          estimatedHours: job.estimatedHours,
+          isRework: job.isRework,
+          reworkPayAmount: job.reworkPayAmount,
+        },
+        assignments: job.assignments.map((a) => ({ userId: a.userId, payRate: a.payRate ?? null })),
+        userHourlyRate: cleanerUser?.hourlyRate ?? null,
+        cleanerJobHourlyRates: settings.cleanerJobHourlyRates,
+        cleanerPayouts: jobMeta.cleanerPayouts,
+        transportAllowances: jobMeta.transportAllowances,
+      });
+    }
     await attachPendingCarryForwardTasksToJob({
       jobId: job.id,
       propertyId: job.propertyId,
@@ -461,6 +491,8 @@ export async function GET(
       jobMeta,
       jobTasks,
       jobTimingHighlights,
+      keyPickupLocation,
+      payForJob,
       continuationProgressSnapshot,
       viewerName: session.user.name ?? session.user.email ?? "Cleaner",
       branding: {

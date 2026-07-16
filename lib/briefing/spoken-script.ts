@@ -6,6 +6,20 @@
  */
 import type { CleanerBriefing } from "@/lib/briefing/types";
 
+/** Speak a travel mode naturally: car / public transport / bike / on foot. */
+function spokenTransport(mode: string): string {
+  switch (mode) {
+    case "transit":
+      return "public transport";
+    case "bicycling":
+      return "bike";
+    case "walking":
+      return "on foot";
+    default:
+      return "car";
+  }
+}
+
 function joinNatural(items: string[]): string {
   const list = items.filter(Boolean);
   if (list.length === 0) return "";
@@ -60,6 +74,11 @@ export function buildSpokenScript(
   if (first) {
     const when = first.startTime ? `at ${first.startTime}` : "with no fixed start time";
     parts.push(`You start at ${first.propertyName}${first.suburb ? ` in ${first.suburb}` : ""} ${when}.`);
+  }
+  if (b.firstLegTravel) {
+    parts.push(
+      `From your place it's about ${b.firstLegTravel.minutes} minutes by ${spokenTransport(b.firstLegTravel.mode)} to your first job.`
+    );
   }
   const earlyOnes = jobs.filter((j) => j.earlyCheckin).map((j) => j.propertyName);
   if (earlyOnes.length > 0) {

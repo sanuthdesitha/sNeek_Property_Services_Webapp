@@ -13,17 +13,16 @@ import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 function readPay(api: WorkspaceApi): number | null {
-  const candidates = [
-    api.job?.cleanerPayAmount,
-    api.job?.payAmount,
-    api.job?.cleanerPay,
-    api.payload?.jobMeta?.pay,
-  ];
-  for (const c of candidates) {
-    const n = Number(c);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
+  // Canonical per-job pay computed server-side for the session cleaner. Only a
+  // number for the cleaner role (null for admins/ops).
+  const server = Number(api.payload?.payForJob);
+  if (api.payload?.payForJob != null && Number.isFinite(server)) return server;
   return null;
+}
+
+/** AUD money, e.g. "$120.00". */
+function fmtAud(n: number): string {
+  return `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function StageAccept({ api }: { api: WorkspaceApi }) {
@@ -73,12 +72,7 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
               label="Expected"
               value={expectedDurationMinutes != null ? formatDurationMinutes(expectedDurationMinutes) : "—"}
             />
-            {pay != null ? (
-              <SummaryRow
-                label="Pay"
-                value={`$${pay.toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
-              />
-            ) : null}
+            {pay != null ? <SummaryRow label="Pay" value={fmtAud(pay)} /> : null}
           </dl>
           {notePreview ? (
             <p className="border-t border-[hsl(var(--e-border))] pt-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">

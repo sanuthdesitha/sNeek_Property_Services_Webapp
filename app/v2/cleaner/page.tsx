@@ -13,12 +13,15 @@ import {
   EEmptyState,
   EStatCard,
 } from "@/components/v2/ui/primitives";
-import { AlertTriangle, CheckCircle2, ChevronRight, Clock, MapPin, Timer } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Clock, Coins, MapPin, Timer } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { DailyBriefing } from "@/components/v2/cleaner/daily-briefing";
 import { CleanerCoachingCard } from "@/components/v2/cleaner/coaching-card";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
+import { getAppSettings } from "@/lib/settings";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -105,6 +108,13 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
         startTime: true,
         dueTime: true,
         estimatedHours: true,
+        isRework: true,
+        reworkPayAmount: true,
+        internalNotes: true,
+        assignments: {
+          where: { removedAt: null },
+          select: { userId: true, payRate: true },
+        },
         property: {
           select: {
             name: true,
@@ -140,10 +150,42 @@ export default async function CleanerTodayPage() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const nextWeek = new Date(todayStart.getTime() + 7 * 86_400_000);
 
-  const [jobs, urgentItems] = await Promise.all([
+  const [jobs, urgentItems, settings, cleanerUser] = await Promise.all([
     getCleanerWeekJobs(session.user.id, todayStart, nextWeek),
     getCleanerImmediateAttention(session.user.id).catch(() => []),
+    getAppSettings().catch(() => null),
+    db.user
+      .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
+      .catch(() => null),
   ]);
+
+  // Per-job pay for THIS cleaner (same canonical math as the job screen/briefing).
+  const fmtAud = (n: number) =>
+    `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const payByJob = new Map<string, number>();
+  if (settings) {
+    for (const j of jobs) {
+      const meta = parseJobInternalNotes((j as any).internalNotes ?? null);
+      const pay = computeJobPayForCleaner({
+        cleanerId: session.user.id,
+        job: {
+          jobType: j.jobType,
+          estimatedHours: j.estimatedHours,
+          isRework: (j as any).isRework,
+          reworkPayAmount: (j as any).reworkPayAmount,
+        },
+        assignments: ((j as any).assignments ?? []).map((a: any) => ({
+          userId: a.userId,
+          payRate: a.payRate ?? null,
+        })),
+        userHourlyRate: cleanerUser?.hourlyRate ?? null,
+        cleanerJobHourlyRates: settings.cleanerJobHourlyRates,
+        cleanerPayouts: meta.cleanerPayouts,
+        transportAllowances: meta.transportAllowances,
+      });
+      if (pay != null) payByJob.set(j.id, pay);
+    }
+  }
 
   const visibleUrgent = urgentItems.filter((item) => Number(item.count) > 0);
   const offeredJobs = jobs.filter((j) => j.status === "OFFERED");
@@ -278,7 +320,7 @@ export default async function CleanerTodayPage() {
                     </p>
                   ) : null}
 
-                  {/* Job type + expected duration */}
+                  {/* Job type + expected duration + pay */}
                   <div className="flex flex-wrap items-center gap-2">
                     <EBadge tone="neutral" soft>
                       {titleCase(j.jobType)}
@@ -286,6 +328,12 @@ export default async function CleanerTodayPage() {
                     {duration ? (
                       <span className="flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         <Timer className="h-3.5 w-3.5" /> {duration}
+                      </span>
+                    ) : null}
+                    {payByJob.has(j.id) ? (
+                      <span className="ml-auto inline-flex items-center gap-1 text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
+                        <Coins className="h-3.5 w-3.5 text-[hsl(var(--e-gold-ink))]" />
+                        {fmtAud(payByJob.get(j.id)!)}
                       </span>
                     ) : null}
                   </div>

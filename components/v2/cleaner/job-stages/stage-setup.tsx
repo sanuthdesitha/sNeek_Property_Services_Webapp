@@ -9,7 +9,7 @@
  * as pre-start context.
  */
 import * as React from "react";
-import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck } from "lucide-react";
+import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, Shirt, MapPin } from "lucide-react";
 import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
@@ -102,6 +102,19 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
               </div>
             ) : null}
           </div>
+
+          {typeof api.payload?.keyPickupLocation === "string" && api.payload.keyPickupLocation.trim() ? (
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+              <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                <MapPin className="h-3.5 w-3.5" /> Key pickup
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-[0.875rem] font-[550]">
+                {api.payload.keyPickupLocation}
+              </p>
+            </div>
+          ) : null}
+
+          <FreshLinenGuidance guidance={api.payload?.laundryGuidance} />
 
           {readFirstItems.length > 0 ? (
             <ReadFirstBlock
@@ -224,4 +237,60 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
       />
     </div>
   );
+}
+
+/**
+ * Delivered fresh-linen ownership note for the Set-up sequence. Reads the
+ * form payload's `laundryGuidance` (no new fetch): when fresh linen is sitting
+ * at the property unused it's for THIS clean; otherwise the cleaner uses the
+ * property's buffer sets. Renders nothing outside turnovers (guidance null).
+ */
+function FreshLinenGuidance({
+  guidance,
+}: {
+  guidance?: {
+    hasDrop: boolean;
+    lastDropAt: string | null;
+    linenSittingOutside: boolean;
+    useBufferSets: boolean;
+    bufferSets: number;
+  } | null;
+}) {
+  if (!guidance) return null;
+
+  if (guidance.linenSittingOutside) {
+    const dropDate = guidance.lastDropAt
+      ? new Date(guidance.lastDropAt).toLocaleDateString("en-AU", {
+          weekday: "short",
+          day: "2-digit",
+          month: "short",
+        })
+      : null;
+    return (
+      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3">
+        <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+          <Shirt className="h-4 w-4 shrink-0" /> Fresh linen for this clean
+        </p>
+        <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          Fresh linen was delivered{dropDate ? ` ${dropDate}` : ""} and hasn&apos;t been used yet — it&apos;s
+          for this clean.
+        </p>
+      </div>
+    );
+  }
+
+  if (guidance.useBufferSets) {
+    return (
+      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+        <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
+          <Shirt className="h-4 w-4 shrink-0" /> Use the property&apos;s buffer linen
+        </p>
+        <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          No fresh drop is waiting for this clean{guidance.bufferSets > 0 ? ` — use the ${guidance.bufferSets} buffer set${guidance.bufferSets === 1 ? "" : "s"} kept at the property` : " — use the property's buffer sets"}.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }

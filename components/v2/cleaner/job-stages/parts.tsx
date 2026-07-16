@@ -16,7 +16,6 @@ import {
   AlertTriangle,
   BookOpen,
   Package,
-  KeyRound,
   ClipboardCheck,
 } from "lucide-react";
 import { EBadge, ECard, ECardBody, EButton } from "@/components/v2/ui/primitives";
@@ -201,7 +200,9 @@ export function TaskChip({
 /* ── Pre-start job briefing ──────────────────────────────────────────────── */
 export function BriefingCard({ briefing }: { briefing: any }) {
   if (!briefing) return null;
-  const hasVault = briefing.accessCode || briefing.alarmCode || briefing.keyLocation || briefing.accessNotes;
+  // Access details (accessCode/alarmCode/keyLocation/accessNotes) are DELIBERATELY
+  // not rendered here — access lives in exactly ONE cleaner surface,
+  // PropertyAccessGuide. This card keeps only the non-access briefing content.
   const reworkNotes: any[] = Array.isArray(briefing.qaReworkNotes) ? briefing.qaReworkNotes : [];
   const flags: string[] = Array.isArray(briefing.previousFlags) ? briefing.previousFlags : [];
   const lastPhotos: any[] = Array.isArray(briefing.lastPhotos) ? briefing.lastPhotos : [];
@@ -211,7 +212,7 @@ export function BriefingCard({ briefing }: { briefing: any }) {
     reworkNotes.length > 0 ||
     drop ||
     lastPhotos.length > 0 ||
-    hasVault ||
+    briefing.jobNotes ||
     flags.length > 0 ||
     briefing.laundryInstructions;
   if (!hasContent) return null;
@@ -329,42 +330,7 @@ export function BriefingCard({ briefing }: { briefing: any }) {
           </div>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-              <KeyRound className="h-3.5 w-3.5" /> Access details
-            </p>
-            {briefing.accessCode ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access code</p>
-                <p className="text-[0.875rem] font-[550]">{briefing.accessCode}</p>
-              </div>
-            ) : null}
-            {briefing.alarmCode ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Alarm code</p>
-                <p className="text-[0.875rem] font-[550]">{briefing.alarmCode}</p>
-              </div>
-            ) : null}
-            {briefing.keyLocation ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Key location</p>
-                <p className="text-[0.875rem]">{briefing.keyLocation}</p>
-              </div>
-            ) : null}
-            {briefing.accessNotes ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access notes</p>
-                <p className="whitespace-pre-wrap text-[0.8125rem]">{briefing.accessNotes}</p>
-              </div>
-            ) : null}
-            {!hasVault ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                No extra access vault details saved for this property.
-              </p>
-            ) : null}
-          </div>
-
+        {briefing.jobNotes || flags.length > 0 || briefing.laundryInstructions ? (
           <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
             <p className="text-[0.8125rem] font-[550]">Operational notes</p>
             {briefing.jobNotes ? (
@@ -391,11 +357,8 @@ export function BriefingCard({ briefing }: { briefing: any }) {
                 <p className="text-[0.8125rem]">{String(briefing.laundryInstructions.status ?? "").replace(/_/g, " ")}</p>
               </div>
             ) : null}
-            {!briefing.jobNotes && flags.length === 0 && !briefing.laundryInstructions ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Nothing flagged for this visit.</p>
-            ) : null}
           </div>
-        </div>
+        ) : null}
       </ECardBody>
     </ECard>
   );

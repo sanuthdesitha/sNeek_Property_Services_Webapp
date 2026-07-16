@@ -12,12 +12,35 @@ import {
 export const metadata = { title: "Properties · Estate admin" };
 export const dynamic = "force-dynamic";
 
-export default async function EstatePropertiesPage() {
+// Mirrors FALLBACK_CLIENT_NAME in lib/jobs/service-site.ts.
+const ONE_OFF_FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
+
+export default async function EstatePropertiesPage({
+  searchParams,
+}: {
+  searchParams?: { includeOneOff?: string };
+}) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  // Same query as the v1 properties page.
+  // One-off / service-site properties are hidden by default (they only carry an
+  // ad-hoc job address). "Show one-off sites" (?includeOneOff=1) reveals them.
+  const includeOneOff = searchParams?.includeOneOff === "1";
+
+  // Same query as the v1 properties page, minus one-off sites by default.
   const properties = await db.property.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      ...(includeOneOff
+        ? {}
+        : {
+            NOT: {
+              OR: [
+                { accessInfo: { path: ["serviceSite"], equals: true } },
+                { client: { name: ONE_OFF_FALLBACK_CLIENT_NAME } },
+              ],
+            },
+          }),
+    },
     include: {
       client: { select: { name: true } },
       integration: { select: { isEnabled: true, icalUrl: true, syncStatus: true } },
@@ -48,11 +71,18 @@ export default async function EstatePropertiesPage() {
         title="Properties"
         description={`${properties.length} active properties`}
         actions={
-          <EButton asChild variant="gold" size="sm">
-            <Link href="/v2/admin/properties/new">
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add property
-            </Link>
-          </EButton>
+          <div className="flex items-center gap-2">
+            <EButton asChild variant="outline" size="sm">
+              <Link href={includeOneOff ? "/v2/admin/properties" : "/v2/admin/properties?includeOneOff=1"}>
+                {includeOneOff ? "Hide one-off sites" : "Show one-off sites"}
+              </Link>
+            </EButton>
+            <EButton asChild variant="gold" size="sm">
+              <Link href="/v2/admin/properties/new">
+                <Plus className="mr-1 h-3.5 w-3.5" /> Add property
+              </Link>
+            </EButton>
+          </div>
         }
       />
 
