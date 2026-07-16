@@ -2912,6 +2912,564 @@ export const ROTATIONAL_EVIDENCE_ITEMS: RotationalSeedItem[] = [
   },
 ];
 
+/**
+ * A mandatory every-clean evidence photo plus which existing module it homes on.
+ * Modelled on {@link RotationalSeedItem}: the item attaches to an already-seeded
+ * room / feature module (`moduleKey`) and the library loop stamps it
+ * `frequency: "EVERY_CLEAN"`. Optional per-item `appliesWhen` gates a photo on a
+ * property feature or field (e.g. only ask for the coffee-machine filter shot
+ * when the property has a coffee machine); modules with an inherited gate
+ * (balcony → hasBalcony) don't need it repeated on the item.
+ */
+export interface MandatoryEvidenceItem extends EvidenceItemDef {
+  moduleKey: string;
+  appliesWhen?: unknown;
+  jobTypes?: JobType[];
+}
+
+/**
+ * GRANULAR mandatory-every-clean evidence set for the guest-ready Airbnb
+ * turnover flow. Every item is a single stamped photo (`minPhotos: 1`) required
+ * on every clean, homed on an existing room / feature module. Covers the full
+ * turnover journey: property/laundry confirmation → each room → outdoor → final
+ * guest-ready shot. Guest-safety, linen and final items carry `high` severity.
+ */
+export const MANDATORY_EVIDENCE_ITEMS: MandatoryEvidenceItem[] = [
+  // ── PROPERTY_CONFIRM / LAUNDRY_CONFIRM (general) ──────────────────────────
+  {
+    moduleKey: "general",
+    key: "ev.general.property-confirm",
+    label: "Property code / entry confirmation",
+    instructions:
+      "On arrival, photograph the property code / entry confirmation so it is recorded that the correct property was entered before the clean begins.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "before",
+    severity: "high",
+    evidenceCategory: "PROPERTY_CONFIRM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "general",
+    key: "ev.general.laundry-bag-correct",
+    label: "Correct laundry bag used",
+    instructions:
+      "Photograph the laundry bag in use to confirm the correct, property-assigned bag is being used for this turnover.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "LAUNDRY_CONFIRM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "general",
+    key: "ev.general.dirty-linen-secured",
+    label: "Dirty linen secured in the correct bag",
+    instructions:
+      "Photograph all dirty linen sealed inside the correct laundry bag, showing nothing has been left behind.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "LAUNDRY_CONFIRM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── LIVING ────────────────────────────────────────────────────────────────
+  {
+    moduleKey: "living",
+    key: "ev.living.living-wide",
+    label: "Living room wide view",
+    instructions:
+      "Take a wide shot of the whole living room showing it clean, tidy and fully reset.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "living",
+    key: "ev.living.sofa-reset",
+    label: "Sofa and cushions reset",
+    instructions:
+      "Photograph the sofa with cushions plumped and arranged in the standard guest-ready layout.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "living",
+    key: "ev.living.tv-stand",
+    label: "TV stand and cables organised",
+    instructions:
+      "Photograph the TV stand / media unit with remotes in place and cables tidied out of sight.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "living",
+    key: "ev.living.sofabed-supplies",
+    label: "Sofa-bed supplies in place",
+    instructions:
+      "Photograph the sofa-bed linen and supplies stored ready for guest use.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+    appliesWhen: { propertyField: "sofaBedCount", operator: "gt", equals: 0 },
+  },
+  {
+    moduleKey: "living",
+    key: "ev.living.plants-dusted",
+    label: "Plants dusted",
+    instructions:
+      "Photograph the plants showing leaves have been dusted and dead foliage removed.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "living",
+    key: "ev.living.plants-watered",
+    label: "Live plants watered",
+    instructions:
+      "Photograph the live plants after watering so it is recorded they were tended this clean.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "LIVING",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── KITCHEN ───────────────────────────────────────────────────────────────
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.kitchen-wide",
+    label: "Kitchen wide view",
+    instructions:
+      "Take a wide shot of the whole kitchen showing clear, clean benches and a tidy, guest-ready space.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.sink-benches",
+    label: "Sink and benches clean",
+    instructions:
+      "Photograph the sink and benchtops empty, wiped down and free of marks and crumbs.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.coffee-filter",
+    label: "Coffee-machine filter cleaned",
+    instructions:
+      "Photograph the coffee-machine filter / portafilter after cleaning it out.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+    appliesWhen: { feature: "coffeeMachine" },
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.kettle-empty",
+    label: "Kettle empty and clean",
+    instructions:
+      "Photograph the kettle emptied out and wiped clean, ready for the next guest.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.capsules-removed",
+    label: "Used coffee capsules removed",
+    instructions:
+      "Photograph the coffee-machine capsule area cleared of all used capsules.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+    appliesWhen: { feature: "coffeeMachine" },
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.dishwasher-empty",
+    label: "Dishwasher open and empty",
+    instructions:
+      "Photograph the dishwasher open showing it is empty and clean inside.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+    appliesWhen: { feature: "dishwasher" },
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.fridge-empty",
+    label: "Fridge open and empty",
+    instructions:
+      "Photograph the fridge open showing it is empty, clean and free of any guest leftovers.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+    appliesWhen: { feature: "fridge" },
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.cupboards-organised",
+    label: "Kitchen cupboards/drawers organised",
+    instructions:
+      "Photograph the kitchen cupboards / drawers showing crockery and utensils tidy and correctly arranged.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.under-sink",
+    label: "Under-sink supplies tidy",
+    instructions:
+      "Photograph under the kitchen sink showing cleaning supplies tidy and nothing spilled or leaking.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.kitchen-restock",
+    label: "Kitchen consumables restocked",
+    instructions:
+      "Photograph the restocked kitchen consumables (dishwashing tablets, sponges, bin liners, etc.) in place.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "kitchen",
+    key: "ev.kitchen.appliances-dusted",
+    label: "Appliances wiped/dusted",
+    instructions:
+      "Photograph the small appliances (toaster, microwave, kettle, coffee machine) wiped down and dust-free.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "KITCHEN",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── BATHROOM (repeats per bathroom) ───────────────────────────────────────
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.bathroom-wide",
+    label: "Bathroom wide view",
+    instructions:
+      "Take a wide shot of the whole bathroom showing it clean, dry and fully reset.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.toilet-base",
+    label: "Toilet base and surrounding floor",
+    instructions:
+      "Photograph the toilet base and the floor around it showing it has been cleaned.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.shower-walls",
+    label: "Shower walls and corners",
+    instructions:
+      "Photograph the shower walls and corners showing they are clean and free of soap scum.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.mold-hair",
+    label: "Mould and hair removed",
+    instructions:
+      "Photograph the grout, drains and corners showing all mould and hair have been removed.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.sink-amenity",
+    label: "Sink and toothbrush amenity area",
+    instructions:
+      "Photograph the bathroom sink and the toothbrush / amenity area clean and neatly presented.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.bodywash-level",
+    label: "Body wash level",
+    instructions:
+      "Photograph the body wash bottle showing its current level so low stock can be flagged.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.shampoo-level",
+    label: "Shampoo level",
+    instructions:
+      "Photograph the shampoo bottle showing its current level so low stock can be flagged.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.conditioner-level",
+    label: "Conditioner level",
+    instructions:
+      "Photograph the conditioner bottle showing its current level so low stock can be flagged.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bathrooms",
+    key: "ev.bathrooms.handsoap-level",
+    label: "Hand-soap level",
+    instructions:
+      "Photograph the hand-soap dispenser showing its current level so low stock can be flagged.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BATHROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── BEDROOM (repeats per bedroom) ─────────────────────────────────────────
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.bedroom-wide",
+    label: "Bedroom wide view",
+    instructions:
+      "Take a wide shot of the whole bedroom showing it clean, tidy and fully reset.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.bed-setup",
+    label: "Completed bed setup",
+    instructions:
+      "Photograph the finished bed with fresh linen, pillows and throw arranged to the guest-ready standard.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.wardrobe-interior",
+    label: "Wardrobe interior",
+    instructions:
+      "Photograph the inside of the wardrobe showing it is clean, empty of guest belongings and tidy.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.hangers-aligned",
+    label: "Hangers moved to one side",
+    instructions:
+      "Photograph the wardrobe rail with all hangers pushed to one side and evenly aligned.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.bedside-area",
+    label: "Bedside-table area",
+    instructions:
+      "Photograph the bedside table showing it wiped clean and clear of any guest items.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.towels-set",
+    label: "Towels and face towels set",
+    instructions:
+      "Photograph the fresh towels and face towels laid out in the room to the standard presentation.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "bedrooms",
+    key: "ev.bedrooms.under-bed-floor",
+    label: "Under-bed floor clear",
+    instructions:
+      "Photograph under the bed showing the floor is clear of guest belongings and has been cleaned.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "BEDROOM",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── OUTDOOR (balcony — inherits hasBalcony gate) ──────────────────────────
+  {
+    moduleKey: "balcony",
+    key: "ev.balcony.balcony-cleaned",
+    label: "Balcony cleaned",
+    instructions:
+      "Photograph the balcony showing the floor swept / mopped and surfaces wiped down.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "OUTDOOR",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  {
+    moduleKey: "balcony",
+    key: "ev.balcony.balcony-furniture",
+    label: "Balcony furniture reset",
+    instructions:
+      "Photograph the balcony furniture wiped down and arranged back in the standard guest-ready layout.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "OUTDOOR",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── OUTDOOR rubbish (general — ungated) ───────────────────────────────────
+  {
+    moduleKey: "general",
+    key: "ev.general.rubbish-area",
+    label: "Outside rubbish/bin area",
+    instructions:
+      "Photograph the outside rubbish / bin area showing all waste removed and bins in the correct place.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "OUTDOOR",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+  // ── FINAL ─────────────────────────────────────────────────────────────────
+  {
+    moduleKey: "general",
+    key: "ev.general.final-guest-ready",
+    label: "Final guest-ready wide view",
+    instructions:
+      "Take a final wide shot of the property showing it fully cleaned, styled and ready to welcome the next guest.",
+    fieldType: "photo",
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "FINAL",
+    jobTypes: [JobType.AIRBNB_TURNOVER],
+  },
+];
+
 /** Stamp tag for a conditional exception item, by its condition key. */
 function exceptionStampTag(key: string): string {
   if (key === "qa_rectification_before") return "before";
