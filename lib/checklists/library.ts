@@ -4,6 +4,7 @@ import {
   DEFAULT_CHECKLISTS,
   FEATURE_MODULES,
   ROTATIONAL_EVIDENCE_ITEMS,
+  MANDATORY_EVIDENCE_ITEMS,
   EXCEPTION_MODULE,
   SELF_INSPECTION_MODULE,
   SELF_INSPECTION_REMOVED_ITEM_KEYS,
@@ -19,9 +20,11 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * re-seed. (History: v1 = original catalog seed; v2 = feature modules + rule/
  * repeatBy sync onto existing rows; v3 = evidence frequency — rotational +
  * conditional evidence items, evidenceCategory backfill; v4 = final
- * self-inspection module — 14 required checkboxes composing last.)
+ * self-inspection module — 14 required checkboxes composing last; v5 = prior
+ * marker; v6 = granular mandatory every-clean evidence photo set homed on the
+ * room / feature modules for the Airbnb turnover guest-ready flow.)
  */
-export const CATALOG_VERSION = "5";
+export const CATALOG_VERSION = "6";
 const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
@@ -376,6 +379,63 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           sortOrder: sortIndex,
           frequency: "ROTATIONAL",
           rotationEveryNCleans: item.rotationEveryNCleans,
+          severity: item.severity,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── MANDATORY every-clean evidence photos on existing room / feature modules
+  // Homed on modules the catalog + feature loops above already upserted; if a
+  // module is missing (custom-only DB) the item is skipped rather than orphaned.
+  // These sit in a distinct sort band (500+) so evidence photos render after the
+  // room checkbox tasks (10-x) but before the rotational deep-detail items (700+).
+  const mandatoryByModule = new Map<string, typeof MANDATORY_EVIDENCE_ITEMS>();
+  for (const item of MANDATORY_EVIDENCE_ITEMS) {
+    const list = mandatoryByModule.get(item.moduleKey) ?? [];
+    list.push(item);
+    mandatoryByModule.set(item.moduleKey, list);
+  }
+  for (const [moduleKey, items] of Array.from(mandatoryByModule.entries())) {
+    const moduleRow = await db.checklistModule.findUnique({
+      where: { key: moduleKey },
+      select: { id: true },
+    });
+    if (!moduleRow) continue;
+    let sortIndex = 500;
+    for (const item of items) {
+      sortIndex += 10;
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId: moduleRow.id, key: item.key } },
+        create: {
+          moduleId: moduleRow.id,
+          key: item.key,
+          label: item.label,
+          instructions: item.instructions,
+          fieldType: "photo",
+          required: true,
+          minPhotos: item.minPhotos,
+          stampTag: item.stampTag,
+          jobTypes: item.jobTypes ?? [],
+          appliesWhen: (item.appliesWhen ?? null) as any,
+          sortOrder: sortIndex,
+          evidenceCategory: item.evidenceCategory ?? null,
+          frequency: "EVERY_CLEAN",
+          severity: item.severity,
+        },
+        // Refresh canonical structure/rules/gating; leave admin-editable
+        // instructions + media create-only (like the other seed loops).
+        update: {
+          label: item.label,
+          fieldType: "photo",
+          minPhotos: item.minPhotos,
+          required: true,
+          appliesWhen: (item.appliesWhen ?? null) as any,
+          jobTypes: item.jobTypes ?? [],
+          sortOrder: sortIndex,
+          frequency: "EVERY_CLEAN",
+          evidenceCategory: item.evidenceCategory ?? null,
           severity: item.severity,
         },
       });
