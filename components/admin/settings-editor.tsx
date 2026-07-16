@@ -305,6 +305,17 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
             />
           </div>
           <div className="space-y-1.5">
+            <Label>Company phone</Label>
+            <Input
+              type="tel"
+              value={settings.companyPhone}
+              onChange={(e) => setSettings((prev) => ({ ...prev, companyPhone: e.target.value }))}
+              disabled={readOnly}
+              placeholder="e.g. 02 1234 5678"
+            />
+            <p className="text-xs text-muted-foreground">Office / dispatch number shown to cleaners on their jobs.</p>
+          </div>
+          <div className="space-y-1.5">
             <Label>Project name</Label>
             <Input
               value={settings.projectName}
@@ -320,6 +331,20 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
               disabled={readOnly}
             />
           </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+          <div className="min-w-0">
+            <Label>Show client contact to cleaners</Label>
+            <p className="text-xs text-muted-foreground">Cleaners see the client&apos;s name &amp; phone on their jobs.</p>
+          </div>
+          <Switch
+            checked={settings.cleanerClientContact}
+            onCheckedChange={(checked) =>
+              setSettings((prev) => ({ ...prev, cleanerClientContact: checked }))
+            }
+            disabled={readOnly}
+          />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">

@@ -136,6 +136,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
         <CompanySection
           initial={{
             companyName: appSettings.companyName,
+            companyPhone: appSettings.companyPhone,
+            cleanerClientContact: appSettings.cleanerClientContact,
             projectName: appSettings.projectName,
             logoUrl: appSettings.logoUrl,
             logoDarkBgUrl: appSettings.logoDarkBgUrl,

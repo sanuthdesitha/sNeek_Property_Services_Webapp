@@ -1,89 +1,111 @@
 import { Role } from "@prisma/client";
+import { Package, PackageSearch, ShoppingCart } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
-import { listHeldStock } from "@/lib/inventory/held-stock";
-import {
-  EBadge,
-  ECard,
-  ECardBody,
-  EPageHeader,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
+import { getAppSettings } from "@/lib/settings";
+import { isCleanerModuleEnabled } from "@/lib/portal-access";
+import { db } from "@/lib/db";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { EChipTabs } from "@/components/v2/admin/estate-kit";
+import { ShoppingLauncher } from "@/components/v2/cleaner/shopping-launcher";
+import { OnHandView } from "@/components/v2/cleaner/on-hand-view";
+import { RestockPanel } from "@/components/v2/cleaner/restock-panel";
+import { StockRunWorkspace } from "@/components/v2/cleaner/stock-run-workspace";
 
 export const metadata = { title: "Supplies · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
-
-function qtyTone(qty: number): Tone {
-  if (qty <= 0) return "danger";
-  if (qty <= 2) return "warning";
-  return "success";
-}
+type SuppliesTab = "restock" | "shopping" | "stock-runs";
 
 /**
- * Stock this cleaner is currently holding (bought/shopped but not yet dropped at
- * a unit) — the same on-hand ledger the live cleaner shopping page shows, scoped
- * to the session user via holderUserId.
+ * Merged cleaner supplies hub — Restock + Shopping + Stock counts on one screen,
+ * behind a single "Supplies" nav entry. Each section keeps the exact auth/module
+ * gate its old standalone page used: Restock is ungated (role only), Shopping is
+ * gated on the `shopping` module, Stock counts on `stockRuns`. A disabled module
+ * simply drops its tab (and can't be reached via ?tab=). The three old routes now
+ * redirect here with the matching ?tab=.
  */
-async function getMyOnHand(userId: string) {
-  return listHeldStock({ holderUserId: userId }).catch(() => []);
-}
+export default async function CleanerSuppliesPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string; propertyId?: string };
+}) {
+  await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
+  const settings = await getAppSettings();
 
-export default async function CleanerSuppliesPage() {
-  const session = await requireRole([Role.CLEANER]);
-  const holdings = await getMyOnHand(session.user.id);
+  const showShopping = isCleanerModuleEnabled(settings, "shopping");
+  const showStockRuns = isCleanerModuleEnabled(settings, "stockRuns");
 
-  // Aggregate per catalog item (a cleaner can hold the same item across several
-  // shopping runs) so the list reads as one line per product.
-  const byItem = new Map<string, { name: string; unit: string | null; quantity: number }>();
-  for (const row of holdings) {
-    const key = row.item.id;
-    const existing = byItem.get(key);
-    if (existing) {
-      existing.quantity += row.quantity;
-    } else {
-      byItem.set(key, { name: row.item.name, unit: row.item.unit, quantity: row.quantity });
-    }
-  }
-  const items = Array.from(byItem.values()).sort((a, b) => a.name.localeCompare(b.name));
+  // Build the tab set from what's enabled — Restock is always present.
+  const tabs: Array<{ key: SuppliesTab; label: string; icon: React.ReactNode }> = [
+    { key: "restock", label: "Restock", icon: <Package className="h-4 w-4" /> },
+  ];
+  if (showShopping) tabs.push({ key: "shopping", label: "Shopping", icon: <ShoppingCart className="h-4 w-4" /> });
+  if (showStockRuns) tabs.push({ key: "stock-runs", label: "Stock counts", icon: <PackageSearch className="h-4 w-4" /> });
+
+  const requested = (searchParams?.tab ?? "").toLowerCase();
+  const active: SuppliesTab = tabs.some((t) => t.key === requested)
+    ? (requested as SuppliesTab)
+    : tabs[0].key;
+
+  // Active property list for the shopping launcher — same query the old page used.
+  const properties =
+    active === "shopping"
+      ? await db.property
+          .findMany({
+            where: { isActive: true },
+            select: { id: true, name: true, suburb: true },
+            orderBy: { name: "asc" },
+          })
+          .catch(() => [])
+      : [];
+
+  const description =
+    active === "restock"
+      ? "Topped up supplies at a property? Record what you added so on-hand counts stay accurate."
+      : active === "shopping"
+        ? "Choose what needs buying, start the run, then track receipts, payment, and time in the run workspace."
+        : "Count actual stock levels on site and submit the run for admin review.";
 
   return (
     <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Inventory"
-        title="Supplies"
-        description="Stock you're holding that hasn't been dropped at a unit yet."
-      />
+      <EPageHeader eyebrow="Inventory" title="Supplies" description={description} />
 
-      {items.length === 0 ? (
-        <EEmptyState
-          eyebrow="Empty hands"
-          title="No stock on hand"
-          description="Items you buy on a shopping run appear here until you deliver them to a unit."
+      {tabs.length > 1 ? (
+        <EChipTabs
+          tabs={tabs.map((t) => ({
+            key: t.key,
+            label: t.label,
+            href: `/v2/cleaner/supplies?tab=${t.key}`,
+            active: t.key === active,
+            icon: t.icon,
+          }))}
         />
-      ) : (
-        <ECard>
-          <ECardBody className="pt-6">
-            <div className="divide-y divide-[hsl(var(--e-border))]">
-              {items.map((s) => {
-                const unit = s.unit ? ` ${s.unit}` : "";
-                const label = s.quantity <= 0 ? "Out" : `${s.quantity}${unit} on hand`;
-                return (
-                  <div
-                    key={s.name}
-                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                  >
-                    <p className="text-[0.875rem] font-medium">{s.name}</p>
-                    <EBadge tone={qtyTone(s.quantity)} soft>
-                      {label}
-                    </EBadge>
-                  </div>
-                );
-              })}
+      ) : null}
+
+      {active === "restock" ? <RestockPanel /> : null}
+
+      {active === "shopping" ? (
+        <div className="space-y-6">
+          <ShoppingLauncher
+            apiPath="/api/cleaner/inventory/shopping-plan"
+            runsApiBase="/api/cleaner/inventory/shopping-runs"
+            workspaceBasePath="/v2/cleaner/shopping"
+            initialPropertyId={searchParams?.propertyId}
+          />
+          <section className="space-y-3">
+            <div>
+              <h2 className="e-display-sm">Your on-hand stock</h2>
+              <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                Stock you&apos;re holding that hasn&apos;t been dropped at a unit yet. Deliver it to update that unit&apos;s
+                count.
+              </p>
             </div>
-          </ECardBody>
-        </ECard>
-      )}
+            <OnHandView properties={properties} />
+          </section>
+        </div>
+      ) : null}
+
+      {active === "stock-runs" ? <StockRunWorkspace apiBase="/api/cleaner/stock-runs" /> : null}
     </div>
   );
 }

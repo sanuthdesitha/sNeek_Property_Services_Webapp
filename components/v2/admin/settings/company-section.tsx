@@ -14,6 +14,8 @@ import {
 
 export type CompanySettings = {
   companyName: string;
+  companyPhone: string;
+  cleanerClientContact: boolean;
   projectName: string;
   logoUrl: string;
   logoDarkBgUrl: string;
@@ -58,6 +60,8 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyName: form.companyName,
+          companyPhone: form.companyPhone,
+          cleanerClientContact: form.cleanerClientContact,
           projectName: form.projectName,
           logoUrl: form.logoUrl,
           logoDarkBgUrl: form.logoDarkBgUrl,
@@ -173,6 +177,16 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
               disabled={readOnly}
             />
           </EField>
+          <EField label="Company phone" htmlFor="company-phone" hint="Office / dispatch number shown to cleaners on their jobs.">
+            <EInput
+              id="company-phone"
+              type="tel"
+              value={form.companyPhone}
+              onChange={(e) => set("companyPhone", e.target.value)}
+              placeholder="e.g. 02 1234 5678"
+              disabled={readOnly}
+            />
+          </EField>
           <EField label="Project name" htmlFor="project-name" hint="Internal product name shown in portal chrome.">
             <EInput
               id="project-name"
@@ -199,6 +213,15 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
               disabled={readOnly}
             />
           </EField>
+        </div>
+        <div className="mt-5">
+          <EToggle
+            checked={form.cleanerClientContact}
+            onChange={(v) => set("cleanerClientContact", v)}
+            disabled={readOnly}
+            label="Show client contact to cleaners"
+            description="Cleaners see the client's name & phone on their jobs."
+          />
         </div>
       </ECard>
 

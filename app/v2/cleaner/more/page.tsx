@@ -1,36 +1,36 @@
 import Link from "next/link";
 import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/components/v2/ui/primitives";
 import {
-  CalendarRange, ChevronRight, ClipboardList, MapPin, Package, PackageSearch,
-  Receipt, Search, Settings, ShoppingCart, User, Users,
+  ChevronRight, ClipboardList, HandCoins, LineChart, Navigation, Package,
+  Receipt, Search, Settings, User, Users,
 } from "lucide-react";
 
 export const metadata = { title: "More · Estate cleaner" };
 
+// Every surface that isn't a bottom-tab (Today / Jobs / Schedule) lives here, so
+// the flat set covers all former cleaner destinations + orphans in one hub.
 const GROUPS: { title: string; items: { href: string; label: string; desc: string; icon: typeof User }[] }[] = [
   {
     title: "Work",
     items: [
-      { href: "/v2/cleaner/calendar", label: "Calendar", desc: "Your schedule", icon: CalendarRange },
-      { href: "/v2/cleaner/availability", label: "Availability", desc: "Set weekly hours & time off", icon: ClipboardList },
-      { href: "/v2/cleaner/route", label: "Route", desc: "Today's optimised run", icon: MapPin },
-      { href: "/v2/cleaner/lost-found", label: "Lost & found", desc: "Log found items", icon: Search },
+      { href: "/v2/cleaner/route", label: "Route", desc: "Today's optimised driving run", icon: Navigation },
       { href: "/v2/cleaner/hub", label: "Team hub", desc: "Feed & recognition", icon: Users },
+      { href: "/v2/cleaner/lost-found", label: "Lost & found", desc: "Log found items", icon: Search },
+      { href: "/v2/cleaner/availability", label: "Availability", desc: "Set weekly hours & time off", icon: ClipboardList },
     ],
   },
   {
     title: "Supplies",
     items: [
-      { href: "/v2/cleaner/shopping", label: "Shopping", desc: "Runs & purchases", icon: ShoppingCart },
-      { href: "/v2/cleaner/restock", label: "Restock", desc: "Request supplies", icon: Package },
-      { href: "/v2/cleaner/stock-runs", label: "Stock runs", desc: "Counts & requests", icon: PackageSearch },
+      { href: "/v2/cleaner/supplies", label: "Supplies", desc: "Restock, shopping runs & stock counts", icon: Package },
     ],
   },
   {
     title: "Money",
     items: [
       { href: "/v2/cleaner/invoices", label: "Invoices", desc: "Download & send", icon: Receipt },
-      { href: "/v2/cleaner/pay-requests", label: "Pay requests", desc: "Extra pay & adjustments", icon: Receipt },
+      { href: "/v2/cleaner/pay-requests", label: "Pay requests", desc: "Extra pay & adjustments", icon: HandCoins },
+      { href: "/v2/cleaner/pay", label: "My performance", desc: "Earnings & pay history", icon: LineChart },
     ],
   },
   {

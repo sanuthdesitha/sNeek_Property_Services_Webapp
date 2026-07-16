@@ -67,6 +67,20 @@ import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { cn } from "@/lib/utils";
 import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
+import { deriveJobStage, type JobStage } from "@/lib/cleaner/job-stage";
+import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
+import { buildReadFirstItems, type ReadFirstItem } from "@/components/v2/cleaner/read-first-block";
+import { ContactSheet, type JobContact } from "@/components/v2/cleaner/contact-sheet";
+import { PropertyInfoDrawer } from "@/components/v2/cleaner/property-info-drawer";
+import { JobHeader } from "@/components/v2/cleaner/job-stages/job-header";
+import { StageNav } from "@/components/v2/cleaner/job-stages/stage-nav";
+import { StageAccept } from "@/components/v2/cleaner/job-stages/stage-accept";
+import { StageTravel } from "@/components/v2/cleaner/job-stages/stage-travel";
+import { StageSetup } from "@/components/v2/cleaner/job-stages/stage-setup";
+import { StageClean } from "@/components/v2/cleaner/job-stages/stage-clean";
+import { StageWrapup } from "@/components/v2/cleaner/job-stages/stage-wrapup";
+import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
+import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
@@ -198,6 +212,16 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // code and the correct laundry bag before clocking in.
   const [propertyCodeConfirmed, setPropertyCodeConfirmed] = React.useState(false);
   const [laundryBagConfirmed, setLaundryBagConfirmed] = React.useState(false);
+
+  // Journey-stage UI state (presentation only — the gates/handlers below are
+  // unchanged; the stage just decides which slice is on screen).
+  const [activeStage, setActiveStage] = React.useState<JobStage>(1);
+  const [infoDrawerOpen, setInfoDrawerOpen] = React.useState(false);
+  const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
+  const stageInitRef = React.useRef(false);
+  const prevStartedRef = React.useRef(false);
+  const prevLockedRef = React.useRef(false);
+  const prevNeedsAcceptRef = React.useRef(true);
 
   // Shared cross-device draft (same /draft endpoint + envelope as v1).
   const editorSessionIdRef = React.useRef<string>(
@@ -770,6 +794,43 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     }
   }
 
+  // ── Journey stage derivation + auto-advance ────────────────────────────────
+  const enRouteActive = Boolean(job?.enRouteStartedAt) && !job?.arrivedAt;
+  const arrived = Boolean(job?.arrivedAt) || hasCheckin;
+  const derivedStage: JobStage = deriveJobStage({
+    needsAcceptance,
+    hasStarted,
+    locked,
+    enRouteActive,
+    arrived,
+    formComplete: false,
+  });
+
+  // Initialise the visible stage once the job has loaded.
+  React.useEffect(() => {
+    if (loading || !job || stageInitRef.current) return;
+    stageInitRef.current = true;
+    prevStartedRef.current = hasStarted;
+    prevLockedRef.current = locked;
+    prevNeedsAcceptRef.current = needsAcceptance;
+    setActiveStage(derivedStage);
+  }, [loading, job, derivedStage, hasStarted, locked, needsAcceptance]);
+
+  // Auto-advance on the SAME transitions that already happen today: accept →
+  // setup, clock-in success → clean, submit success → wrap up.
+  React.useEffect(() => {
+    if (!needsAcceptance && prevNeedsAcceptRef.current) setActiveStage(3);
+    prevNeedsAcceptRef.current = needsAcceptance;
+  }, [needsAcceptance]);
+  React.useEffect(() => {
+    if (hasStarted && !prevStartedRef.current) setActiveStage(4);
+    prevStartedRef.current = hasStarted;
+  }, [hasStarted]);
+  React.useEffect(() => {
+    if (locked && !prevLockedRef.current) setActiveStage(5);
+    prevLockedRef.current = locked;
+  }, [locked]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-[hsl(var(--e-muted-foreground))]">
@@ -793,24 +854,106 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
   const allTasksDecided = jobTasks.every((t) => (taskDrafts[t.id]?.decision ?? "OPEN") !== "OPEN");
 
+  const readFirstItems: ReadFirstItem[] = buildReadFirstItems(payload);
+  const contact = (payload?.contact ?? null) as JobContact | null;
+  const navUrl = googleMapsDirectionsUrl({
+    address: property?.address,
+    suburb: property?.suburb,
+    state: property?.state,
+    postcode: property?.postcode,
+    latitude: property?.latitude,
+    longitude: property?.longitude,
+    placeId: (property as any)?.placeId,
+    name: property?.name,
+  });
+
+  // The single slice of workspace state each journey stage renders. All logic
+  // (gates, autosave, validation, submit) still lives here — the stages are
+  // presentation only.
+  const api: WorkspaceApi = {
+    payload,
+    job,
+    property,
+    briefing,
+    template,
+    schema,
+    jobId,
+    status,
+    locked,
+    needsAcceptance,
+    hasStarted,
+    hasCheckin,
+    propertyId,
+    addressLine,
+    propertyCode,
+    navUrl,
+    jobTypeLabel: job?.jobType ? titleCase(job.jobType) : "Job",
+    expectedDurationMinutes,
+    formatDurationMinutes,
+    jobTasks,
+    importantRequests,
+    readFirstItems,
+    contact,
+    restockNeeds,
+    recurringIssues,
+    setupGuideEntries,
+    laundryEnabled,
+    bagLabel,
+    bagColor,
+    timeState,
+    busy,
+    activeStage,
+    setActiveStage,
+    startGateBlocks,
+    startGateSatisfied,
+    clockInDisabled: startGateBlocks && !startGateSatisfied,
+    propertyCodeConfirmed,
+    setPropertyCodeConfirmed,
+    laundryBagConfirmRequired,
+    laundryBagConfirmed,
+    setLaundryBagConfirmed,
+    answers,
+    uploads,
+    onAnswer: (id, v) => setAnswers((prev) => ({ ...prev, [id]: v })),
+    onUpload: (id, m) => setUploads((prev) => ({ ...prev, [id]: m })),
+    taskDrafts,
+    setTask,
+    allTasksDecided,
+    laundryOutcome,
+    setLaundryOutcome,
+    laundryBagLocation,
+    setLaundryBagLocation,
+    laundryPhoto,
+    setLaundryPhoto,
+    laundrySkipCode,
+    setLaundrySkipCode,
+    laundrySkipNote,
+    setLaundrySkipNote,
+    laundryEarlySending,
+    laundryEarlySentAt,
+    laundryEarlyNotice,
+    sendLaundryEarlyUpdate,
+    carryHasNew,
+    setCarryHasNew,
+    carryNotes,
+    setCarryNotes,
+    carryPhotos,
+    setCarryPhotos,
+    flash,
+    clockIn,
+    pauseClock,
+    clockOutEarly,
+    submit,
+    load,
+    openInfoDrawer: () => setInfoDrawerOpen(true),
+    openContactSheet: () => setContactSheetOpen(true),
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <BackLink />
 
-      {/* Header */}
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="e-eyebrow">{job.jobNumber ? `Job ${job.jobNumber}` : "Job"}</p>
-            <h1 className="e-display-md truncate">{property.name}</h1>
-            <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{titleCase(job.jobType)}</p>
-          </div>
-          <EBadge tone={statusTone(status)} soft>
-            {titleCase(status)}
-          </EBadge>
-        </div>
-        <div className="e-signature-rule" />
-      </div>
+      <JobHeader api={api} />
 
       {notice ? (
         <EAlert tone={notice.tone === "danger" ? "danger" : notice.tone === "success" ? "success" : "info"}>
@@ -818,56 +961,35 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </EAlert>
       ) : null}
 
-      {/* Property access guide — self-fetching; renders nothing when the property
-          has no guide, so mounting it is always safe. */}
+      {/* Property access guide — self-fetching; hides when the property has none. */}
       {propertyId ? <PropertyAccessGuide propertyId={propertyId} /> : null}
 
-      {/* Client / admin requests — a loud, always-visible callout so the specific
-          asks for this job stay front-of-mind even after the popup is dismissed. */}
-      {importantRequests.length > 0 ? (
-        <ECard className="border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]">
-          <ECardBody className="space-y-3 pt-6">
-            <div className="flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600] text-[hsl(var(--e-foreground))]">
-                <Megaphone className="h-4 w-4 text-[hsl(var(--e-gold))]" /> Client requests
-              </p>
-              <EBadge tone="gold" soft>
-                {importantRequests.length}
-              </EBadge>
-            </div>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-              Specific requests the client or admin flagged for this job — make sure every one is handled.
-            </p>
-            <ul className="space-y-2">
-              {importantRequests.map((r) => (
-                <li
-                  key={r.key}
-                  className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-surface))] p-3"
-                >
-                  <p className="text-[0.875rem] font-[550]">{r.title}</p>
-                  {r.detail ? (
-                    <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                      {r.detail}
-                    </p>
-                  ) : null}
-                  <p className="mt-1 text-[0.625rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">
-                    {r.source}
-                  </p>
-                </li>
-              ))}
-            </ul>
-            {importantAck ? (
-              <button
-                type="button"
-                onClick={() => setImportantOpen(true)}
-                className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] underline-offset-2 hover:underline"
-              >
-                Show the full requests reminder again
-              </button>
-            ) : null}
-          </ECardBody>
-        </ECard>
+      {/* Saved progress restored from another device / co-cleaner */}
+      {!locked && draftInfo.updatedAt ? (
+        <EAlert tone="info" title="Saved progress restored">
+          {draftInfo.updatedByName ? `Last saved by ${draftInfo.updatedByName}` : "Draft restored"}
+          {" · "}
+          {new Date(draftInfo.updatedAt).toLocaleString("en-AU", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          . Your checklist and form answers keep saving automatically.
+        </EAlert>
       ) : null}
+
+      <StageNav api={api} />
+
+      <div>
+        {activeStage === 1 ? <StageAccept api={api} /> : null}
+        {activeStage === 2 ? <StageTravel api={api} /> : null}
+        {activeStage === 3 ? <StageSetup api={api} /> : null}
+        {activeStage === 4 ? <StageClean api={api} /> : null}
+        {activeStage === 5 ? <StageWrapup api={api} /> : null}
+      </div>
+
+      <ActionFab api={api} />
 
       {/* One-time attention popup for client / admin requests on this job. */}
       <EModal
@@ -909,1022 +1031,20 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         </div>
       </EModal>
 
-      {/* Offer — accept or decline before starting. Gated on MY assignment's
-          response (PENDING), not the job's global status. */}
-      {needsAcceptance ? (
-        <ECard>
-          <ECardBody className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[0.9375rem] font-[600]">You've been offered this job</p>
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Accept to add it to your schedule, or decline so it can be reassigned.
-              </p>
-            </div>
-            {/* Reload the workspace's own client fetch after accept/decline so
-                the gated sections (actions, laundry, submit) appear without a
-                manual page refresh — router.refresh() alone doesn't re-run this
-                client component's load(). */}
-            <JobOfferActions jobId={job.id} size="md" onDone={() => void load()} />
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* Property / access */}
-      <ECard>
-        <ECardBody className="space-y-3 pt-6">
-          <p className="flex items-start gap-2 text-[0.875rem]">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--e-muted-foreground))]" />
-            <span>{addressLine || "Address not set"}</span>
-          </p>
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            {property.bedrooms ?? 0} bd · {property.bathrooms ?? 0} ba
-            {job.startTime ? ` · ${job.startTime}${job.dueTime ? `–${job.dueTime}` : ""}` : ""}
-          </p>
-          {accessText ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3">
-              <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-                <KeyRound className="h-4 w-4" /> Access
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                {accessText}
-              </p>
-            </div>
-          ) : null}
-          {job.notes?.trim() ? (
-            <p className="whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{job.notes.trim()}</p>
-          ) : null}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {addressLine ? (
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressLine)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <EButton variant="outline" size="sm">
-                  <Navigation className="h-4 w-4" /> Navigate
-                </EButton>
-              </a>
-            ) : null}
-          </div>
-        </ECardBody>
-      </ECard>
-
-      {/* Job briefing — prior QA warning, rework notes, linen drop, access vault */}
-      {!locked && !needsAcceptance ? <BriefingCard briefing={briefing} /> : null}
-
-      {/* Shared draft resumed from another device / co-cleaner */}
-      {!locked && draftInfo.updatedAt ? (
-        <EAlert tone="info" title="Saved progress restored">
-          {draftInfo.updatedByName ? `Last saved by ${draftInfo.updatedByName}` : "Draft restored"}
-          {" · "}
-          {new Date(draftInfo.updatedAt).toLocaleString("en-AU", {
-            day: "2-digit",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-          . Your checklist and form answers keep saving automatically.
-        </EAlert>
-      ) : null}
-
-      {/* Before you start — job-start accountability gate (Phase 2b). Shows the
-          property code, expected duration, the correct laundry bag, setup
-          reference images and restock needs; blocks clock-in until confirmed. */}
-      {showStartGateCard ? (
-        <ECard className={hasStarted ? undefined : "border-[hsl(var(--e-gold))]"}>
-          <ECardBody className="space-y-4 pt-6">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-1.5"
-              onClick={() => (hasStarted ? setSetupCardOpen((v) => !v) : undefined)}
-            >
-              <span className="flex items-center gap-1.5">
-                <ClipboardCheck className="h-4 w-4 text-[hsl(var(--e-gold))]" />
-                <span className="text-[0.9375rem] font-[600]">
-                  {hasStarted ? "Property setup" : "Before you start"}
-                </span>
-              </span>
-              {hasStarted ? (
-                <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {setupCardExpanded ? "Hide" : "Show"}
-                </span>
-              ) : null}
-            </button>
-
-            {setupCardExpanded ? (
-            <div className="space-y-4">
-            {/* Property code — big */}
-            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
-              <p className="text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
-                Property code
-              </p>
-              <p className="text-[1.75rem] font-[650] leading-tight tracking-[0.02em]">
-                {propertyCode || "—"}
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {/* Expected duration */}
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
-                  <Clock className="h-3.5 w-3.5" /> Expected duration
-                </p>
-                <p className="mt-1 text-[0.9375rem] font-[550]">
-                  {expectedDurationMinutes != null
-                    ? formatDurationMinutes(expectedDurationMinutes)
-                    : "Not set"}
-                </p>
-              </div>
-
-              {/* Laundry bag — label + colour swatch */}
-              {laundryEnabled && (bagLabel || bagColor) ? (
-                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                  <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
-                    <WashingMachine className="h-3.5 w-3.5" /> Laundry bag
-                  </p>
-                  <div className="mt-1 flex items-center gap-2">
-                    {bagColor ? (
-                      <span
-                        className="inline-block h-4 w-4 shrink-0 rounded-full border border-[hsl(var(--e-border-strong))]"
-                        style={{ backgroundColor: bagColor }}
-                        aria-hidden
-                      />
-                    ) : null}
-                    <span className="text-[0.9375rem] font-[550]">
-                      {bagLabel || "—"}
-                      {bagColor ? (
-                        <span className="ml-1 text-[0.8125rem] font-[400] text-[hsl(var(--e-muted-foreground))]">
-                          ({bagColor})
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Setup reference images */}
-            {setupGuideEntries.length > 0 ? (
-              <div className="space-y-2">
-                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-                  <BookOpen className="h-3.5 w-3.5" /> Setup reference
-                </p>
-                {setupGuideEntries.map((entry, ei) => {
-                  const images = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
-                  return (
-                    <div
-                      key={entry.id || `setup-${ei}`}
-                      className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
-                    >
-                      {entry.label ? (
-                        <p className="text-[0.8125rem] font-[550]">{entry.label}</p>
-                      ) : null}
-                      {entry.instructions ? (
-                        <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                          {entry.instructions}
-                        </p>
-                      ) : null}
-                      {images.length > 0 ? (
-                        <MediaGallery
-                          items={images.map((im, ii) => ({
-                            id: `${entry.id || ei}-${ii}`,
-                            url: im.url as string,
-                            label: im.caption || entry.label || undefined,
-                          }))}
-                          title={entry.label || "Setup reference"}
-                          className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* Restock needs */}
-            {restockNeeds.length > 0 ? (
-              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
-                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-                  <Package className="h-4 w-4" /> Restock needed
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {restockNeeds.map((r, ri) => (
-                    <li
-                      key={`${r.name}-${ri}`}
-                      className="flex items-center justify-between gap-2 text-[0.8125rem]"
-                    >
-                      <span>{r.name}</span>
-                      <span className="font-[550] tabular-nums">
-                        +{r.needed}
-                        {r.unit ? ` ${r.unit}` : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {/* Watch-outs from previous cleans (Phase 7a) — recurring QA issues. */}
-            {recurringIssues.length > 0 ? (
-              <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
-                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-                  <AlertTriangle className="h-4 w-4" /> Watch-outs from previous cleans
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {recurringIssues.map((r, ri) => (
-                    <li key={ri} className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                      {r}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {/* Confirmation checkboxes — required when the gate blocks. */}
-            {startGateBlocks ? (
-              <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3">
-                <label className="flex items-start gap-2 text-[0.875rem]">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
-                    checked={propertyCodeConfirmed}
-                    onChange={(e) => setPropertyCodeConfirmed(e.target.checked)}
-                  />
-                  <span>
-                    I have verified the property code
-                    {propertyCode ? (
-                      <span className="font-[600]"> — {propertyCode}</span>
-                    ) : null}
-                  </span>
-                </label>
-                {laundryBagConfirmRequired ? (
-                  <label className="flex items-start gap-2 text-[0.875rem]">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
-                      checked={laundryBagConfirmed}
-                      onChange={(e) => setLaundryBagConfirmed(e.target.checked)}
-                    />
-                    <span>
-                      I am using the correct laundry bag
-                      {bagLabel ? <span className="font-[600]"> — {bagLabel}</span> : null}
-                    </span>
-                  </label>
-                ) : null}
-              </div>
-            ) : null}
-            </div>
-            ) : null}
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* Clock / GPS control */}
-      <ClockCard
-        status={status}
-        locked={locked}
-        hasCheckin={hasCheckin}
-        isRunning={timeState.isRunning}
-        completedSeconds={timeState.completedSeconds}
-        activeStartedAt={timeState.activeStartedAt ?? null}
-        maxAllowedTotalSeconds={timeState.maxAllowedTotalSeconds ?? null}
-        busy={busy}
-        clockInDisabled={startGateBlocks && !startGateSatisfied}
-        onClockIn={clockIn}
-        onPause={pauseClock}
+      <ContactSheet
+        open={contactSheetOpen}
+        onClose={() => setContactSheetOpen(false)}
+        contact={contact ?? ({} as JobContact)}
       />
-
-      {/* Form still pending after an early clock-out */}
-      {job?.formPendingAfterClockOut && !locked ? (
-        <EAlert tone="warning" title="Form still pending">
-          You clocked out without submitting the form. This job is not complete until the form below is submitted.
-        </EAlert>
-      ) : null}
-
-      {/* Clock out & finish the form later — only for admin-allowlisted cleaners */}
-      {payload?.canClockOutWithoutForm &&
-      (hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0) &&
-      !locked ? (
-        <ECard className="border-[hsl(var(--e-warning))]">
-          <ECardBody className="space-y-2 pt-6">
-            <p className="text-[0.875rem] font-[550]">Clock out &amp; finish the form later</p>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Stops your clock now. This job stays open and is <strong>not counted as completed</strong> until you
-              come back and submit the form.
-            </p>
-            <EButton
-              variant="outline"
-              className="w-full"
-              disabled={busy === "clockout-early"}
-              onClick={() => void clockOutEarly()}
-            >
-              {busy === "clockout-early" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-              Clock out (finish form later)
-            </EButton>
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* Checklist — jobTasks (admin / carry-forward), per-item complete + note + photo */}
-      {jobTasks.length > 0 ? (
-        <ECard>
-          <ECardBody className="space-y-4 pt-6">
-            <p className="e-eyebrow flex items-center gap-1.5">
-              <ListChecks className="h-3.5 w-3.5" /> Checklist ({jobTasks.length})
-            </p>
-            {jobTasks.map((t) => {
-              const d = taskDrafts[t.id] ?? { decision: "OPEN", note: "", proof: [] };
-              return (
-                <div key={t.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-[0.875rem] font-[550]">{t.title}</p>
-                      {t.description ? (
-                        <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{t.description}</p>
-                      ) : null}
-                      <p className="mt-1 text-[0.625rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">
-                        {titleCase(t.source)}
-                        {t.requiresPhoto ? " · photo required" : ""}
-                        {t.requiresNote ? " · note required" : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <TaskChip active={d.decision === "COMPLETED"} disabled={locked} onClick={() => setTask(t.id, { decision: "COMPLETED" })}>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Done
-                    </TaskChip>
-                    <TaskChip active={d.decision === "NOT_COMPLETED"} disabled={locked} tone="warning" onClick={() => setTask(t.id, { decision: "NOT_COMPLETED" })}>
-                      Not done
-                    </TaskChip>
-                  </div>
-                  {d.decision !== "OPEN" ? (
-                    <div className="mt-3 space-y-2">
-                      <ETextarea
-                        placeholder={
-                          d.decision === "NOT_COMPLETED"
-                            ? "Reason it wasn't done (required)"
-                            : t.requiresNote
-                              ? "Add a note (required)"
-                              : "Add a note (optional)"
-                        }
-                        value={d.note}
-                        disabled={locked}
-                        onChange={(e) => setTask(t.id, { note: e.target.value })}
-                      />
-                      {(t.requiresPhoto || d.decision === "COMPLETED") ? (
-                        <div>
-                          <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto ? " (required)" : ""}
-                          </p>
-                          <MediaCapture
-                            value={d.proof}
-                            onChange={(m) => setTask(t.id, { proof: m })}
-                            mode="photo"
-                            folder="evidence"
-                            disabled={locked}
-                            stamp={{
-                              address: addressLine || undefined,
-                              reference: (property.name as string) || undefined,
-                              contextLabel: t.title || undefined,
-                              tag: "after",
-                            }}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* The assigned form template rendered natively */}
-      {schema ? (
-        <div className="space-y-3">
-          <p className="e-eyebrow flex items-center gap-1.5">
-            <ClipboardCheck className="h-3.5 w-3.5" /> {template?.name || "Job form"}
-          </p>
-          <FormRenderer
-            schema={schema}
-            answers={answers}
-            uploads={uploads}
-            property={property}
-            onAnswer={(id, v) => setAnswers((prev) => ({ ...prev, [id]: v }))}
-            onUpload={(id, m) => setUploads((prev) => ({ ...prev, [id]: m }))}
-            disabled={locked}
-          />
-        </div>
-      ) : (
-        <EAlert tone="warning" title="No form template">
-          No active form template is configured for this job type — you can still clock in/out and complete the checklist.
-        </EAlert>
-      )}
-
-      {/* Per-job requests & reports — parity with the v1 cleaner job actions.
-          Hidden while the job is still OFFERED (accept first) or fully locked. */}
-      {!needsAcceptance && !locked ? (
-        <JobActions
-          jobId={job.id}
-          requiresSafetyCheckin={Boolean(job.requiresSafetyCheckin)}
-          safetyCheckinAt={job.safetyCheckinAt ?? null}
-          hasStarted={Boolean(hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0)}
-          onChanged={() => void load()}
-        />
-      ) : null}
-
-      {/* Laundry on submit — laundry-enabled jobs record the linen pickup as part
-          of completion. The standalone early-update card (in JobActions) still
-          works; this is the outcome saved when the job is submitted. */}
-      {laundryEnabled && !needsAcceptance && !locked ? (
-        <ECard>
-          <ECardBody className="space-y-3 pt-6">
-            <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-              <WashingMachine className="h-4 w-4" /> Laundry
-            </p>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Record the linen status for this clean — saved when you submit and sent to the laundry team.
-            </p>
-            <EField label="Outcome (required)">
-              <ESelect
-                value={laundryOutcome}
-                disabled={locked}
-                onChange={(e) => setLaundryOutcome(e.target.value as LaundryOutcome | "")}
-              >
-                <option value="">Select an outcome…</option>
-                <option value="READY_FOR_PICKUP">Ready for pickup</option>
-                <option value="NOT_READY">Not ready</option>
-                <option value="NO_PICKUP_REQUIRED">No pickup required</option>
-              </ESelect>
-            </EField>
-            {laundryOutcome === "READY_FOR_PICKUP" ? (
-              <>
-                <EField label="Bag location (required)">
-                  <EInput
-                    placeholder="e.g. Laundry room shelf, labeled bags"
-                    value={laundryBagLocation}
-                    disabled={locked}
-                    onChange={(e) => setLaundryBagLocation(e.target.value)}
-                  />
-                </EField>
-                <EField label="Laundry photo (required)">
-                  <MediaCapture
-                    value={laundryPhoto}
-                    onChange={setLaundryPhoto}
-                    mode="photo"
-                    folder="laundry"
-                    disabled={locked}
-                    stamp={{
-                      address: addressLine || undefined,
-                      reference: (property.name as string) || undefined,
-                      tag: "laundry",
-                      contextLabel: "Laundry bags ready for pickup",
-                    }}
-                  />
-                </EField>
-              </>
-            ) : laundryOutcome ? (
-              <>
-                <EField label="Reason (required)">
-                  <ESelect
-                    value={laundrySkipCode}
-                    disabled={locked}
-                    onChange={(e) => setLaundrySkipCode(e.target.value)}
-                  >
-                    {LAUNDRY_SKIP_REASONS.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </ESelect>
-                </EField>
-                <EField label="Note (optional)">
-                  <ETextarea
-                    value={laundrySkipNote}
-                    disabled={locked}
-                    onChange={(e) => setLaundrySkipNote(e.target.value)}
-                  />
-                </EField>
-              </>
-            ) : null}
-
-            {/* Early update — same fields, sent to the laundry team NOW instead of
-                waiting for submit (replaces the old separate "Laundry update" card). */}
-            {laundryOutcome && !locked ? (
-              <div className="space-y-1.5 border-t border-[hsl(var(--e-border))] pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Linen ready before the form is done? Send this status to the laundry team now.
-                    {laundryEarlySentAt ? ` Last sent ${laundryEarlySentAt}.` : ""}
-                  </p>
-                  <EButton
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      laundryEarlySending ||
-                      (laundryOutcome === "READY_FOR_PICKUP" &&
-                        (!laundryBagLocation.trim() || laundryPhoto.length === 0))
-                    }
-                    onClick={() => void sendLaundryEarlyUpdate()}
-                  >
-                    {laundryEarlySending ? "Sending…" : "Send to laundry team now"}
-                  </EButton>
-                </div>
-                {laundryEarlyNotice ? (
-                  <p
-                    className={`text-[0.75rem] ${
-                      laundryEarlyNotice.tone === "success"
-                        ? "text-[hsl(var(--e-success))]"
-                        : "text-[hsl(var(--e-danger))]"
-                    }`}
-                  >
-                    {laundryEarlyNotice.text}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* Pass to next clean — flags that carry forward as tasks on the next visit. */}
-      {!needsAcceptance && !locked ? (
-        <ECard>
-          <ECardBody className="space-y-3 pt-6">
-            <p className="flex items-center gap-1.5 text-[0.9375rem] font-[600]">
-              <Forward className="h-4 w-4" /> Pass to next clean
-            </p>
-            <label className="flex items-start gap-2 text-[0.875rem]">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 accent-[hsl(var(--e-gold))]"
-                checked={carryHasNew}
-                disabled={locked}
-                onChange={(e) => setCarryHasNew(e.target.checked)}
-              />
-              <span>Anything to flag for the next visit?</span>
-            </label>
-            {carryHasNew ? (
-              <div className="space-y-3">
-                {carryNotes.map((note, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <ETextarea
-                      placeholder="e.g. Oven needs a deeper clean next time — ran out of time today"
-                      value={note}
-                      disabled={locked}
-                      onChange={(e) =>
-                        setCarryNotes((prev) => prev.map((n, idx) => (idx === i ? e.target.value : n)))
-                      }
-                    />
-                    {carryNotes.length > 1 ? (
-                      <button
-                        type="button"
-                        disabled={locked}
-                        onClick={() => setCarryNotes((prev) => prev.filter((_, idx) => idx !== i))}
-                        className="mt-2 shrink-0 text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))] disabled:opacity-50"
-                        aria-label="Remove note"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  disabled={locked}
-                  onClick={() => setCarryNotes((prev) => [...prev, ""])}
-                  className="inline-flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))] underline-offset-2 hover:underline disabled:opacity-50"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add another flag
-                </button>
-                <div>
-                  <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    <Camera className="h-3.5 w-3.5" /> Photo (optional)
-                  </p>
-                  <MediaCapture
-                    value={carryPhotos}
-                    onChange={setCarryPhotos}
-                    mode="photo"
-                    folder="evidence"
-                    multiple
-                    disabled={locked}
-                    stamp={{
-                      address: addressLine || undefined,
-                      reference: (property.name as string) || undefined,
-                      contextLabel: "Flag for next clean",
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                Tick the box to leave notes or a photo for whoever cleans here next.
-              </p>
-            )}
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* Submit */}
-      {!locked ? (
-        <ECard variant="ceremony">
-          <ECardBody className="space-y-3 pt-6">
-            {jobTasks.length > 0 && !allTasksDecided ? (
-              <p className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-warning))]">
-                <AlertTriangle className="h-4 w-4" /> Mark every checklist item done or not done before submitting.
-              </p>
-            ) : null}
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Submitting sends the form + checklist for QA and records your clock-out.
-            </p>
-            <EButton
-              variant="gold"
-              className="w-full"
-              disabled={busy === "submit" || (jobTasks.length > 0 && !allTasksDecided)}
-              onClick={() => void submit()}
-            >
-              {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Submit & clock out
-            </EButton>
-          </ECardBody>
-        </ECard>
-      ) : (
-        <EAlert tone="success" title="Submitted">
-          This job has been submitted{status === "COMPLETED" ? " and completed" : ""}. No further action needed.
-        </EAlert>
-      )}
+      <PropertyInfoDrawer
+        open={infoDrawerOpen}
+        onClose={() => setInfoDrawerOpen(false)}
+        property={property}
+        contact={contact}
+        readFirstItems={readFirstItems}
+        restockNeeds={restockNeeds}
+      />
     </div>
-  );
-}
-
-function ClockCard({
-  status,
-  locked,
-  hasCheckin,
-  isRunning,
-  completedSeconds,
-  activeStartedAt,
-  maxAllowedTotalSeconds,
-  busy,
-  clockInDisabled,
-  onClockIn,
-  onPause,
-}: {
-  status: string;
-  locked: boolean;
-  hasCheckin: boolean;
-  isRunning: boolean;
-  completedSeconds: number;
-  activeStartedAt: string | null;
-  maxAllowedTotalSeconds: number | null;
-  busy: string | null;
-  clockInDisabled?: boolean;
-  onClockIn: () => void;
-  onPause: () => void;
-}) {
-  // Re-render every second while the clock runs so the live elapsed keeps
-  // advancing. `tick` isn't read directly — it exists purely to schedule the
-  // render; the displayed time is derived fresh from `activeStartedAt` + now on
-  // each render (never an accumulating counter), so a background-tab throttle or
-  // reload can't drift it.
-  const [, setTick] = React.useState(0);
-  React.useEffect(() => {
-    if (!isRunning) return;
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [isRunning]);
-
-  // Total seconds on site: banked (stopped logs) + the live active leg. Never
-  // clamped — the timer KEEPS TICKING past the job's planned end/due time; the
-  // server-side auto-clock-out safety net (due-time + grace / midnight / max
-  // length) is what actually stops the log, not this display.
-  const totalSeconds = isRunning
-    ? elapsedSecondsSince(activeStartedAt, completedSeconds)
-    : completedSeconds;
-  // "Over planned time" is a subtle informational badge — it does NOT stop the
-  // clock. maxAllowedTotalSeconds is the server's allowed total until the cutoff
-  // (respects stopAtEstimatedDuration, default false).
-  const overrunSeconds =
-    isRunning && maxAllowedTotalSeconds != null && totalSeconds > maxAllowedTotalSeconds
-      ? totalSeconds - maxAllowedTotalSeconds
-      : 0;
-  const overPlanned = overrunSeconds > 0;
-
-  return (
-    <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <div className="flex items-center justify-between">
-          <p className="e-eyebrow flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> Time on site
-          </p>
-          <span className="inline-flex items-center gap-2 text-[0.875rem] font-[550] tabular-nums">
-            {isRunning ? (
-              <span className="inline-flex items-center gap-1.5 text-[hsl(var(--e-success))]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--e-success))]" />
-                {formatDuration(totalSeconds)}
-              </span>
-            ) : (
-              <span className="text-[hsl(var(--e-muted-foreground))]">
-                {formatDuration(totalSeconds)} logged
-              </span>
-            )}
-            {overPlanned ? (
-              <EBadge tone="warning" soft>
-                +{formatDuration(overrunSeconds)} over planned
-              </EBadge>
-            ) : null}
-          </span>
-        </div>
-
-        {/* Unambiguous clock state + a subtle "GPS captured" indicator so it's
-            clear whether the clock is running and that location was recorded. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                isRunning ? "bg-[hsl(var(--e-success))]" : "bg-[hsl(var(--e-text-faint))]"
-              )}
-            />
-            {isRunning ? "Clock running" : hasCheckin ? "Clock stopped" : "Not clocked in"}
-          </span>
-          {hasCheckin ? (
-            <span className="inline-flex items-center gap-1 text-[hsl(var(--e-text-faint))]">
-              <MapPin className="h-3.5 w-3.5" /> GPS captured at check-in
-            </span>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {!isRunning && !locked ? (
-            <EButton
-              variant="primary"
-              disabled={busy === "clockin" || clockInDisabled}
-              onClick={onClockIn}
-            >
-              {busy === "clockin" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {hasCheckin ? "Resume · clock in" : "Clock in (GPS)"}
-            </EButton>
-          ) : null}
-          {isRunning && !locked ? (
-            <EButton variant="outline" disabled={busy === "pause"} onClick={onPause}>
-              {busy === "pause" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
-              Pause clock
-            </EButton>
-          ) : null}
-        </div>
-        {clockInDisabled ? (
-          <p className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-gold-ink))]">
-            <ClipboardCheck className="h-3.5 w-3.5" /> Complete the &ldquo;Before you start&rdquo; confirmations above to clock in.
-          </p>
-        ) : !hasCheckin && !locked ? (
-          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            Clocking in captures your GPS location at the property.
-          </p>
-        ) : (hasCheckin || isRunning) && !locked ? (
-          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            To finish, use <strong>Submit &amp; clock out</strong> below. Need to leave before finishing the form?
-            Use <strong>Clock out (finish form later)</strong>.
-          </p>
-        ) : null}
-      </ECardBody>
-    </ECard>
-  );
-}
-
-function TaskChip({
-  active,
-  disabled,
-  tone = "primary",
-  onClick,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  tone?: "primary" | "warning";
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  const activeCls =
-    tone === "warning"
-      ? "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] text-[hsl(var(--e-foreground))]"
-      : "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] text-[hsl(var(--e-foreground))]";
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] border px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors disabled:opacity-50",
-        active
-          ? activeCls
-          : "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * Pre-start job briefing — parity with the v1 briefing step. Renders the prior
- * QA warning at this property, confirmed QA rework notes, the previous linen
- * drop (photo + where the bags were left), recent property photos, the access
- * vault (codes / key location / notes) and previous QA flags — all from
- * GET /api/cleaner/jobs/[id]/briefing.
- */
-function BriefingCard({ briefing }: { briefing: any }) {
-  if (!briefing) return null;
-  const hasVault =
-    briefing.accessCode || briefing.alarmCode || briefing.keyLocation || briefing.accessNotes;
-  const reworkNotes: any[] = Array.isArray(briefing.qaReworkNotes) ? briefing.qaReworkNotes : [];
-  const flags: string[] = Array.isArray(briefing.previousFlags) ? briefing.previousFlags : [];
-  const lastPhotos: any[] = Array.isArray(briefing.lastPhotos) ? briefing.lastPhotos : [];
-  const drop = briefing.previousLaundryDrop;
-  const hasContent =
-    briefing.priorQaWarning || reworkNotes.length > 0 || drop || lastPhotos.length > 0 || hasVault || flags.length > 0 || briefing.laundryInstructions;
-  if (!hasContent) return null;
-
-  return (
-    <ECard>
-      <ECardBody className="space-y-4 pt-6">
-        <p className="e-eyebrow flex items-center gap-1.5">
-          <BookOpen className="h-3.5 w-3.5" /> Job briefing
-        </p>
-
-        {briefing.priorQaWarning ? (
-          <div
-            className={cn(
-              "rounded-[var(--e-radius)] border-l-[3px] p-3",
-              briefing.priorQaWarning.band === "FAIL"
-                ? "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
-                : "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
-            )}
-          >
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Previous QA at this property: {briefing.priorQaWarning.percent}% ({briefing.priorQaWarning.band})
-            </p>
-            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-              {briefing.priorQaWarning.cleanerFeedback ||
-                briefing.priorQaWarning.inspectorNotes ||
-                "Take extra care today — review the checklist carefully."}
-            </p>
-          </div>
-        ) : null}
-
-        {reworkNotes.length > 0 ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-              <AlertTriangle className="h-4 w-4 shrink-0" /> QA had to redo work on this job
-            </p>
-            <div className="mt-2 space-y-2">
-              {reworkNotes.map((note: any) => (
-                <div key={note.id}>
-                  <p className="text-[0.75rem] font-[550]">
-                    {String(note.severity ?? "").charAt(0) + String(note.severity ?? "").slice(1).toLowerCase()}
-                    {note.qaUser?.name ? ` · ${note.qaUser.name}` : " · QA inspector"}
-                    {note.minutesFromCleaner > 0 ? ` · ${note.minutesFromCleaner} min` : ""}
-                  </p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{note.reason}</p>
-                  {Array.isArray(note.areas) && note.areas.length > 0 ? (
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      Areas: {note.areas.join(", ")}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {drop ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3">
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-              <Package className="h-4 w-4 shrink-0" /> Linen drop — where to find it
-            </p>
-            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-              Fresh linen from the last drop-off
-              {drop.droppedAt
-                ? ` on ${new Date(drop.droppedAt).toLocaleString("en-AU", {
-                    weekday: "short",
-                    day: "2-digit",
-                    month: "short",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}`
-                : ""}
-              . Use this to locate the bags before you start.
-            </p>
-            {drop.notes ? (
-              <p className="mt-2 whitespace-pre-wrap rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface))] px-2 py-1.5 text-[0.75rem]">
-                {drop.notes}
-              </p>
-            ) : null}
-            {drop.photo?.url ? (
-              <div className="mt-2 max-w-[10rem]">
-                <MediaGallery
-                  items={[{ id: drop.photo.url, url: drop.photo.url, label: drop.photo.label || "Linen drop-off", mediaType: (drop.photo as any).mediaType }]}
-                  title={drop.photo.label || "Linen drop-off"}
-                  className="grid grid-cols-1"
-                />
-              </div>
-            ) : (
-              <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                No drop-off photo was captured — check the usual linen storage spot.
-              </p>
-            )}
-          </div>
-        ) : null}
-
-        {lastPhotos.length > 0 ? (
-          <div>
-            <p className="text-[0.8125rem] font-[550]">Recent property photos</p>
-            <MediaGallery
-              items={lastPhotos.slice(0, 6).map((photo: any) => ({
-                id: photo.id ?? photo.url,
-                url: photo.url,
-                label: photo.label || undefined,
-                mediaType: photo.mediaType,
-              }))}
-              title="Recent property photos"
-              className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6"
-            />
-          </div>
-        ) : null}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
-              <KeyRound className="h-3.5 w-3.5" /> Access details
-            </p>
-            {briefing.accessCode ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access code</p>
-                <p className="text-[0.875rem] font-[550]">{briefing.accessCode}</p>
-              </div>
-            ) : null}
-            {briefing.alarmCode ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Alarm code</p>
-                <p className="text-[0.875rem] font-[550]">{briefing.alarmCode}</p>
-              </div>
-            ) : null}
-            {briefing.keyLocation ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Key location</p>
-                <p className="text-[0.875rem]">{briefing.keyLocation}</p>
-              </div>
-            ) : null}
-            {briefing.accessNotes ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Access notes</p>
-                <p className="whitespace-pre-wrap text-[0.8125rem]">{briefing.accessNotes}</p>
-              </div>
-            ) : null}
-            {!hasVault ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                No extra access vault details saved for this property.
-              </p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-            <p className="text-[0.8125rem] font-[550]">Operational notes</p>
-            {briefing.jobNotes ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Job notes</p>
-                <p className="whitespace-pre-wrap text-[0.8125rem]">{briefing.jobNotes}</p>
-              </div>
-            ) : null}
-            {flags.length > 0 ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Previous QA flags</p>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {flags.map((flag) => (
-                    <EBadge key={flag} tone="warning" soft>
-                      {flag}
-                    </EBadge>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {briefing.laundryInstructions ? (
-              <div>
-                <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Laundry</p>
-                <p className="text-[0.8125rem]">
-                  {String(briefing.laundryInstructions.status ?? "").replace(/_/g, " ")}
-                </p>
-              </div>
-            ) : null}
-            {!briefing.jobNotes && flags.length === 0 && !briefing.laundryInstructions ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Nothing flagged for this visit.</p>
-            ) : null}
-          </div>
-        </div>
-      </ECardBody>
-    </ECard>
   );
 }
 

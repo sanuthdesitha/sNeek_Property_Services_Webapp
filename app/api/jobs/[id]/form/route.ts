@@ -31,6 +31,12 @@ export async function GET(
     if (session.user.role === Role.CLEANER) {
       await autoClockOutStaleTimeLogsForUser(session.user.id);
     }
+    // Fetched before the job query so the client-contact relation can be
+    // conditionally selected: cleaners only ever load the client's name/phone
+    // when the "show client contact to cleaners" toggle is on. Email is never
+    // selected, so it cannot leak.
+    const settings = await getAppSettings();
+    const includeClientContact = settings.cleanerClientContact !== false;
     const job = await db.job.findUnique({
       where: { id: params.id },
       include: {
@@ -41,6 +47,9 @@ export async function GET(
             suburb: true,
             state: true,
             postcode: true,
+            ...(includeClientContact
+              ? { client: { select: { name: true, phone: true } } }
+              : {}),
             latitude: true,
             longitude: true,
             placeId: true,
@@ -107,7 +116,6 @@ export async function GET(
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const settings = await getAppSettings();
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
     await attachPendingCarryForwardTasksToJob({
@@ -423,8 +431,33 @@ export async function GET(
           })
         : [];
 
+    // Client / office / guest contact numbers surfaced to the cleaner. The
+    // client name+phone are only present when the toggle is on (the relation is
+    // otherwise not even selected). The raw `property.client` relation is
+    // stripped from the returned job so nothing beyond name+phone can leak, and
+    // contact is returned as its own top-level key. Guest details come from the
+    // reservation context; the office number from settings. Null only when there
+    // is nothing at all to show.
+    const rawPropertyClient = (job.property as any)?.client as
+      | { name?: string | null; phone?: string | null }
+      | null
+      | undefined;
+    if (job.property && "client" in (job.property as any)) {
+      delete (job.property as any).client;
+    }
+    const clientName = includeClientContact ? rawPropertyClient?.name ?? null : null;
+    const clientPhone = includeClientContact ? rawPropertyClient?.phone ?? null : null;
+    const companyPhone = settings.companyPhone?.trim() ? settings.companyPhone.trim() : null;
+    const guestName = jobMeta.reservationContext?.guestName ?? null;
+    const guestPhone = jobMeta.reservationContext?.guestPhone ?? null;
+    const contact =
+      clientName || clientPhone || companyPhone || guestName || guestPhone
+        ? { clientName, clientPhone, companyPhone, guestName, guestPhone }
+        : null;
+
     return NextResponse.json({
       job,
+      contact,
       jobMeta,
       jobTasks,
       jobTimingHighlights,
