@@ -91,6 +91,8 @@ export interface WorkspaceApi {
   laundryEnabled: boolean;
   bagLabel: string;
   bagColor: string;
+  /** Admin-configured bag drop-off locations (settings.laundryBagLocationOptions). */
+  laundryBagLocationOptions: string[];
 
   /* ── Time / clock ────────────────────────────────────────────────────── */
   timeState: any;

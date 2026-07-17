@@ -106,16 +106,27 @@ export function isTemplateConditionalMet(
       answerValue = laundryReady;
     }
 
+    // Multiselect/checkbox answers are arrays (e.g. two exceptions ticked).
+    // For scalar comparisons treat an array answer as MEMBERSHIP: the rule
+    // fires when any selected value matches. Without this, String([a,b]) =>
+    // "a,b" never equals a scalar, so a field revealed by one selection would
+    // vanish the moment a second option is picked.
+    const answerList = Array.isArray(answerValue) ? (answerValue as unknown[]) : null;
+    const matchesExpected = (target: unknown) =>
+      answerList
+        ? answerList.some((v) => templateValuesEqual(v, target))
+        : templateValuesEqual(answerValue, target);
+
     switch (operator) {
       case "answered":
         return isAnswered(answerValue);
       case "notAnswered":
         return !isAnswered(answerValue);
       case "notEquals":
-        return !templateValuesEqual(answerValue, expected);
+        return !matchesExpected(expected);
       case "oneOf": {
         const list = Array.isArray(expected) ? expected : [expected];
-        return list.some((item) => templateValuesEqual(answerValue, item));
+        return list.some((item) => matchesExpected(item));
       }
       case "gt":
         return Number(answerValue) > Number(expected);
@@ -123,7 +134,7 @@ export function isTemplateConditionalMet(
         return Number(answerValue) < Number(expected);
       case "equals":
       default:
-        return templateValuesEqual(answerValue, expected);
+        return matchesExpected(expected);
     }
   }
 

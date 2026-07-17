@@ -8,6 +8,51 @@ import { getApiErrorStatus } from "@/lib/api/http";
 import { normalizeInventoryLocation } from "@/lib/inventory/locations";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { encryptSecret } from "@/lib/security/encryption";
+import {
+  getPropertyFormConfig,
+  collectMissingRequired,
+  pruneCustomValues,
+} from "@/lib/property-form/config";
+
+/**
+ * Assemble the flat field-value map the property-form config evaluates its
+ * required/conditional rules against — keyed by the same ids as the field
+ * registry (system field id → value, pulling the couple that live in accessInfo).
+ */
+function buildSystemValues(body: Record<string, any>): Record<string, unknown> {
+  const access = (body.accessInfo && typeof body.accessInfo === "object" ? body.accessInfo : {}) as Record<string, unknown>;
+  return {
+    clientId: body.clientId,
+    name: body.name,
+    address: body.address,
+    suburb: body.suburb,
+    state: body.state,
+    postcode: body.postcode,
+    linenBufferSets: body.linenBufferSets,
+    bedrooms: body.bedrooms,
+    bathrooms: body.bathrooms,
+    defaultCleanDurationHours: access.defaultCleanDurationHours,
+    maxGuestCount: access.maxGuestCount,
+    defaultCheckinTime: body.defaultCheckinTime,
+    defaultCheckoutTime: body.defaultCheckoutTime,
+    hasBalcony: body.hasBalcony,
+    inventoryEnabled: body.inventoryEnabled,
+    laundryEnabled: body.laundryEnabled,
+    lockbox: access.lockbox,
+    codes: access.codes,
+    parking: access.parking,
+    other: access.other,
+    instructions: access.instructions,
+    laundryTeam: Array.isArray(access.laundryTeamUserIds) ? access.laundryTeamUserIds : [],
+    cleaningDurationMinutes: body.cleaningDurationMinutes,
+    cleanerServiceRate: body.cleanerServiceRate,
+    sofaBedCount: body.sofaBedCount,
+    laundryBagLabel: body.laundryBagLabel,
+    laundryBagColor: body.laundryBagColor,
+    setupGuide: body.setupGuide,
+    notes: body.notes,
+  };
+}
 
 function buildPropertyAccessInfo(input: Record<string, any>) {
   const accessInfo =
@@ -97,7 +142,22 @@ export async function POST(req: NextRequest) {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createPropertySchema.parse(await req.json());
 
-    const { defaultInventoryItemIds, customInventoryItems, ...propertyData } = body;
+    const { defaultInventoryItemIds, customInventoryItems, customFields, ...propertyData } = body;
+
+    // Enforce the admin-configured required/conditional rules + persist the
+    // custom-field values (pruning any whose field is hidden / condition unmet).
+    const formConfig = await getPropertyFormConfig();
+    const systemValues = buildSystemValues(propertyData as Record<string, any>);
+    const customValues = (customFields ?? {}) as Record<string, unknown>;
+    const missing = collectMissingRequired(formConfig, systemValues, customValues);
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Please complete the required field${missing.length > 1 ? "s" : ""}: ${missing.map((m) => m.label).join(", ")}.` },
+        { status: 400 },
+      );
+    }
+    const prunedCustomFields = pruneCustomValues(formConfig, systemValues, customValues);
+
     const normalizedAccessInfo = buildPropertyAccessInfo(propertyData as Record<string, any>);
 
     const property = await db.property.create({
@@ -117,6 +177,7 @@ export async function POST(req: NextRequest) {
           normalizedAccessInfo.accessNotesSummary ||
           undefined,
         accessInfo: normalizedAccessInfo as any,
+        customFields: Object.keys(prunedCustomFields).length > 0 ? (prunedCustomFields as any) : undefined,
         preferredCleanerUserId: propertyData.preferredCleanerUserId ?? undefined,
         setupGuide:
           propertyData.setupGuide !== undefined

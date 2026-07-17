@@ -79,6 +79,7 @@ import { StageTravel } from "@/components/v2/cleaner/job-stages/stage-travel";
 import { StageSetup } from "@/components/v2/cleaner/job-stages/stage-setup";
 import { StageClean } from "@/components/v2/cleaner/job-stages/stage-clean";
 import { StageWrapup } from "@/components/v2/cleaner/job-stages/stage-wrapup";
+import { StageFooterNav } from "@/components/v2/cleaner/job-stages/stage-footer";
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
@@ -882,6 +883,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     laundryEnabled,
     bagLabel,
     bagColor,
+    laundryBagLocationOptions: Array.isArray(payload?.laundryBagLocationOptions)
+      ? (payload.laundryBagLocationOptions as string[])
+      : [],
     timeState,
     busy,
     activeStage,
@@ -969,6 +973,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         {activeStage === 3 ? <StageSetup api={api} /> : null}
         {activeStage === 4 ? <StageClean api={api} /> : null}
         {activeStage === 5 ? <StageWrapup api={api} /> : null}
+
+        <StageFooterNav api={api} />
       </div>
 
       <ActionFab api={api} />
