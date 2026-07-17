@@ -52,10 +52,6 @@ function buildPropertyAccessInfo(input: Record<string, any>) {
   };
 }
 
-// Mirrors FALLBACK_CLIENT_NAME in lib/jobs/service-site.ts — the client that
-// owns auto-created one-off / service-site properties.
-const ONE_OFF_FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
-
 export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -70,16 +66,6 @@ export async function GET(req: NextRequest) {
       where: {
         isActive: true,
         ...(clientId ? { clientId } : {}),
-        ...(includeOneOff
-          ? {}
-          : {
-              NOT: {
-                OR: [
-                  { accessInfo: { path: ["serviceSite"], equals: true } },
-                  { client: { name: ONE_OFF_FALLBACK_CLIENT_NAME } },
-                ],
-              },
-            }),
       },
       include: {
         client: { select: { id: true, name: true } },
@@ -89,7 +75,18 @@ export async function GET(req: NextRequest) {
       orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
     });
 
-    return NextResponse.json(properties);
+    // Hide genuine one-off / service-site properties from the portfolio list by
+    // default. Filter in JS on the precise `accessInfo.serviceSite === true`
+    // flag (set deliberately by ensureServiceSiteProperty) — a DB-level
+    // `NOT { path: serviceSite = true }` wrongly drops EVERY property whose
+    // accessInfo is null (SQL three-valued logic: NOT(unknown) = unknown), which
+    // hid all real properties. Client-name is NOT used as a signal — real
+    // recurring properties can legitimately sit under a catch-all client.
+    const visible = includeOneOff
+      ? properties
+      : properties.filter((p) => (p.accessInfo as { serviceSite?: unknown } | null)?.serviceSite !== true);
+
+    return NextResponse.json(visible);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: getApiErrorStatus(err) });
   }

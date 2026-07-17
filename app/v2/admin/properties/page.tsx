@@ -13,7 +13,6 @@ export const metadata = { title: "Properties · Estate admin" };
 export const dynamic = "force-dynamic";
 
 // Mirrors FALLBACK_CLIENT_NAME in lib/jobs/service-site.ts.
-const ONE_OFF_FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
 
 export default async function EstatePropertiesPage({
   searchParams,
@@ -26,21 +25,8 @@ export default async function EstatePropertiesPage({
   // ad-hoc job address). "Show one-off sites" (?includeOneOff=1) reveals them.
   const includeOneOff = searchParams?.includeOneOff === "1";
 
-  // Same query as the v1 properties page, minus one-off sites by default.
-  const properties = await db.property.findMany({
-    where: {
-      isActive: true,
-      ...(includeOneOff
-        ? {}
-        : {
-            NOT: {
-              OR: [
-                { accessInfo: { path: ["serviceSite"], equals: true } },
-                { client: { name: ONE_OFF_FALLBACK_CLIENT_NAME } },
-              ],
-            },
-          }),
-    },
+  const allProperties = await db.property.findMany({
+    where: { isActive: true },
     include: {
       client: { select: { name: true } },
       integration: { select: { isEnabled: true, icalUrl: true, syncStatus: true } },
@@ -48,6 +34,14 @@ export default async function EstatePropertiesPage({
     },
     orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
   });
+
+  // Hide genuine one-off / service-site properties by default. Filter in JS on
+  // the precise `accessInfo.serviceSite === true` flag — a DB `NOT { serviceSite
+  // = true }` drops every property with a null accessInfo (SQL NOT(unknown) =
+  // unknown), which hid all real properties. Client-name is not a signal.
+  const properties = includeOneOff
+    ? allProperties
+    : allProperties.filter((p) => (p.accessInfo as { serviceSite?: unknown } | null)?.serviceSite !== true);
 
   const rows: EstatePropertyRow[] = properties.map((p) => ({
     id: p.id,

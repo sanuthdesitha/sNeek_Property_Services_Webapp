@@ -158,7 +158,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
   const [form, setForm] = useState<FormState>(() => initialForm(initialPropertyId ?? ""));
 
   useEffect(() => {
-    fetch("/api/admin/properties", { cache: "no-store" })
+    fetch("/api/admin/properties?includeOneOff=1", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) =>
         setProperties(
