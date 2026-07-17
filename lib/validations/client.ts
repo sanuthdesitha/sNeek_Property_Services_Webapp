@@ -173,6 +173,10 @@ export const createPropertySchema = z.object({
   laundryBagColor: z.enum(LAUNDRY_BAG_COLORS).optional().nullable(),
   sofaBedCount: z.number().int().min(0).max(20).default(0),
   setupGuide: setupGuideSchema.optional(),
+  // Admin-defined custom intake field values — { [customFieldId]: value }.
+  // Field definitions live in the propertyFormConfig AppSetting; validated +
+  // pruned against that config in the route, so accept an open record here.
+  customFields: z.record(z.string(), z.any()).optional(),
   defaultInventoryItemIds: z.array(z.string().cuid()).optional(),
   customInventoryItems: z
     .array(

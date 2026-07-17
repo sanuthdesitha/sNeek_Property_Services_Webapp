@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, SlidersHorizontal } from "lucide-react";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import {
   PropertiesPortfolio,
@@ -11,8 +11,6 @@ import {
 
 export const metadata = { title: "Properties · Estate admin" };
 export const dynamic = "force-dynamic";
-
-// Mirrors FALLBACK_CLIENT_NAME in lib/jobs/service-site.ts.
 
 export default async function EstatePropertiesPage({
   searchParams,
@@ -69,6 +67,11 @@ export default async function EstatePropertiesPage({
             <EButton asChild variant="outline" size="sm">
               <Link href={includeOneOff ? "/v2/admin/properties" : "/v2/admin/properties?includeOneOff=1"}>
                 {includeOneOff ? "Hide one-off sites" : "Show one-off sites"}
+              </Link>
+            </EButton>
+            <EButton asChild variant="outline" size="sm">
+              <Link href="/v2/admin/settings/property-form">
+                <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Edit form fields
               </Link>
             </EButton>
             <EButton asChild variant="gold" size="sm">

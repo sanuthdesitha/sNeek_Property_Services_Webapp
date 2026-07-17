@@ -186,12 +186,31 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             {api.laundryOutcome === "READY_FOR_PICKUP" ? (
               <>
                 <EField label="Bag location (required)">
-                  <EInput
-                    placeholder="e.g. Laundry room shelf, labeled bags"
-                    value={api.laundryBagLocation}
-                    disabled={locked}
-                    onChange={(e) => api.setLaundryBagLocation(e.target.value)}
-                  />
+                  {api.laundryBagLocationOptions.length > 0 ? (
+                    <ESelect
+                      value={api.laundryBagLocation}
+                      disabled={locked}
+                      onChange={(e) => api.setLaundryBagLocation(e.target.value)}
+                    >
+                      <option value="">Select where you left the bag…</option>
+                      {api.laundryBagLocationOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                      {api.laundryBagLocation &&
+                      !api.laundryBagLocationOptions.includes(api.laundryBagLocation) ? (
+                        <option value={api.laundryBagLocation}>{api.laundryBagLocation}</option>
+                      ) : null}
+                    </ESelect>
+                  ) : (
+                    <EInput
+                      placeholder="e.g. Laundry room shelf, labeled bags"
+                      value={api.laundryBagLocation}
+                      disabled={locked}
+                      onChange={(e) => api.setLaundryBagLocation(e.target.value)}
+                    />
+                  )}
                 </EField>
                 <EField label="Laundry photo (required)">
                   <MediaCapture

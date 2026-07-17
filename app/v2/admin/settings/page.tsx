@@ -121,13 +121,27 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       />
 
       <EChipTabs
-        tabs={availableTabs.map((t) => ({
-          key: t.key,
-          label: t.label,
-          icon: t.icon,
-          href: `/v2/admin/settings?tab=${t.key}`,
-          active: t.key === activeTab,
-        }))}
+        tabs={[
+          ...availableTabs.map((t) => ({
+            key: t.key,
+            label: t.label,
+            icon: t.icon,
+            href: `/v2/admin/settings?tab=${t.key}`,
+            active: t.key === activeTab,
+          })),
+          // Standalone editor (its own route) — surfaced here for discoverability.
+          ...(isAdmin
+            ? [
+                {
+                  key: "property-form",
+                  label: "Property form",
+                  icon: <ClipboardCheck className="h-4 w-4" />,
+                  href: "/v2/admin/settings/property-form",
+                  active: false,
+                },
+              ]
+            : []),
+        ]}
       />
 
       {activeTab === "overview" ? <OverviewSection isAdmin={isAdmin} /> : null}

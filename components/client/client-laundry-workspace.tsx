@@ -25,7 +25,9 @@ import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from 
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
-const COMPLETED_LAUNDRY_STATUSES = new Set(["DROPPED_OFF", "COMPLETED"]);
+// Real LaundryStatus terminal states. Old values "DROPPED_OFF"/"COMPLETED" don't
+// exist in the enum, so completed laundry never registered as done here.
+const COMPLETED_LAUNDRY_STATUSES = new Set(["DROPPED", "SKIPPED_PICKUP"]);
 
 type FilterMode = "day" | "week" | "month";
 

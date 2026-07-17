@@ -29,7 +29,11 @@ import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from 
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
-const COMPLETED_LAUNDRY_STATUSES = new Set(["DROPPED_OFF", "COMPLETED"]);
+// Terminal states from the client's view, using the real LaundryStatus enum
+// (PENDING/CONFIRMED/PICKED_UP/DROPPED/FLAGGED/SKIPPED_PICKUP). The old set used
+// "DROPPED_OFF"/"COMPLETED" — values that never exist — so a returned/skipped
+// bag never showed as done and stayed out of sync with what admin/cleaner sent.
+const COMPLETED_LAUNDRY_STATUSES = new Set(["DROPPED", "SKIPPED_PICKUP"]);
 type FilterMode = "day" | "week" | "month";
 
 function toLocalDate(value: string | Date) {
@@ -93,7 +97,8 @@ function formatLaundryStatus(task: any) {
 }
 function statusTone(task: any): "success" | "gold" | "neutral" {
   if (isCompletedTask(task)) return "success";
-  if (task.status === "PICKED_UP" || task.status === "IN_PROGRESS") return "gold";
+  // In-flight = sent to the laundry team (CONFIRMED) or already collected (PICKED_UP).
+  if (task.status === "PICKED_UP" || task.status === "CONFIRMED") return "gold";
   return "neutral";
 }
 function buildLatestLaundrySummary(task: any) {

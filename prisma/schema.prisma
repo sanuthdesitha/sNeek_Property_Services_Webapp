@@ -909,6 +909,11 @@ model Property {
   ///   pool, spa, garage, garden, petFriendly, fireplace, ... }: boolean.
   /// Copied from the onboarding survey on approval; editable on the property.
   features                   Json?
+  /// Values for admin-defined custom intake fields — { [customFieldId]: value }.
+  /// Field DEFINITIONS live in the `propertyFormConfig` AppSetting; this column
+  /// only stores the captured values (text/number/select/yesno, or {url,key}
+  /// for photo/file). See lib/property-form/config.ts.
+  customFields               Json?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 

@@ -24,6 +24,14 @@ import {
   LaundryBagColorPicker,
   type SetupGuideEntry,
 } from "./property-setup-guide-editor";
+import { CustomFieldsSection } from "./custom-fields-section";
+import {
+  EMPTY_PROPERTY_FORM_CONFIG,
+  isSystemFieldVisible,
+  getEffectiveRequired,
+  collectMissingRequired,
+  type PropertyFormConfig,
+} from "@/lib/property-form/config";
 
 interface ClientOption {
   id: string;
@@ -54,9 +62,11 @@ type CustomItem = {
 export function PropertyCreateForm({
   initialClientId,
   copyFromPropertyId,
+  formConfig = EMPTY_PROPERTY_FORM_CONFIG,
 }: {
   initialClientId?: string;
   copyFromPropertyId?: string;
+  formConfig?: PropertyFormConfig;
 }) {
   const router = useRouter();
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -106,6 +116,45 @@ export function PropertyCreateForm({
   });
 
   const [setupGuide, setSetupGuide] = useState<SetupGuideEntry[]>([]);
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+
+  // Flat value map keyed by field-registry id — drives the config's
+  // required/conditional evaluation (mirrors buildSystemValues on the server).
+  const systemValues: Record<string, unknown> = {
+    clientId: form.clientId,
+    name: form.name,
+    address: form.address,
+    suburb: form.suburb,
+    state: form.state,
+    postcode: form.postcode,
+    linenBufferSets: form.linenBufferSets,
+    bedrooms: form.bedrooms,
+    bathrooms: form.bathrooms,
+    defaultCleanDurationHours: form.defaultCleanDurationHours,
+    maxGuestCount: form.maxGuestCount,
+    defaultCheckinTime: form.defaultCheckinTime,
+    defaultCheckoutTime: form.defaultCheckoutTime,
+    hasBalcony: form.hasBalcony,
+    inventoryEnabled: form.inventoryEnabled,
+    laundryEnabled: form.laundryEnabled,
+    lockbox: access.lockbox,
+    codes: access.codes,
+    parking: access.parking,
+    other: access.other,
+    instructions: access.instructions,
+    laundryTeam: access.laundryTeamUserIds,
+    cleaningDurationMinutes: form.cleaningDurationMinutes,
+    cleanerServiceRate: form.cleanerServiceRate,
+    sofaBedCount: form.sofaBedCount,
+    laundryBagLabel: form.laundryBagLabel,
+    laundryBagColor: form.laundryBagColor,
+    setupGuide,
+    notes: form.notes,
+  };
+  const allValues = { ...systemValues, ...customValues };
+  const shows = (id: string) => isSystemFieldVisible(id, formConfig, allValues);
+  const labelFor = (id: string, base: string) =>
+    getEffectiveRequired(id, formConfig, allValues) ? `${base} *` : base;
 
   useEffect(() => {
     let cancelled = false;
@@ -247,8 +296,12 @@ export function PropertyCreateForm({
   }
 
   async function createProperty() {
-    if (!form.clientId || !form.name.trim() || !form.address.trim() || !form.suburb.trim()) {
-      toast({ title: "Client, name, address, and suburb are required.", variant: "destructive" });
+    const missing = collectMissingRequired(formConfig, systemValues, customValues);
+    if (missing.length > 0) {
+      toast({
+        title: `Please complete: ${missing.map((m) => m.label).join(", ")}.`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -316,6 +369,7 @@ export function PropertyCreateForm({
       laundryBagColor: form.laundryBagColor || null,
       sofaBedCount: Number(form.sofaBedCount) || 0,
       setupGuide,
+      customFields: customValues,
       defaultInventoryItemIds: form.inventoryEnabled ? selectedDefaultItemIds : [],
       customInventoryItems: form.inventoryEnabled
         ? customItems
@@ -383,7 +437,7 @@ export function PropertyCreateForm({
           <ECardTitle className="text-[0.95rem]">Property details</ECardTitle>
         </ECardHeader>
         <ECardBody className="space-y-4 pt-0">
-          <EField label="Client">
+          <EField label={labelFor("clientId", "Client")}>
             <ESelect
               value={form.clientId}
               onChange={(e) => setF("clientId", e.target.value)}
@@ -399,15 +453,15 @@ export function PropertyCreateForm({
           </EField>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <EField label="Property name">
+            <EField label={labelFor("name", "Property name")}>
               <EInput value={form.name} onChange={(e) => setF("name", e.target.value)} />
             </EField>
-            <EField label="Suburb">
+            <EField label={labelFor("suburb", "Suburb")}>
               <EInput value={form.suburb} onChange={(e) => setF("suburb", e.target.value)} />
             </EField>
           </div>
 
-          <EField label="Address">
+          <EField label={labelFor("address", "Address")}>
             <EAddressInput
               value={form.address}
               placeholder="Start typing an address…"
@@ -428,94 +482,118 @@ export function PropertyCreateForm({
           </EField>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <EField label="State">
-              <EInput
-                maxLength={3}
-                value={form.state}
-                onChange={(e) => setF("state", e.target.value.toUpperCase())}
-              />
-            </EField>
-            <EField label="Postcode">
-              <EInput
-                inputMode="numeric"
-                maxLength={4}
-                value={form.postcode}
-                onChange={(e) => setF("postcode", e.target.value)}
-              />
-            </EField>
-            <EField label="Linen buffer sets">
-              <EInput
-                type="number"
-                min="0"
-                value={form.linenBufferSets}
-                onChange={(e) => setF("linenBufferSets", e.target.value)}
-              />
-            </EField>
+            {shows("state") ? (
+              <EField label={labelFor("state", "State")}>
+                <EInput
+                  maxLength={3}
+                  value={form.state}
+                  onChange={(e) => setF("state", e.target.value.toUpperCase())}
+                />
+              </EField>
+            ) : null}
+            {shows("postcode") ? (
+              <EField label={labelFor("postcode", "Postcode")}>
+                <EInput
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={form.postcode}
+                  onChange={(e) => setF("postcode", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("linenBufferSets") ? (
+              <EField label={labelFor("linenBufferSets", "Linen buffer sets")}>
+                <EInput
+                  type="number"
+                  min="0"
+                  value={form.linenBufferSets}
+                  onChange={(e) => setF("linenBufferSets", e.target.value)}
+                />
+              </EField>
+            ) : null}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <EField label="Bedrooms">
-              <EInput type="number" min="0" value={form.bedrooms} onChange={(e) => setF("bedrooms", e.target.value)} />
-            </EField>
-            <EField label="Bathrooms">
-              <EInput type="number" min="0" value={form.bathrooms} onChange={(e) => setF("bathrooms", e.target.value)} />
-            </EField>
-            <EField label="Clean duration (hrs)">
-              <EInput
-                type="number"
-                min="0.25"
-                step="0.25"
-                value={form.defaultCleanDurationHours}
-                onChange={(e) => setF("defaultCleanDurationHours", e.target.value)}
-              />
-            </EField>
-            <EField label="Max guests">
-              <EInput
-                type="number"
-                min="1"
-                max="100"
-                value={form.maxGuestCount}
-                onChange={(e) => setF("maxGuestCount", e.target.value)}
-              />
-            </EField>
+            {shows("bedrooms") ? (
+              <EField label={labelFor("bedrooms", "Bedrooms")}>
+                <EInput type="number" min="0" value={form.bedrooms} onChange={(e) => setF("bedrooms", e.target.value)} />
+              </EField>
+            ) : null}
+            {shows("bathrooms") ? (
+              <EField label={labelFor("bathrooms", "Bathrooms")}>
+                <EInput type="number" min="0" value={form.bathrooms} onChange={(e) => setF("bathrooms", e.target.value)} />
+              </EField>
+            ) : null}
+            {shows("defaultCleanDurationHours") ? (
+              <EField label={labelFor("defaultCleanDurationHours", "Clean duration (hrs)")}>
+                <EInput
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  value={form.defaultCleanDurationHours}
+                  onChange={(e) => setF("defaultCleanDurationHours", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("maxGuestCount") ? (
+              <EField label={labelFor("maxGuestCount", "Max guests")}>
+                <EInput
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={form.maxGuestCount}
+                  onChange={(e) => setF("maxGuestCount", e.target.value)}
+                />
+              </EField>
+            ) : null}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <EField label="Default check-in time">
-              <EInput
-                type="time"
-                value={form.defaultCheckinTime}
-                onChange={(e) => setF("defaultCheckinTime", e.target.value)}
-              />
-            </EField>
-            <EField label="Default checkout time">
-              <EInput
-                type="time"
-                value={form.defaultCheckoutTime}
-                onChange={(e) => setF("defaultCheckoutTime", e.target.value)}
-              />
-            </EField>
+            {shows("defaultCheckinTime") ? (
+              <EField label={labelFor("defaultCheckinTime", "Default check-in time")}>
+                <EInput
+                  type="time"
+                  value={form.defaultCheckinTime}
+                  onChange={(e) => setF("defaultCheckinTime", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("defaultCheckoutTime") ? (
+              <EField label={labelFor("defaultCheckoutTime", "Default checkout time")}>
+                <EInput
+                  type="time"
+                  value={form.defaultCheckoutTime}
+                  onChange={(e) => setF("defaultCheckoutTime", e.target.value)}
+                />
+              </EField>
+            ) : null}
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
-            <ToggleTile
-              title="Has balcony"
-              hint="Enable balcony checklist fields."
-              checked={form.hasBalcony}
-              onChange={(v) => setF("hasBalcony", v)}
-            />
-            <ToggleTile
-              title="Inventory enabled"
-              hint="Track stock for this property."
-              checked={form.inventoryEnabled}
-              onChange={(v) => setF("inventoryEnabled", v)}
-            />
-            <ToggleTile
-              title="Laundry service enabled"
-              hint="Disable to exclude from laundry scheduling."
-              checked={form.laundryEnabled}
-              onChange={(v) => setF("laundryEnabled", v)}
-            />
+            {shows("hasBalcony") ? (
+              <ToggleTile
+                title="Has balcony"
+                hint="Enable balcony checklist fields."
+                checked={form.hasBalcony}
+                onChange={(v) => setF("hasBalcony", v)}
+              />
+            ) : null}
+            {shows("inventoryEnabled") ? (
+              <ToggleTile
+                title="Inventory enabled"
+                hint="Track stock for this property."
+                checked={form.inventoryEnabled}
+                onChange={(v) => setF("inventoryEnabled", v)}
+              />
+            ) : null}
+            {shows("laundryEnabled") ? (
+              <ToggleTile
+                title="Laundry service enabled"
+                hint="Disable to exclude from laundry scheduling."
+                checked={form.laundryEnabled}
+                onChange={(v) => setF("laundryEnabled", v)}
+              />
+            ) : null}
           </div>
         </ECardBody>
       </ECard>
@@ -720,27 +798,37 @@ export function PropertyCreateForm({
         </ECardHeader>
         <ECardBody className="space-y-4 pt-0">
           <div className="grid gap-4 md:grid-cols-2">
-            <EField label="Lockbox">
-              <EInput value={access.lockbox} onChange={(e) => setAccess((p) => ({ ...p, lockbox: e.target.value }))} />
-            </EField>
-            <EField label="Access codes">
-              <EInput value={access.codes} onChange={(e) => setAccess((p) => ({ ...p, codes: e.target.value }))} />
-            </EField>
-            <EField label="Parking">
-              <EInput value={access.parking} onChange={(e) => setAccess((p) => ({ ...p, parking: e.target.value }))} />
-            </EField>
-            <EField label="Other">
-              <EInput value={access.other} onChange={(e) => setAccess((p) => ({ ...p, other: e.target.value }))} />
-            </EField>
+            {shows("lockbox") ? (
+              <EField label={labelFor("lockbox", "Lockbox")}>
+                <EInput value={access.lockbox} onChange={(e) => setAccess((p) => ({ ...p, lockbox: e.target.value }))} />
+              </EField>
+            ) : null}
+            {shows("codes") ? (
+              <EField label={labelFor("codes", "Access codes")}>
+                <EInput value={access.codes} onChange={(e) => setAccess((p) => ({ ...p, codes: e.target.value }))} />
+              </EField>
+            ) : null}
+            {shows("parking") ? (
+              <EField label={labelFor("parking", "Parking")}>
+                <EInput value={access.parking} onChange={(e) => setAccess((p) => ({ ...p, parking: e.target.value }))} />
+              </EField>
+            ) : null}
+            {shows("other") ? (
+              <EField label={labelFor("other", "Other")}>
+                <EInput value={access.other} onChange={(e) => setAccess((p) => ({ ...p, other: e.target.value }))} />
+              </EField>
+            ) : null}
           </div>
-          <EField label="Access instructions">
-            <ETextarea
-              value={access.instructions}
-              onChange={(e) => setAccess((p) => ({ ...p, instructions: e.target.value }))}
-            />
-          </EField>
+          {shows("instructions") ? (
+            <EField label={labelFor("instructions", "Access instructions")}>
+              <ETextarea
+                value={access.instructions}
+                onChange={(e) => setAccess((p) => ({ ...p, instructions: e.target.value }))}
+              />
+            </EField>
+          ) : null}
 
-          {form.laundryEnabled ? (
+          {form.laundryEnabled && shows("laundryTeam") ? (
             <div className="space-y-2">
               <EEyebrow>Laundry team</EEyebrow>
               {laundryUsers.length === 0 ? (
@@ -785,51 +873,76 @@ export function PropertyCreateForm({
         </ECardHeader>
         <ECardBody className="space-y-4 pt-0">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <EField label="Clean duration (min)" hint="Standard clean duration">
-              <EInput
-                type="number"
-                min="0"
-                value={form.cleaningDurationMinutes}
-                onChange={(e) => setF("cleaningDurationMinutes", e.target.value)}
-              />
-            </EField>
-            <EField label="Cleaner service rate ($)" hint="Per-clean cleaner rate — overrides hourly maths">
-              <EInput
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.cleanerServiceRate}
-                onChange={(e) => setF("cleanerServiceRate", e.target.value)}
-              />
-            </EField>
-            <EField label="Sofa beds" hint="Number of sofa beds at this property">
-              <EInput
-                type="number"
-                min="0"
-                value={form.sofaBedCount}
-                onChange={(e) => setF("sofaBedCount", e.target.value)}
-              />
-            </EField>
-            <EField label="Laundry bag label" hint='e.g. "J04"'>
-              <EInput value={form.laundryBagLabel} onChange={(e) => setF("laundryBagLabel", e.target.value)} />
-            </EField>
+            {shows("cleaningDurationMinutes") ? (
+              <EField label={labelFor("cleaningDurationMinutes", "Clean duration (min)")} hint="Standard clean duration">
+                <EInput
+                  type="number"
+                  min="0"
+                  value={form.cleaningDurationMinutes}
+                  onChange={(e) => setF("cleaningDurationMinutes", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("cleanerServiceRate") ? (
+              <EField
+                label={labelFor("cleanerServiceRate", "Cleaner service rate ($)")}
+                hint="Per-clean cleaner rate — overrides hourly maths"
+              >
+                <EInput
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.cleanerServiceRate}
+                  onChange={(e) => setF("cleanerServiceRate", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("sofaBedCount") ? (
+              <EField label={labelFor("sofaBedCount", "Sofa beds")} hint="Number of sofa beds at this property">
+                <EInput
+                  type="number"
+                  min="0"
+                  value={form.sofaBedCount}
+                  onChange={(e) => setF("sofaBedCount", e.target.value)}
+                />
+              </EField>
+            ) : null}
+            {shows("laundryBagLabel") ? (
+              <EField label={labelFor("laundryBagLabel", "Laundry bag label")} hint='e.g. "J04"'>
+                <EInput value={form.laundryBagLabel} onChange={(e) => setF("laundryBagLabel", e.target.value)} />
+              </EField>
+            ) : null}
           </div>
-          <EField label="Laundry bag colour">
-            <LaundryBagColorPicker value={form.laundryBagColor} onChange={(c) => setF("laundryBagColor", c)} />
-          </EField>
-          <PropertySetupGuideEditor value={setupGuide} onChange={setSetupGuide} />
+          {shows("laundryBagColor") ? (
+            <EField label="Laundry bag colour">
+              <LaundryBagColorPicker value={form.laundryBagColor} onChange={(c) => setF("laundryBagColor", c)} />
+            </EField>
+          ) : null}
+          {shows("setupGuide") ? (
+            <PropertySetupGuideEditor value={setupGuide} onChange={setSetupGuide} />
+          ) : null}
         </ECardBody>
       </ECard>
 
+      {/* Custom fields (admin-defined) */}
+      <CustomFieldsSection
+        fields={formConfig.customFields}
+        values={customValues}
+        formValues={allValues}
+        onChange={(id, value) => setCustomValues((prev) => ({ ...prev, [id]: value }))}
+      />
+
       {/* Notes */}
-      <ECard>
-        <ECardHeader className="pb-2">
-          <ECardTitle className="text-[0.95rem]">Notes</ECardTitle>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          <ETextarea value={form.notes} onChange={(e) => setF("notes", e.target.value)} />
-        </ECardBody>
-      </ECard>
+      {shows("notes") ? (
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="text-[0.95rem]">Notes</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <ETextarea value={form.notes} onChange={(e) => setF("notes", e.target.value)} />
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       <div className="flex justify-end gap-2">
         <EButton asChild variant="outline">
