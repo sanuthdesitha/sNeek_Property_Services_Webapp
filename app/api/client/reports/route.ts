@@ -23,11 +23,13 @@ export async function GET() {
       where: {
         // Only reports an admin explicitly published to the client. Without this
         // a client could pull reports marked clientVisible=false (incl. their
-        // embedded QA/notes HTML).
+        // embedded QA/notes HTML). Gate on clientVisible ALONE — a Report row
+        // only exists once the cleaner submits, and the old job.status IN
+        // (COMPLETED, INVOICED) arm hid finished reports still in SUBMITTED/
+        // QA_REVIEW.
         clientVisible: true,
         job: {
           property: { clientId: user.clientId },
-          status: { in: ["COMPLETED", "INVOICED"] },
         },
       },
       // Return only client-safe fields (no internal columns).

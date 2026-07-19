@@ -60,6 +60,7 @@ export const PROPERTY_SYSTEM_FIELDS: PropertyFieldDef[] = [
   { id: "instructions", label: "Access instructions", group: "access", supportsRequired: true, defaultRequired: false },
   { id: "laundryTeam", label: "Laundry team", group: "access", supportsRequired: false },
   // ── Quality & accountability ───────────────────────────────────────────────
+  { id: "assignedCleaningHours", label: "Assigned cleaning hours", group: "quality", supportsRequired: true, defaultRequired: false },
   { id: "cleaningDurationMinutes", label: "Clean duration (min)", group: "quality", supportsRequired: true, defaultRequired: false },
   { id: "cleanerServiceRate", label: "Cleaner service rate ($)", group: "quality", supportsRequired: true, defaultRequired: false },
   { id: "sofaBedCount", label: "Sofa beds", group: "quality", supportsRequired: true, defaultRequired: false },

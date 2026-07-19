@@ -16,6 +16,7 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
+import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
@@ -310,7 +311,10 @@ export async function POST(
         ? (buildReworkFormSchema(reworkAreas, {
             categorized: parseJobInternalNotes(job.internalNotes).reworkCategorized,
           }) as any)
-        : template.schema;
+        : // Canonicalise + standard-sections via the SAME normalizer the form
+          // read route uses, so the required-field set the cleaner satisfied on
+          // screen is exactly what we enforce here (no read-vs-submit mismatch).
+          (normalizeFormSchema(template.schema) as any);
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
     const jobMeta = parseJobInternalNotes(job.internalNotes);

@@ -7,7 +7,9 @@
 // Conditional evaluation reuses the forms engine (`isTemplateConditionalMet`)
 // so the rule semantics match the checklist/job forms exactly.
 
-import { db } from "@/lib/db";
+// NOTE: this module is imported by CLIENT components (property-create-form,
+// custom-fields-section, the editor) so it MUST stay client-safe — no `@/lib/db`
+// / server-only imports. The DB read/write helpers live in ./config-store.
 import { isTemplateConditionalMet } from "@/lib/forms/visibility";
 import type { FieldCondition } from "@/lib/forms/types";
 import {
@@ -152,23 +154,8 @@ export function sanitizePropertyFormConfig(input: unknown): PropertyFormConfig {
   return { version: 1, systemFields, customFields };
 }
 
-// ── Persistence ──────────────────────────────────────────────────────────────
-
-export async function getPropertyFormConfig(): Promise<PropertyFormConfig> {
-  const row = await db.appSetting.findUnique({ where: { key: PROPERTY_FORM_CONFIG_KEY } });
-  if (!row?.value) return EMPTY_PROPERTY_FORM_CONFIG;
-  return sanitizePropertyFormConfig(row.value);
-}
-
-export async function savePropertyFormConfig(input: unknown): Promise<PropertyFormConfig> {
-  const config = sanitizePropertyFormConfig(input);
-  await db.appSetting.upsert({
-    where: { key: PROPERTY_FORM_CONFIG_KEY },
-    create: { key: PROPERTY_FORM_CONFIG_KEY, value: config as any },
-    update: { value: config as any },
-  });
-  return config;
-}
+// Persistence (getPropertyFormConfig / savePropertyFormConfig) lives in the
+// server-only ./config-store module so this file stays client-bundle-safe.
 
 // ── Evaluation (shared by client + server) ───────────────────────────────────
 

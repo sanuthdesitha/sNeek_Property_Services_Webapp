@@ -105,6 +105,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     bathrooms: "1",
     showCleanerContactToClient: false,
     cleaningDurationMinutes: "",
+    assignedCleaningHours: "",
     cleanerServiceRate: "",
     laundryBagLabel: "",
     laundryBagColor: "",
@@ -184,6 +185,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       showCleanerContactToClient: Boolean(data.showCleanerContactToClient),
       cleaningDurationMinutes:
         typeof data.cleaningDurationMinutes === "number" ? String(data.cleaningDurationMinutes) : "",
+      assignedCleaningHours:
+        typeof data.assignedCleaningHours === "number" ? String(data.assignedCleaningHours) : "",
       cleanerServiceRate:
         typeof data.cleanerServiceRate === "number" ? String(data.cleanerServiceRate) : "",
       laundryBagLabel: typeof data.laundryBagLabel === "string" ? data.laundryBagLabel : "",
@@ -254,6 +257,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       showCleanerContactToClient: form.showCleanerContactToClient,
       cleaningDurationMinutes:
         form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      assignedCleaningHours:
+        form.assignedCleaningHours.trim() !== "" ? Number(form.assignedCleaningHours) : null,
       cleanerServiceRate:
         form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
       laundryBagLabel: form.laundryBagLabel.trim() || null,
@@ -640,8 +645,21 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                 <p className="text-[0.8125rem] font-[550]">Quality &amp; accountability</p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <EField
+                    label="Assigned cleaning hours"
+                    hint="Decimal hours (e.g. 2.75) — new jobs prefill their estimated hours from this"
+                  >
+                    <EInput
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      placeholder="e.g. 2.75"
+                      value={form.assignedCleaningHours}
+                      onChange={(e) => setF("assignedCleaningHours", e.target.value)}
+                    />
+                  </EField>
+                  <EField
                     label="Clean duration (min)"
-                    hint="Standard clean duration — when empty, jobs fall back to their estimated hours"
+                    hint="QA duration baseline (minutes) — optional"
                   >
                     <EInput
                       type="number"

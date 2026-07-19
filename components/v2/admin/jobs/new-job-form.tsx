@@ -42,7 +42,7 @@ type SiteMode = "existing_property" | "service_site";
 type TimingPreset = "none" | "11:00" | "12:30" | "custom";
 type TimingRule = { preset: TimingPreset; time: string };
 
-type PropertyOption = { id: string; name: string; suburb: string; defaultCleanDurationHours: number };
+type PropertyOption = { id: string; name: string; suburb: string; defaultCleanDurationHours: number; assignedCleaningHours: number | null };
 type ClientOption = { id: string; name: string };
 type CleanerOption = { id: string; name: string | null; email: string | null; isActive?: boolean };
 
@@ -169,6 +169,8 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 suburb: p.suburb,
                 defaultCleanDurationHours:
                   typeof p?.accessInfo?.defaultCleanDurationHours === "number" ? p.accessInfo.defaultCleanDurationHours : 3,
+                assignedCleaningHours:
+                  typeof p?.assignedCleaningHours === "number" ? p.assignedCleaningHours : null,
               }))
             : []
         )
@@ -184,14 +186,20 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
       .catch(() => {});
   }, []);
 
-  // Prefill estimated hours from the property's default clean duration.
+  // Prefill estimated hours from the property's assigned cleaning hours (the
+  // first-class decimal field), falling back to the legacy default clean
+  // duration. The cleaner can still override per job.
   useEffect(() => {
     const property = properties.find((row) => row.id === form.propertyId);
     if (!property) return;
-    setForm((prev) => ({
-      ...prev,
-      estimatedHours: property.defaultCleanDurationHours > 0 ? String(property.defaultCleanDurationHours) : prev.estimatedHours,
-    }));
+    const hours =
+      property.assignedCleaningHours != null && property.assignedCleaningHours > 0
+        ? property.assignedCleaningHours
+        : property.defaultCleanDurationHours > 0
+          ? property.defaultCleanDurationHours
+          : null;
+    if (hours == null) return;
+    setForm((prev) => ({ ...prev, estimatedHours: String(hours) }));
   }, [form.propertyId, properties]);
 
   // Airbnb turnovers always use an existing property; clear turnaround flags off Airbnb.

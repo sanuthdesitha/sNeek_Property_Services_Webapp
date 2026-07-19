@@ -879,6 +879,10 @@ model Property {
   // ── Quality / accountability config ────────────────────────────────────────
   // Planned standard-clean duration (job-start display + QA duration baseline).
   cleaningDurationMinutes    Int?
+  // Standard cleaning hours assigned to this property (decimal, e.g. 2.75).
+  // First-class single source for the property's expected clean length; new
+  // jobs prefill estimatedHours from it (and can override per job).
+  assignedCleaningHours      Float?
   // Per-clean cleaner service rate (overrides hourly maths when set).
   cleanerServiceRate         Float?
   // Laundry bag identity so the cleaner grabs the right bag: label + colour.
@@ -1079,6 +1083,11 @@ model PropertyChecklistProfile {
   approvedAt           DateTime?
   /// { [jobType]: generatedFormTemplateId } — the materialised per-property forms.
   generatedTemplateIds Json?
+  /// Catalog/library version last pulled into this property's selections via the
+  /// explicit "Update from standard" action. When it differs from the current
+  /// CATALOG_VERSION the profile shows a "standard updated" badge. Null = never
+  /// synced from standard (legacy / pre-redesign profiles).
+  syncedLibraryVersion String?
 
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   approvedBy User?    @relation("ChecklistProfileApprovedBy", fields: [approvedById], references: [id])

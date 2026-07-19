@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { getApiErrorStatus } from "@/lib/api/http";
-import { getPropertyFormConfig, savePropertyFormConfig } from "@/lib/property-form/config";
+import { getPropertyFormConfig, savePropertyFormConfig } from "@/lib/property-form/config-store";
 
 // Admin editor for the property intake form field-config. GET returns the saved
 // config; PUT persists a sanitised config (sanitisation drops unknown system

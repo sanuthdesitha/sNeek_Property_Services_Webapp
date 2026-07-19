@@ -122,11 +122,17 @@ export default async function ClientReportsPage({
   const allReports = user?.clientId
     ? await db.report.findMany({
         where: {
-          createdAt: { gte: fromDate },
+          // A Report row exists only once the cleaner has submitted the job, and
+          // is client-visible by default (admin/QA can toggle it off). Gate on
+          // that flag ALONE — the old `job.status IN (COMPLETED, INVOICED)` arm
+          // hid every finished report while the job sat in SUBMITTED/QA_REVIEW,
+          // even though the per-job page already showed it. Window on the job's
+          // scheduledDate (what the row is displayed by) rather than the report's
+          // createdAt, so a regenerated/edited report can't drop out of the slice.
           clientVisible: true,
           job: {
+            scheduledDate: { gte: fromDate },
             property: { clientId: user.clientId, ...(selectedPropertyId ? { id: selectedPropertyId } : {}) },
-            status: { in: ["COMPLETED", "INVOICED"] },
           },
         },
         include: {
@@ -139,7 +145,7 @@ export default async function ClientReportsPage({
             },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { job: { scheduledDate: "desc" } },
       })
     : [];
 

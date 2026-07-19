@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { PropertyCreateForm } from "@/components/v2/admin/properties/property-create-form";
-import { getPropertyFormConfig } from "@/lib/property-form/config";
+import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 
 export const metadata = { title: "Add property · Estate admin" };
 export const dynamic = "force-dynamic";
