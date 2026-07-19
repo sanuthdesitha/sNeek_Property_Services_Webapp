@@ -168,6 +168,9 @@ export const createPropertySchema = z.object({
   laundryEnabled: z.boolean().optional(),
   // ── Quality & accountability config ────────────────────────────────────────
   cleaningDurationMinutes: z.number().int().min(0).max(1440).optional().nullable(),
+  // Decimal assigned cleaning hours (e.g. 2.75). First-class property default
+  // that new jobs prefill their estimatedHours from.
+  assignedCleaningHours: z.number().min(0).max(24).optional().nullable(),
   cleanerServiceRate: z.number().min(0).max(100000).optional().nullable(),
   laundryBagLabel: z.string().trim().max(120).optional().nullable(),
   laundryBagColor: z.enum(LAUNDRY_BAG_COLORS).optional().nullable(),

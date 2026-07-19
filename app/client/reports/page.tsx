@@ -74,11 +74,14 @@ export default async function ClientReportsPage({
   const allReports = user?.clientId
     ? await db.report.findMany({
         where: {
-          createdAt: { gte: fromDate },
+          // Gate on clientVisible alone (a Report only exists once the cleaner
+          // submits). The old job.status IN (COMPLETED, INVOICED) arm hid every
+          // finished report still in SUBMITTED/QA_REVIEW. Window on the job's
+          // scheduledDate (the displayed date), not the report's createdAt.
           clientVisible: true,
           job: {
+            scheduledDate: { gte: fromDate },
             property: { clientId: user.clientId, ...(selectedPropertyId ? { id: selectedPropertyId } : {}) },
-            status: { in: ["COMPLETED", "INVOICED"] },
           },
         },
         include: {
@@ -91,7 +94,7 @@ export default async function ClientReportsPage({
             },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { job: { scheduledDate: "desc" } },
       })
     : [];
 

@@ -19,13 +19,14 @@ import {
   ChevronRight,
   ClipboardCheck,
   Plus,
+  RefreshCw,
   Save,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
-import { EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
 type JobTypeValue = string;
@@ -102,6 +103,12 @@ interface BuilderData {
   jobTypes: JobTypeValue[];
   library: LibraryModule[];
   selections: Selections;
+  /** The full standard set for this property (buildDefaultSelections). */
+  standardSelections?: Selections;
+  /** Current catalog version — compared against syncedLibraryVersion for the stale badge. */
+  catalogVersion?: string;
+  /** Catalog version this property was last synced from (null = never synced). */
+  syncedLibraryVersion?: string | null;
   profile: { status: string; approvedAt: string | null; generatedTemplateIds: Record<string, string> } | null;
 }
 
@@ -143,8 +150,10 @@ export function PropertyChecklistProfile({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Per-item "Advanced" disclosures, keyed by `${moduleKey}:${itemKey}`.
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [previewJobType, setPreviewJobType] = useState<JobTypeValue>("AIRBNB_TURNOVER");
   const [preview, setPreview] = useState<{ sections: PreviewSection[] } | null>(null);
   const [approveJobTypes, setApproveJobTypes] = useState<JobTypeValue[]>([]);
@@ -211,29 +220,38 @@ export function PropertyChecklistProfile({
     };
   }, [data, selections, previewJobType, apiBase]);
 
-  const setModuleEnabled = (moduleKey: string, enabled: boolean) => {
-    setSelections((prev) => ({
-      ...prev,
-      modules: {
-        ...prev.modules,
-        [moduleKey]: { enabled, items: prev.modules[moduleKey]?.items ?? {} },
-      },
-    }));
-    setDirty(true);
-  };
-
   const setItemEnabled = (moduleKey: string, itemKey: string, enabled: boolean) => {
     setSelections((prev) => {
-      const module = prev.modules[moduleKey] ?? { enabled: true, items: {} };
+      const module = prev.modules[moduleKey] ?? { enabled: false, items: {} };
+      // Ticking any item implies the module is on for this property. Unticking an
+      // item leaves the module on (other items may still be selected).
       return {
         ...prev,
         modules: {
           ...prev.modules,
           [moduleKey]: {
             ...module,
+            enabled: enabled ? true : module.enabled,
             items: { ...module.items, [itemKey]: { ...module.items[itemKey], enabled } },
           },
         },
+      };
+    });
+    setDirty(true);
+  };
+
+  // Module header checkbox — turn every item in the module on/off at once (and
+  // set the module-enabled flag to match).
+  const setModuleAllItems = (moduleKey: string, module: LibraryModule, enabled: boolean) => {
+    setSelections((prev) => {
+      const current = prev.modules[moduleKey] ?? { enabled: false, items: {} };
+      const items: Record<string, ItemSelection> = { ...current.items };
+      for (const item of module.items) {
+        items[item.key] = { ...items[item.key], enabled };
+      }
+      return {
+        ...prev,
+        modules: { ...prev.modules, [moduleKey]: { ...current, enabled, items } },
       };
     });
     setDirty(true);
@@ -369,6 +387,55 @@ export function PropertyChecklistProfile({
     }
   };
 
+  const syncFromStandard = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${apiBase}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Could not update from standard.");
+      toast({
+        title: "Updated from standard",
+        description:
+          body.newStandardItemCount > 0
+            ? `${body.newStandardItemCount} new standard item(s) added. Review and approve to regenerate the form.`
+            : "This property is now in sync with the standard checklist.",
+      });
+      await load();
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Stale = the property was synced from an older catalog version (or never
+  // synced while a saved profile exists). N = standard items not yet present in
+  // the current per-property selection map.
+  const newStandardCount = useMemo(() => {
+    const standard = data?.standardSelections;
+    if (!standard) return 0;
+    let count = 0;
+    for (const [moduleKey, moduleSel] of Object.entries(standard.modules)) {
+      const cur = selections.modules[moduleKey];
+      for (const itemKey of Object.keys(moduleSel.items)) {
+        if (!cur || !(itemKey in cur.items)) count += 1;
+      }
+    }
+    return count;
+  }, [data, selections]);
+
+  const isStale = useMemo(() => {
+    if (!data?.catalogVersion) return false;
+    // Only meaningful once a profile exists (a brand-new property is seeded from
+    // the current standard, so it's implicitly current).
+    if (!data.profile) return false;
+    return (data.syncedLibraryVersion ?? null) !== data.catalogVersion;
+  }, [data]);
+
   const enabledCounts = useMemo(() => {
     if (!data) return { modules: 0, items: 0 };
     let modules = 0;
@@ -421,8 +488,33 @@ export function PropertyChecklistProfile({
                 ? "then save — forms are generated when the onboarding survey is approved."
                 : "then approve to generate this property's own form."}
             </p>
+            {!isSurvey && isStale ? (
+              <button
+                type="button"
+                onClick={() => void syncFromStandard()}
+                disabled={syncing}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-gold)/0.6)] bg-[hsl(var(--e-gold-soft))] px-2.5 py-1 text-[0.6875rem] font-[550] text-[hsl(var(--e-gold-ink))] transition-colors hover:bg-[hsl(var(--e-gold-soft)/0.7)] disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                {newStandardCount > 0
+                  ? `Standard checklist updated — ${newStandardCount} new item${newStandardCount === 1 ? "" : "s"} available. Update from standard.`
+                  : "Standard checklist updated. Update from standard."}
+              </button>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {!isSurvey ? (
+              <EButton
+                size="sm"
+                variant="outline"
+                onClick={() => void syncFromStandard()}
+                disabled={syncing}
+                title="Re-sync this property with the current standard checklist (adds new standard items, keeps your per-property choices)."
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Updating…" : "Update from standard"}
+              </EButton>
+            ) : null}
             <EButton size="sm" variant="outline" onClick={() => void save()} disabled={saving || !dirty}>
               <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save draft"}
             </EButton>
@@ -504,106 +596,129 @@ export function PropertyChecklistProfile({
 
           <ECard>
             <ECardHeader className="pb-2">
-              <ECardTitle className="text-[0.875rem]">Checklist sections</ECardTitle>
+              <ECardTitle className="text-[0.875rem]">Checklist tasks for this property</ECardTitle>
               <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                Turn whole sections or individual tasks on/off for this property. Job-type chips control which
-                services include a task.
+                Tick the tasks this property needs. Use the section checkbox to select a whole section. Photo
+                requirements and per-service targeting live under each task&apos;s Advanced options.
               </p>
             </ECardHeader>
-            <ECardBody className="space-y-2 pt-0">
+            <ECardBody className="space-y-4 pt-0">
               {data.library.map((module) => {
                 const moduleSel = selections.modules[module.key] ?? { enabled: false, items: {} };
-                const isOpen = expanded[module.key] === true;
                 const onCount = module.items.filter((item) => moduleSel.items[item.key]?.enabled).length;
+                const allOn = module.items.length > 0 && onCount === module.items.length;
+                const someOn = onCount > 0 && !allOn;
                 return (
-                  <div key={module.key} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <button
-                        type="button"
-                        className="text-[hsl(var(--e-muted-foreground))]"
-                        onClick={() => setExpanded((prev) => ({ ...prev, [module.key]: !isOpen }))}
-                        aria-label={isOpen ? "Collapse" : "Expand"}
-                      >
-                        {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[0.8125rem] font-[550]">{module.title}</p>
-                        <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                          {onCount}/{module.items.length} tasks on · {module.category.toLowerCase()}
-                        </p>
-                      </div>
-                      <ESwitch
-                        checked={moduleSel.enabled}
-                        onCheckedChange={(checked) => setModuleEnabled(module.key, checked)}
+                  <div key={module.key}>
+                    <label className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] pb-1.5">
+                      <input
+                        type="checkbox"
+                        className={CHECKBOX_CLASS}
+                        checked={allOn}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someOn;
+                        }}
+                        onChange={(e) => setModuleAllItems(module.key, module, e.target.checked)}
                       />
-                    </div>
-                    {isOpen ? (
-                      <div className="space-y-1 border-t border-[hsl(var(--e-border))] px-3 py-2">
-                        {module.items.map((item) => {
-                          const itemSel = moduleSel.items[item.key] ?? { enabled: false };
-                          const effectiveJobTypes =
-                            itemSel.jobTypes ?? (item.jobTypes.length > 0 ? item.jobTypes : data.jobTypes);
-                          return (
-                            <div
-                              key={item.key}
-                              className="rounded-[var(--e-radius)] px-2 py-1.5 hover:bg-[hsl(var(--e-primary-soft)/0.35)]"
-                            >
-                              <label className="flex items-start gap-2">
+                      <span className="text-[0.8125rem] font-[600] tracking-[0.01em]">{module.title}</span>
+                      <span className="ml-auto text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                        {onCount}/{module.items.length}
+                      </span>
+                    </label>
+                    <div className="mt-1 space-y-0.5">
+                      {module.items.map((item) => {
+                        const itemSel = moduleSel.items[item.key] ?? { enabled: false };
+                        const itemId = `${module.key}:${item.key}`;
+                        const advOpen = expandedItems[itemId] === true;
+                        const effectiveJobTypes =
+                          itemSel.jobTypes ?? (item.jobTypes.length > 0 ? item.jobTypes : data.jobTypes);
+                        return (
+                          <div
+                            key={item.key}
+                            className="rounded-[var(--e-radius)] px-1.5 py-1 hover:bg-[hsl(var(--e-primary-soft)/0.35)]"
+                          >
+                            <div className="flex items-center gap-2">
+                              <label className="flex flex-1 items-start gap-2">
                                 <input
                                   type="checkbox"
                                   className={`${CHECKBOX_CLASS} mt-0.5`}
-                                  checked={itemSel.enabled}
-                                  disabled={!moduleSel.enabled}
+                                  checked={itemSel.enabled === true}
                                   onChange={(e) => setItemEnabled(module.key, item.key, e.target.checked)}
                                 />
-                                <span
-                                  className={`text-[0.8125rem] ${
-                                    !moduleSel.enabled ? "text-[hsl(var(--e-muted-foreground))]" : ""
-                                  }`}
-                                >
+                                <span className="text-[0.8125rem] leading-snug">
                                   {item.label}
+                                  {itemSel.requiresPhoto ? (
+                                    <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[0.625rem] text-[hsl(var(--e-gold-ink))]">
+                                      <Camera className="h-3 w-3" /> photo
+                                    </span>
+                                  ) : null}
                                 </span>
                               </label>
-                              {itemSel.enabled && moduleSel.enabled ? (
-                                <div className="ml-6 mt-1 space-y-1">
-                                  <label className="flex w-fit items-center gap-1.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                                    <input
-                                      type="checkbox"
-                                      className={CHECKBOX_CLASS}
-                                      checked={itemSel.requiresPhoto === true}
-                                      onChange={(e) =>
-                                        setItemRequiresPhoto(module.key, item.key, e.target.checked)
-                                      }
-                                    />
-                                    <Camera className="h-3 w-3" /> Photo required
-                                  </label>
-                                  <div className="flex flex-wrap gap-1">
-                                  {approveJobTypes.map((jobType) => {
-                                    const on = effectiveJobTypes.includes(jobType);
-                                    return (
-                                      <button
-                                        key={jobType}
-                                        type="button"
-                                        onClick={() => toggleItemJobType(module.key, item.key, item.jobTypes, jobType)}
-                                        className={`rounded-[var(--e-radius-pill)] border px-1.5 py-0.5 text-[0.625rem] ${
-                                          on
-                                            ? "border-[hsl(var(--e-border-gold)/0.6)] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
-                                            : "border-[hsl(var(--e-border))] text-[hsl(var(--e-text-faint))] line-through"
-                                        }`}
-                                        title={`${on ? "Included in" : "Excluded from"} ${prettyJobType(jobType)}`}
-                                      >
-                                        {prettyJobType(jobType)}
-                                      </button>
-                                    );
-                                  })}
-                                  </div>
-                                </div>
+                              {itemSel.enabled ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedItems((prev) => ({ ...prev, [itemId]: !advOpen }))
+                                  }
+                                  className="flex shrink-0 items-center gap-0.5 rounded-[var(--e-radius-pill)] px-1.5 py-0.5 text-[0.625rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+                                >
+                                  {advOpen ? (
+                                    <ChevronDown className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3" />
+                                  )}
+                                  Advanced
+                                </button>
                               ) : null}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
+                            {itemSel.enabled && advOpen ? (
+                              <div className="ml-6 mt-1.5 space-y-1.5 border-l border-[hsl(var(--e-border))] pl-3">
+                                <label className="flex w-fit items-center gap-1.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                                  <input
+                                    type="checkbox"
+                                    className={CHECKBOX_CLASS}
+                                    checked={itemSel.requiresPhoto === true}
+                                    onChange={(e) =>
+                                      setItemRequiresPhoto(module.key, item.key, e.target.checked)
+                                    }
+                                  />
+                                  <Camera className="h-3 w-3" /> Photo required
+                                </label>
+                                <div>
+                                  <p className="mb-1 text-[0.625rem] uppercase tracking-[0.1em] text-[hsl(var(--e-text-faint))]">
+                                    Included in services
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(approveJobTypes.length > 0 ? approveJobTypes : data.jobTypes).map(
+                                      (jobType) => {
+                                        const on = effectiveJobTypes.includes(jobType);
+                                        return (
+                                          <button
+                                            key={jobType}
+                                            type="button"
+                                            onClick={() =>
+                                              toggleItemJobType(module.key, item.key, item.jobTypes, jobType)
+                                            }
+                                            className={`rounded-[var(--e-radius-pill)] border px-1.5 py-0.5 text-[0.625rem] ${
+                                              on
+                                                ? "border-[hsl(var(--e-border-gold)/0.6)] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
+                                                : "border-[hsl(var(--e-border))] text-[hsl(var(--e-text-faint))] line-through"
+                                            }`}
+                                            title={`${on ? "Included in" : "Excluded from"} ${prettyJobType(jobType)}`}
+                                          >
+                                            {prettyJobType(jobType)}
+                                          </button>
+                                        );
+                                      },
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}

@@ -8,11 +8,8 @@ import { getApiErrorStatus } from "@/lib/api/http";
 import { normalizeInventoryLocation } from "@/lib/inventory/locations";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { encryptSecret } from "@/lib/security/encryption";
-import {
-  getPropertyFormConfig,
-  collectMissingRequired,
-  pruneCustomValues,
-} from "@/lib/property-form/config";
+import { getPropertyFormConfig } from "@/lib/property-form/config-store";
+import { collectMissingRequired, pruneCustomValues } from "@/lib/property-form/config";
 
 /**
  * Assemble the flat field-value map the property-form config evaluates its
@@ -45,6 +42,7 @@ function buildSystemValues(body: Record<string, any>): Record<string, unknown> {
     instructions: access.instructions,
     laundryTeam: Array.isArray(access.laundryTeamUserIds) ? access.laundryTeamUserIds : [],
     cleaningDurationMinutes: body.cleaningDurationMinutes,
+    assignedCleaningHours: body.assignedCleaningHours,
     cleanerServiceRate: body.cleanerServiceRate,
     sofaBedCount: body.sofaBedCount,
     laundryBagLabel: body.laundryBagLabel,

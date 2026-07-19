@@ -41,6 +41,7 @@ import {
 } from "@/components/v2/admin/jobs/job-detail-reviews";
 import { SubmissionReview, type SubmissionRow } from "@/components/v2/admin/jobs/submission-review";
 import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
+import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -172,6 +173,7 @@ async function getJob(id: string) {
           take: 1,
           select: { score: true, passed: true, notes: true, kind: true, createdAt: true, flags: true },
         },
+        report: { select: { clientVisible: true, sentToClient: true } },
         laundryTask: {
           select: { status: true, pickupDate: true, dropoffDate: true, flagNotes: true },
         },
@@ -625,6 +627,14 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
             )}
           </ECardBody>
         </ECard>
+
+        {/* Report actions — download, client visibility, share (v1 parity) */}
+        <ReportActions
+          jobId={job.id}
+          initialClientVisible={job.report?.clientVisible !== false}
+          initialSentToClient={job.report?.sentToClient ?? false}
+          clientEmail={job.property?.client?.email ?? ""}
+        />
       </div>
 
       {/* Extras & scope changes — add quote-style extras anytime; the client is

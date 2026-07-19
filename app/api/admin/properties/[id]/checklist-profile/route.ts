@@ -3,12 +3,11 @@ import { JobType, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
+import { CATALOG_VERSION, getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
 import {
   buildDefaultSelections,
   composeFormSchema,
   generatePropertyTemplates,
-  mergeSelections,
   sanitizeSelections,
 } from "@/lib/checklists/compose";
 import { FEATURE_DEFS, sanitizeFeatures } from "@/lib/checklists/features";
@@ -48,8 +47,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     }
 
     const defaults = buildDefaultSelections(library, property);
+    // Freeze auto-propagation: a saved profile's stored selections are
+    // authoritative (sanitized only). New standard items no longer leak in on
+    // every load — that only happens via the explicit "Update from standard"
+    // sync action. A brand-new property (no profile) still seeds from defaults.
     const saved = property.checklistProfile ? sanitizeSelections(property.checklistProfile.selections) : null;
-    const selections = saved ? mergeSelections(defaults, saved) : defaults;
+    const selections = saved ?? defaults;
 
     const previewJobType = (req.nextUrl.searchParams.get("previewJobType") as JobType | null) ?? JobType.AIRBNB_TURNOVER;
     const preview = Object.values(JobType).includes(previewJobType)
@@ -64,6 +67,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       jobTypes: Object.values(JobType),
       library,
       selections,
+      // The full "standard" set for this property (so the editor knows which
+      // items exist as standard) + version bookkeeping for the stale badge.
+      standardSelections: defaults,
+      catalogVersion: CATALOG_VERSION,
+      syncedLibraryVersion: property.checklistProfile?.syncedLibraryVersion ?? null,
       profile: property.checklistProfile
         ? {
             status: property.checklistProfile.status,

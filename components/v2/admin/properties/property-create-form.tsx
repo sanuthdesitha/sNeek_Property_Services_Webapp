@@ -109,6 +109,7 @@ export function PropertyCreateForm({
     bedrooms: "1",
     bathrooms: "1",
     cleaningDurationMinutes: "",
+    assignedCleaningHours: "",
     cleanerServiceRate: "",
     laundryBagLabel: "",
     laundryBagColor: "",
@@ -144,6 +145,7 @@ export function PropertyCreateForm({
     instructions: access.instructions,
     laundryTeam: access.laundryTeamUserIds,
     cleaningDurationMinutes: form.cleaningDurationMinutes,
+    assignedCleaningHours: form.assignedCleaningHours,
     cleanerServiceRate: form.cleanerServiceRate,
     sofaBedCount: form.sofaBedCount,
     laundryBagLabel: form.laundryBagLabel,
@@ -363,6 +365,8 @@ export function PropertyCreateForm({
       bathrooms: Number(form.bathrooms) || 0,
       cleaningDurationMinutes:
         form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      assignedCleaningHours:
+        form.assignedCleaningHours.trim() !== "" ? Number(form.assignedCleaningHours) : null,
       cleanerServiceRate:
         form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
       laundryBagLabel: form.laundryBagLabel.trim() || null,
@@ -873,8 +877,22 @@ export function PropertyCreateForm({
         </ECardHeader>
         <ECardBody className="space-y-4 pt-0">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {shows("assignedCleaningHours") ? (
+              <EField
+                label={labelFor("assignedCleaningHours", "Assigned cleaning hours")}
+                hint="Decimal hours, e.g. 2.75 — new jobs prefill from this"
+              >
+                <EInput
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.assignedCleaningHours}
+                  onChange={(e) => setF("assignedCleaningHours", e.target.value)}
+                />
+              </EField>
+            ) : null}
             {shows("cleaningDurationMinutes") ? (
-              <EField label={labelFor("cleaningDurationMinutes", "Clean duration (min)")} hint="Standard clean duration">
+              <EField label={labelFor("cleaningDurationMinutes", "Clean duration (min)")} hint="QA duration baseline (minutes)">
                 <EInput
                   type="number"
                   min="0"

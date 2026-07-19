@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { JobType } from "@prisma/client";
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   LayoutGrid,
   Rows3,
   Search,
+  SlidersHorizontal,
   UserRoundPlus,
   X,
 } from "lucide-react";
@@ -77,6 +79,27 @@ const SORT_OPTIONS: { id: JobSort; label: string }[] = [
   { id: "created", label: "Recently created" },
   { id: "property", label: "Property A–Z" },
   { id: "status", label: "Status" },
+];
+
+/* ── Job type options (from the JobType enum, Title-cased) ─────────────── */
+function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+const JOB_TYPE_OPTIONS: { id: string; label: string }[] = Object.values(JobType).map((value) => ({
+  id: String(value),
+  label: titleCase(String(value)),
+}));
+
+/* ── Invoice status (client-side over the returned rows) ───────────────── */
+type InvoiceFilter = "all" | "yes" | "no";
+const INVOICE_OPTIONS: { id: InvoiceFilter; label: string }[] = [
+  { id: "all", label: "Any invoice status" },
+  { id: "yes", label: "Invoiced" },
+  { id: "no", label: "Not invoiced" },
 ];
 
 /* ── Board columns: 4 Estate lanes over the full status ladder ─────────── */
@@ -157,6 +180,17 @@ export function JobsWorkspace() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "board">("list");
 
+  // v1-parity server filters (jobType/client/property/explicit range) + the
+  // client-side invoice-status refinement.
+  const [jobType, setJobType] = useState("all");
+  const [clientId, setClientId] = useState("all");
+  const [propertyId, setPropertyId] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [invoiced, setInvoiced] = useState<InvoiceFilter>("all");
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [properties, setProperties] = useState<{ id: string; name: string; suburb: string }[]>([]);
+
   const [cleaners, setCleaners] = useState<Cleaner[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -177,9 +211,18 @@ export function JobsWorkspace() {
     if (statusChip === "active" || statusChip === "completed") params.set("statusGroup", statusChip);
     else if (statusChip !== "all") params.set("status", statusChip);
     params.set("sort", sort);
-    const range = scopeRange(dateScope);
-    if (range.dateFrom) params.set("dateFrom", range.dateFrom);
-    if (range.dateTo) params.set("dateTo", range.dateTo);
+    if (jobType !== "all") params.set("jobType", jobType);
+    if (clientId !== "all") params.set("clientId", clientId);
+    if (propertyId !== "all") params.set("propertyId", propertyId);
+    // An explicit from/to range overrides the scope-tab range.
+    if (dateFrom || dateTo) {
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+    } else {
+      const range = scopeRange(dateScope);
+      if (range.dateFrom) params.set("dateFrom", range.dateFrom);
+      if (range.dateTo) params.set("dateTo", range.dateTo);
+    }
     if (overrides) for (const [key, value] of Object.entries(overrides)) params.set(key, value);
     return params;
   }
@@ -200,7 +243,37 @@ export function JobsWorkspace() {
   useEffect(() => {
     loadJobs(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateScope, statusChip, sort]);
+  }, [dateScope, statusChip, sort, jobType, clientId, propertyId, dateFrom, dateTo]);
+
+  useEffect(() => {
+    fetch("/api/admin/clients")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        const next = Array.isArray(rows)
+          ? rows
+              .map((row: any) => ({ id: String(row.id ?? ""), name: String(row.name ?? "").trim() }))
+              .filter((row: { id: string }) => row.id)
+          : [];
+        setClients(next);
+      })
+      .catch(() => setClients([]));
+
+    fetch("/api/admin/properties?includeOneOff=1")
+      .then((r) => r.json().catch(() => []))
+      .then((rows) => {
+        const next = Array.isArray(rows)
+          ? rows
+              .map((row: any) => ({
+                id: String(row.id ?? ""),
+                name: String(row.name ?? "").trim(),
+                suburb: String(row.suburb ?? "").trim(),
+              }))
+              .filter((row: { id: string }) => row.id)
+          : [];
+        setProperties(next);
+      })
+      .catch(() => setProperties([]));
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/users?role=CLEANER")
@@ -220,11 +293,22 @@ export function JobsWorkspace() {
       .catch(() => setCleaners([]));
   }, []);
 
-  /* Client-side text refinement over the server page (same approach as v1). */
+  /* Client-side refinement over the server page (search + invoice status),
+     same approach as v1. */
   const filteredJobs = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return jobs;
     return jobs.filter((job) => {
+      if (invoiced !== "all") {
+        const isInvoiced =
+          String(job?.status ?? "") === "INVOICED" ||
+          Boolean(job?.invoiceId) ||
+          Boolean(job?.invoice?.id) ||
+          Boolean(job?.clientInvoiceLineId) ||
+          Boolean(job?.clientInvoiceLine?.id);
+        if (invoiced === "yes" && !isInvoiced) return false;
+        if (invoiced === "no" && isInvoiced) return false;
+      }
+      if (!needle) return true;
       const haystack = [
         job.jobNumber,
         job.property?.name,
@@ -239,7 +323,7 @@ export function JobsWorkspace() {
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [jobs, search]);
+  }, [jobs, search, invoiced]);
 
   useEffect(() => {
     const allowed = new Set(filteredJobs.map((job) => job.id));
@@ -378,6 +462,23 @@ export function JobsWorkspace() {
     }
   }
 
+  const hasActiveFilters =
+    jobType !== "all" ||
+    clientId !== "all" ||
+    propertyId !== "all" ||
+    invoiced !== "all" ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo);
+
+  function resetFilters() {
+    setJobType("all");
+    setClientId("all");
+    setPropertyId("all");
+    setInvoiced("all");
+    setDateFrom("");
+    setDateTo("");
+  }
+
   const boardLanes = useMemo(
     () =>
       BOARD_LANES.map((lane) => ({
@@ -491,6 +592,115 @@ export function JobsWorkspace() {
           <span className="e-numeral text-[0.9375rem] text-[hsl(var(--e-foreground))]">{pagination.totalCount}</span>{" "}
           job{pagination.totalCount !== 1 ? "s" : ""}
         </span>
+      </div>
+
+      {/* ── Refined filters: type · client · property · explicit range · invoice ── */}
+      <div className="flex flex-wrap items-end gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.5)] px-4 py-3">
+        <span className="flex items-center gap-1.5 self-center text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+          <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+        </span>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Job type</span>
+          <select
+            value={jobType}
+            onChange={(event) => setJobType(event.target.value)}
+            aria-label="Filter by job type"
+            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
+          >
+            <option value="all">All types</option>
+            {JOB_TYPE_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Client</span>
+          <select
+            value={clientId}
+            onChange={(event) => setClientId(event.target.value)}
+            aria-label="Filter by client"
+            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
+          >
+            <option value="all">All clients</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name || client.id}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Property</span>
+          <select
+            value={propertyId}
+            onChange={(event) => setPropertyId(event.target.value)}
+            aria-label="Filter by property"
+            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
+          >
+            <option value="all">All properties</option>
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name || property.id}
+                {property.suburb ? ` · ${property.suburb}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">From</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            aria-label="Scheduled from date"
+            className={FIELD_CLS + " w-auto min-w-[150px] cursor-pointer"}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">To</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            aria-label="Scheduled to date"
+            className={FIELD_CLS + " w-auto min-w-[150px] cursor-pointer"}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Invoice</span>
+          <select
+            value={invoiced}
+            onChange={(event) => setInvoiced(event.target.value as InvoiceFilter)}
+            aria-label="Filter by invoice status"
+            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
+          >
+            {INVOICE_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {hasActiveFilters ? (
+          <EButton variant="ghost" size="sm" onClick={resetFilters} className="self-center">
+            <X className="h-3.5 w-3.5" />
+            Clear filters
+          </EButton>
+        ) : null}
+        {(dateFrom || dateTo) ? (
+          <span className="self-center text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+            Custom range overrides the scope tabs.
+          </span>
+        ) : null}
       </div>
 
       {/* ── Content ── */}

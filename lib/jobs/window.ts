@@ -17,6 +17,7 @@ type PropertyLike = {
   defaultCheckoutTime?: string | null;
   defaultCheckinTime?: string | null;
   cleaningDurationMinutes?: number | null;
+  assignedCleaningHours?: number | null;
 };
 
 /**
@@ -46,6 +47,7 @@ export function formatStartWindow(job: JobLike, property: PropertyLike): string 
 export function resolveExpectedHours(job: JobLike, property: PropertyLike): number | null {
   return (
     job.estimatedHours ??
+    property.assignedCleaningHours ??
     (property.cleaningDurationMinutes ? property.cleaningDurationMinutes / 60 : null)
   );
 }

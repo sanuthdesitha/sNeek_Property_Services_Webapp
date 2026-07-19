@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
-import { getPropertyFormConfig } from "@/lib/property-form/config";
+import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { PropertyFormEditor } from "@/components/v2/admin/settings/property-form-editor";
 
 export const metadata = { title: "Property form · Estate admin" };
