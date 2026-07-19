@@ -122,8 +122,11 @@ export async function POST(req: NextRequest) {
         // Transaction-scoped advisory lock keyed on the cleaner: serializes
         // concurrent sends for THIS cleaner so the duplicate check + insert below
         // are atomic (two simultaneous requests can't both pass the check).
-        // Released automatically when the tx ends.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${session.user.id}))`;
+        // Released automatically when the tx ends. Use $executeRaw (not
+        // $queryRaw): pg_advisory_xact_lock() returns `void`, which $queryRaw
+        // tries to deserialize and fails ("Failed to deserialize column of type
+        // 'void'"), blocking every invoice send. We only need the side effect.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.user.id}))`;
         // A row for the same cleaner + period created within the last 2 minutes
         // means a send is in flight or just completed — treat this as the
         // duplicate tap. periodStart is stable across taps; periodEnd defaults to
