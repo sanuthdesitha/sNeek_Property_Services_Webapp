@@ -110,6 +110,15 @@ const JOBS: FallbackJob[] = [
   // refresh left the cache stale (returning null → empty reviews widget) 6 of 7
   // days. Pinned to 03:00 Sydney.
   { name: "google-reviews-refresh", minIntervalMs: 20 * HOUR, hour: 3, run: async () => { await refreshGoogleReviewsCache(); } },
+  // Rebuilds the per-cleaner-per-property duration model behind the QA portal's
+  // live "EST finish" and suggested visit order. Pure cache — safe to re-run,
+  // and every consumer degrades gracefully when a pair has no row. 02:00 Sydney,
+  // before the morning briefings read it.
+  { name: "cleaner-property-stats", minIntervalMs: 20 * HOUR, hour: 2, run: async () => {
+    const { rebuildCleanerPropertyStats } = await import("@/lib/qa/cleaner-property-stats");
+    const result = await rebuildCleanerPropertyStats(new Date());
+    logger.info({ ...result }, "[web-scheduler] cleaner-property-stats rebuilt");
+  } },
 ];
 
 type SchedulerState = {

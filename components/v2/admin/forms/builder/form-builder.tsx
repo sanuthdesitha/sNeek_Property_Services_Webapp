@@ -26,8 +26,10 @@ import {
 } from "lucide-react";
 import type { FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
 import { getFieldTypeDef, isUploadFieldType } from "@/lib/forms/field-types";
+import { isStandardSectionId, standardSectionDeleteWarning } from "@/lib/forms/standard-sections";
+import { lintTemplateSchema, type LintIssue } from "@/lib/forms/lint-template";
 import { EButton, EBadge, EEyebrow } from "@/components/v2/ui/primitives";
-import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
+import { EInput, ESelect, EConfirmModal } from "@/components/v2/admin/estate-kit";
 import { FieldPalette } from "./field-palette";
 import { BuilderCanvas } from "./builder-canvas";
 import { PropertiesPanel } from "./properties-panel";
@@ -118,6 +120,10 @@ export function EstateFormBuilder({
   const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
   const [showPreview, setShowPreview] = React.useState(false);
   const [showTheme, setShowTheme] = React.useState(false);
+  // Standard sections (arrival evidence / exceptions / sign-off) carry the
+  // template's evidence gates — deleting one is confirmed, never silent.
+  const [pendingRemoveSectionId, setPendingRemoveSectionId] = React.useState<string | null>(null);
+  const [showLint, setShowLint] = React.useState(true);
 
   const mutate = React.useCallback((fn: (s: FormSchema) => FormSchema) => {
     setSchema((prev) => fn(prev));
@@ -144,11 +150,24 @@ export function EstateFormBuilder({
   }, 0);
   const allFields = flatFields.map((f) => ({ id: f.id, label: f.label }));
 
+  /* ── governance lint (duplicate ids, dangling conditionals, legacy shapes) ── */
+  const lintIssues = React.useMemo<LintIssue[]>(() => lintTemplateSchema(schema), [schema]);
+  const blockingIssues = lintIssues.filter((i) => i.severity === "error");
+  const warningIssues = lintIssues.filter((i) => i.severity === "warning");
+
   /* ── section ops ── */
   function addSection() {
     mutate((s) => ({ ...s, sections: [...s.sections, { id: `s-${Date.now()}`, title: "New section", fields: [] }] }));
   }
   function removeSection(sectionId: string) {
+    // A standard section is template-owned but load-bearing: confirm first.
+    if (isStandardSectionId(sectionId)) {
+      setPendingRemoveSectionId(sectionId);
+      return;
+    }
+    commitRemoveSection(sectionId);
+  }
+  function commitRemoveSection(sectionId: string) {
     mutate((s) => ({ ...s, sections: s.sections.filter((x) => x.id !== sectionId) }));
     if (selected?.section.id === sectionId) setSelectedFieldId(null);
   }
@@ -402,6 +421,53 @@ export function EstateFormBuilder({
         </p>
       ) : null}
 
+      {/* ── Template lint: blocking errors + advisory warnings ── */}
+      {lintIssues.length > 0 && showLint ? (
+        <div
+          className={`mt-2 rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 ${
+            blockingIssues.length > 0
+              ? "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
+              : "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
+              {blockingIssues.length > 0
+                ? `${blockingIssues.length} blocking issue${blockingIssues.length === 1 ? "" : "s"}`
+                : `${warningIssues.length} warning${warningIssues.length === 1 ? "" : "s"}`}
+              {blockingIssues.length > 0 && warningIssues.length > 0
+                ? ` · ${warningIssues.length} warning${warningIssues.length === 1 ? "" : "s"}`
+                : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowLint(false)}
+              className="text-[0.75rem] text-[hsl(var(--e-text-secondary))] hover:underline"
+            >
+              Hide
+            </button>
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {lintIssues.slice(0, 12).map((issue, i) => (
+              <li
+                key={`${issue.rule}-${issue.fieldId ?? issue.sectionId ?? i}`}
+                className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]"
+              >
+                <span className="font-[600] text-[hsl(var(--e-foreground))]">
+                  {issue.severity === "error" ? "Error" : "Warning"}
+                </span>{" "}
+                — {issue.message}
+              </li>
+            ))}
+            {lintIssues.length > 12 ? (
+              <li className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                …and {lintIssues.length - 12} more.
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      ) : null}
+
       {/* ── Body ── */}
       {showPreview ? (
         <div className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--e-surface-sunken))] p-4 md:p-8">
@@ -477,6 +543,22 @@ export function EstateFormBuilder({
           </div>
         </div>
       ) : null}
+
+      {/* Standard-section delete confirmation */}
+      <EConfirmModal
+        open={Boolean(pendingRemoveSectionId)}
+        onClose={() => setPendingRemoveSectionId(null)}
+        title="Remove standard section"
+        description={
+          pendingRemoveSectionId ? standardSectionDeleteWarning(pendingRemoveSectionId) : undefined
+        }
+        confirmLabel="Remove section"
+        danger
+        onConfirm={() => {
+          if (pendingRemoveSectionId) commitRemoveSection(pendingRemoveSectionId);
+          setPendingRemoveSectionId(null);
+        }}
+      />
 
       {/* Theme drawer */}
       {showTheme ? (

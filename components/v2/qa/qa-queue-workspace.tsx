@@ -3,15 +3,32 @@
 /**
  * ESTATE v2 — QA queue workspace.
  *
- * Native Estate rebuild of the QA queue. Same endpoints as v1:
- *   GET  /api/qa/queue?scope=active|completed
+ * Native Estate rebuild of the QA queue — the inspector's "Today" list.
+ *   GET  /api/qa/queue?scope=active|completed&date=today|tomorrow|YYYY-MM-DD
+ *                     &assignedOnly=1
  *   POST /api/qa/jobs/[id]/pickup
  *   POST /api/admin/qa/assignments   (bulk assign — OPS/ADMIN only)
+ *
+ * Rows arrive already ordered by the server (sequence ASC NULLS LAST →
+ * scheduledFor → dueAt), so the list renders the inspector's planned visit order
+ * top to bottom. Each card shows the visit number, property, cleaner, the job's
+ * live state (cleaning / submitted / form pending) and the scheduled slot.
  */
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardCheck, Inbox, Loader2, RefreshCw, UserCheck, UserPlus, ChevronRight, Search } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronRight,
+  ClipboardCheck,
+  Clock,
+  Inbox,
+  Loader2,
+  RefreshCw,
+  Search,
+  UserCheck,
+  UserPlus,
+} from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
 
@@ -34,10 +51,41 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+/** The job's live state as the inspector cares about it. */
+function jobStateChip(job: any): { label: string; tone: "success" | "warning" | "info" | "neutral" } {
+  if (job?.formPendingAfterClockOut) return { label: "Form pending", tone: "warning" };
+  const status = String(job?.status ?? "");
+  if (status === "IN_PROGRESS") return { label: "Cleaning now", tone: "info" };
+  if (status === "SUBMITTED" || status === "QA_REVIEW") return { label: "Submitted", tone: "success" };
+  if (status === "COMPLETED") return { label: "Completed", tone: "success" };
+  return { label: titleCase(status || "Scheduled"), tone: "neutral" };
+}
+
+/** Planned slot for a row: the assignment's scheduledFor, else the job window. */
+function slotLabel(assignment: any, job: any): string | null {
+  if (assignment?.scheduledFor) {
+    return new Date(assignment.scheduledFor).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (job?.startTime) return String(job.startTime);
+  if (assignment?.dueAt) {
+    return `due ${new Date(assignment.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return null;
+}
+
+function todayIso(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors: Inspector[]; canAssign?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [scope, setScope] = useState<"active" | "completed">("active");
+  // Day filter: today / tomorrow / a specific date / everything.
+  const [dateMode, setDateMode] = useState<"today" | "tomorrow" | "custom" | "all">("today");
+  const [customDate, setCustomDate] = useState<string>(() => todayIso());
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [selectedInspector, setSelectedInspector] = useState("");
@@ -50,9 +98,17 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
     setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 4000);
   }, []);
 
+  const dateParam = useMemo(() => {
+    if (dateMode === "all") return null;
+    if (dateMode === "custom") return customDate || null;
+    return dateMode;
+  }, [dateMode, customDate]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/qa/queue?scope=${scope}`, { cache: "no-store" });
+    const qs = new URLSearchParams({ scope });
+    if (dateParam) qs.set("date", dateParam);
+    const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store" });
     const body = await res.json().catch(() => ({}));
     setLoading(false);
     if (!res.ok) {
@@ -60,7 +116,7 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
       return;
     }
     setData(body);
-  }, [scope, pushToast]);
+  }, [scope, dateParam, pushToast]);
 
   useEffect(() => {
     void load();
@@ -173,6 +229,44 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
         </EButton>
       </div>
 
+      {/* day filter chips */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(
+          [
+            ["today", "Today"],
+            ["tomorrow", "Tomorrow"],
+            ["all", "All"],
+          ] as const
+        ).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setDateMode(mode)}
+            className="rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors"
+            style={{
+              backgroundColor: dateMode === mode ? "hsl(var(--e-gold-soft))" : "hsl(var(--e-surface))",
+              borderColor: dateMode === mode ? "hsl(var(--e-gold))" : "hsl(var(--e-border))",
+              color: dateMode === mode ? "hsl(var(--e-gold-ink))" : "hsl(var(--e-muted-foreground))",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        <div className="flex items-center gap-1.5">
+          <CalendarDays className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
+          <EInput
+            type="date"
+            className="h-9 w-[10.5rem]"
+            value={customDate}
+            onChange={(e) => {
+              setCustomDate(e.target.value);
+              setDateMode("custom");
+            }}
+            aria-label="Inspect a specific date"
+          />
+        </div>
+      </div>
+
       {!loading ? (
         <section className="grid gap-4 sm:grid-cols-4">
           <EStatCard label="In queue" value={String(stats.total)} delta="total" deltaTone="neutral" icon={<Inbox className="h-4 w-4" />} />
@@ -225,9 +319,25 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
         ) : filtered.length === 0 ? (
           <EEmptyState eyebrow="No match" title="Nothing matches these filters" />
         ) : (
-          filtered.map((row) => (
+          filtered.map((row, index) => {
+            const state = jobStateChip(row.job);
+            const slot = slotLabel(row.assignment, row.job);
+            const seq = row.assignment?.sequence ?? null;
+            return (
             <ECard key={row.key}>
               <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+                {/* visit order — the server already sorted; this is the position */}
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[0.8125rem] font-bold"
+                  style={{
+                    backgroundColor: seq ? "hsl(var(--e-gold))" : "hsl(var(--e-surface-raised))",
+                    color: seq ? "hsl(var(--e-gold-foreground))" : "hsl(var(--e-muted-foreground))",
+                    border: seq ? "none" : "1px solid hsl(var(--e-border-strong))",
+                  }}
+                  title={seq ? `Visit ${seq}` : "Unordered"}
+                >
+                  {seq ?? index + 1}
+                </span>
                 {canAssign && !row.assigned ? (
                   <input
                     type="checkbox"
@@ -240,17 +350,34 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[0.9375rem] font-medium">{jobTitle(row.job)}</p>
-                    <EBadge tone={statusTone(row.job?.status)} soft>{titleCase(String(row.job?.status ?? ""))}</EBadge>
+                    <EBadge tone={state.tone} soft>{state.label}</EBadge>
                     <EBadge tone={row.assigned ? "info" : "neutral"} soft>
                       {row.assigned ? titleCase(String(row.assignment.status)) : "Unassigned"}
                     </EBadge>
+                    {row.assignment?.checkInAt ? (
+                      <EBadge tone="success" soft>Checked in</EBadge>
+                    ) : null}
+                    {row.assignment?.reworkOfferStatus && row.assignment.reworkOfferStatus !== "NONE" ? (
+                      <EBadge tone={row.assignment.reworkOfferStatus === "ACCEPTED" ? "success" : "warning"} soft>
+                        Rework {titleCase(String(row.assignment.reworkOfferStatus))}
+                      </EBadge>
+                    ) : null}
                   </div>
                   <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                     {[row.job?.property?.address, row.job?.property?.suburb].filter(Boolean).join(", ")}
                   </p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                    Cleaner: {row.job?.assignments?.map((a: any) => a.user?.name || a.user?.email).join(", ") || "N/A"}
-                    {row.assignment?.assignedTo ? ` · Assigned to ${row.assignment.assignedTo.name || row.assignment.assignedTo.email}` : ""}
+                  <p className="flex flex-wrap items-center gap-x-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                    {slot ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" /> {slot}
+                      </span>
+                    ) : null}
+                    <span>
+                      Cleaner: {row.job?.assignments?.map((a: any) => a.user?.name || a.user?.email).join(", ") || "N/A"}
+                    </span>
+                    {row.assignment?.assignedTo ? (
+                      <span>· QA {row.assignment.assignedTo.name || row.assignment.assignedTo.email}</span>
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -261,14 +388,15 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                   ) : null}
                   <EButton asChild variant="gold" size="sm">
                     <Link href={`/v2/qa/jobs/${row.jobId}`}>
-                      {row.assignment?.status === "IN_PROGRESS" ? "Continue" : "Open"}
+                      {row.assignment?.status === "IN_PROGRESS" ? "Continue inspection" : "Start inspection"}
                       <ChevronRight className="h-4 w-4" />
                     </Link>
                   </EButton>
                 </div>
               </ECardBody>
             </ECard>
-          ))
+            );
+          })
         )}
       </div>
     </div>

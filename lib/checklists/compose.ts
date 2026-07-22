@@ -278,8 +278,18 @@ function exceptionsReportSection() {
  * - Sign-off reuses `withSignoffSection` (skipped when a signature already
  *   exists), keeping it last.
  * - An empty schema stays empty (no sections in → no sections out).
+ *
+ * Opt-out: pass `{ standardSections: false }` (threaded from a stored
+ * `schema.standardSections === false`) and NOTHING is injected — the template
+ * already owns baked-in copies of these sections and edits to them must stick.
+ * `undefined`/`true` keep the historical behaviour so un-migrated templates
+ * never lose their evidence gates.
  */
-export function withStandardSections(sections: unknown[]): unknown[] {
+export function withStandardSections(
+  sections: unknown[],
+  options?: { standardSections?: boolean }
+): unknown[] {
+  if (options?.standardSections === false) return sections;
   if (sections.length === 0) return sections;
   const hasArrivalEvidence = sections.some((section: any) =>
     anyFieldDeep(

@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import type { FormSchema } from "@/lib/forms/types";
+import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { EstateFormBuilder } from "@/components/v2/admin/forms/builder/form-builder";
 
 export const metadata = { title: "Edit form template · Estate admin" };
@@ -27,10 +28,14 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
 
   if (!template) notFound();
 
-  // Coerce the JSON column → FormSchema. Older templates may store the legacy
-  // `{ sections: [{ label, fields }] }` shape; normalize to the modern `title`
-  // shape while preserving every advanced field prop (spread-first).
-  const rawSchema = (template.schema ?? {}) as any;
+  // Canonicalise through the SAME normalizer the cleaner read + submit routes
+  // use, so the builder edits exactly the schema the runtime enforces: legacy
+  // `label`/`upload`/`{fieldId,equals}` shapes are rewritten, and the standard
+  // sections (arrival evidence / exceptions / sign-off) are visible + editable
+  // instead of being invisibly injected downstream. Templates that already
+  // carry `standardSections: false` keep their baked copies untouched.
+  const normalized = normalizeFormSchema(template.schema);
+  const rawSchema = { ...normalized } as any;
   const sections = Array.isArray(rawSchema?.sections)
     ? rawSchema.sections.map((s: any, idx: number) => ({
         ...(s && typeof s === "object" ? s : {}),
@@ -50,7 +55,12 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
     : [];
 
   const theme = rawSchema?.theme && typeof rawSchema.theme === "object" ? rawSchema.theme : undefined;
-  const initialSchema: FormSchema = { sections, ...(theme ? { theme } : {}) };
+  const initialSchema: FormSchema = {
+    sections,
+    ...(theme ? { theme } : {}),
+    // Preserve the opt-out flag across a builder round-trip.
+    ...(normalized.standardSections === false ? { standardSections: false as const } : {}),
+  };
 
   return (
     <EstateFormBuilder

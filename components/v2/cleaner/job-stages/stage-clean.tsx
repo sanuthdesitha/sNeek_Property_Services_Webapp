@@ -12,14 +12,15 @@
  * FormRenderer (which stays behavior-compatible: the new props default off).
  */
 import * as React from "react";
-import { ListChecks, ClipboardCheck, Camera, CheckCircle2, AlertTriangle } from "lucide-react";
-import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
+import { ListChecks, ClipboardCheck, Camera, CheckCircle2, AlertTriangle, Images } from "lucide-react";
+import { ECard, ECardBody, EAlert, EButton } from "@/components/v2/ui/primitives";
 import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { FormRenderer } from "@/components/v2/cleaner/form-renderer";
 import { flattenFieldsOneLevel, isTemplateNodeVisible, isFlattenedFieldVisible } from "@/lib/forms/visibility";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/bulk-photo-assign";
 import { TaskChip } from "@/components/v2/cleaner/job-stages/parts";
 import { EarlyCheckoutStatus } from "@/components/v2/cleaner/job-actions";
 import { titleCase, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
@@ -93,6 +94,31 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
     (sectionId: string) => progressBySection.get(sectionId),
     [progressBySection]
   );
+
+  // Flat list of the form's upload fields (form order), for the bulk assign
+  // sheet's destination list. Same flatten + visibility rules the renderer uses,
+  // so a hidden section never shows up as a destination.
+  const bulkFields = React.useMemo<BulkAssignField[]>(() => {
+    const out: BulkAssignField[] = [];
+    const sections = Array.isArray(schema?.sections) ? schema!.sections : [];
+    for (const section of sections) {
+      if (!isTemplateNodeVisible(section as any, answers, property ?? {})) continue;
+      const fields = flattenFieldsOneLevel(section.fields).filter((f: any) =>
+        isFlattenedFieldVisible(f, answers, property ?? {})
+      );
+      for (const f of fields) {
+        if (!isUploadFieldType(f?.type)) continue;
+        out.push({
+          id: String(f.id),
+          label: String(f.label ?? f.id),
+          sectionTitle: String((section as any).title ?? "Photos"),
+          required: f.required === true,
+          minPhotos: typeof f.minPhotos === "number" ? f.minPhotos : undefined,
+        });
+      }
+    }
+    return out;
+  }, [schema, answers, property]);
 
   function reportException() {
     if (typeof window !== "undefined") {
@@ -216,17 +242,25 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
       {/* The assigned form template — rendered as a room accordion */}
       {schema ? (
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="e-eyebrow flex items-center gap-1.5">
               <ClipboardCheck className="h-3.5 w-3.5" /> {template?.name || "Job form"}
             </p>
-            <button
+            <div className="flex items-center gap-3">
+              {!locked && bulkFields.length > 0 ? (
+                <EButton variant="outline" size="sm" onClick={api.openBulkAssign}>
+                  <Images className="h-4 w-4" /> Bulk upload photos
+                  {api.bulkPool.length > 0 ? ` (${api.bulkPool.length})` : ""}
+                </EButton>
+              ) : null}
+              <button
               type="button"
               onClick={reportException}
               className="inline-flex items-center gap-1 text-[0.75rem] font-[550] text-[hsl(var(--e-warning))] underline-offset-2 hover:underline"
             >
               <AlertTriangle className="h-3.5 w-3.5" /> Report an exception
-            </button>
+              </button>
+            </div>
           </div>
           <FormRenderer
             schema={schema}
@@ -245,6 +279,22 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
           No active form template is configured for this job type — you can still clock in/out and complete the checklist.
         </EAlert>
       )}
+
+      {/* Upload the whole batch once, then file the shots into sections. */}
+      <BulkPhotoAssign
+        open={api.bulkAssignOpen && !locked}
+        onClose={api.closeBulkAssign}
+        pool={api.bulkPool}
+        setPool={api.setBulkPool}
+        uploads={uploads}
+        setUploads={api.setUploads}
+        fields={bulkFields}
+        stamp={{
+          address: addressLine || undefined,
+          reference: (property?.name as string) || undefined,
+          tag: "after",
+        }}
+      />
     </div>
   );
 }

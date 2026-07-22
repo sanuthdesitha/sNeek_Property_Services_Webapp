@@ -13,6 +13,8 @@ import { getFieldTypeDef } from "@/lib/forms/field-types";
 import { cn } from "@/lib/utils";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
+import { EBadge } from "@/components/v2/ui/primitives";
+import { isStandardSectionId } from "@/lib/forms/standard-sections";
 import { DIVIDER_LABEL } from "./blocks";
 import { EFieldIcon } from "./field-icon";
 
@@ -163,6 +165,13 @@ export function BuilderCanvas({
         >
           <div className="mb-3 flex items-start gap-2">
             <div className="min-w-0 flex-1 space-y-1.5">
+              {isStandardSectionId(section.id) ? (
+                <span title="Standard section — required evidence / sign-off. Content is fully editable.">
+                  <EBadge tone="info" soft>
+                    Standard
+                  </EBadge>
+                </span>
+              ) : null}
               <EInput
                 value={section.title}
                 onChange={(e) => onUpdateSectionTitle(section.id, e.target.value)}

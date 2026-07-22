@@ -41,6 +41,7 @@ import {
   Download,
   Loader2,
   Image as ImageIcon,
+  MapPin,
 } from "lucide-react";
 import {
   EAlert,
@@ -69,6 +70,8 @@ import {
 import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { prepareUploadFile } from "@/lib/uploads/compress";
+import { getAccuratePosition, formatAccuracy } from "@/lib/geo/get-position";
+import type { BriefItem } from "@/lib/qa/brief-rules";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import {
@@ -803,7 +806,21 @@ export function QaInspectionWorkspace({
   });
   const [, setTick] = useState(0);
 
-  const QA_STEPS = ["Inspect & log findings", "Score, sign off & submit"];
+  // ── QA arrival check-in (Phase 4 Stage 1) ──
+  // The inspection is gated behind an arrival stamp. `checkIn.at` is IMMUTABLE
+  // server-side, so re-entering the job never rewrites the original arrival.
+  const [checkIn, setCheckIn] = useState<{
+    at: string | null;
+    accuracy: number | null;
+    distanceMeters: number | null;
+    skippedReason: string | null;
+  }>({ at: null, accuracy: null, distanceMeters: null, skippedReason: null });
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [remoteMode, setRemoteMode] = useState(false);
+  const [remoteReason, setRemoteReason] = useState("");
+
+  const QA_STEPS = ["Pre-inspection brief", "Inspect & log findings", "Score, sign off & submit"];
 
   const pushToast = useCallback((t: Omit<Toast, "id">) => {
     const id = uid();
@@ -944,6 +961,95 @@ export function QaInspectionWorkspace({
         label: item.label || item.fieldId,
       })),
     [latestSubmission]
+  );
+
+  /* ── pre-inspection brief (server-built, lib/qa/brief-rules.ts) ── */
+  const brief: BriefItem[] = useMemo(() => {
+    const raw = (payload as any)?.brief;
+    return Array.isArray(raw) ? (raw as BriefItem[]) : [];
+  }, [payload]);
+  const briefCtx = (payload as any)?.briefContext ?? null;
+  const briefJob = briefCtx?.job ?? null;
+  const briefCleaners: Array<{ id: string; name: string }> = briefCtx?.cleaners ?? [];
+  const briefSubmission = briefCtx?.submission ?? null;
+  const briefLowStock: Array<{ name: string; onHand: number; threshold: number }> = briefCtx?.lowStock ?? [];
+  const timeTone = useMemo(() => {
+    const expected = Number(briefJob?.expectedHours ?? 0);
+    const actual = Number(briefJob?.actualHours ?? 0);
+    if (!expected || !actual) return "hsl(var(--e-foreground))";
+    const ratio = actual / expected;
+    if (ratio < 0.7) return "hsl(var(--e-danger))";
+    if (ratio > 1.3) return "hsl(var(--e-warning))";
+    return "hsl(var(--e-success))";
+  }, [briefJob?.expectedHours, briefJob?.actualHours]);
+
+  // The gate: an assignment exists and nothing has been stamped yet. Ad-hoc
+  // reviews without an assignment (admin) are never gated.
+  const needsCheckIn = Boolean(payload?.assignment) && !checkIn.at;
+
+  // seed the arrival check-in from the server assignment
+  useEffect(() => {
+    const a = payload?.assignment;
+    if (!a) return;
+    setCheckIn({
+      at: a.checkInAt ?? null,
+      accuracy: a.checkInAccuracyM ?? null,
+      distanceMeters: null,
+      skippedReason: a.checkInSkippedReason ?? null,
+    });
+  }, [payload?.assignment?.id, payload?.assignment?.checkInAt]);
+
+  const doCheckIn = useCallback(
+    async (skippedReason?: string) => {
+      setCheckingIn(true);
+      setCheckInError(null);
+      let fix: { lat: number; lng: number; accuracy: number | null } | null = null;
+      if (!skippedReason) {
+        try {
+          const position = await getAccuratePosition();
+          fix = { lat: position.lat, lng: position.lng, accuracy: position.accuracy };
+        } catch (err) {
+          setCheckingIn(false);
+          setCheckInError(
+            err instanceof Error
+              ? `${err.message} — use "Can't check in" to review remotely.`
+              : "Could not read your location."
+          );
+          return;
+        }
+      }
+      const res = await fetch(`/api/qa/jobs/${jobId}/checkin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(fix ?? {}), skippedReason: skippedReason ?? null }),
+      });
+      const body = await res.json().catch(() => ({}));
+      setCheckingIn(false);
+      if (!res.ok) {
+        setCheckInError(body.error ?? "Could not record the check-in.");
+        return;
+      }
+      setCheckIn({
+        at: body.checkInAt ?? new Date().toISOString(),
+        accuracy: body.accuracy ?? fix?.accuracy ?? null,
+        distanceMeters: body.distanceMeters ?? null,
+        skippedReason: skippedReason ?? null,
+      });
+      // Arrival starts the on-site clock server-side; mirror it locally.
+      if (!tools.onSite.startedAt) {
+        setTimer((p) => (p.running ? p : { ...p, running: true, runningSince: Date.now() }));
+        setTools((prev) => ({
+          ...prev,
+          onSite: { startedAt: new Date().toISOString(), endedAt: null, minutes: null },
+        }));
+      }
+      pushToast({
+        title: skippedReason ? "Remote review recorded" : "Checked in",
+        description: body.message,
+        tone: "info",
+      });
+    },
+    [jobId, pushToast, tools.onSite.startedAt]
   );
 
   // seed timer from server assignment
@@ -1183,6 +1289,58 @@ export function QaInspectionWorkspace({
   function setRework(patch: Partial<typeof rework>) {
     setTools((prev) => ({ ...prev, rework: { ...(prev.rework ?? emptyReworkProposal()), ...patch } }));
   }
+  const reworkDecision: "OFFER_ORIGINAL" | "OTHER" | "QA_SELF" =
+    rework.decision ?? (rework.assignee === "OTHER" ? "OTHER" : "OFFER_ORIGINAL");
+
+  /** What the chosen rework path actually costs, line by line. */
+  const reworkMoneyPreview = useMemo(() => {
+    const originalName = cleanerCandidates[0]?.name || cleanerCandidates[0]?.email || "Original cleaner";
+    const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
+    if (reworkDecision === "OTHER") {
+      const payee =
+        cleanerCandidates.find((c) => c.id === rework.payeeCleanerId)?.name ?? "New cleaner";
+      return [
+        { label: `Paid to ${payee}`, value: money(rework.payAmount), color: "hsl(var(--e-success))" },
+        {
+          label: `Deducted from ${originalName}`,
+          value: `−${money(rework.payAmount)}`,
+          color: "hsl(var(--e-danger))",
+        },
+        { label: "Rework job invoiceable", value: rework.payAmount > 0 ? "Yes" : "No", color: "inherit" },
+        { label: "Approval", value: "Both adjustments PENDING", color: "hsl(var(--e-warning))" },
+      ];
+    }
+    if (reworkDecision === "QA_SELF") {
+      return [
+        {
+          label: "Moved to you (QA)",
+          value: money(rework.amountFromCleaner),
+          color: "hsl(var(--e-success))",
+        },
+        {
+          label: `Deducted from ${originalName}`,
+          value: `−${money(rework.amountFromCleaner)}`,
+          color: "hsl(var(--e-danger))",
+        },
+        { label: "Time moved", value: `${rework.minutesFromCleaner || 0} min`, color: "inherit" },
+        { label: "Approval", value: "Transfer PENDING", color: "hsl(var(--e-warning))" },
+      ];
+    }
+    return [
+      { label: `Paid to ${originalName}`, value: money(0), color: "inherit" },
+      { label: "Deduction", value: "None", color: "inherit" },
+      { label: "Rework job invoiceable", value: "No", color: "inherit" },
+      { label: "Offer", value: "Expires if not accepted", color: "hsl(var(--e-warning))" },
+    ];
+  }, [
+    reworkDecision,
+    rework.payAmount,
+    rework.payeeCleanerId,
+    rework.amountFromCleaner,
+    rework.minutesFromCleaner,
+    cleanerCandidates,
+  ]);
+
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
   function addFlaggedArea() {
     const value = reworkAreaDraft.trim();
@@ -1223,13 +1381,31 @@ export function QaInspectionWorkspace({
         pushToast({ title: "Flag at least one area for the cleaner to fix.", tone: "danger" });
         return;
       }
-      if (rework.assignee === "OTHER") {
+      if (reworkDecision === "OTHER") {
         if (!rework.payeeCleanerId) {
           pushToast({ title: "Choose the cleaner who will redo this clean.", tone: "danger" });
           return;
         }
         if (!(rework.payAmount > 0)) {
           pushToast({ title: "Enter the pay amount for the new cleaner.", tone: "danger" });
+          return;
+        }
+      }
+      if (reworkDecision === "QA_SELF") {
+        if (!rework.cleanerUserId) {
+          pushToast({ title: "Choose whose job the rework time comes from.", tone: "danger" });
+          return;
+        }
+        if (!(rework.minutesFromCleaner > 0)) {
+          pushToast({ title: "Enter the minutes you spent fixing it.", tone: "danger" });
+          return;
+        }
+        if (rework.minutesFromCleaner > onSiteMinutes + 15) {
+          pushToast({
+            title: "That's longer than your on-site visit",
+            description: `You recorded ${onSiteMinutes} min on site — the claim has to fit inside that window.`,
+            tone: "danger",
+          });
           return;
         }
       }
@@ -1318,6 +1494,7 @@ export function QaInspectionWorkspace({
     if (body.restockRunId) extras.push("restock run");
     if (body.countRunId) extras.push("inventory count");
     if (body.reworkJobId) extras.push("rework job created");
+    if (body.reworkOffer) extras.push("offered to the original cleaner");
     if (body.reworkTransferId) extras.push("rework transfer pending");
     pushToast({
       title: "QA submitted",
@@ -1331,6 +1508,12 @@ export function QaInspectionWorkspace({
       localStorage.removeItem(draftKey);
     } catch {
       /* ignore */
+    }
+    // QA self-rework: continue straight into the fix checklist for this job.
+    if (rework.enabled && reworkDecision === "QA_SELF" && body.reworkJobId) {
+      router.push(`/v2/qa/jobs/${jobId}/self-rework`);
+      router.refresh();
+      return;
     }
     router.push(returnHref);
     router.refresh();
@@ -1402,6 +1585,87 @@ export function QaInspectionWorkspace({
       </div>
       <div className="e-signature-rule" />
 
+      {/* ── ARRIVAL CHECK-IN GATE ──
+          The inspection is locked until the inspector stamps an arrival (or
+          explicitly records a remote review with a reason). */}
+      {needsCheckIn ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <MapPin className="h-4 w-4" style={{ color: "hsl(var(--e-accent-portal))" }} /> Check in at the property to start
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-3">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              Your arrival is stamped once and can&apos;t be changed later — it is the evidence that this inspection
+              happened on site. Checking in also starts your on-site timer.
+            </p>
+            {checkInError ? <EAlert tone="danger">{checkInError}</EAlert> : null}
+            <EButton
+              variant="gold"
+              size="lg"
+              className="w-full"
+              disabled={checkingIn}
+              onClick={() => void doCheckIn()}
+            >
+              {checkingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+              {checkingIn ? "Getting your location…" : "Check in with GPS"}
+            </EButton>
+
+            {remoteMode ? (
+              <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                <EField label="Why can't you check in on site?" hint="Required — the review is flagged as remote.">
+                  <ETextarea
+                    value={remoteReason}
+                    onChange={(e) => setRemoteReason(e.target.value)}
+                    placeholder="e.g. Guests checked in early — reviewing from the cleaner's photos."
+                  />
+                </EField>
+                <div className="flex gap-2">
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setRemoteMode(false);
+                      setRemoteReason("");
+                    }}
+                  >
+                    Cancel
+                  </EButton>
+                  <EButton
+                    variant="primary"
+                    size="sm"
+                    className="flex-1"
+                    disabled={checkingIn || remoteReason.trim().length < 5}
+                    onClick={() => void doCheckIn(remoteReason.trim())}
+                  >
+                    Review remotely
+                  </EButton>
+                </div>
+              </div>
+            ) : (
+              <EButton variant="ghost" size="sm" className="w-full" onClick={() => setRemoteMode(true)}>
+                Can&apos;t check in — review remotely
+              </EButton>
+            )}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {checkIn.at ? (
+        <div className="flex flex-wrap items-center gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          <EBadge tone={checkIn.skippedReason ? "warning" : "success"} soft>
+            {checkIn.skippedReason ? "Remote review" : "Checked in"}
+          </EBadge>
+          <span>{new Date(checkIn.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          {checkIn.accuracy != null ? <span>· {formatAccuracy(checkIn.accuracy)}</span> : null}
+          {checkIn.distanceMeters != null ? <span>· {checkIn.distanceMeters}m from property</span> : null}
+          {checkIn.skippedReason ? <span>· {checkIn.skippedReason}</span> : null}
+        </div>
+      ) : null}
+
+      <div className={needsCheckIn ? "hidden" : "space-y-6"}>
       {/* step tabs */}
       <div className="sticky top-0 z-20 flex gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 p-2 backdrop-blur">
         {QA_STEPS.map((label, i) => (
@@ -1433,8 +1697,128 @@ export function QaInspectionWorkspace({
         ))}
       </div>
 
-      {/* ── STEP 0: inspect & log findings ── */}
+      {/* ── STEP 0: PRE-INSPECTION BRIEF ──
+          Who cleaned, how long they took vs expected, what they submitted, then
+          the rule cards from lib/qa/brief-rules.ts. */}
       <div className={step === 0 ? "space-y-6" : "hidden"}>
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4" style={{ color: "hsl(var(--e-accent-portal))" }} /> Before you walk in
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.6875rem] uppercase tracking-[0.1em] text-[hsl(var(--e-muted-foreground))]">
+                  Cleaner{briefCleaners.length > 1 ? "s" : ""}
+                </p>
+                <p className="mt-1 text-[0.875rem] font-medium">
+                  {briefCleaners.length > 0 ? briefCleaners.map((c) => c.name).join(", ") : "Unassigned"}
+                </p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.6875rem] uppercase tracking-[0.1em] text-[hsl(var(--e-muted-foreground))]">
+                  Time on job
+                </p>
+                <p className="mt-1 text-[0.875rem] font-medium" style={{ color: timeTone }}>
+                  {briefJob?.actualHours != null ? `${briefJob.actualHours}h` : "—"}
+                  <span className="text-[hsl(var(--e-muted-foreground))]">
+                    {" "}
+                    of {briefJob?.expectedHours != null ? `${briefJob.expectedHours}h` : "—"}
+                  </span>
+                </p>
+              </div>
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.6875rem] uppercase tracking-[0.1em] text-[hsl(var(--e-muted-foreground))]">
+                  Submission
+                </p>
+                <p className="mt-1 text-[0.875rem] font-medium">
+                  {briefJob?.formPendingAfterClockOut
+                    ? "Form pending"
+                    : briefSubmission
+                      ? `${briefSubmission.photoCount} photo${briefSubmission.photoCount === 1 ? "" : "s"}`
+                      : "Not submitted"}
+                </p>
+              </div>
+            </div>
+
+            {/* submitted photo grid (or the "form pending" note) */}
+            {briefJob?.formPendingAfterClockOut && mediaItems.length === 0 ? (
+              <EAlert tone="warning">
+                The cleaner clocked out before submitting their form — there are no submitted photos to review against.
+              </EAlert>
+            ) : mediaItems.length > 0 ? (
+              <div>
+                <p className="mb-2 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">
+                  What the cleaner submitted
+                </p>
+                <MediaGallery items={mediaItems.slice(0, 12)} />
+              </div>
+            ) : null}
+
+            {/* low stock */}
+            {briefLowStock.length > 0 ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
+                  <Package className="h-4 w-4" /> Low stock
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                  {briefLowStock.map((s) => `${s.name} (${s.onHand})`).join(", ")}
+                </p>
+              </div>
+            ) : null}
+
+            {/* rule cards */}
+            {brief.length > 0 ? (
+              <div className="space-y-2">
+                {brief.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3"
+                    style={{
+                      borderLeftColor:
+                        item.tone === "danger"
+                          ? "hsl(var(--e-danger))"
+                          : item.tone === "warning"
+                            ? "hsl(var(--e-warning))"
+                            : "hsl(var(--e-accent-portal))",
+                      backgroundColor:
+                        item.tone === "danger"
+                          ? "hsl(var(--e-danger-soft))"
+                          : item.tone === "warning"
+                            ? "hsl(var(--e-warning-soft))"
+                            : "hsl(var(--e-surface-raised))",
+                    }}
+                  >
+                    <p className="text-[0.8125rem] font-[600]">{item.title}</p>
+                    <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                Nothing unusual flagged for this clean — inspect to the standard.
+              </p>
+            )}
+
+            <EButton
+              variant="gold"
+              size="lg"
+              className="w-full"
+              onClick={() => {
+                setStep(1);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              Begin inspection <ArrowRight className="h-4 w-4" />
+            </EButton>
+          </ECardBody>
+        </ECard>
+      </div>
+
+      {/* ── STEP 1: inspect & log findings ── */}
+      <div className={step === 1 ? "space-y-6" : "hidden"}>
         {/* Recurring-issue watch-outs (Phase 7a) — where to look this clean. */}
         {hasWatchOuts ? (
           <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
@@ -1665,8 +2049,8 @@ export function QaInspectionWorkspace({
         </ECard>
       </div>
 
-      {/* ── STEP 1: score, sign off & submit ── */}
-      <div className={step === 1 ? "space-y-6" : "hidden"}>
+      {/* ── STEP 2: score, sign off & submit ── */}
+      <div className={step === 2 ? "space-y-6" : "hidden"}>
         {/* time on site */}
         <ECard>
           <ECardHeader>
@@ -1780,13 +2164,95 @@ export function QaInspectionWorkspace({
                   </EButton>
                 </div>
 
-                <EField label="Who redoes it?">
-                  <ESelect value={rework.assignee} onChange={(e) => setRework({ assignee: e.target.value as "SAME" | "OTHER" })}>
-                    <option value="SAME">Same cleaner — no extra pay</option>
-                    <option value="OTHER">Different cleaner — paid (deducted from original)</option>
-                  </ESelect>
+                {/* ── THE REWORK DECISION — three explicit paths ──
+                    (a) offer it back to the original cleaner (free, TTL),
+                    (b) reassign to someone else (paid + equal deduction),
+                    (c) the inspector fixes it and claims time/pay.
+                    Every money effect below lands PENDING for admin approval. */}
+                <EField label="Who fixes it?">
+                  <div className="space-y-2">
+                    {(
+                      [
+                        [
+                          "OFFER_ORIGINAL",
+                          "Offer it back to the original cleaner",
+                          "They come back and fix it. No pay, no deduction. The offer expires if they don't respond.",
+                        ],
+                        [
+                          "OTHER",
+                          "Assign a different cleaner",
+                          "The new cleaner is paid and the same amount is deducted from the original cleaner.",
+                        ],
+                        [
+                          "QA_SELF",
+                          "I'll fix it myself (QA rework)",
+                          "You complete the fix checklist and claim the time/pay from the cleaner's job.",
+                        ],
+                      ] as const
+                    ).map(([value, label, help]) => {
+                      const active = reworkDecision === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setRework({
+                              decision: value,
+                              assignee: value === "OTHER" ? "OTHER" : "SAME",
+                              ...(value === "OTHER" ? {} : { payeeCleanerId: null, payAmount: 0 }),
+                              ...(value === "QA_SELF"
+                                ? { cleanerUserId: rework.cleanerUserId ?? cleanerCandidates[0]?.id ?? null }
+                                : { minutesFromCleaner: 0, amountFromCleaner: 0 }),
+                            })
+                          }
+                          className="w-full rounded-[var(--e-radius)] border p-3 text-left transition-colors"
+                          style={{
+                            borderColor: active ? "hsl(var(--e-gold))" : "hsl(var(--e-border))",
+                            backgroundColor: active ? "hsl(var(--e-gold-soft))" : "transparent",
+                          }}
+                        >
+                          <p className="text-[0.8125rem] font-[600]">{label}</p>
+                          <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{help}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </EField>
-                {rework.assignee === "OTHER" ? (
+
+                {reworkDecision === "QA_SELF" ? (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <EField label="Whose job it comes from">
+                      <ESelect
+                        value={rework.cleanerUserId ?? ""}
+                        onChange={(e) => setRework({ cleanerUserId: e.target.value || null })}
+                      >
+                        <option value="">Select cleaner</option>
+                        {cleanerCandidates.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name || c.email}</option>
+                        ))}
+                      </ESelect>
+                    </EField>
+                    <EField label="Minutes you spent fixing" hint={`On site: ${onSiteMinutes} min`}>
+                      <EInput
+                        type="number"
+                        min={0}
+                        value={rework.minutesFromCleaner || ""}
+                        onChange={(e) => setRework({ minutesFromCleaner: Number(e.target.value || 0) })}
+                      />
+                    </EField>
+                    <EField label="Amount to move ($)">
+                      <EInput
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={rework.amountFromCleaner || ""}
+                        onChange={(e) => setRework({ amountFromCleaner: Number(e.target.value || 0) })}
+                      />
+                    </EField>
+                  </div>
+                ) : null}
+
+                {reworkDecision === "OTHER" ? (
                   <div className="grid grid-cols-2 gap-2">
                     <EField label="New cleaner">
                       <ESelect value={rework.payeeCleanerId ?? ""} onChange={(e) => setRework({ payeeCleanerId: e.target.value })}>
@@ -1801,11 +2267,23 @@ export function QaInspectionWorkspace({
                     </EField>
                   </div>
                 ) : null}
-                <EAlert tone="warning">
-                  {rework.assignee === "OTHER"
-                    ? `A rework job is created for the new cleaner. ${rework.payAmount > 0 ? `$${Number(rework.payAmount).toFixed(2)}` : "The amount"} is paid to them and deducted from the original cleaner.`
-                    : "A rework job is created for the same cleaner to fix the flagged areas — no extra pay for the redo."}
-                </EAlert>
+                {/* money preview — what this decision actually costs */}
+                <div className="space-y-1.5 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-3">
+                  <p className="text-[0.75rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))]">
+                    Money preview
+                  </p>
+                  {reworkMoneyPreview.map((line) => (
+                    <div key={line.label} className="flex items-center justify-between gap-3 text-[0.8125rem]">
+                      <span className="text-[hsl(var(--e-text-secondary))]">{line.label}</span>
+                      <span className="e-numeral font-medium" style={{ color: line.color }}>
+                        {line.value}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="pt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                    All pay and time effects are created PENDING and only reach payroll once an admin approves them.
+                  </p>
+                </div>
               </div>
             ) : null}
           </ECardBody>
@@ -2026,11 +2504,12 @@ export function QaInspectionWorkspace({
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           >
-            Score &amp; sign off <ArrowRight className="h-4 w-4" />
+            {step === 0 ? "Begin inspection" : "Score & sign off"} <ArrowRight className="h-4 w-4" />
           </EButton>
         ) : (
           <span className="text-[0.75rem] font-medium text-[hsl(var(--e-gold-ink))]">Submit below ↓</span>
         )}
+      </div>
       </div>
     </div>
   );

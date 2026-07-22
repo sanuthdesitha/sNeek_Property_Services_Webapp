@@ -164,4 +164,12 @@ export interface FormSchema {
   sections: FormSection[];
   /** Optional appearance overrides for the form body (see FormTheme). */
   theme?: FormTheme;
+  /**
+   * Template-owned standard sections opt-out. `false` = the arrival-evidence /
+   * reported-exceptions / sign-off sections are already baked into `sections`
+   * and must NOT be re-injected at read time (see lib/forms/standard-sections).
+   * `undefined` keeps the historical injection so un-migrated templates keep
+   * their evidence gates.
+   */
+  standardSections?: boolean;
 }

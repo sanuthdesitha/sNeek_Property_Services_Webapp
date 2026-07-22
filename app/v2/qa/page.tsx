@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { EEyebrow, EStatCard } from "@/components/v2/ui/primitives";
 import { AlertTriangle, ClipboardCheck, Star, Timer } from "lucide-react";
 import { QaQueueWorkspace } from "@/components/v2/qa/qa-queue-workspace";
+import { QaDayPlanner } from "@/components/v2/qa/qa-day-planner";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -59,6 +60,8 @@ export default async function QaTodayPage() {
         <EStatCard label="Reviewed today" value={String(completedToday)} delta="closed" icon={<Star className="h-4 w-4" />} />
         <EStatCard label="Rework flagged" value={String(reworkToday)} delta="today" deltaTone="neutral" icon={<AlertTriangle className="h-4 w-4" />} />
       </section>
+
+      {canAssign ? <QaDayPlanner inspectors={inspectors} /> : null}
 
       <QaQueueWorkspace inspectors={inspectors} canAssign={canAssign} />
     </div>

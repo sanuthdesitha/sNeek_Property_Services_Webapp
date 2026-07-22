@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { FormBuilder } from "@/components/forms/form-builder";
 import type { FormSchema } from "@/lib/forms/types";
+import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function FormEditPage({
       id: true,
       name: true,
       kind: true,
+      serviceType: true,
       schema: true,
       isActive: true,
       archivedAt: true,
@@ -25,10 +27,12 @@ export default async function FormEditPage({
 
   if (!template) notFound();
 
-  // Coerce JSON column → FormSchema. Older templates may store the legacy
-  // `{ sections: [{ label, fields }] }` shape; normalize to V1 here so the
-  // builder always sees `title`.
-  const rawSchema = (template.schema ?? {}) as any;
+  // Canonicalise through the shared normalizer (same one the cleaner read +
+  // submit routes use) so the builder edits exactly the schema the runtime
+  // enforces — including the standard sections, which are otherwise invisibly
+  // injected downstream.
+  const normalized = normalizeFormSchema(template.schema);
+  const rawSchema = { ...normalized } as any;
   const sections = Array.isArray(rawSchema?.sections)
     ? rawSchema.sections.map((s: any, idx: number) => ({
         id: typeof s?.id === "string" ? s.id : `s-${idx}`,
@@ -69,13 +73,18 @@ export default async function FormEditPage({
   const theme =
     rawSchema?.theme && typeof rawSchema.theme === "object" ? rawSchema.theme : undefined;
 
-  const initialSchema: FormSchema = { sections, ...(theme ? { theme } : {}) };
+  const initialSchema: FormSchema = {
+    sections,
+    ...(theme ? { theme } : {}),
+    ...(normalized.standardSections === false ? { standardSections: false as const } : {}),
+  };
 
   return (
     <FormBuilder
       templateId={template.id}
       initialName={template.name}
       initialKind={template.kind}
+      initialServiceType={String(template.serviceType)}
       initialVersion={template.version}
       initialSchema={initialSchema}
       initialIsActive={template.isActive}

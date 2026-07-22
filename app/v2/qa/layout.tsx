@@ -1,14 +1,16 @@
 "use client";
 
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
-import { Home, ClipboardCheck, AlertTriangle, BarChart3, User } from "lucide-react";
+import { CalendarCheck, ClipboardCheck, AlertTriangle, MoreHorizontal } from "lucide-react";
 
+// Phase 4 Stage 1 nav: Today · Reviews · Rework · More.
+// (Stage 2 adds a Map tab between Rework and More — its route placeholder lives
+// on the More page until then.)
 const NAV: NavItem[] = [
-  { href: "/v2/qa", label: "Queue", icon: Home },
+  { href: "/v2/qa", label: "Today", icon: CalendarCheck },
   { href: "/v2/qa/reviews", label: "Reviews", icon: ClipboardCheck },
   { href: "/v2/qa/rework", label: "Rework", icon: AlertTriangle },
-  { href: "/v2/qa/stats", label: "Stats", icon: BarChart3 },
-  { href: "/v2/qa/profile", label: "Profile", icon: User },
+  { href: "/v2/qa/more", label: "More", icon: MoreHorizontal },
 ];
 
 export default function V2QaLayout({ children }: { children: React.ReactNode }) {

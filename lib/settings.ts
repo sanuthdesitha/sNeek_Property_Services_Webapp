@@ -248,6 +248,8 @@ export interface AccountabilityRectificationSettings {
   bands: { maxMinutes: number; amount: number }[];
   managerReviewOverMinutes: number;
   reworkDeductionsRequireApproval: boolean;
+  /** Minutes an original-cleaner rework offer stays open before it expires. */
+  reworkOfferTtlMinutes: number;
 }
 
 export interface AccountabilitySettings {
@@ -498,6 +500,7 @@ export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
     ],
     managerReviewOverMinutes: 30,
     reworkDeductionsRequireApproval: true,
+    reworkOfferTtlMinutes: 30,
   },
   issueCategories: DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES,
   patternSameCategoryCount: 3,
@@ -1175,6 +1178,9 @@ export function sanitizeAccountabilitySettings(
       typeof rectRow.reworkDeductionsRequireApproval === "boolean"
         ? rectRow.reworkDeductionsRequireApproval
         : fallback.rectification.reworkDeductionsRequireApproval,
+    reworkOfferTtlMinutes:
+      nonNeg(rectRow.reworkOfferTtlMinutes, fallback.rectification.reworkOfferTtlMinutes) ||
+      fallback.rectification.reworkOfferTtlMinutes,
   };
 
   let issueCategories: { key: string; label: string }[] = [];

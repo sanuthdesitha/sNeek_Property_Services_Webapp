@@ -47,6 +47,8 @@ import {
   type LightboxItem,
 } from "@/components/v2/cleaner/media-capture";
 import { GuidedCapture, type GuidedCaptureTarget } from "@/components/v2/cleaner/guided-capture";
+import { DamageReport, ExtraPayRequest } from "@/components/v2/cleaner/job-actions";
+import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;
@@ -88,6 +90,9 @@ export function FormRenderer({
   disabled = false,
   collapsibleSections = false,
   sectionProgress,
+  jobId,
+  restockNeeds,
+  onExtrasChanged,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
@@ -106,6 +111,19 @@ export function FormRenderer({
   collapsibleSections?: boolean;
   /** Optional per-section "done/total" tally shown in the section header. */
   sectionProgress?: (sectionId: string) => { done: number; total: number } | undefined;
+  /**
+   * Job id for the "Extras" region (damage / extra pay / maintenance). When
+   * omitted those three chips are hidden — the region degrades to Stock only,
+   * so callers that don't wire it up are unaffected.
+   */
+  jobId?: string;
+  /**
+   * Property restock shortfalls from GET /api/jobs/[id]/form. When non-empty the
+   * Stock extra auto-expands (the cleaner has something to record).
+   */
+  restockNeeds?: Array<{ name: string; needed: number; unit?: string | null }>;
+  /** Fired after an extra is submitted, so the parent can refresh job meta. */
+  onExtrasChanged?: () => void;
 }) {
   const sections = Array.isArray(schema?.sections) ? schema.sections : [];
 
@@ -252,15 +270,135 @@ export function FormRenderer({
           />
         ))}
 
-        <StockUsageSection
+        <ExtrasRegion
+          jobId={jobId}
           property={property}
           inventoryStock={inventoryStock}
+          restockNeeds={restockNeeds}
           answers={answers}
           onAnswer={handleAnswer}
+          onChanged={onExtrasChanged}
           disabled={disabled}
         />
       </div>
     </ValidationContext.Provider>
+  );
+}
+
+/* ── Extras (collapsed conditional sections) ────────────────────────────────── */
+
+/**
+ * The optional, exception-path parts of a clean — damage, extra pay,
+ * maintenance and stock usage — collapsed behind "Add:" chips so they never
+ * pad out the checklist for the (common) job where none apply. Each chip
+ * expands the SAME embedded component used elsewhere in the cleaner app; the
+ * blocks reuse the section chrome/collapse behaviour of SectionBlock.
+ *
+ * `jobId` is optional: without it the three job-scoped extras are hidden and
+ * only Stock renders, so a caller that hasn't wired the extras up yet is
+ * unaffected.
+ */
+function ExtrasRegion({
+  jobId,
+  property,
+  inventoryStock,
+  restockNeeds,
+  answers,
+  onAnswer,
+  onChanged,
+  disabled,
+}: {
+  jobId?: string;
+  property: Record<string, unknown>;
+  inventoryStock?: PropertyStockRow[];
+  restockNeeds?: Array<{ name: string; needed: number; unit?: string | null }>;
+  answers: AnswerMap;
+  onAnswer: (fieldId: string, value: unknown) => void;
+  onChanged?: () => void;
+  disabled: boolean;
+}) {
+  // Stock opens itself when the property is short on something.
+  const stockNeeded = Array.isArray(restockNeeds) && restockNeeds.length > 0;
+  const [open, setOpen] = React.useState<Record<string, boolean>>(() => ({
+    stock: stockNeeded,
+  }));
+  const toggle = (key: string) => setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const stockVisible = property?.inventoryEnabled === true;
+  const chips: Array<{ key: string; label: string }> = [
+    ...(jobId
+      ? [
+          { key: "damage", label: "Damage" },
+          { key: "extra-pay", label: "Extra pay" },
+          { key: "maintenance", label: "Maintenance" },
+        ]
+      : []),
+    ...(stockVisible ? [{ key: "stock", label: "Stock" }] : []),
+  ];
+  if (chips.length === 0) return null;
+
+  return (
+    <section className="rounded-[var(--e-radius-lg)] border border-dashed border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
+      <p className="e-eyebrow">Extras</p>
+      <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        Only open these if something applies to this clean.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Add:</span>
+        {chips.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={() => toggle(chip.key)}
+            aria-expanded={Boolean(open[chip.key])}
+            className={cn(
+              "rounded-[var(--e-radius-pill)] border px-3 py-1 text-[0.8125rem] font-[550] transition-colors",
+              open[chip.key]
+                ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-foreground))]"
+                : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-text-secondary))] hover:border-[hsl(var(--e-gold)/0.5)]"
+            )}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      {jobId && open.damage ? (
+        <ExtraBlock title="Damage report">
+          <DamageReport jobId={jobId} onChanged={onChanged} embedded />
+        </ExtraBlock>
+      ) : null}
+      {jobId && open["extra-pay"] ? (
+        <ExtraBlock title="Extra pay request">
+          <ExtraPayRequest jobId={jobId} onChanged={onChanged} embedded />
+        </ExtraBlock>
+      ) : null}
+      {jobId && open.maintenance ? (
+        <ExtraBlock title="Report maintenance">
+          <ReportMaintenance jobId={jobId} onChanged={onChanged} />
+        </ExtraBlock>
+      ) : null}
+      {stockVisible && open.stock ? (
+        <div className="mt-3">
+          <StockUsageSection
+            property={property}
+            inventoryStock={inventoryStock}
+            answers={answers}
+            onAnswer={onAnswer}
+            disabled={disabled}
+          />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ExtraBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-4">
+      <p className="e-eyebrow mb-2">{title}</p>
+      {children}
+    </div>
   );
 }
 
