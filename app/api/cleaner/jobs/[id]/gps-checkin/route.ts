@@ -38,11 +38,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
       select: {
         id: true,
+        gpsCheckInAt: true,
         property: { select: { name: true, latitude: true, longitude: true } },
       },
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+
+    // The arrival check-in is IMMUTABLE. Re-entering a job later (e.g. to finish
+    // the form after clocking out) used to re-run the full clock-in and stamp
+    // the cleaner's CURRENT position over the original arrival coordinates —
+    // destroying the arrival evidence. Later fixes are still captured by the
+    // CleanerLocationPing stream; only an explicit admin adjustment may rewrite
+    // the arrival record.
+    if (job.gpsCheckInAt && !adjusted) {
+      return NextResponse.json({ ok: true, preserved: true, gpsCheckInAt: job.gpsCheckInAt });
     }
 
     const propertyLat = toNumber(job.property?.latitude);

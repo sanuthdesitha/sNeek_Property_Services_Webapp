@@ -64,6 +64,8 @@ export function ClockCard({
   maxAllowedTotalSeconds,
   busy,
   clockInDisabled,
+  teamStarted,
+  ownStarted,
   onClockIn,
   onPause,
 }: {
@@ -76,6 +78,10 @@ export function ClockCard({
   maxAllowedTotalSeconds: number | null;
   busy: string | null;
   clockInDisabled?: boolean;
+  /** Someone on the team has started (may not be me). */
+  teamStarted?: boolean;
+  /** I have recorded time on this job. */
+  ownStarted?: boolean;
   onClockIn: () => void;
   onPause: () => void;
 }) {
@@ -96,25 +102,39 @@ export function ClockCard({
   return (
     <ECard>
       <ECardBody className="space-y-3 pt-6">
-        <div className="flex items-center justify-between">
-          <p className="e-eyebrow flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> Time on site
-          </p>
-          <span className="inline-flex items-center gap-2 text-[0.875rem] font-[550] tabular-nums">
-            {isRunning ? (
-              <span className="inline-flex items-center gap-1.5 text-[hsl(var(--e-success))]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--e-success))]" />
-                {formatDuration(totalSeconds)}
-              </span>
-            ) : (
-              <span className="text-[hsl(var(--e-muted-foreground))]">{formatDuration(totalSeconds)} logged</span>
-            )}
+        {/* The timer is the single most-glanced number on this screen (often
+            read at arm's length mid-clean) — render it large, not as a caption. */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="e-eyebrow flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" /> Time on site
+            </p>
             {overPlanned ? (
               <EBadge tone="warning" soft>
                 +{formatDuration(overrunSeconds)} over planned
               </EBadge>
             ) : null}
-          </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            {isRunning ? (
+              <span className="h-2.5 w-2.5 shrink-0 animate-pulse self-center rounded-full bg-[hsl(var(--e-success))]" />
+            ) : null}
+            <span
+              className={cn(
+                "text-[2rem] font-[650] leading-none tabular-nums",
+                isRunning
+                  ? "text-[hsl(var(--e-success))]"
+                  : totalSeconds > 0
+                    ? "text-[hsl(var(--e-gold-ink))]"
+                    : "text-[hsl(var(--e-muted-foreground))]"
+              )}
+            >
+              {formatDuration(totalSeconds)}
+            </span>
+            {!isRunning && totalSeconds > 0 ? (
+              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">logged · paused</span>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -138,7 +158,9 @@ export function ClockCard({
           {!isRunning && !locked ? (
             <EButton variant="primary" disabled={busy === "clockin" || clockInDisabled} onClick={onClockIn}>
               {busy === "clockin" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {hasCheckin ? "Resume · clock in" : "Clock in (GPS)"}
+              {/* Resuming only restarts the timer — it never re-captures the
+                  arrival GPS, so don't promise a check-in in the label. */}
+              {ownStarted || hasCheckin ? "Resume timer" : "Clock in (GPS)"}
             </EButton>
           ) : null}
           {isRunning && !locked ? (
@@ -152,7 +174,17 @@ export function ClockCard({
           <p className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-gold-ink))]">
             <ClipboardCheck className="h-3.5 w-3.5" /> Complete the confirmations above to clock in.
           </p>
-        ) : !hasCheckin && !locked ? (
+        ) : teamStarted && !ownStarted && !isRunning && !locked ? (
+          // A co-cleaner already started this clean: the checklist is open, but
+          // this cleaner's own time still needs to start (pay stays personal).
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            Team clean already underway — clock in to record your own time.
+          </p>
+        ) : ownStarted || hasCheckin ? (
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            Resuming restarts your timer only — your arrival check-in stays as recorded.
+          </p>
+        ) : !locked ? (
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Clocking in captures your GPS location at the property.
           </p>

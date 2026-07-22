@@ -16,6 +16,7 @@ import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
+import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import {
   buildReworkFormSchema,
@@ -325,6 +326,19 @@ export async function GET(
             orderBy: { startedAt: "asc" },
           })
         : [];
+    // Has ANY cleaner on this job started? Drives checklist visibility for a
+    // second cleaner joining an in-progress clean (their own timeLogs are empty,
+    // which used to pin them on Set-up behind the start gate). Pay/time stay
+    // strictly per-cleaner — see lib/cleaner/team-state.ts.
+    const teamTimeLog = await db.timeLog.findFirst({
+      where: { jobId: job.id },
+      select: { id: true },
+    });
+    const teamStarted = isTeamStarted({
+      jobStatus: job.status,
+      anyTeamTimeLog: Boolean(teamTimeLog),
+    });
+
     const activeTimeLog =
       cleanerTimeLogs.length > 0
         ? [...cleanerTimeLogs].reverse().find((log) => !log.stoppedAt) ?? null
@@ -533,6 +547,8 @@ export async function GET(
           }
         : null,
       transferCandidates,
+      /** Any cleaner on this job has started — unlocks the checklist for co-cleaners. */
+      teamStarted,
       timeState: {
         completedSeconds,
         isRunning: Boolean(activeTimeLog),

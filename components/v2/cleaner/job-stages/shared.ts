@@ -56,7 +56,12 @@ export interface WorkspaceApi {
   status: string;
   locked: boolean;
   needsAcceptance: boolean;
+  /** Visibility: own OR team started — unlocks the checklist/Clean stage. */
   hasStarted: boolean;
+  /** Someone on the team has started this clean (may not be me). */
+  teamStarted: boolean;
+  /** THIS cleaner has clocked in — drives pay/time, never visibility. */
+  ownStarted: boolean;
   hasCheckin: boolean;
   propertyId: string | null;
 
@@ -132,6 +137,12 @@ export interface WorkspaceApi {
   setLaundrySkipCode: (v: string) => void;
   laundrySkipNote: string;
   setLaundrySkipNote: (v: string) => void;
+  /** Early update sent and untouched — render the locked "sent" summary. */
+  laundryLocked: boolean;
+  /** Sent, then edited — submit will transmit the amendment. */
+  laundryAmendedSinceSend: boolean;
+  /** Unlock the card for editing after an early send. */
+  beginLaundryEdit: () => void;
   laundryEarlySending: boolean;
   laundryEarlySentAt: string | null;
   laundryEarlyNotice: { tone: "success" | "danger"; text: string } | null;

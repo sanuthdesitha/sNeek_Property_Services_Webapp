@@ -21,6 +21,7 @@ import {
   Camera,
   CheckCircle2,
   AlertTriangle,
+  Check,
   Loader2,
   Package,
   Square,
@@ -35,6 +36,13 @@ import { formatDuration } from "@/lib/time/format-duration";
 import { LAUNDRY_SKIP_REASONS, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 const LAUNDRY_CARD_ID = "wrapup-laundry";
+
+/** Human labels for the locked "sent" summary. */
+const LAUNDRY_OUTCOME_LABELS: Record<string, string> = {
+  READY_FOR_PICKUP: "Ready for pickup",
+  NOT_READY: "Not ready",
+  NO_PICKUP_REQUIRED: "No pickup required",
+};
 
 export function StageWrapup({ api }: { api: WorkspaceApi }) {
   const {
@@ -167,6 +175,39 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             <p className="e-eyebrow flex items-center gap-1.5">
               <WashingMachine className="h-3.5 w-3.5" /> Used linen — ready for pickup?
             </p>
+            {api.laundryLocked ? (
+              /* SENT: the update already went to the laundry team. Lock it to a
+                 read-only summary (v1 parity) so it can't be silently changed —
+                 and so submit doesn't transmit a second, different update.
+                 "Edit update" is the deliberate way back into the form. */
+              <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.4)] bg-[hsl(var(--e-success)/0.06)] p-3">
+                <p className="flex items-center gap-1.5 text-[0.875rem] font-[600] text-[hsl(var(--e-success))]">
+                  <Check className="h-4 w-4" /> Laundry update sent
+                </p>
+                <dl className="space-y-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                  <div className="flex gap-1.5">
+                    <dt className="text-[hsl(var(--e-muted-foreground))]">Outcome:</dt>
+                    <dd className="font-[550]">{LAUNDRY_OUTCOME_LABELS[api.laundryOutcome] ?? api.laundryOutcome}</dd>
+                  </div>
+                  {api.laundryOutcome === "READY_FOR_PICKUP" && api.laundryBagLocation ? (
+                    <div className="flex gap-1.5">
+                      <dt className="text-[hsl(var(--e-muted-foreground))]">Bag left at:</dt>
+                      <dd className="font-[550]">{api.laundryBagLocation}</dd>
+                    </div>
+                  ) : null}
+                  {api.laundryEarlySentAt ? (
+                    <div className="flex gap-1.5">
+                      <dt className="text-[hsl(var(--e-muted-foreground))]">Sent:</dt>
+                      <dd className="font-[550]">{api.laundryEarlySentAt}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+                <EButton variant="outline" size="sm" disabled={locked} onClick={api.beginLaundryEdit}>
+                  Edit update
+                </EButton>
+              </div>
+            ) : (
+            <>
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               Tell the laundry service the used-linen bag is ready. They collect it — you don&apos;t take it.
               Saved when you submit and sent to the laundry team.
@@ -265,6 +306,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                     {api.laundryEarlySending ? "Sending…" : "Send to laundry team now"}
                   </EButton>
                 </div>
+                {api.laundryAmendedSinceSend ? (
+                  <p className="text-[0.75rem] text-[hsl(var(--e-gold-ink))]">
+                    You&apos;ve changed this since sending — the amendment goes with your submission.
+                  </p>
+                ) : null}
                 {api.laundryEarlyNotice ? (
                   <p
                     className={`text-[0.75rem] ${
@@ -278,6 +324,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                 ) : null}
               </div>
             ) : null}
+            </>
+            )}
           </ECardBody>
         </ECard>
       ) : null}

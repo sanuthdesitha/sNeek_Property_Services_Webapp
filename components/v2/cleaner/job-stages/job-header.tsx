@@ -36,6 +36,10 @@ function statusTone(status: string) {
 export function JobHeader({ api }: { api: WorkspaceApi }) {
   const { propertyCode, addressLine, navUrl, status, timeState } = api;
   const [copied, setCopied] = React.useState(false);
+  // Badge count for the Info button: must-read items + a key-pickup instruction
+  // are the things cleaners most often miss because the drawer was invisible.
+  const infoCount =
+    (api.readFirstItems?.length ?? 0) + (api.payload?.keyPickupLocation ? 1 : 0);
 
   async function copyAddress() {
     if (!addressLine) return;
@@ -88,9 +92,23 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
           <HeaderAction label="Call" onClick={api.openContactSheet}>
             <Phone className="h-4 w-4" />
           </HeaderAction>
-          <HeaderAction label="Info" onClick={api.openInfoDrawer}>
+          {/* Property info holds access codes, key pickup and READ-FIRST notes —
+              too important to sit as a third anonymous icon. Labelled + accented,
+              with a count badge when there are must-read items. */}
+          <button
+            type="button"
+            onClick={api.openInfoDrawer}
+            aria-label="Property info"
+            className="relative inline-flex h-10 items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] px-2.5 text-[0.8125rem] font-[600] text-[hsl(var(--e-gold-ink))] transition-colors hover:brightness-95"
+          >
             <Info className="h-4 w-4" />
-          </HeaderAction>
+            <span className="hidden xs:inline">Info</span>
+            {infoCount > 0 ? (
+              <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] px-1 text-[0.625rem] font-[700] leading-none text-[hsl(var(--e-gold-foreground))]">
+                {infoCount}
+              </span>
+            ) : null}
+          </button>
         </div>
       </div>
     </header>

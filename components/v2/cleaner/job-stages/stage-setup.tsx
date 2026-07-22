@@ -14,6 +14,7 @@ import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
+import { BookingCard } from "@/components/v2/cleaner/booking-card";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 export function StageSetup({ api }: { api: WorkspaceApi }) {
@@ -51,6 +52,15 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           You clocked out without submitting the form. This job is not complete until the form is submitted.
         </EAlert>
       ) : null}
+
+      {/* Guest count / booking details from the iCal sync — first thing the
+          cleaner needs to know when setting the property up. */}
+      <BookingCard
+        reservation={api.payload?.jobMeta?.reservationContext}
+        sofaBedCount={api.property?.sofaBedCount}
+        checkoutTime={api.property?.defaultCheckoutTime}
+        checkinTime={api.property?.defaultCheckinTime}
+      />
 
       <BriefingCard briefing={briefing} />
 
@@ -232,6 +242,8 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         maxAllowedTotalSeconds={timeState.maxAllowedTotalSeconds ?? null}
         busy={busy}
         clockInDisabled={clockInDisabled}
+        teamStarted={api.teamStarted}
+        ownStarted={api.ownStarted}
         onClockIn={api.clockIn}
         onPause={api.pauseClock}
       />

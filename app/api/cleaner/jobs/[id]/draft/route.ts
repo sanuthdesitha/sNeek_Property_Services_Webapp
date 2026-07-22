@@ -8,6 +8,7 @@ import {
   getSharedCleanerJobDraft,
   saveSharedCleanerJobDraft,
 } from "@/lib/cleaner/shared-job-draft";
+import { mergeDraftStates } from "@/lib/cleaner/draft-merge";
 
 const draftSchema = z.object({
   editorSessionId: z.string().trim().min(1).max(120),
@@ -74,12 +75,24 @@ export async function PATCH(
     }
     const body = draftSchema.parse(await req.json());
     const updatedAt = new Date().toISOString();
+
+    // The draft envelope is SHARED across a job's cleaners and devices, so a
+    // blind whole-envelope replace loses a co-cleaner's concurrent work. Merge
+    // instead: uploads/media are unioned by storage key (a photo that reached
+    // S3 can never be forgotten), scalars resolve to the newer state.
+    const existing = await getSharedCleanerJobDraft(params.id);
+    const incoming = body.state as Record<string, unknown>;
+    const mergedState =
+      existing?.state && existing.editorSessionId !== body.editorSessionId
+        ? mergeDraftStates(existing.state, incoming)
+        : incoming;
+
     await saveSharedCleanerJobDraft(params.id, {
       updatedAt,
       updatedByUserId: session.user.id,
       updatedByName: session.user.name ?? session.user.email ?? "Cleaner",
       editorSessionId: body.editorSessionId,
-      state: body.state,
+      state: mergedState,
     });
     return NextResponse.json({ ok: true, updatedAt });
   } catch (err: any) {

@@ -80,6 +80,17 @@ import { StageSetup } from "@/components/v2/cleaner/job-stages/stage-setup";
 import { StageClean } from "@/components/v2/cleaner/job-stages/stage-clean";
 import { StageWrapup } from "@/components/v2/cleaner/job-stages/stage-wrapup";
 import { StageFooterNav } from "@/components/v2/cleaner/job-stages/stage-footer";
+import {
+  isTeamStarted,
+  isOwnStarted,
+  isStartedForVisibility,
+  requiresStartConfirmations,
+} from "@/lib/cleaner/team-state";
+import { mergeDraftStates } from "@/lib/cleaner/draft-merge";
+import { getAccuratePosition } from "@/lib/geo/get-position";
+
+/** Local mirror of the shared draft (v1 parity) — survives an instant reload. */
+const LOCAL_DRAFT_KEY = (jobId: string) => `cleaner-job-draft-v2:${jobId}`;
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
@@ -168,6 +179,14 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [laundryEarlyNotice, setLaundryEarlyNotice] = React.useState<
     { tone: "success" | "danger"; text: string } | null
   >(null);
+  /**
+   * Laundry card state machine: EDITING → SENDING → SENT (locked summary) →
+   * EDITING (explicit "Edit update"). `laundrySentSnapshot` is a serialized copy
+   * of what was actually transmitted, so we can tell "sent and untouched" from
+   * "sent then amended" without trusting UI flags.
+   */
+  const [laundrySentSnapshot, setLaundrySentSnapshot] = React.useState<string | null>(null);
+  const [laundryEditingAfterSend, setLaundryEditingAfterSend] = React.useState(false);
 
   async function sendLaundryEarlyUpdate() {
     if (!laundryOutcome) return;
@@ -192,6 +211,19 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       setLaundryEarlySentAt(
         new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
       );
+      // Snapshot exactly what was sent. Submit compares against this so an
+      // unchanged early-sent update is NOT transmitted a second time (v1 locks
+      // the card after sending; v2 previously re-sent the whole block on submit).
+      setLaundrySentSnapshot(
+        JSON.stringify({
+          laundryOutcome,
+          bagLocation: laundryBagLocation.trim(),
+          photoKey: laundryPhoto[0]?.key ?? null,
+          skipCode: laundryOutcome === "READY_FOR_PICKUP" ? null : laundrySkipCode,
+          skipNote: laundrySkipNote.trim(),
+        }),
+      );
+      setLaundryEditingAfterSend(false);
       setLaundryEarlyNotice({ tone: "success", text: "Sent to the laundry team and admin." });
     } catch (e: any) {
       setLaundryEarlyNotice({ tone: "danger", text: e?.message ?? "Could not send the update." });
@@ -324,17 +356,33 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       if (!draftHydratedRef.current) {
         draftHydratedRef.current = true;
         try {
+          // Local mirror may hold work the server never received (backgrounded
+          // before the flush landed). Merge both — uploads are unioned so a
+          // photo recorded in either place can never be dropped.
+          let localState: Record<string, any> | null = null;
+          try {
+            const raw = window.localStorage.getItem(LOCAL_DRAFT_KEY(jobId));
+            if (raw) localState = JSON.parse(raw);
+          } catch {
+            /* ignore malformed mirror */
+          }
+
           const dRes = await fetch(`/api/cleaner/jobs/${jobId}/draft`, { cache: "no-store" });
+          let envelope: any = null;
           if (dRes.ok) {
             const dBody = await dRes.json().catch(() => ({}));
-            const envelope = dBody?.draft;
-            if (envelope?.state && typeof envelope.state === "object") {
-              restoreDraftState(envelope.state as Record<string, any>);
-              setDraftInfo({
-                updatedAt: typeof envelope.updatedAt === "string" ? envelope.updatedAt : null,
-                updatedByName: typeof envelope.updatedByName === "string" ? envelope.updatedByName : null,
-              });
-            }
+            envelope = dBody?.draft ?? null;
+          }
+          const serverState =
+            envelope?.state && typeof envelope.state === "object" ? (envelope.state as Record<string, any>) : null;
+
+          const merged = serverState && localState ? mergeDraftStates(serverState, localState) : serverState ?? localState;
+          if (merged) {
+            restoreDraftState(merged);
+            setDraftInfo({
+              updatedAt: typeof envelope?.updatedAt === "string" ? envelope.updatedAt : null,
+              updatedByName: typeof envelope?.updatedByName === "string" ? envelope.updatedByName : null,
+            });
           }
         } catch {
           /* draft restore is best-effort */
@@ -379,7 +427,33 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     job?.isRework !== true;
 
   // ── Job-start "Before you start" gate ──────────────────────────────────────
-  const hasStarted = hasCheckin || timeState.isRunning || (timeState.completedSeconds ?? 0) > 0;
+  // Two different questions (see lib/cleaner/team-state.ts): "is the clean
+  // underway?" (team — unlocks the checklist for a co-cleaner) vs "has MY clock
+  // started?" (own — drives pay/time). Conflating them pinned the second
+  // cleaner on Set-up behind the start gate while the job was IN_PROGRESS.
+  const teamState = {
+    jobStatus: status,
+    anyTeamTimeLog: payload?.teamStarted === true,
+    ownRunning: Boolean(timeState.isRunning),
+    ownCompletedSeconds: timeState.completedSeconds ?? 0,
+  };
+  const teamStarted = isTeamStarted(teamState);
+  const ownStarted = isOwnStarted(teamState);
+
+  // Laundry card state: has the cleaner changed anything since the early send?
+  const laundryCurrentSignature = JSON.stringify({
+    laundryOutcome,
+    bagLocation: laundryBagLocation.trim(),
+    photoKey: laundryPhoto[0]?.key ?? null,
+    skipCode: laundryOutcome === "READY_FOR_PICKUP" ? null : laundrySkipCode,
+    skipNote: laundrySkipNote.trim(),
+  });
+  const laundryAmendedSinceSend =
+    Boolean(laundryEarlySentAt) && laundrySentSnapshot !== null && laundryCurrentSignature !== laundrySentSnapshot;
+  /** SENT + untouched → the card renders a read-only summary with "Edit update". */
+  const laundryLocked = Boolean(laundryEarlySentAt) && !laundryEditingAfterSend && !laundryAmendedSinceSend;
+  // Visibility: own start OR team start (or a recorded GPS check-in).
+  const hasStarted = hasCheckin || isStartedForVisibility(teamState);
   const propertyCode: string = (property as any)?.name ?? "";
   const expectedDurationMinutes: number | null =
     (property as any)?.cleaningDurationMinutes != null
@@ -408,8 +482,16 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const requireStartConfirmation = payload?.requireJobStartConfirmation !== false;
   // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
   const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
-  // Property-code confirmation is always required when the flag is on.
-  const startGateBlocks = requireStartConfirmation && !hasStarted && !locked && !needsAcceptance;
+  // Only the FIRST person to start does the heavyweight confirmations. A second
+  // cleaner joining an in-progress clean isn't re-asked to verify the property
+  // code the first starter already confirmed.
+  const startGateBlocks =
+    requiresStartConfirmations({
+      ...teamState,
+      requireStartConfirmation,
+      locked,
+      needsAcceptance,
+    }) && !hasCheckin;
   const startGateSatisfied =
     !startGateBlocks ||
     (propertyCodeConfirmed && (!laundryBagConfirmRequired || laundryBagConfirmed));
@@ -489,39 +571,100 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setImportantOpen(false);
   }
 
-  // Debounced shared-draft autosave — mirrors v1's PATCH /draft envelope
-  // ({ editorSessionId, state }) so a co-cleaner or another device can resume.
-  React.useEffect(() => {
-    if (!draftHydratedRef.current || loading || !job || locked) return;
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = setTimeout(() => {
-      const state = {
-        v2: true,
-        updatedAt: new Date().toISOString(),
-        answers,
-        uploads,
-        taskDrafts,
-        laundry: {
-          outcome: laundryOutcome,
-          bagLocation: laundryBagLocation,
-          skipCode: laundrySkipCode,
-          skipNote: laundrySkipNote,
-          photo: laundryPhoto,
-        },
-        carryForward: {
-          hasNew: carryHasNew,
-          notes: carryNotes,
-          photos: carryPhotos,
-        },
-      };
+  // Build the current draft state. Kept in a ref so the unload flush can read
+  // the latest values without re-registering listeners on every keystroke.
+  const buildDraftState = React.useCallback(
+    () => ({
+      v2: true,
+      updatedAt: new Date().toISOString(),
+      answers,
+      uploads,
+      taskDrafts,
+      laundry: {
+        outcome: laundryOutcome,
+        bagLocation: laundryBagLocation,
+        skipCode: laundrySkipCode,
+        skipNote: laundrySkipNote,
+        photo: laundryPhoto,
+      },
+      carryForward: {
+        hasNew: carryHasNew,
+        notes: carryNotes,
+        photos: carryPhotos,
+      },
+    }),
+    [
+      answers,
+      uploads,
+      taskDrafts,
+      laundryOutcome,
+      laundryBagLocation,
+      laundrySkipCode,
+      laundrySkipNote,
+      laundryPhoto,
+      carryHasNew,
+      carryNotes,
+      carryPhotos,
+    ],
+  );
+  const draftStateRef = React.useRef(buildDraftState);
+  draftStateRef.current = buildDraftState;
+
+  /**
+   * Persist the draft NOW. `keepalive` lets the request survive the page being
+   * backgrounded/closed — the old debounce-only autosave cancelled its pending
+   * timer on unmount, so photos taken in the last 1.5s were silently lost.
+   * Also mirrors to localStorage synchronously (v1 parity) as a second net.
+   */
+  const flushDraft = React.useCallback(
+    (opts?: { keepalive?: boolean }) => {
+      if (!draftHydratedRef.current || locked) return;
+      const state = draftStateRef.current();
+      try {
+        window.localStorage.setItem(LOCAL_DRAFT_KEY(jobId), JSON.stringify(state));
+      } catch {
+        /* quota/private mode — server draft is the primary */
+      }
       void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ editorSessionId: editorSessionIdRef.current, state }),
+        keepalive: opts?.keepalive === true,
       }).catch(() => {});
+    },
+    [jobId, locked],
+  );
+
+  // Flush immediately when the tab is hidden or the PWA is closed/evicted.
+  React.useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushDraft({ keepalive: true });
+    };
+    const onPageHide = () => flushDraft({ keepalive: true });
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [flushDraft]);
+
+  // Debounced shared-draft autosave — mirrors v1's PATCH /draft envelope
+  // ({ editorSessionId, state }) so a co-cleaner or another device can resume.
+  // On unmount we FLUSH (not cancel) any pending write.
+  React.useEffect(() => {
+    if (!draftHydratedRef.current || loading || !job || locked) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      draftTimerRef.current = null;
+      flushDraft();
     }, 1500);
     return () => {
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+        flushDraft({ keepalive: true });
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -557,19 +700,31 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     return data;
   }
 
-  function getGps(): Promise<{ lat: number; lng: number; accuracy: number | null }> {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) return reject(new Error("Geolocation unavailable"));
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? null }),
-        (e) => reject(new Error(e.message || "Location denied")),
-        { enableHighAccuracy: true, timeout: 15000 }
-      );
-    });
+  /**
+   * Clock-in/out GPS. Uses the shared accurate-fix helper (one-shot then a
+   * short best-fix watch window) rather than accepting the FIRST fix, which on
+   * WiFi-only devices is often a 500m-5km triangulation — that was the source
+   * of inaccurate clock-in/out locations while photo stamps (already using this
+   * helper) were correct.
+   */
+  async function getGps(): Promise<{ lat: number; lng: number; accuracy: number | null }> {
+    const fix = await getAccuratePosition();
+    return { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy };
   }
 
-  // Clock-in: capture GPS → gps-checkin, then start the clock.
+  /**
+   * Clock-in: capture GPS → gps-checkin, then start the clock.
+   *
+   * RESUMING is different from arriving. When this cleaner already has recorded
+   * time (they clocked out and came back to finish the form), we only restart
+   * the timer — no geolocation, no gps-checkin. Re-running the arrival capture
+   * used to stamp the cleaner's current position (often home) over the original
+   * arrival coordinates. The server also refuses to overwrite an existing
+   * check-in, so this is belt-and-braces.
+   */
   async function clockIn() {
+    const isResume = ownStarted || hasCheckin;
+
     // Client-side gate: block until the pre-start confirmations are ticked. The
     // server enforces this too — this just gives a clear message before the POST.
     if (startGateBlocks && !startGateSatisfied) {
@@ -583,25 +738,26 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     }
     setBusy("clockin");
     try {
-      let gps: { lat: number; lng: number; accuracy: number | null } | null = null;
-      try {
-        gps = await getGps();
-        await post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
-          lat: gps.lat,
-          lng: gps.lng,
-          accuracy: gps.accuracy,
-          confirmed: true,
-        });
-      } catch (geoErr: any) {
-        // GPS optional but recorded when available; surface a soft note.
-        flash("info", `Starting without GPS (${geoErr.message}).`);
+      if (!isResume) {
+        try {
+          const gps = await getGps();
+          await post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
+            lat: gps.lat,
+            lng: gps.lng,
+            accuracy: gps.accuracy,
+            confirmed: true,
+          });
+        } catch (geoErr: any) {
+          // GPS optional but recorded when available; surface a soft note.
+          flash("info", `Starting without GPS (${geoErr.message}).`);
+        }
       }
       await post(`/api/cleaner/jobs/${jobId}/start`, {
         allowFutureStart: true,
         propertyCodeConfirmed,
         laundryBagConfirmed,
       });
-      flash("success", "Clocked in — job started.");
+      flash("success", isResume ? "Timer resumed." : "Clocked in — job started.");
       await load();
     } catch (e: any) {
       flash("danger", e.message);
@@ -746,9 +902,14 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         data: { ...answers, uploads: uploadKeys, carryForward: carryForwardPayload },
         jobTasks: jobTasksPayload,
       };
-      if (laundryEnabled && laundryOutcome) {
+      // Only send the laundry block when it hasn't already been transmitted
+      // unchanged. Previously submit re-sent it unconditionally, so an early
+      // "send to laundry team now" produced a SECOND identical update at submit.
+      if (laundryEnabled && laundryOutcome && (!laundryEarlySentAt || laundryAmendedSinceSend)) {
         body.laundryOutcome = laundryOutcome;
         body.laundryReady = laundryOutcome === "READY_FOR_PICKUP";
+        // Tells the server this replaces the earlier update rather than adding one.
+        if (laundryEarlySentAt) body.supersedesEarlyLaundryUpdate = true;
         if (laundryOutcome === "READY_FOR_PICKUP") {
           body.bagLocation = laundryBagLocation.trim();
         } else {
@@ -880,6 +1041,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     restockNeeds,
     recurringIssues,
     setupGuideEntries,
+    teamStarted,
+    ownStarted,
     laundryEnabled,
     bagLabel,
     bagColor,
@@ -915,6 +1078,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setLaundrySkipCode,
     laundrySkipNote,
     setLaundrySkipNote,
+    laundryLocked,
+    laundryAmendedSinceSend,
+    beginLaundryEdit: () => setLaundryEditingAfterSend(true),
     laundryEarlySending,
     laundryEarlySentAt,
     laundryEarlyNotice,
