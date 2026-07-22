@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
 import { z } from "zod";
 import { Prisma, Role, JobType, FormKind } from "@prisma/client";
 
@@ -46,7 +47,21 @@ export async function GET(req: NextRequest) {
       where: includeArchived ? undefined : { isActive: true },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json(templates);
+
+    // Annotate each row with `propertyScoped` — true when the template is
+    // registered as some property's per-job-type override (minted by
+    // generatePropertyTemplates). Those must never be presented as the global
+    // default; the runtime fallback explicitly excludes them.
+    const settings = await getAppSettings();
+    const scoped = new Set<string>();
+    for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
+      for (const templateId of Object.values(perProperty ?? {})) {
+        if (typeof templateId === "string" && templateId) scoped.add(templateId);
+      }
+    }
+    return NextResponse.json(
+      templates.map((t) => ({ ...t, propertyScoped: scoped.has(t.id) }))
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

@@ -78,6 +78,15 @@ export interface QaReworkProposal {
   allocatedHours: number | null;
   /** Present the cleaner's fix checklist grouped by area (true) or flat (false). */
   categorized: boolean;
+  /**
+   * The explicit end-of-inspection rework decision (Phase 4 Stage 1):
+   *   OFFER_ORIGINAL — offer the fix back to the original cleaner ($0, no
+   *                    deduction) with a TTL; they accept or it returns to QA.
+   *   OTHER          — reassign to a different cleaner (paid + equal deduction).
+   *   QA_SELF        — the inspector fixes it and claims time/pay (PENDING).
+   * `assignee` remains the legacy pay-path field; `decision` selects the flow.
+   */
+  decision: "OFFER_ORIGINAL" | "OTHER" | "QA_SELF";
   /** Who redoes it: the SAME cleaner (no pay) or a DIFFERENT cleaner (paid). */
   assignee: "SAME" | "OTHER";
   /** When assignee = OTHER: the cleaner who will be paid for the rework. */
@@ -143,6 +152,7 @@ export function emptyReworkProposal(): QaReworkProposal {
     flaggedAreas: [],
     allocatedHours: null,
     categorized: true,
+    decision: "OFFER_ORIGINAL",
     assignee: "SAME",
     payeeCleanerId: null,
     payAmount: 0,

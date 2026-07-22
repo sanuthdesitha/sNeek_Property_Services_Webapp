@@ -667,6 +667,7 @@ model User {
   timeLogs                     TimeLog[]
   formSubmissions              FormSubmission[]
   qaAssignmentsAssigned        QaAssignment[]              @relation("QaAssignmentAssignedTo")
+  cleanerPropertyStats         CleanerPropertyStat[]       @relation("CleanerPropertyStatCleaner")
   qaAssignmentsCreated         QaAssignment[]              @relation("QaAssignmentCreatedBy")
   qaAssignmentsPickedUp        QaAssignment[]              @relation("QaAssignmentPickedUpBy")
   qaFormSubmissions            QaFormSubmission[]          @relation("QaFormSubmissionSubmittedBy")
@@ -943,6 +944,7 @@ model Property {
   checklistProfile    PropertyChecklistProfile?
   rotationStates      PropertyRotationState[]
   qaIssues            QaIssue[]
+  cleanerStats        CleanerPropertyStat[]
 
   @@index([placeId])
   @@index([suburb])
@@ -1088,6 +1090,9 @@ model PropertyChecklistProfile {
   /// CATALOG_VERSION the profile shows a "standard updated" badge. Null = never
   /// synced from standard (legacy / pre-redesign profiles).
   syncedLibraryVersion String?
+  /// Set when this property's checklist was (re)generated from the STANDARD
+  /// Airbnb photo-proof library so the fleet rollout is auditable/resumable.
+  standardAppliedAt    DateTime?
 
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   approvedBy User?    @relation("ChecklistProfileApprovedBy", fields: [approvedById], references: [id])
@@ -1687,6 +1692,24 @@ model QaAssignment {
   onSiteEndedAt   DateTime?
   onSiteMinutes   Int?
   notes           String?            @db.Text
+  /// Inspector's visit order for the day (1-based). Admin sets it when assigning;
+  /// the QA "Today" list and route tab order by it. Null = unordered/backlog.
+  sequence        Int?
+  /// Planned inspection slot (distinct from dueAt, which is a deadline).
+  scheduledFor    DateTime?
+  /// QA arrival check-in at the property — mirrors the cleaner GPS check-in and
+  /// is immutable once set (later fixes live in CleanerLocationPing).
+  checkInAt       DateTime?
+  checkInLat      Float?
+  checkInLng      Float?
+  checkInAccuracyM Float?
+  /// Remote review (inspector explicitly skipped on-site check-in) + why.
+  checkInSkippedReason String?       @db.Text
+  /// Original-cleaner rework offer lifecycle:
+  /// NONE | OFFERED | ACCEPTED | DECLINED | EXPIRED.
+  reworkOfferStatus    String?
+  reworkOfferedAt      DateTime?
+  reworkOfferExpiresAt DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -1700,6 +1723,30 @@ model QaAssignment {
   @@index([status, dueAt])
   @@index([assignedToId, status])
   @@index([jobId, status])
+  @@index([assignedToId, scheduledFor, sequence])
+}
+
+/// Per-cleaner-per-property clean-duration statistics, rebuilt nightly from
+/// completed (non-rework) jobs. Powers the QA portal's live "EST finish" and
+/// the suggested visit order: how long does THIS cleaner actually take at THIS
+/// property, rather than a global average.
+model CleanerPropertyStat {
+  id             String   @id @default(cuid())
+  cleanerId      String
+  propertyId     String
+  /// Mean actual hours across the sample (outliers >3σ excluded).
+  avgActualHours Float
+  /// 90th percentile — used for the conservative arrival estimate.
+  p90ActualHours Float?
+  sampleCount    Int      @default(0)
+  lastJobAt      DateTime?
+  updatedAt      DateTime @updatedAt
+
+  cleaner  User     @relation("CleanerPropertyStatCleaner", fields: [cleanerId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([cleanerId, propertyId])
+  @@index([propertyId])
 }
 
 /// A QA-initiated correction record: the inspector flags work the cleaner

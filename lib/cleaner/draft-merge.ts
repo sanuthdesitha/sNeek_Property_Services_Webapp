@@ -85,6 +85,16 @@ export function mergeDraftStates(a: AnyRec | null | undefined, b: AnyRec | null 
     answers: { ...(older.answers ?? {}), ...(newer.answers ?? {}) },
     uploads: mergeUploadMaps(older.uploads ?? {}, newer.uploads ?? {}),
     taskDrafts: mergeTaskDrafts(older.taskDrafts ?? {}, newer.taskDrafts ?? {}),
+    // Bulk pool = uploaded-but-unfiled media. Union like every other media
+    // array, then drop anything the merged uploads map already claims (filed on
+    // the other device) so a photo is never offered twice.
+    bulkPool: (() => {
+      const filed = new Set<string>();
+      for (const list of Object.values(mergeUploadMaps(older.uploads ?? {}, newer.uploads ?? {}))) {
+        for (const m of list as any[]) if (m?.key) filed.add(m.key);
+      }
+      return unionMedia(older.bulkPool, newer.bulkPool).filter((m) => !filed.has(m.key));
+    })(),
     laundry: {
       ...(older.laundry ?? {}),
       ...(newer.laundry ?? {}),

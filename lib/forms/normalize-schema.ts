@@ -16,6 +16,7 @@
 // sign-off) IDEMPOTENTLY so double application can never duplicate them.
 
 import { withStandardSections } from "@/lib/checklists/compose";
+import { schemaOptsOutOfStandardSections } from "@/lib/forms/standard-sections";
 
 type AnyRec = Record<string, any>;
 
@@ -77,12 +78,23 @@ function normalizeSection(section: unknown, index: number): AnyRec | null {
  * Canonicalise a schema and guarantee the standard sections. Idempotent:
  * `normalizeFormSchema(normalizeFormSchema(x))` equals `normalizeFormSchema(x)`.
  */
-export function normalizeFormSchema(schema: unknown): { sections: any[]; theme?: any } {
+export function normalizeFormSchema(
+  schema: unknown
+): { sections: any[]; theme?: any; standardSections?: boolean } {
   const raw = (schema && typeof schema === "object" ? schema : {}) as AnyRec;
   const rawSections = Array.isArray(raw.sections) ? raw.sections : [];
   const canonical = rawSections.map((s: unknown, i: number) => normalizeSection(s, i)).filter(Boolean) as AnyRec[];
-  const withStandard = withStandardSections(canonical) as any[];
-  const out: { sections: any[]; theme?: any } = { sections: withStandard };
+  // Template-owned standard sections: `standardSections: false` means the stored
+  // schema already carries them (baked), so injection is skipped and admin edits
+  // to their content survive. Anything else keeps the historical injection.
+  const optedOut = schemaOptsOutOfStandardSections(raw);
+  const withStandard = withStandardSections(canonical, {
+    standardSections: optedOut ? false : undefined,
+  }) as any[];
+  const out: { sections: any[]; theme?: any; standardSections?: boolean } = { sections: withStandard };
   if (raw.theme && typeof raw.theme === "object") out.theme = raw.theme;
+  // Carry the flag through so a read → save round-trip doesn't silently
+  // re-enable injection on a baked template.
+  if (optedOut) out.standardSections = false;
   return out;
 }

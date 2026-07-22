@@ -42,6 +42,8 @@ interface TemplateRow {
   isActive: boolean;
   publishedAt: string | null;
   archivedAt: string | null;
+  /** Registered as some property's per-job-type form override (see API). */
+  propertyScoped?: boolean;
 }
 
 interface SubmissionRow {
@@ -106,6 +108,38 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
         prettyType(t.serviceType).toLowerCase().includes(query)
     );
   }, [templates, search]);
+
+  /**
+   * The template the RUNTIME would pick for a job with no property override:
+   * highest-version active GLOBAL template of that service type (property-scoped
+   * templates are excluded — see app/api/jobs/[id]/form/route.ts). Computed from
+   * the full list, not the filtered one, so searching can't move the marker.
+   */
+  const activeDefaultByService = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of templates) {
+      if (!t.isActive || t.archivedAt || t.propertyScoped) continue;
+      const current = templates.find((x) => x.id === map[t.serviceType]);
+      if (!current || t.version > current.version) map[t.serviceType] = t.id;
+    }
+    return map;
+  }, [templates]);
+
+  /** Filtered rows grouped by service type, service names A→Z. */
+  const grouped = useMemo(() => {
+    const map = new Map<string, TemplateRow[]>();
+    for (const t of filtered) {
+      const list = map.get(t.serviceType) ?? [];
+      list.push(t);
+      map.set(t.serviceType, list);
+    }
+    return Array.from(map.entries())
+      .map(([serviceType, rows]) => ({
+        serviceType,
+        rows: [...rows].sort((a, b) => b.version - a.version || a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => prettyType(a.serviceType).localeCompare(prettyType(b.serviceType)));
+  }, [filtered]);
 
   const duplicate = async (id: string) => {
     setBusyId(id);
@@ -272,13 +306,35 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                   { label: "", align: "right" },
                 ]}
               >
-                {filtered.map((t) => {
+                {grouped.flatMap((group) => [
+                  <tr key={`group-${group.serviceType}`} className="bg-[hsl(var(--e-surface-sunken))]">
+                    <td
+                      colSpan={6}
+                      className="px-4 py-1.5 text-[0.6875rem] font-[600] uppercase tracking-[0.1em] text-[hsl(var(--e-text-secondary))]"
+                    >
+                      {prettyType(group.serviceType)} · {group.rows.length}
+                    </td>
+                  </tr>,
+                  ...group.rows.map((t) => {
                   const busy = busyId === t.id;
                   const published = t.isActive && !t.archivedAt;
+                  const isActiveDefault = activeDefaultByService[t.serviceType] === t.id;
                   return (
                     <tr key={t.id} className="hover:bg-[hsl(var(--e-muted))]">
                       <td className="px-4 py-2.5">
                         <p className="font-medium text-[hsl(var(--e-foreground))]">{t.name}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {isActiveDefault ? (
+                            <EBadge tone="gold" soft>
+                              Active default
+                            </EBadge>
+                          ) : null}
+                          {t.propertyScoped ? (
+                            <EBadge tone="info" soft>
+                              Property-scoped
+                            </EBadge>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
                         {prettyType(t.serviceType)}
@@ -349,7 +405,8 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                       </td>
                     </tr>
                   );
-                })}
+                  }),
+                ])}
               </ETableShell>
             )}
           </ECard>

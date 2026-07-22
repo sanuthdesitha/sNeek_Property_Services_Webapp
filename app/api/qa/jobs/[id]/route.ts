@@ -24,8 +24,16 @@ import {
   notifyQaResultToCleaner,
   notifyManagementReviewFlagged,
   notifyFalseConfirmationSuspected,
+  notifyReworkOfferToCleaner,
 } from "@/lib/notifications/accountability";
 import { QaIssueSeverity, FalseConfirmationStatus } from "@prisma/client";
+import { buildQaBrief, type BriefItem, type QaBriefContext } from "@/lib/qa/brief-rules";
+import { buildOfferWindow, effectiveOfferStatus } from "@/lib/qa/rework-offers";
+import {
+  assertReworkInvoiceablePayee,
+  assertSelfReworkMinutes,
+  guardInvariant,
+} from "@/lib/qa/rework-invariants";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -84,6 +92,13 @@ const reworkSchema = z.object({
   // Group the cleaner's fix checklist into one section per flagged area (true) or
   // present a single flat list of items (false).
   categorized: z.boolean().default(true),
+  // The explicit end-of-inspection rework decision (Phase 4 Stage 1):
+  //   OFFER_ORIGINAL → offer the fix back to the original cleaner ($0, TTL)
+  //   OTHER          → reassign to a different cleaner (paid + equal deduction)
+  //   QA_SELF        → the inspector fixes it (QaReworkTransfer, time/pay claim)
+  // `assignee` is kept as the legacy wire field and stays authoritative for the
+  // pay path; `decision` selects the flow around it.
+  decision: z.enum(["OFFER_ORIGINAL", "OTHER", "QA_SELF"]).nullable().optional(),
   // Who redoes it + the pay decision.
   assignee: z.enum(["SAME", "OTHER"]).default("SAME"),
   payeeCleanerId: z.string().min(1).nullable().optional(),
@@ -189,7 +204,24 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       db.job.findUnique({
         where: { id: params.id },
         include: {
-          property: { select: { id: true, name: true, address: true, suburb: true, state: true, postcode: true, accessInfo: true } },
+          property: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              suburb: true,
+              state: true,
+              postcode: true,
+              accessInfo: true,
+              // Pre-inspection brief inputs (sofa bed / balcony rules, expected
+              // hours baseline) + the check-in distance calculation.
+              sofaBedCount: true,
+              hasBalcony: true,
+              assignedCleaningHours: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
           assignments: {
             where: { removedAt: null },
             select: { user: { select: { id: true, name: true, email: true } } },
@@ -318,15 +350,151 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       watchOuts = { cleaner: [], property: [] };
     }
 
+    // ── PRE-INSPECTION BRIEF (Phase 4 Stage 1). Everything the inspector should
+    //    know before walking in, compiled by the ordered rule set in
+    //    lib/qa/brief-rules.ts. Read-time and fully degradable: any failure here
+    //    yields an empty brief rather than blocking the inspection load.
+    let brief: BriefItem[] = [];
+    let briefContext: QaBriefContext | null = null;
+    try {
+      const primaryCleanerId = cleanerCandidates[0]?.id ?? null;
+      const windowDays = 30;
+      const since = new Date(Date.now() - windowDays * 86_400_000);
+      const [timeLogs, severeIssues, priorJobsAtProperty, propertyReworkCount] = await Promise.all([
+        db.timeLog.findMany({ where: { jobId: job.id }, select: { durationM: true } }).catch(() => []),
+        primaryCleanerId
+          ? db.qaIssue
+              .groupBy({
+                by: ["severity"],
+                where: {
+                  cleanerId: primaryCleanerId,
+                  severity: { in: [QaIssueSeverity.MAJOR, QaIssueSeverity.CRITICAL] },
+                  createdAt: { gte: since },
+                },
+                _count: { _all: true },
+              })
+              .catch(() => [] as Array<{ severity: QaIssueSeverity; _count: { _all: number } }>)
+          : Promise.resolve([] as Array<{ severity: QaIssueSeverity; _count: { _all: number } }>),
+        primaryCleanerId
+          ? db.job
+              .count({
+                where: {
+                  propertyId: job.propertyId,
+                  id: { not: job.id },
+                  assignments: { some: { userId: primaryCleanerId, removedAt: null } },
+                },
+              })
+              .catch(() => 0)
+          : Promise.resolve(0),
+        db.job
+          .count({
+            where: { propertyId: job.propertyId, isRework: true, createdAt: { gte: since } },
+          })
+          .catch(() => 0),
+      ]);
+
+      const actualMinutes = (timeLogs as Array<{ durationM: number | null }>).reduce(
+        (sum, log) => sum + Math.max(0, Number(log.durationM ?? 0)),
+        0
+      );
+      const severeCounts = (severeIssues as Array<{ severity: QaIssueSeverity; _count: { _all: number } }>).reduce(
+        (acc, row) => {
+          if (row.severity === QaIssueSeverity.CRITICAL) acc.critical += row._count._all;
+          if (row.severity === QaIssueSeverity.MAJOR) acc.major += row._count._all;
+          return acc;
+        },
+        { major: 0, critical: 0 }
+      );
+      const jobMeta = parseJobInternalNotes(job.internalNotes);
+      const reservation = jobMeta.reservationContext ?? null;
+      const guestCheckInAt =
+        (reservation as any)?.checkInAt ??
+        (reservation as any)?.guestCheckInAt ??
+        (reservation as any)?.checkIn ??
+        null;
+
+      briefContext = {
+        now: new Date(),
+        job: {
+          id: job.id,
+          jobType: String(job.jobType),
+          status: String(job.status),
+          formPendingAfterClockOut: Boolean((job as any).formPendingAfterClockOut),
+          expectedHours:
+            Number(job.estimatedHours ?? 0) > 0
+              ? Number(job.estimatedHours)
+              : Number(job.property?.assignedCleaningHours ?? 0) > 0
+                ? Number(job.property?.assignedCleaningHours)
+                : null,
+          actualHours: actualMinutes > 0 ? Math.round((actualMinutes / 60) * 100) / 100 : null,
+          isRework: Boolean((job as any).isRework),
+        },
+        property: {
+          id: job.property?.id ?? job.propertyId,
+          name: job.property?.name ?? "Property",
+          sofaBedCount: Number(job.property?.sofaBedCount ?? 0),
+          hasBalcony: Boolean(job.property?.hasBalcony),
+        },
+        cleaners: cleanerCandidates.map((c) => ({ id: c.id, name: c.name || c.email })),
+        submission: latestSubmission
+          ? {
+              submittedAt: latestSubmission.createdAt?.toISOString?.() ?? null,
+              photoCount: latestSubmission.media?.length ?? 0,
+            }
+          : null,
+        lowStock: propertyStock
+          .filter((s) => Number(s.onHand) <= Number(s.reorderThreshold))
+          .map((s) => ({
+            name: s.item?.name ?? "Item",
+            onHand: Number(s.onHand),
+            threshold: Number(s.reorderThreshold),
+          })),
+        laundry: job.laundryTask
+          ? {
+              required: true,
+              confirmed: (job.laundryTask.confirmations?.length ?? 0) > 0,
+            }
+          : null,
+        reservation: guestCheckInAt
+          ? {
+              guestCheckInAt: typeof guestCheckInAt === "string" ? guestCheckInAt : null,
+              guestName: (reservation as any)?.guestName ?? null,
+            }
+          : null,
+        propertyWatchOuts: watchOuts.property.map((w: any) => ({
+          label: String(w.label ?? ""),
+          count: Number(w.count ?? 0),
+          category: String(w.category ?? ""),
+        })),
+        cleanerWatchOuts: watchOuts.cleaner.map((w: any) => ({
+          label: String(w.label ?? ""),
+          count: Number(w.count ?? 0),
+          category: String(w.category ?? ""),
+        })),
+        cleanerRecentSevereIssues: { ...severeCounts, windowDays },
+        cleanerPriorJobsAtProperty: Number(priorJobsAtProperty ?? 0),
+        propertyReworkCount: Number(propertyReworkCount ?? 0),
+      };
+      brief = buildQaBrief(briefContext);
+    } catch (err) {
+      console.error("[qa-get] brief build failed", err);
+      brief = [];
+      briefContext = null;
+    }
+
     return NextResponse.json({
       job,
       template,
-      assignment,
+      assignment: assignment
+        ? { ...assignment, reworkOfferStatus: effectiveOfferStatus(assignment as any) }
+        : assignment,
       mediaOverrides,
       propertyStock,
       cleanerCandidates,
       sectionPhotos,
       watchOuts,
+      brief,
+      briefContext,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
@@ -777,6 +945,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // recorded when the inspector explicitly moved minutes/$ to themselves.
     let reworkTransferId: string | null = null;
     let reworkJobId: string | null = null;
+    let reworkOffer: { assignmentId: string; status: string; expiresAt: string } | null = null;
     const rk = tools?.rework;
     // Honour the inspector's explicit rework toggle regardless of the numeric
     // pass/fail — if they enabled rework and flagged areas, they are requesting a
@@ -798,6 +967,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               note: undefined,
               photoKeys: [] as string[],
             }));
+      // INVARIANT 1 — invoiceable ⇔ payee ≠ original cleaner. Checked before any
+      // rework job/pay row is written (violations are audited + fatal).
+      const originalPrimary = await db.jobAssignment
+        .findFirst({
+          where: { jobId: params.id, removedAt: null },
+          orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
+          select: { userId: true },
+        })
+        .catch(() => null);
+      await guardInvariant(
+        () =>
+          assertReworkInvoiceablePayee({
+            originalCleanerId: originalPrimary?.userId ?? null,
+            payeeCleanerId: rk.assignee === "OTHER" ? rk.payeeCleanerId ?? null : originalPrimary?.userId ?? null,
+            payAmount: rk.assignee === "OTHER" ? Number(rk.payAmount ?? 0) : 0,
+          }),
+        { actorUserId: session.user.id, jobId: params.id, entity: "Job", entityId: params.id }
+      );
+
       if (flagged.length > 0) {
         try {
           reworkJobId = await createReworkJobFromFailure({
@@ -816,8 +1004,52 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
       }
 
-      // Legacy: the inspector redid the work themselves and moved minutes/$.
+      // (a) OFFER THE ORIGINAL CLEANER — the rework job exists (same cleaner, $0)
+      //     but is held as an OFFER with a TTL. The cleaner accepts (it becomes
+      //     theirs) or declines (it returns to the QA decision).
+      if (rk.decision === "OFFER_ORIGINAL" && reworkJobId && body.assignmentId) {
+        try {
+          const offerWindow = buildOfferWindow(
+            new Date(),
+            settings.accountability.rectification.reworkOfferTtlMinutes
+          );
+          await db.qaAssignment.updateMany({
+            where: { id: body.assignmentId, jobId: params.id },
+            data: offerWindow,
+          });
+          reworkOffer = {
+            assignmentId: body.assignmentId,
+            status: offerWindow.reworkOfferStatus,
+            expiresAt: offerWindow.reworkOfferExpiresAt.toISOString(),
+          };
+          const offerCleanerId = originalPrimary?.userId ?? null;
+          if (offerCleanerId) {
+            void notifyReworkOfferToCleaner({
+              jobId: reworkJobId,
+              cleanerId: offerCleanerId,
+              assignmentId: body.assignmentId,
+              propertyName: job.property?.name ?? null,
+              reason: rk.reason || "QA flagged rework.",
+              expiresAt: offerWindow.reworkOfferExpiresAt,
+            }).catch(console.error);
+          }
+        } catch (err) {
+          console.error("[qa-submit] rework offer create failed", err);
+        }
+      }
+
+      // (c) QA SELF-REWORK / legacy: the inspector redid the work themselves and
+      //     moved minutes/$ from the cleaner. INVARIANT 6 bounds the claim by the
+      //     measured on-site window.
       if (rk.cleanerUserId && (rk.minutesFromCleaner > 0 || rk.amountFromCleaner > 0)) {
+        await guardInvariant(
+          () =>
+            assertSelfReworkMinutes({
+              minutes: Number(rk.minutesFromCleaner ?? 0),
+              onSiteMinutes,
+            }),
+          { actorUserId: session.user.id, jobId: params.id, entity: "QaReworkTransfer", entityId: params.id }
+        );
         try {
           const transfer = await createQaReworkTransfer({
             jobId: params.id,
@@ -897,6 +1129,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       countRunId,
       reworkTransferId,
       reworkJobId,
+      reworkOffer,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

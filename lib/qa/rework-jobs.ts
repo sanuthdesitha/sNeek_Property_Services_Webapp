@@ -29,6 +29,13 @@ import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { roundCents } from "@/lib/finance/job-money";
 import { getAppSettings } from "@/lib/settings";
 import { buildReworkDeductionSourceKey } from "@/lib/accountability/rectification";
+import {
+  assertAdjustmentProvenance,
+  assertPendingNotInPayroll,
+  assertReassignedReworkMoney,
+  assertReworkInvoiceablePayee,
+  guardInvariant,
+} from "@/lib/qa/rework-invariants";
 import { s3 } from "@/lib/s3";
 
 /** Cleaner "after" photo upload fields are keyed `rework_area_<areaId>`. */
@@ -324,6 +331,18 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
       ? roundCents(Math.max(0, Number(input.payAmount)))
       : 0;
 
+  // INVARIANT 1 — invoiceable ⇔ payee ≠ original cleaner (see rework-invariants).
+  await guardInvariant(
+    () =>
+      assertReworkInvoiceablePayee({
+        originalCleanerId,
+        payeeCleanerId: isDifferentCleaner ? assignCleanerId : originalCleanerId,
+        payAmount,
+        deductFromCleanerId: isDifferentCleaner ? originalCleanerId : null,
+      }),
+    { actorUserId: input.qaUserId, jobId: input.originalJobId, entity: "Job", entityId: input.originalJobId }
+  );
+
   // Custom payout: same cleaner → 0 (no pay). Different cleaner → the agreed amount.
   const cleanerPayouts: Record<string, number> = {};
   if (assignCleanerId) cleanerPayouts[assignCleanerId] = payAmount;
@@ -449,6 +468,7 @@ export async function applyReworkDeduction(params: {
       id: true,
       reworkOfJobId: true,
       reworkPayAmount: true,
+      reworkPayeeCleanerId: true,
       reworkDeductFromCleanerId: true,
       reworkDeductionApplied: true,
       propertyId: true,
@@ -477,6 +497,37 @@ export async function applyReworkDeduction(params: {
     select: { id: true },
   });
   if (existingDeduction) return;
+
+  // ── INVARIANTS (lib/qa/rework-invariants.ts) — asserted immediately before the
+  //    money is written. The early returns above keep this idempotent, so at this
+  //    point the deduction has provably never been applied.
+  const adjustmentShape = {
+    source: "REWORK_DEDUCTION",
+    sourceKey,
+    status: requireApproval ? "PENDING" : "APPROVED",
+    approvedAmount: requireApproval ? null : -amount,
+    includedInPayrollRunId: null,
+  };
+  await guardInvariant(
+    () =>
+      assertReassignedReworkMoney({
+        originalCleanerId: rework.reworkDeductFromCleanerId,
+        payeeCleanerId: rework.reworkPayeeCleanerId ?? null,
+        payAmount: amount,
+        deductFromCleanerId: rework.reworkDeductFromCleanerId,
+        deductionAmount: -amount,
+        alreadyApplied: false,
+        existingDeductionCount: 0,
+        adjustment: adjustmentShape,
+        reworkJobId: rework.id,
+      }),
+    {
+      actorUserId: params.reviewerUserId,
+      jobId: rework.reworkOfJobId,
+      entity: "Job",
+      entityId: rework.id,
+    }
+  );
 
   await db.$transaction(async (tx) => {
     await tx.cleanerPayAdjustment.create({
@@ -553,6 +604,20 @@ export async function setReworkPayDecision(params: {
   const isDifferent = Boolean(originalCleanerId && params.payeeCleanerId !== originalCleanerId);
   const amount = isDifferent ? roundCents(Math.max(0, Number(params.amount) || 0)) : 0;
 
+  // INVARIANT 1 — a re-decision must keep "invoiceable ⇔ different cleaner".
+  // (Re-deciding onto the ORIGINAL cleaner forces the amount to 0 above, so this
+  // only ever fires on a same-cleaner decision that still carries money.)
+  await guardInvariant(
+    () =>
+      assertReworkInvoiceablePayee({
+        originalCleanerId,
+        payeeCleanerId: params.payeeCleanerId,
+        payAmount: amount,
+        deductFromCleanerId: isDifferent ? originalCleanerId : null,
+      }),
+    { actorUserId: params.reviewerUserId, jobId: rework.reworkOfJobId, entity: "Job", entityId: rework.id }
+  );
+
   const meta = parseJobInternalNotes(rework.internalNotes);
   const cleanerPayouts = { ...meta.cleanerPayouts };
   // The previous payee (if any) loses their custom payout; the new payee gets it.
@@ -604,8 +669,31 @@ export async function setReworkPayDecision(params: {
     // the amount over-deducted and raising it left money unrecovered).
     const delta = roundCents(previousDeduction - newDeduction); // added to the original cleaner
     if (delta !== 0) {
+      // INVARIANTS 4 + 5 — the correcting row carries provenance and (being
+      // APPROVED by an admin decision) is legitimately payroll-visible.
+      const correction = {
+        source: "REWORK_DEDUCTION",
+        sourceKey: `${buildReworkDeductionSourceKey(rework.reworkOfJobId)}:correction:${Date.now()}`,
+        status: "APPROVED",
+        approvedAmount: delta,
+        includedInPayrollRunId: null,
+      };
+      await guardInvariant(
+        () => {
+          assertAdjustmentProvenance(correction);
+          assertPendingNotInPayroll(correction);
+        },
+        {
+          actorUserId: params.reviewerUserId,
+          jobId: rework.reworkOfJobId,
+          entity: "CleanerPayAdjustment",
+          entityId: rework.id,
+        }
+      );
       await db.cleanerPayAdjustment.create({
         data: {
+          source: correction.source,
+          sourceKey: correction.sourceKey,
           jobId: rework.reworkOfJobId,
           propertyId: rework.propertyId,
           cleanerId: previousDeductCleanerId,

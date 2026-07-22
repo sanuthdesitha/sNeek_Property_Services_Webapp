@@ -6,6 +6,8 @@ import {
   ROTATIONAL_EVIDENCE_ITEMS,
   MANDATORY_EVIDENCE_ITEMS,
   EXCEPTION_MODULE,
+  STANDARD_MODULES,
+  STANDARD_AIRBNB_ITEMS,
   SELF_INSPECTION_MODULE,
   SELF_INSPECTION_REMOVED_ITEM_KEYS,
   MODULE_EVIDENCE_CATEGORY,
@@ -22,9 +24,12 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * conditional evidence items, evidenceCategory backfill; v4 = final
  * self-inspection module — 14 required checkboxes composing last; v5 = prior
  * marker; v6 = granular mandatory every-clean evidence photo set homed on the
- * room / feature modules for the Airbnb turnover guest-ready flow.)
+ * room / feature modules for the Airbnb turnover guest-ready flow; v7 = the
+ * STANDARD Airbnb content — STANDARD_MODULES (wrap-up) + STANDARD_AIRBNB_ITEMS
+ * (kitchen/bathrooms/bedrooms/living/balcony/wrap-up photo proof plus the
+ * conditional mould pair).)
  */
-export const CATALOG_VERSION = "6";
+export const CATALOG_VERSION = "7";
 const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
@@ -436,6 +441,88 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           sortOrder: sortIndex,
           frequency: "EVERY_CLEAN",
           evidenceCategory: item.evidenceCategory ?? null,
+          severity: item.severity,
+        },
+      });
+      itemCount += 1;
+    }
+  }
+
+  // ── STANDARD Airbnb content (catalog v7) ───────────────────────────────────
+  // Modules the standard set needs and the base catalog doesn't define (wrap-up),
+  // then the items themselves. Unlike the mandatory loop above these carry their
+  // own fieldType / required / frequency, so photo proof, a yes/no question and
+  // a CONDITIONAL follow-up can coexist in one module. Homed on an existing
+  // module: if it's missing (custom-only DB) the item is skipped, not orphaned.
+  for (const mod of STANDARD_MODULES) {
+    await db.checklistModule.upsert({
+      where: { key: mod.key },
+      create: {
+        key: mod.key,
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: (mod.appliesWhen ?? null) as any,
+        repeatBy: mod.repeatBy ?? null,
+        sortOrder: mod.sortOrder,
+      },
+      update: {
+        title: mod.title,
+        category: mod.category,
+        appliesWhen: (mod.appliesWhen ?? null) as any,
+        repeatBy: mod.repeatBy ?? null,
+        sortOrder: mod.sortOrder,
+      },
+      select: { id: true },
+    });
+    moduleCount += 1;
+  }
+
+  {
+    const moduleIds = new Map<string, string>();
+    for (const item of STANDARD_AIRBNB_ITEMS) {
+      let moduleId = moduleIds.get(item.moduleKey);
+      if (!moduleId) {
+        const row = await db.checklistModule.findUnique({
+          where: { key: item.moduleKey },
+          select: { id: true },
+        });
+        if (!row) continue;
+        moduleId = row.id;
+        moduleIds.set(item.moduleKey, moduleId);
+      }
+      await db.checklistModuleItem.upsert({
+        where: { moduleId_key: { moduleId, key: item.key } },
+        create: {
+          moduleId,
+          key: item.key,
+          label: item.label,
+          instructions: item.instructions,
+          fieldType: item.fieldType,
+          required: item.required,
+          minPhotos: item.minPhotos ?? null,
+          stampTag: item.stampTag ?? null,
+          jobTypes: item.jobTypes ?? [],
+          appliesWhen: (item.appliesWhen ?? null) as any,
+          sortOrder: item.sortOrder,
+          evidenceCategory: item.evidenceCategory ?? null,
+          frequency: item.frequency ?? "EVERY_CLEAN",
+          conditionKey: item.conditionKey ?? null,
+          severity: item.severity,
+        },
+        // Refresh canonical structure/gating on existing rows; instructions +
+        // media stay create-only so admin edits survive (same rule as above).
+        update: {
+          label: item.label,
+          fieldType: item.fieldType,
+          required: item.required,
+          minPhotos: item.minPhotos ?? null,
+          stampTag: item.stampTag ?? null,
+          jobTypes: item.jobTypes ?? [],
+          appliesWhen: (item.appliesWhen ?? null) as any,
+          sortOrder: item.sortOrder,
+          evidenceCategory: item.evidenceCategory ?? null,
+          frequency: item.frequency ?? "EVERY_CLEAN",
+          conditionKey: item.conditionKey ?? null,
           severity: item.severity,
         },
       });

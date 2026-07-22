@@ -163,6 +163,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [answers, setAnswers] = React.useState<AnswerMap>({});
   const [uploads, setUploads] = React.useState<UploadMap>({});
   const [taskDrafts, setTaskDrafts] = React.useState<Record<string, TaskDraft>>({});
+  // Bulk photo pool — uploaded in one batch, not yet filed into an upload field.
+  // Lives in the draft envelope so leaving the page mid-categorise never loses
+  // shots that are already on S3.
+  const [bulkPool, setBulkPool] = React.useState<CapturedMedia[]>([]);
+  const [bulkAssignOpen, setBulkAssignOpen] = React.useState(false);
 
   // Laundry captured on final submit (laundry-enabled jobs only). Sent alongside
   // the form so the linen pickup is recorded at completion — same fields the
@@ -280,6 +285,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         }
       }
       setUploads(next);
+    }
+    if (Array.isArray(state.bulkPool)) {
+      setBulkPool(
+        state.bulkPool.filter((m: any) => m && typeof m === "object" && typeof m.key === "string") as CapturedMedia[]
+      );
     }
     if (state.taskDrafts && typeof state.taskDrafts === "object") {
       setTaskDrafts((prev) => {
@@ -580,6 +590,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       answers,
       uploads,
       taskDrafts,
+      bulkPool,
       laundry: {
         outcome: laundryOutcome,
         bagLocation: laundryBagLocation,
@@ -597,6 +608,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       answers,
       uploads,
       taskDrafts,
+      bulkPool,
       laundryOutcome,
       laundryBagLocation,
       laundrySkipCode,
@@ -671,6 +683,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     answers,
     uploads,
     taskDrafts,
+    bulkPool,
     laundryOutcome,
     laundryBagLocation,
     laundrySkipCode,
@@ -1068,6 +1081,12 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     taskDrafts,
     setTask,
     allTasksDecided,
+    bulkPool,
+    setBulkPool,
+    setUploads,
+    bulkAssignOpen,
+    openBulkAssign: () => setBulkAssignOpen(true),
+    closeBulkAssign: () => setBulkAssignOpen(false),
     laundryOutcome,
     setLaundryOutcome,
     laundryBagLocation,

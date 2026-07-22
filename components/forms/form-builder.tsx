@@ -44,6 +44,12 @@ export interface FormBuilderProps {
   templateId: string;
   initialName: string;
   initialKind: string;
+  /**
+   * The template's JobType. Sent back on save so a PATCH from v1 can't diverge
+   * from v2 (which always sends serviceType) — omitted only by callers that
+   * predate it, in which case the field is left untouched server-side.
+   */
+  initialServiceType?: string;
   initialVersion: number;
   initialSchema: FormSchema;
   initialIsActive: boolean;
@@ -205,6 +211,7 @@ export function FormBuilder({
   templateId,
   initialName,
   initialKind,
+  initialServiceType,
   initialVersion,
   initialSchema,
   initialIsActive,
@@ -258,7 +265,11 @@ export function FormBuilder({
       const res = await fetch(`/api/admin/form-templates/${templateId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: state.name, schema: state.schema }),
+        body: JSON.stringify({
+          name: state.name,
+          ...(initialServiceType ? { serviceType: initialServiceType } : {}),
+          schema: state.schema,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

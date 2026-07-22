@@ -126,6 +126,16 @@ export interface WorkspaceApi {
   setTask: (id: string, patch: Partial<TaskDraft>) => void;
   allTasksDecided: boolean;
 
+  /* ── Bulk photo pool (upload once, categorise after) ─────────────────── */
+  /** Uploaded-but-unfiled media, persisted in the shared draft envelope. */
+  bulkPool: CapturedMedia[];
+  setBulkPool: (next: CapturedMedia[]) => void;
+  /** Replace the whole upload map (bulk assignment writes many fields at once). */
+  setUploads: (next: UploadMap) => void;
+  bulkAssignOpen: boolean;
+  openBulkAssign: () => void;
+  closeBulkAssign: () => void;
+
   /* ── Laundry outcome (Wrap up) ───────────────────────────────────────── */
   laundryOutcome: LaundryOutcome | "";
   setLaundryOutcome: (v: LaundryOutcome | "") => void;

@@ -169,6 +169,54 @@ export async function notifyFalseConfirmationSuspected(input: {
   }
 }
 
+/**
+ * Rework OFFER to the original cleaner: QA failed their clean and is giving them
+ * the chance to come back and fix it themselves (unpaid, no deduction) before it
+ * is reassigned to someone else at their cost. Time-boxed — see
+ * lib/qa/rework-offers.ts.
+ */
+export async function notifyReworkOfferToCleaner(input: {
+  /** The REWORK job created for the fix. */
+  jobId: string;
+  cleanerId: string;
+  /** QaAssignment carrying the offer (the respond endpoint keys off it). */
+  assignmentId: string;
+  propertyName?: string | null;
+  reason?: string | null;
+  expiresAt: Date;
+}): Promise<void> {
+  try {
+    const cleaner = await getCleanerRecipient(input.cleanerId);
+    if (!cleaner) return;
+    const settings = await getAppSettings();
+    const where = input.propertyName ? ` at ${input.propertyName}` : "";
+    const minutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
+    const subject = `Rework offered${where} — respond within ${minutes} min`;
+    const body = [
+      `QA flagged items on your clean${where}.`,
+      input.reason ? `Reason: ${input.reason}` : null,
+      "You can go back and fix it yourself at no cost to you. If you decline or the offer lapses, it is reassigned to another cleaner and the rework pay is deducted from your job.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const url = resolveAppUrl(`/cleaner/jobs/${input.jobId}`);
+    await deliverNotificationToRecipients({
+      recipients: [cleaner],
+      category: "jobs",
+      jobId: input.jobId,
+      url,
+      web: { subject, body },
+      email: {
+        subject: `${settings.companyName}: ${subject}`,
+        html: emailShell(subject, `<p>${body}</p>`, url, "View rework"),
+      },
+      sms: `${settings.companyName}: ${subject}. Open the app to accept or decline.`,
+    });
+  } catch (err) {
+    logger.error({ err, jobId: input.jobId }, "[accountability] notifyReworkOfferToCleaner failed");
+  }
+}
+
 /** Bonus outcome (approved / rejected) to the cleaner. */
 export async function notifyBonusOutcomeToCleaner(input: {
   cleanerId: string;
