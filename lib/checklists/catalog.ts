@@ -3598,8 +3598,13 @@ export const SELF_INSPECTION_MODULE: {
 //
 // Unlike MANDATORY_EVIDENCE_ITEMS (which the seeder forces to `photo` +
 // required), these entries carry their own field type / required / frequency,
-// so the set can mix photo proof, a yes/no question and a CONDITIONAL follow-up
-// (the mould pair) in one module.
+// so the set can mix EVERY_CLEAN photo proof with a CONDITIONAL follow-up (the
+// mould treatment, revealed by the `mold` reported-exception) in one module.
+//
+// This list is deliberately the COMPLEMENT of MANDATORY_EVIDENCE_ITEMS: anything
+// already captured by an `ev.*` item lives there and must NOT be repeated here,
+// or a cleaner would shoot two photos of the same thing at every property.
+// See tests/lib/catalog-standard-airbnb.test.ts for the enforced forbidden pairs.
 //
 // Sort band 300-399: after the room checkbox tasks (10-x), before the granular
 // mandatory evidence (500+) and the rotational deep-detail items (700+).
@@ -3659,36 +3664,6 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
   // ── Kitchen ───────────────────────────────────────────────────────────────
   {
     moduleKey: "kitchen",
-    key: "kitchen.overall",
-    label: "Kitchen overall",
-    instructions:
-      "Take one wide shot of the finished kitchen showing benches clear, sink empty and everything reset to the reference standard.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "KITCHEN",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 300,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.under-sink-restock",
-    label: "Under-sink restock proof",
-    instructions:
-      "Photograph the under-sink cupboard showing the full restock: scrubbing pad, dishwashing liquid, dishwasher capsules, 2x microfibre cloths, spray bottle, and a spare paper-towel roll.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "KITCHEN",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 302,
-  },
-  {
-    moduleKey: "kitchen",
     key: "kitchen.microwave-in-out",
     label: "Microwave — inside and outside",
     instructions:
@@ -3700,7 +3675,7 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     severity: "medium",
     evidenceCategory: "KITCHEN",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 304,
+    sortOrder: 300,
   },
   {
     moduleKey: "kitchen",
@@ -3714,86 +3689,14 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     stampTag: "after",
     severity: "medium",
     evidenceCategory: "KITCHEN",
-    appliesWhen: { feature: "oven" },
+    // Deliberately NOT gated on a `features.oven` flag: virtually every Airbnb
+    // kitchen has an oven, and the feature flags are largely unset in the data,
+    // so gating would silently hide this item everywhere. Properties without one
+    // untick it in the property's checklist tab. (Genuinely optional appliances
+    // — dishwasher, coffee machine — stay feature-gated so a cleaner is never
+    // blocked by a required photo they physically cannot take.)
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 306,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.fridge-in-out",
-    label: "Fridge — inside and outside",
-    instructions:
-      "Empty the fridge of guest leftovers, wipe the shelves, drawers and door seals, then photograph it open showing clean, empty shelves plus the wiped exterior.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "KITCHEN",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 308,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.dishwasher-in-out",
-    label: "Dishwasher — inside and outside",
-    instructions:
-      "Empty the dishwasher, clear the filter, wipe the seals and front, then photograph it open showing the clean interior and the wiped door.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "KITCHEN",
-    appliesWhen: { feature: "dishwasher" },
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 310,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.inside-cupboards",
-    label: "Inside all cupboards",
-    instructions:
-      "Open every kitchen cupboard, remove crumbs and wipe the shelves, then photograph the cupboards open showing clean interiors with crockery stacked correctly.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "KITCHEN",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 312,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.coffee-machine-emptied",
-    label: "Coffee machine emptied + filter washed",
-    instructions:
-      "Empty the used pods / grounds container and drip tray, wash the filter, wipe the machine body, and photograph it reset and ready for the next guest.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "KITCHEN",
-    appliesWhen: { feature: "coffeeMachine" },
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 314,
-  },
-  {
-    moduleKey: "kitchen",
-    key: "kitchen.kettle-empty",
-    label: "Kettle empty inside",
-    instructions:
-      "Empty the kettle completely, rinse and descale any build-up, and photograph it with the lid open showing it is empty and clean inside.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "KITCHEN",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 316,
+    sortOrder: 302,
   },
   {
     moduleKey: "kitchen",
@@ -3808,7 +3711,7 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     severity: "medium",
     evidenceCategory: "KITCHEN",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 318,
+    sortOrder: 304,
   },
   {
     moduleKey: "kitchen",
@@ -3823,68 +3726,10 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     severity: "medium",
     evidenceCategory: "KITCHEN",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 320,
+    sortOrder: 306,
   },
 
   // ── Bathrooms (module repeats per bathroom) ────────────────────────────────
-  {
-    moduleKey: "bathrooms",
-    key: "bathroom.overall",
-    label: "Bathroom overall",
-    instructions:
-      "Take one wide shot of the finished bathroom showing clear surfaces, folded towels and a fully reset space.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "BATHROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 330,
-  },
-  {
-    moduleKey: "bathrooms",
-    key: "bathroom.shower-walls-scrubbed",
-    label: "Shower walls scrubbed",
-    instructions:
-      "Scrub the shower walls, screen and grout, squeegee the glass, and photograph the shower showing streak-free glass and clean tiles.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "BATHROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 332,
-  },
-  {
-    moduleKey: "bathrooms",
-    key: "bathroom.basin-toilet",
-    label: "Basin and toilet",
-    instructions:
-      "Clean and sanitise the basin, vanity, tapware, toilet bowl, seat, cistern and base, then photograph both showing a polished, spot-free finish.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "BATHROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 334,
-  },
-  {
-    moduleKey: "bathrooms",
-    key: "bathroom.mould-present",
-    label: "Mould present?",
-    instructions:
-      "Check the shower silicone, grout, ceiling and window reveals. Answer yes if you find any mould or mildew — a photo-evidence field will appear.",
-    fieldType: "yesno",
-    required: true,
-    severity: "high",
-    evidenceCategory: "BATHROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 336,
-  },
   {
     moduleKey: "bathrooms",
     key: "bathroom.mould-treatment",
@@ -3900,22 +3745,7 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     frequency: "CONDITIONAL",
     conditionKey: "mold",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 338,
-  },
-  {
-    moduleKey: "bathrooms",
-    key: "bathroom.amenity-refills",
-    label: "Amenity refills",
-    instructions:
-      "Top up or replace body wash, conditioner, shampoo and hand wash, then photograph them lined up on the shelf/vanity at the standard presentation.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "BATHROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 340,
+    sortOrder: 330,
   },
   {
     moduleKey: "bathrooms",
@@ -3930,7 +3760,7 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     severity: "medium",
     evidenceCategory: "BATHROOM",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 342,
+    sortOrder: 332,
   },
   {
     moduleKey: "bathrooms",
@@ -3945,122 +3775,35 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     severity: "medium",
     evidenceCategory: "BATHROOM",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 344,
-  },
-
-  // ── Bedrooms (module repeats per bedroom) ──────────────────────────────────
-  {
-    moduleKey: "bedrooms",
-    key: "bedroom.overall-beds",
-    label: "Beds overall",
-    instructions:
-      "Photograph each made bed from the foot showing fresh linen, hotel-folded corners, styled pillows and a smooth, wrinkle-free finish.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "BEDROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 350,
-  },
-  {
-    moduleKey: "bedrooms",
-    key: "bedroom.under-beds",
-    label: "Under beds",
-    instructions:
-      "Check and vacuum under each bed for guest belongings, rubbish and dust, and photograph the clear floor space underneath.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "BEDROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 352,
-  },
-  {
-    moduleKey: "bedrooms",
-    key: "bedroom.inside-wardrobes",
-    label: "Inside wardrobes",
-    instructions:
-      "Open the wardrobe, remove anything a guest left behind, wipe the shelves and space the hangers evenly, then photograph the interior.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "BEDROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 354,
-  },
-  {
-    moduleKey: "bedrooms",
-    key: "bedroom.bedside-tables",
-    label: "Bedside tables",
-    instructions:
-      "Empty and wipe the bedside tables and drawers, dust the lamps, and photograph them clear and reset.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "medium",
-    evidenceCategory: "BEDROOM",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 356,
+    sortOrder: 334,
   },
 
   // ── Living ────────────────────────────────────────────────────────────────
   {
+    // Carried over from the previous Airbnb form so the rollout doesn't lose it,
+    // re-homed into Living where it belongs (it used to sit loose in a flat
+    // upload list).
     moduleKey: "living",
-    key: "living.overall",
-    label: "Living area overall",
+    key: "living.tv-working",
+    label: "TV working — screen on",
     instructions:
-      "Take one wide shot of the finished living area showing cushions plumped, surfaces clear and everything reset to the reference standard.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "LIVING",
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 360,
-  },
-  {
-    moduleKey: "living",
-    key: "living.sofa-bed-spare-linen",
-    label: "Under-sofa-bed spare linen proof",
-    instructions:
-      "Photograph the spare sofa-bed linen stored in its place: fitted sheet, flat sheet, quilt and 2x pillows, all clean and folded.",
-    fieldType: "photo",
-    required: true,
-    minPhotos: 1,
-    stampTag: "after",
-    severity: "high",
-    evidenceCategory: "LIVING",
-    // Same property-field rule style as ev.living.sofabed-supplies.
-    appliesWhen: { propertyField: "sofaBedCount", operator: "gt", equals: 0 },
-    jobTypes: AIRBNB_ONLY,
-    sortOrder: 362,
-  },
-
-  // ── Balcony (module already gated on hasBalcony; repeated on the item) ─────
-  {
-    moduleKey: "balcony",
-    key: "balcony.overall",
-    label: "Balcony overall",
-    instructions:
-      "Arrange the outdoor sofa set to the standard layout, sweep and vacuum the floor, then photograph the whole balcony showing it guest-ready.",
+      "Switch the TV on and photograph the screen showing a live picture, so the next guest never arrives to a dead set.",
     fieldType: "photo",
     required: true,
     minPhotos: 1,
     stampTag: "after",
     severity: "medium",
-    evidenceCategory: "OUTDOOR",
-    appliesWhen: { propertyField: "hasBalcony", equals: true },
+    evidenceCategory: "LIVING",
     jobTypes: AIRBNB_ONLY,
-    sortOrder: 370,
+    sortOrder: 360,
   },
+
+  // ── Balcony ───────────────────────────────────────────────────────────────
+  // Intentionally EMPTY. The balcony requirement ("furniture set arranged +
+  // floor swept/vacuumed") is already covered once by the existing library pair
+  // ev.balcony.balcony-furniture + ev.balcony.balcony-cleaned. Adding a
+  // "Balcony overall" here would be a third photo of the same balcony — the
+  // duplication this standard set exists to eliminate.
 
   // ── Wrap-up ───────────────────────────────────────────────────────────────
   {
@@ -4107,6 +3850,38 @@ export const STANDARD_AIRBNB_ITEMS: StandardLibraryItem[] = [
     evidenceCategory: "OUTDOOR",
     jobTypes: AIRBNB_ONLY,
     sortOrder: 384,
+  },
+  {
+    // Carried over from the previous Airbnb form, re-homed into Wrap-up so the
+    // lock-up proofs sit together at the end of the clean rather than loose in
+    // the old flat upload list.
+    moduleKey: "wrap-up",
+    key: "wrap-up.cleaners-cupboard-locked",
+    label: "Cleaner's cupboard locked",
+    instructions:
+      "Photograph the cleaner's cupboard closed and locked, with supplies stored tidily inside before you shut it.",
+    fieldType: "photo",
+    required: true,
+    minPhotos: 1,
+    stampTag: "after",
+    severity: "medium",
+    evidenceCategory: "FINAL",
+    jobTypes: AIRBNB_ONLY,
+    sortOrder: 386,
+  },
+  {
+    moduleKey: "wrap-up",
+    key: "wrap-up.lock-up-video",
+    label: "Lock-up video (keys / lockbox)",
+    instructions:
+      "Record a short video of the final lock-up: door locked, keys returned to the lockbox and the lockbox scrambled.",
+    fieldType: "video",
+    required: true,
+    stampTag: "after",
+    severity: "high",
+    evidenceCategory: "FINAL",
+    jobTypes: AIRBNB_ONLY,
+    sortOrder: 388,
   },
 ];
 
