@@ -7,7 +7,13 @@
  *   GET  /api/qa/queue?scope=active|completed&date=today|tomorrow|YYYY-MM-DD
  *                     &assignedOnly=1
  *   POST /api/qa/jobs/[id]/pickup
- *   POST /api/admin/qa/assignments   (bulk assign — OPS/ADMIN only)
+ *   POST  /api/admin/qa/assignments        (assign — bulk or one-by-one, OPS/ADMIN)
+ *   PATCH /api/admin/qa/assignments/[id]   (reassign an inspector, OPS/ADMIN)
+ *   GET   /api/qa/jobs/[id]/progress       (live EST finish for unfinished cleans)
+ *
+ * Jobs can be handed out BEFORE the cleaner submits — rows carry
+ * `inspectionReadiness` ("CLEANING" | "READY" | "REWORK_PENDING") and unfinished
+ * rows show the live on-site time + EST finish so an inspector can plan travel.
  *
  * Rows arrive already ordered by the server (sequence ASC NULLS LAST →
  * scheduledFor → dueAt), so the list renders the inspector's planned visit order
@@ -61,6 +67,33 @@ function jobStateChip(job: any): { label: string; tone: "success" | "warning" | 
   return { label: titleCase(status || "Scheduled"), tone: "neutral" };
 }
 
+/**
+ * Fallback readiness for a row. The server ships `inspectionReadiness` on every
+ * row; this only covers a stale/cached payload from before that field existed.
+ */
+function readinessOf(job: any): "CLEANING" | "READY" | "REWORK_PENDING" {
+  if (job?.inspectionReadiness) return job.inspectionReadiness;
+  const status = String(job?.status ?? "").toUpperCase();
+  if ((job?.formSubmissions?.length ?? 0) > 0) return "READY";
+  if (["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(status)) return "READY";
+  return job?.isRework ? "REWORK_PENDING" : "CLEANING";
+}
+
+function hhmm(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** "1h 12m" / "48m" — null when we don't know. */
+function durationLabel(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes)) return null;
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 /** Planned slot for a row: the assignment's scheduledFor, else the job window. */
 function slotLabel(assignment: any, job: any): string | null {
   if (assignment?.scheduledFor) {
@@ -91,6 +124,13 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Per-row inline assign: keyed by jobId (assign) or assignmentId (reassign).
+  const [rowInspector, setRowInspector] = useState<Record<string, string>>({});
+  const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  // Live clean progress for rows whose job is still being cleaned. Fetched once
+  // per load (and on Refresh) — never polled here; polling belongs to the
+  // inspection workspace where a single job is being watched.
+  const [progressByJob, setProgressByJob] = useState<Record<string, any>>({});
 
   const pushToast = useCallback((t: Omit<Toast, "id">) => {
     const id = `${Date.now()}-${Math.random()}`;
@@ -127,6 +167,50 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
     const unassigned = (data.unassignedJobs ?? []).map((j: any) => ({ key: `job-${j.id}`, jobId: j.id, assignment: null, job: j, assigned: false }));
     return [...assigned, ...unassigned];
   }, [data]);
+
+  /** Rows whose clean has NOT finished — the ones with a live EST finish. */
+  const liveJobIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .filter((r) => (r.job?.inspectionReadiness ?? readinessOf(r.job)) !== "READY")
+            .map((r) => r.jobId)
+            .filter(Boolean),
+        ),
+      ),
+    [rows],
+  );
+
+  // One batched fetch per queue load. Failures are silent — the live line is a
+  // nicety, never a blocker for the queue itself.
+  useEffect(() => {
+    if (liveJobIds.length === 0) {
+      setProgressByJob({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        liveJobIds.slice(0, 25).map(async (jobId) => {
+          try {
+            const res = await fetch(`/api/qa/jobs/${jobId}/progress`, { cache: "no-store" });
+            if (!res.ok) return [jobId, null] as const;
+            return [jobId, await res.json()] as const;
+          } catch {
+            return [jobId, null] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const next: Record<string, any> = {};
+      for (const [jobId, value] of entries) if (value) next[jobId] = value;
+      setProgressByJob(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [liveJobIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jobTypeOptions = useMemo(() => {
     const set = new Set<string>();
@@ -172,6 +256,51 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
     }
     pushToast({ title: "QA assigned", description: `${body.created ?? selectedJobs.length} job(s) assigned.`, tone: "info" });
     setSelectedJobs([]);
+    await load();
+  }
+
+  /**
+   * One-by-one assignment. The bulk control still exists for "give this
+   * inspector the whole morning", but the common case is handing out a single
+   * job — including a job that is still being CLEANED, so the inspector can
+   * plan the drive and watch it land.
+   */
+  async function assignOne(jobId: string, inspectorId: string) {
+    if (!inspectorId) return;
+    setRowBusy((prev) => ({ ...prev, [jobId]: true }));
+    const res = await fetch("/api/admin/qa/assignments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobIds: [jobId], assignedToId: inspectorId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setRowBusy((prev) => ({ ...prev, [jobId]: false }));
+    if (!res.ok) {
+      pushToast({ title: "QA assignment failed", description: body.error ?? "Please retry.", tone: "danger" });
+      return;
+    }
+    pushToast({ title: "Inspector assigned", tone: "info" });
+    setRowInspector((prev) => ({ ...prev, [jobId]: "" }));
+    await load();
+  }
+
+  /** Move an existing assignment to a different inspector. */
+  async function reassign(assignmentId: string, inspectorId: string) {
+    if (!inspectorId) return;
+    setRowBusy((prev) => ({ ...prev, [assignmentId]: true }));
+    const res = await fetch(`/api/admin/qa/assignments/${assignmentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedToId: inspectorId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setRowBusy((prev) => ({ ...prev, [assignmentId]: false }));
+    if (!res.ok) {
+      pushToast({ title: "Reassign failed", description: body.error ?? "Please retry.", tone: "danger" });
+      return;
+    }
+    pushToast({ title: "Inspector changed", tone: "info" });
+    setRowInspector((prev) => ({ ...prev, [assignmentId]: "" }));
     await load();
   }
 
@@ -323,6 +452,12 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
             const state = jobStateChip(row.job);
             const slot = slotLabel(row.assignment, row.job);
             const seq = row.assignment?.sequence ?? null;
+            const readiness = readinessOf(row.job);
+            const progress = progressByJob[row.jobId] ?? null;
+            const estFinish = hhmm(progress?.estFinishAt);
+            const onSite = durationLabel(progress?.elapsedMinutes);
+            const rowKeyForAssign = row.assigned ? row.assignment.id : row.jobId;
+            const busy = Boolean(rowBusy[rowKeyForAssign]);
             return (
             <ECard key={row.key}>
               <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
@@ -357,6 +492,12 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                     {row.assignment?.checkInAt ? (
                       <EBadge tone="success" soft>Checked in</EBadge>
                     ) : null}
+                    {readiness !== "READY" ? (
+                      <EBadge tone="warning" soft>
+                        {readiness === "REWORK_PENDING" ? "Rework in progress" : "Not submitted yet"}
+                      </EBadge>
+                    ) : null}
+                    {progress?.runningOver ? <EBadge tone="danger" soft>Running over</EBadge> : null}
                     {row.assignment?.reworkOfferStatus && row.assignment.reworkOfferStatus !== "NONE" ? (
                       <EBadge tone={row.assignment.reworkOfferStatus === "ACCEPTED" ? "success" : "warning"} soft>
                         Rework {titleCase(String(row.assignment.reworkOfferStatus))}
@@ -379,6 +520,50 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                       <span>· QA {row.assignment.assignedTo.name || row.assignment.assignedTo.email}</span>
                     ) : null}
                   </p>
+                  {/* live clean progress — only for jobs that haven't submitted */}
+                  {readiness !== "READY" && (estFinish || onSite) ? (
+                    <p
+                      className="flex flex-wrap items-center gap-x-2 text-[0.75rem] font-[550]"
+                      style={{ color: progress?.runningOver ? "hsl(var(--e-danger))" : "hsl(var(--e-text-secondary))" }}
+                    >
+                      {onSite ? <span>On site {onSite}</span> : null}
+                      {estFinish ? <span>· EST finish {estFinish}</span> : null}
+                      {progress?.checklist ? <span>· checklist {progress.checklist.percent}%</span> : null}
+                    </p>
+                  ) : null}
+                  {/* inline one-by-one assign / reassign (OPS + ADMIN only) */}
+                  {canAssign && scope === "active" ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <ESelect
+                        className="h-8 w-[15rem] text-[0.75rem]"
+                        value={rowInspector[rowKeyForAssign] ?? ""}
+                        onChange={(e) =>
+                          setRowInspector((prev) => ({ ...prev, [rowKeyForAssign]: e.target.value }))
+                        }
+                        aria-label={`${row.assigned ? "Reassign" : "Assign"} ${jobTitle(row.job)}`}
+                      >
+                        <option value="">{row.assigned ? "Move to inspector…" : "Assign inspector…"}</option>
+                        {inspectors.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {(i.name || i.email) + ` (${titleCase(i.role)})`}
+                          </option>
+                        ))}
+                      </ESelect>
+                      <EButton
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || !rowInspector[rowKeyForAssign]}
+                        onClick={() =>
+                          row.assigned
+                            ? void reassign(row.assignment.id, rowInspector[rowKeyForAssign] ?? "")
+                            : void assignOne(row.jobId, rowInspector[rowKeyForAssign] ?? "")
+                        }
+                      >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                        {row.assigned ? "Reassign" : "Assign"}
+                      </EButton>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {!row.assignment?.pickedUpById && scope === "active" ? (
@@ -388,7 +573,11 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                   ) : null}
                   <EButton asChild variant="gold" size="sm">
                     <Link href={`/v2/qa/jobs/${row.jobId}`}>
-                      {row.assignment?.status === "IN_PROGRESS" ? "Continue inspection" : "Start inspection"}
+                      {readiness !== "READY"
+                        ? "Monitor clean"
+                        : row.assignment?.status === "IN_PROGRESS"
+                          ? "Continue inspection"
+                          : "Start inspection"}
                       <ChevronRight className="h-4 w-4" />
                     </Link>
                   </EButton>

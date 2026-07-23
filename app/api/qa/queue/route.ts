@@ -4,9 +4,27 @@ import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { effectiveOfferStatus } from "@/lib/qa/rework-offers";
+import { deriveReadiness } from "@/lib/qa/progress";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 const TZ = "Australia/Sydney";
+
+/**
+ * Jobs an admin may hand to an inspector one-by-one. Deliberately WIDER than
+ * "already submitted": the whole point of early assignment is that the
+ * inspector can open the job while the clean is still running, plan the drive,
+ * and watch the live EST finish. Jobs not yet started (UNASSIGNED/OFFERED) stay
+ * out — there is nothing to watch and no cleaner to predict from.
+ */
+const ASSIGNABLE_JOB_STATUSES = [
+  JobStatus.ASSIGNED,
+  JobStatus.EN_ROUTE,
+  JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
+  JobStatus.SUBMITTED,
+  JobStatus.QA_REVIEW,
+];
 
 /**
  * Sydney-local day window for a `date` param:
@@ -155,7 +173,12 @@ export async function GET(req: NextRequest) {
         : await db.job.findMany({
             where: {
               id: { notIn: Array.from(assignedJobIds) },
-              status: { in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW] },
+              // An admin can hand out an inspection BEFORE the clean is finished
+              // so the inspector can plan travel and watch it land — so the
+              // assignable set is the whole ACTIVE working day, not just the
+              // jobs already submitted. Readiness is reported per row
+              // (`inspectionReadiness`) instead of being enforced here.
+              status: { in: ASSIGNABLE_JOB_STATUSES },
               ...(dateWindow ? { scheduledDate: dateWindow } : {}),
               // Only surface jobs that still NEED a QA review. Once a job has been
               // inspected (a completed QA assignment or a real QA-inspection review)
@@ -179,9 +202,25 @@ export async function GET(req: NextRequest) {
             take: 100,
           });
 
+    // Readiness is derived ONCE, server-side, from the job status + whether the
+    // cleaner has actually filed a checklist, so every surface (queue rows,
+    // monitor mode, admin board) agrees on what "ready to grade" means.
+    const readinessOf = (job: any) =>
+      deriveReadiness({
+        status: job?.status,
+        hasSubmission: (job?.formSubmissions?.length ?? 0) > 0,
+        isRework: job?.isRework,
+      });
+
     return NextResponse.json({
-      assignments: decorated,
-      unassignedJobs,
+      assignments: decorated.map((assignment) => ({
+        ...assignment,
+        inspectionReadiness: readinessOf(assignment.job),
+      })),
+      unassignedJobs: unassignedJobs.map((job) => ({
+        ...job,
+        inspectionReadiness: readinessOf(job),
+      })),
       filters: {
         assignedOnly,
         date: searchParams.get("date"),
