@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
 import { getUserExtendedProfile } from "@/lib/accounts/user-details";
 import { getAuthUserState, getMissingRequiredProfileFields } from "@/lib/auth/account-state";
+import { resolveImpersonation } from "@/lib/auth/impersonation-server";
 
 export async function GET(request: NextRequest) {
   const token = await getToken({
@@ -21,6 +22,23 @@ export async function GET(request: NextRequest) {
 
   if (!user?.isActive) {
     return NextResponse.json({ valid: false }, { status: 401 });
+  }
+
+  // Admin "test as": middleware routes on whatever role this returns, so an
+  // impersonated session must report the TARGET's role — otherwise the admin
+  // is bounced straight back to /v2/admin by the portal gate. The onboarding
+  // and password-reset prompts are suppressed: those belong to the real user's
+  // account, and forcing an admin through a cleaner's onboarding wizard would
+  // both be wrong and write to that cleaner's record.
+  const impersonation = await resolveImpersonation(user.id);
+  if (impersonation) {
+    return NextResponse.json({
+      valid: true,
+      role: impersonation.target.role,
+      requiresPasswordReset: false,
+      requiresOnboarding: false,
+      impersonating: true,
+    });
   }
 
   const [authState, extendedProfile] = await Promise.all([

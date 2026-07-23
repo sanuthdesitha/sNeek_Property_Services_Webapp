@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/components/v2/ui/primitives";
 import {
   Activity, Boxes, Building2, CalendarRange, ChevronRight, ClipboardCheck, ClipboardList,
-  Cog, FileText, Inbox, Map, ShieldCheck, Sparkles, Users, Wallet,
+  Cog, Eye, FileText, Inbox, Map, ShieldCheck, Sparkles, Users, Wallet,
   Wrench, Tags, Truck, ListChecks, UserCircle, Briefcase, ReceiptText, UsersRound,
 } from "lucide-react";
 
@@ -52,6 +52,7 @@ const SECTIONS: { title: string; items: { label: string; desc: string; icon: typ
       { label: "Forms & stats", desc: "Form builder, coverage, stats", icon: ClipboardList, href: "/v2/admin/forms" },
       { label: "Templates", desc: "Email, notification & message designer", icon: FileText, href: "/v2/admin/templates" },
       { label: "Activity log", desc: "Full audit trail", icon: Activity, href: "/v2/admin/activity" },
+      { label: "Test as", desc: "See any portal as one of your users", icon: Eye, href: "/v2/admin/system/test-as" },
       { label: "My profile", desc: "Your account, security & 2FA", icon: UserCircle, href: "/v2/admin/profile" },
       { label: "Diagnostics", desc: "Process, DB, email & upload health", icon: ShieldCheck, href: "/v2/admin/diagnostics" },
     ],

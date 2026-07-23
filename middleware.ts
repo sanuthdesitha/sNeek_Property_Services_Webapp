@@ -2,11 +2,47 @@ import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
+import {
+  IMPERSONATION_COOKIE,
+  isReadOnlySafeMethod,
+  readImpersonationTicket,
+} from "@/lib/auth/impersonation";
 
 export default withAuth(
   async function middleware(req) {
     const { pathname } = req.nextUrl;
     const token = req.nextauth.token;
+
+    // Admin "test as". The ticket is signed with NEXTAUTH_SECRET, so a client
+    // cannot mint or edit one; full authority (is the actor still an admin?)
+    // is re-checked server-side in impersonation-server.ts. Here it is used
+    // only for routing and for the read-only guard, both of which fail safe.
+    const impersonation = await readImpersonationTicket(
+      req.cookies.get(IMPERSONATION_COOKIE)?.value,
+    );
+
+    // READ-ONLY enforcement lives here, at the single choke point every request
+    // passes through, rather than in each of the hundreds of route handlers —
+    // one missed handler would be a write into production data attributed to
+    // the impersonated user. The endpoints that START and STOP impersonation
+    // are exempt, or you could never get back out.
+    if (
+      impersonation &&
+      impersonation.mode === "READ_ONLY" &&
+      !isReadOnlySafeMethod(req.method) &&
+      !pathname.startsWith("/api/admin/impersonate")
+    ) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          {
+            error:
+              "Read-only test session: writes are blocked while viewing as another user. Switch to full test mode to change data.",
+            code: "IMPERSONATION_READ_ONLY",
+          },
+          { status: 403 },
+        ),
+      );
+    }
 
     if (pathname.startsWith("/api")) {
       return applySecurityHeaders(NextResponse.next());
