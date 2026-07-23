@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/components/v2/ui/primitives";
 import {
   CalendarRange, ChevronRight, ClipboardList, HandCoins, LineChart, Navigation, Package,
-  Receipt, Search, Settings, User, Users,
+  Receipt, Search, Settings, ShieldCheck, User, Users,
 } from "lucide-react";
 
 export const metadata = { title: "More · Estate cleaner" };
@@ -23,6 +23,7 @@ const GROUPS: { title: string; items: { href: string; label: string; desc: strin
     items: [
       { href: "/v2/cleaner/route", label: "Route", desc: "Today's optimised driving run", icon: Navigation },
       { href: "/v2/cleaner/hub", label: "Team hub", desc: "Feed & recognition", icon: Users },
+      { href: "/v2/cleaner/quality", label: "QA feedback", desc: "Inspection outcomes & issues", icon: ShieldCheck },
       { href: "/v2/cleaner/lost-found", label: "Lost & found", desc: "Log found items", icon: Search },
       { href: "/v2/cleaner/availability", label: "Availability", desc: "Set weekly hours & time off", icon: ClipboardList },
     ],

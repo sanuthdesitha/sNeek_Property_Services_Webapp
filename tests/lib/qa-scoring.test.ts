@@ -65,6 +65,28 @@ describe("QA scoring engine", () => {
     expect(result.band).toBe("FAIL");
   });
 
+  it("excludes blank scored fields (undefined/null/empty) from the max instead of counting 0", () => {
+    // q2 unanswered → its max (2) must NOT count against the score. Only
+    // q1 (2/2) and rating (25/25) are assessed → 100%.
+    const undef = computeQaScore(singleSection, { q1: "Pass", rating: 5 });
+    expect(undef.totalPoints).toBe(27);
+    expect(undef.maxPoints).toBe(27);
+    expect(undef.percent).toBe(100);
+
+    const asNull = computeQaScore(singleSection, { q1: "Pass", q2: null, rating: 5 });
+    expect(asNull.maxPoints).toBe(27);
+    expect(asNull.percent).toBe(100);
+
+    const asEmpty = computeQaScore(singleSection, { q1: "Pass", q2: "", rating: 5 });
+    expect(asEmpty.maxPoints).toBe(27);
+    expect(asEmpty.percent).toBe(100);
+
+    // An answered Fail still counts 0-of-max — only blanks are excluded.
+    const failed = computeQaScore(singleSection, { q1: "Pass", q2: "Fail", rating: 5 });
+    expect(failed.totalPoints).toBe(27);
+    expect(failed.maxPoints).toBe(29);
+  });
+
   it("sectionScores excludes unscored sections", () => {
     const result = computeQaScore(singleSection, { q1: "Pass", q2: "Minor issues", rating: 4 });
     expect(result.sectionScores).toHaveLength(1);

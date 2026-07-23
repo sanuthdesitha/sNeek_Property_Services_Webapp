@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { notFound } from "next/navigation";
-import { JobStatus, JobTaskSource, Role } from "@prisma/client";
+import { JobStatus, JobTaskSource, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { QuickQaReview } from "@/components/v2/admin/jobs/quick-qa-review";
 import { JobAssignPanel } from "@/components/v2/admin/jobs/job-assign-panel";
+import { QaAssignPanel } from "@/components/v2/admin/jobs/qa-assign-panel";
 import {
   JobContinuationReviews,
   JobDetailManage,
@@ -247,7 +248,7 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
 
   // Continuation requests (file-backed store, same source as the v1 console
   // and the admin API) + audit trail, loaded alongside the job.
-  const [continuations, auditRows, fullProperty] = await Promise.all([
+  const [continuations, auditRows, fullProperty, qaAssignment, qaEligibleUsers] = await Promise.all([
     listContinuationRequests({ jobId: job.id }).catch(() => []),
     db.auditLog
       .findMany({
@@ -267,6 +268,31 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
     job.property
       ? db.property.findUnique({ where: { id: job.property.id } }).catch(() => null)
       : Promise.resolve(null),
+    // The job's current ACTIVE QA assignment (not cancelled/completed) for the
+    // QA assign panel.
+    db.qaAssignment
+      .findFirst({
+        where: {
+          jobId: job.id,
+          status: { notIn: [QaAssignmentStatus.CANCELLED, QaAssignmentStatus.COMPLETED] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          status: true,
+          assignedToId: true,
+          assignedTo: { select: { name: true, email: true } },
+        },
+      })
+      .catch(() => null),
+    // Eligible QA assignees — same roster rule as /api/admin/qa/assignments.
+    db.user
+      .findMany({
+        where: { role: { in: [Role.QA_INSPECTOR, Role.OPS_MANAGER] }, isActive: true },
+        select: { id: true, name: true, email: true, role: true },
+        orderBy: [{ role: "asc" }, { name: "asc" }, { email: "asc" }],
+      })
+      .catch(() => []),
   ]);
 
   // Resolve requester / decider names for continuation rows.
@@ -530,6 +556,32 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
               jobLabel={propLabel}
               jobSubLabel={`${titleCase(job.jobType)} · ${scheduledLabel}${job.startTime ? ` · ${job.startTime}` : ""}`}
               assignments={panelAssignments}
+            />
+          </ECardBody>
+        </ECard>
+
+        {/* QA inspection — current assignment + assign/reassign */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> QA inspection</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0">
+            <QaAssignPanel
+              jobId={job.id}
+              current={
+                qaAssignment
+                  ? {
+                      id: qaAssignment.id,
+                      status: String(qaAssignment.status),
+                      assignedToId: qaAssignment.assignedToId,
+                      assignedToName: qaAssignment.assignedTo?.name ?? qaAssignment.assignedTo?.email ?? null,
+                    }
+                  : null
+              }
+              inspectors={qaEligibleUsers.map((u) => ({
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                role: String(u.role),
+              }))}
             />
           </ECardBody>
         </ECard>

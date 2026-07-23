@@ -63,6 +63,13 @@ export function computeQaScore(template: FormSchema, answers: Record<string, unk
       const fieldMax = field.scoring.max * weight;
       const value = answers[field.id];
 
+      // Blank = "not assessed / not applicable" — exclude the field entirely
+      // (points AND max) rather than counting 0-of-max, mirroring the explicit
+      // blank-exclusion the legacy rating path applies in lib/qa/templates.ts.
+      // Without this, hiding/deriving the Pass/Minor/Fail control (or an N/A
+      // verdict deleting the answer) would drag the stored percent toward 0.
+      if (value === undefined || value === null || value === "") continue;
+
       let fieldPoints = 0;
       const isChoiceScore =
         (field.type === "radio" || field.type === "select") &&

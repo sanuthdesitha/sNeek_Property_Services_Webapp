@@ -1523,6 +1523,8 @@ model QAReview {
   /// EXCELLENT | PASS | NEEDS_IMPROVEMENT | FAILED | MANAGEMENT_REVIEW (null = legacy)
   rating           String?
   managementReview Boolean   @default(false)
+  /// When the cleaner tapped "I've read this" on their QA feedback (null = unseen)
+  cleanerAcknowledgedAt DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
 
