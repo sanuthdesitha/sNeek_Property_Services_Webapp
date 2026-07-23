@@ -157,7 +157,10 @@ export default async function QaReviewsPage() {
                   <EBadge tone={statusTone(r.status)} soft>{titleCase(r.status)}</EBadge>
                   {jobId ? (
                     <EButton asChild variant={isDone ? "outline" : "gold"} size="sm"><Link href={`/v2/qa/jobs/${jobId}`}>
-                        {isDone ? "Open" : "Start review"}
+                        {/* A submitted inspection is not terminal — the workspace
+                            offers "Reopen inspection" to whoever may amend it
+                            (lib/qa/reopen.ts), so say so on the way in. */}
+                        {isDone ? "Open / reopen" : "Start review"}
                         <ChevronRight className="h-4 w-4" />
                       </Link></EButton>
                   ) : null}

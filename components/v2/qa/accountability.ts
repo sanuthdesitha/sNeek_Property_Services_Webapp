@@ -100,6 +100,125 @@ export function verdictRequiresIssue(v: AccountabilityVerdict): boolean {
   return v === "MINOR" || v === "MAJOR" || v === "CRITICAL";
 }
 
+/* ── What each grade MEANS and what it actually DOES ───────────────────────
+ * Plain-operator English for the grading control. Every consequence below is
+ * taken from the code that consumes the verdict, not from intent:
+ *
+ *   • points off  — lib/accountability/scoring.ts computeAccountabilityScore
+ *                   (MINOR −minorDeduction, MAJOR −majorDeduction,
+ *                    CRITICAL −criticalDeduction; PASS and N/A deduct nothing).
+ *   • written up  — app/api/qa/jobs/[id]/route.ts creates one QaIssue row per
+ *                   MINOR/MAJOR/CRITICAL verdict, against the job's primary
+ *                   cleaner. PASS/N/A create nothing.
+ *   • repeat flag — lib/accountability/patterns.ts groups those issues by
+ *                   category; enough of the same category inside the settings
+ *                   window becomes a repeat-issue watch-out on the cleaner and
+ *                   the property (all severities count).
+ *   • bonus       — lib/accountability/streaks.ts qualifies(): a clean counts
+ *                   toward the streak bonus only if it scored at or above the
+ *                   streak minimum AND had no CRITICAL issue. So MINOR/MAJOR
+ *                   hurt only through the score; CRITICAL breaks the streak
+ *                   outright.
+ *   • manager     — CRITICAL sets the review to MANAGEMENT REVIEW
+ *                   (ratingForScore + criticalTriggersManagementReview) and
+ *                   notifies management, regardless of the number.
+ *   • rework      — NO verdict creates a rework job by itself. The rework job,
+ *                   its pay and its deduction come only from the inspector
+ *                   ticking "rework required" further down the form
+ *                   (`if (rk?.enabled)` in the QA submit route).
+ */
+export interface VerdictGuide {
+  label: string;
+  /** One line: what the cleaner would have had to do to earn this grade. */
+  meaning: string;
+  /** One line: what it actually causes. */
+  consequence: string;
+  /** True when a category + description are required before you can submit. */
+  needsDetail: boolean;
+}
+
+/**
+ * Grade guidance for the inspector, filled in with the live scoring settings so
+ * the numbers on screen are the numbers that will be applied. Pure — unit
+ * tested in tests/lib/qa-verdict-guide.test.ts.
+ */
+export function verdictGuide(
+  v: AccountabilityVerdict,
+  scoring: AccountabilityScoring = DEFAULT_ACCOUNTABILITY_SCORING
+): VerdictGuide {
+  switch (v) {
+    case "PASS":
+      return {
+        label: VERDICT_LABELS.PASS,
+        meaning: "Done properly — you'd hand the place to a guest like this.",
+        consequence: "No points off and nothing written up.",
+        needsDetail: false,
+      };
+    case "MINOR":
+      return {
+        label: VERDICT_LABELS.MINOR,
+        meaning: "Small slip a guest probably wouldn't notice — a smudge, a crooked cushion, one missed dust spot.",
+        consequence: `−${scoring.minorDeduction} points and a written-up issue on the cleaner's record. Repeats of the same kind become a watch-out.`,
+        needsDetail: true,
+      };
+    case "MAJOR":
+      return {
+        label: VERDICT_LABELS.MAJOR,
+        meaning: "A guest would see it and complain — a dirty bathroom, unmade bed, bin not emptied.",
+        consequence: `−${scoring.majorDeduction} points and a written-up issue on the cleaner's record. Repeats of the same kind become a watch-out.`,
+        needsDetail: true,
+      };
+    case "CRITICAL":
+      return {
+        label: VERDICT_LABELS.CRITICAL,
+        meaning: "The place isn't fit for a guest, or it's a safety/damage problem — soiled linen, no hot water, hazard left behind.",
+        consequence: `−${scoring.criticalDeduction} points, written up, ${
+          scoring.criticalTriggersManagementReview ? "sent to management review whatever the score, " : ""
+        }and it breaks the cleaner's bonus streak.`,
+        needsDetail: true,
+      };
+    case "NA":
+    default:
+      return {
+        label: VERDICT_LABELS.NA,
+        meaning: "Doesn't apply here — no balcony, no coffee machine, area not in use.",
+        consequence: "No points off and nothing written up.",
+        needsDetail: false,
+      };
+  }
+}
+
+/** The whole grading control explained in a few lines, for the step header. */
+export interface GradingExplainer {
+  /** e.g. "93 or above out of 100 passes." */
+  passLine: string;
+  /** The per-grade cost lines, in the order the buttons are shown. */
+  gradeLines: string[];
+  /** Everything else that changes the number. */
+  extraLines: string[];
+  /** What is NOT automatic — set expectations about rework/pay. */
+  notAutomatic: string;
+}
+
+export function gradingExplainer(
+  scoring: AccountabilityScoring = DEFAULT_ACCOUNTABILITY_SCORING
+): GradingExplainer {
+  return {
+    passLine: `Every clean starts at 100. Anything you grade below Pass takes points off. ${scoring.passMin} or more still passes, ${scoring.excellentMin}+ is excellent, under ${scoring.needsImprovementMin} is a fail.`,
+    gradeLines: VERDICT_OPTIONS.map((v) => {
+      const g = verdictGuide(v, scoring);
+      return `${g.label} — ${g.meaning} ${g.consequence}`;
+    }),
+    extraLines: [
+      `Missing or unusable evidence on a required photo: −${scoring.missingMandatoryEvidenceDeduction} each.`,
+      `An item the cleaner ticked off that clearly wasn't done ("false confirmation"): an extra −${scoring.falseConfirmationExtraDeduction} on top of the grade.`,
+      `The score can't go below ${scoring.floor}.`,
+    ],
+    notAutomatic:
+      "Grading alone never sends anyone back or moves any money. A re-clean, and any pay that goes with it, only happens if you tick \"rework required\" further down and choose who fixes it.",
+  };
+}
+
 /* ── Per-item local UI state (client-only; never posted verbatim) ─────────── */
 export interface VerdictState {
   verdict: AccountabilityVerdict;
