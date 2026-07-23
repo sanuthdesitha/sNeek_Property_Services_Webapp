@@ -35,6 +35,7 @@ import {
   guardInvariant,
 } from "@/lib/qa/rework-invariants";
 import { canReopenInspection, reopenMoneyWarnings } from "@/lib/qa/reopen";
+import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { collectReopenMoneyFacts } from "@/lib/qa/reopen-facts";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
@@ -272,6 +273,31 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     ]);
     if (!job || !template) return NextResponse.json({ error: "QA job not found." }, { status: 404 });
 
+    // ── VISIBILITY SCOPING — an inspector may not open a job whose ACTIVE
+    //    assignment belongs to another inspector. Admin/ops are unaffected, as
+    //    are unassigned (OPEN pool) assignments and jobs with no assignment.
+    if (session.user.role === Role.QA_INSPECTOR) {
+      const activeAssignments = await db.qaAssignment.findMany({
+        where: {
+          jobId: params.id,
+          status: { notIn: [QaAssignmentStatus.CANCELLED, QaAssignmentStatus.COMPLETED] },
+        },
+        select: { assignedToId: true, pickedUpById: true },
+      });
+      const foreignAssignment = activeAssignments.some(
+        (a) =>
+          a.assignedToId != null &&
+          a.assignedToId !== session.user.id &&
+          a.pickedUpById !== session.user.id
+      );
+      if (foreignAssignment) {
+        return NextResponse.json(
+          { error: "This inspection is assigned to another inspector." },
+          { status: 403 }
+        );
+      }
+    }
+
     // Property stock for the restock + full inventory count tools.
     const propertyStock = await db.propertyStock.findMany({
       where: { propertyId: job.propertyId },
@@ -340,6 +366,47 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           }
         })
       );
+    }
+
+    // ── CLEANER PHOTOS GROUPED BY THEIR FORM SECTION ─────────────────────────
+    //    Map each submitted media's fieldId to the section it belongs to in the
+    //    CLEANER form template, so the QA workspaces can show the cleaner's
+    //    photos at the top of the matching QA section. Media whose field can't
+    //    be located land under "Other". Best-effort — a failure leaves the list
+    //    empty and the flat evidence gallery still works.
+    let cleanerSectionMedia: Array<{ sectionTitle: string; mediaIds: string[] }> = [];
+    if (latestSubmission?.media?.length) {
+      try {
+        const cleanerTemplate = await db.formTemplate.findUnique({
+          where: { id: latestSubmission.templateId },
+          select: { schema: true },
+        });
+        const cleanerSchema = cleanerTemplate?.schema
+          ? normalizeFormSchema(cleanerTemplate.schema)
+          : null;
+        const sectionByFieldId = new Map<string, string>();
+        for (const section of cleanerSchema?.sections ?? []) {
+          const title =
+            (typeof section?.title === "string" && section.title.trim()) || "Other";
+          for (const field of section?.fields ?? []) {
+            if (field?.id) sectionByFieldId.set(String(field.id), title);
+          }
+        }
+        const grouped = new Map<string, string[]>();
+        for (const m of latestSubmission.media as Array<{ id: string; fieldId: string | null }>) {
+          const title = (m.fieldId && sectionByFieldId.get(m.fieldId)) || "Other";
+          const list = grouped.get(title) ?? [];
+          list.push(m.id);
+          grouped.set(title, list);
+        }
+        cleanerSectionMedia = Array.from(grouped, ([sectionTitle, mediaIds]) => ({
+          sectionTitle,
+          mediaIds,
+        }));
+      } catch (err) {
+        console.error("[qa-get] cleaner section media build failed", err);
+        cleanerSectionMedia = [];
+      }
     }
 
     // Recurring-issue watch-outs (Phase 7a) — the property's and the primary
@@ -571,6 +638,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       cleanerCandidates,
       reworkPayeeCandidates,
       sectionPhotos,
+      cleanerSectionMedia,
+      viewerRole: session.user.role,
       watchOuts,
       brief,
       briefContext,

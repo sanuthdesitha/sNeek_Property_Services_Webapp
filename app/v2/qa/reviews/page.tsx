@@ -47,7 +47,12 @@ type ReviewRow = {
     scheduledDate: Date | null;
     property: { name: string | null; suburb: string | null } | null;
     assignments: { user: { name: string | null } | null }[];
-    qaReviews: { score: number | null; passed: boolean | null; createdAt: Date }[];
+    qaReviews: {
+      score: number | null;
+      passed: boolean | null;
+      createdAt: Date;
+      cleanerAcknowledgedAt: Date | null;
+    }[];
   } | null;
 };
 
@@ -76,7 +81,7 @@ async function getReviews(): Promise<ReviewRow[]> {
               where: { kind: "QA" },
               orderBy: { createdAt: "desc" },
               take: 1,
-              select: { score: true, passed: true, createdAt: true },
+              select: { score: true, passed: true, createdAt: true, cleanerAcknowledgedAt: true },
             },
           },
         },
@@ -142,6 +147,11 @@ export default async function QaReviewsPage() {
                     {reviewedAt ? (
                       <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
                         Reviewed <span className="tabular-nums">{reviewedAt}</span>
+                        {verdict?.cleanerAcknowledgedAt ? (
+                          <span title={`Acknowledged ${dateTime(verdict.cleanerAcknowledgedAt) ?? ""}`}>
+                            {" "}· Seen by cleaner
+                          </span>
+                        ) : null}
                       </p>
                     ) : null}
                   </div>

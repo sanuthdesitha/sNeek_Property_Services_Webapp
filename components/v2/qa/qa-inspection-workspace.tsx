@@ -79,6 +79,8 @@ import { getAccuratePosition, formatAccuracy } from "@/lib/geo/get-position";
 import type { BriefItem } from "@/lib/qa/brief-rules";
 import { predictionBasis } from "@/lib/qa/progress";
 import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
+import { matchCleanerSection } from "@/lib/qa/section-match";
+import { PASS_OPTIONS } from "@/lib/qa/seed-templates/_helpers";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import {
@@ -137,6 +139,26 @@ const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
 
 /* Pass/Minor/Fail radio scoring — must match lib/qa/scoring.ts RADIO_SCORES. */
 const RADIO_SCORES: Record<string, number> = { Pass: 2, "Minor issues": 1, Fail: 0 };
+
+/** True when a choice field's options are exactly the legacy Pass/Minor
+ *  issues/Fail set (PASS_OPTIONS in lib/qa/seed-templates/_helpers). These
+ *  fields no longer render their own control — the answer is derived from the
+ *  accountability verdict ("How was it done?") instead. */
+function isPassChoiceField(field: any): boolean {
+  if (!CHOICE_FIELD_TYPES.has(field?.type)) return false;
+  const options = Array.isArray(field?.options) ? field.options.map(String) : [];
+  return options.length === PASS_OPTIONS.length && PASS_OPTIONS.every((o) => options.includes(o));
+}
+
+/** Verdict → derived legacy radio answer. NA (or null) = unanswered, so the
+ *  blank-excluding legacy engine (lib/qa/scoring.ts) skips the field. */
+const VERDICT_TO_LEGACY_ANSWER: Record<AccountabilityVerdict, string | null> = {
+  PASS: "Pass",
+  MINOR: "Minor issues",
+  MAJOR: "Fail",
+  CRITICAL: "Fail",
+  NA: null,
+};
 
 /** Field types the inspector answers with a numeric value (rating/scale style). */
 const NUMERIC_FIELD_TYPES = new Set(["rating", "slider", "scale", "counter", "number"]);
@@ -1485,6 +1507,24 @@ export function QaInspectionWorkspace({
     setData((prev) => ({ ...prev, [id]: value }));
   }
 
+  /** Derive the hidden legacy Pass/Minor/Fail answer from the verdict so the
+   *  stored legacy percent keeps working: PASS→"Pass", MINOR→"Minor issues",
+   *  MAJOR/CRITICAL→"Fail", NA→unanswered (key removed — excluded from the
+   *  score by the blank-exclusion in lib/qa/scoring.ts). */
+  function deriveLegacyAnswer(fieldId: string, verdict: AccountabilityVerdict) {
+    const answer = VERDICT_TO_LEGACY_ANSWER[verdict];
+    setData((prev) => {
+      if (answer == null) {
+        if (!(fieldId in prev)) return prev;
+        const next = { ...prev };
+        delete next[fieldId];
+        return next;
+      }
+      if (prev[fieldId] === answer) return prev;
+      return { ...prev, [fieldId]: answer };
+    });
+  }
+
   // ── live score preview (mirrors lib/qa/templates.scoreQaSubmission) ──
   const scorePreview = useMemo(() => {
     const sections = template?.schema?.sections ?? [];
@@ -1523,6 +1563,25 @@ export function QaInspectionWorkspace({
   }, [latestSubmission]);
 
   const cleanerData: Record<string, unknown> = latestSubmission?.data ?? {};
+
+  // ── Cleaner photos grouped by the CLEANER form's sections (server-built) ──
+  // sectionTitle → media ids, plus a lookup from media id to the presigned
+  // gallery item, so each QA section can show the cleaner's photos for the
+  // matching area of the cleaner's form.
+  const cleanerSectionMedia: Array<{ sectionTitle: string; mediaIds: string[] }> =
+    (payload as any)?.cleanerSectionMedia ?? [];
+  const cleanerSectionTitles = useMemo(
+    () => cleanerSectionMedia.map((s) => s.sectionTitle),
+    [cleanerSectionMedia]
+  );
+  const cleanerMediaIdsBySection = useMemo(
+    () => new Map(cleanerSectionMedia.map((s) => [s.sectionTitle, s.mediaIds])),
+    [cleanerSectionMedia]
+  );
+  const cleanerMediaById = useMemo(
+    () => new Map(mediaItems.map((m: any) => [m.id as string, m])),
+    [mediaItems]
+  );
 
   // Which template fields are reviewed checklist items (answerable OR evidence
   // uploads; signature/instruction/inventory are display-only). Build per-item
@@ -3051,9 +3110,20 @@ export function QaInspectionWorkspace({
         <ECard>
           <ECardHeader>
             <div className="flex items-center justify-between gap-3">
-              <ECardTitle className="flex items-center gap-2">
-                <Star className="h-4 w-4" style={{ color: "hsl(var(--e-gold))" }} /> {template?.name ?? "QA form"}
-              </ECardTitle>
+              <div className="min-w-0">
+                <ECardTitle className="flex items-center gap-2">
+                  <Star className="h-4 w-4" style={{ color: "hsl(var(--e-gold))" }} /> {template?.name ?? "QA form"}
+                </ECardTitle>
+                {/* Admin/ops only — the full template builder. */}
+                {["ADMIN", "OPS_MANAGER"].includes(String((payload as any)?.viewerRole ?? "")) ? (
+                  <Link
+                    href="/v2/admin/qa-templates"
+                    className="mt-1 inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))] underline-offset-2 hover:underline"
+                  >
+                    <Pencil className="h-3 w-3" /> Edit QA template
+                  </Link>
+                ) : null}
+              </div>
               <div className="text-right">
                 <p className="e-numeral text-[1.5rem] leading-none" style={{ color: scorePreview.passed ? "hsl(var(--e-success))" : "hsl(var(--e-danger))" }}>
                   {scorePreview.assessed > 0 ? `${scorePreview.score}%` : "—"}
@@ -3071,6 +3141,16 @@ export function QaInspectionWorkspace({
                 (typeof section.label === "string" && section.label.trim()) ||
                 (typeof section.title === "string" && section.title.trim()) ||
                 "Area";
+              // Cleaner's photos from the MATCHING section of the cleaner's form
+              // (normalized-title match, lib/qa/section-match.ts).
+              const matchedCleanerSection = latestSubmission
+                ? matchCleanerSection(roomLabel, cleanerSectionTitles)
+                : null;
+              const cleanerStripItems = matchedCleanerSection
+                ? (cleanerMediaIdsBySection.get(matchedCleanerSection) ?? [])
+                    .map((id) => cleanerMediaById.get(id))
+                    .filter((m): m is { id: string; url: string; mediaType?: string; label?: string } => Boolean(m))
+                : [];
               return (
                 <div key={section.id} className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))]/40 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3084,6 +3164,20 @@ export function QaInspectionWorkspace({
                       <EBadge tone="neutral" soft>{sectionPhotoKeys.length} media</EBadge>
                     ) : null}
                   </div>
+
+                  {/* What the cleaner submitted for this area — compact strip. */}
+                  {cleanerStripItems.length > 0 ? (
+                    <div>
+                      <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">
+                        Cleaner&apos;s photos — {matchedCleanerSection}
+                      </p>
+                      <MediaGallery
+                        items={cleanerStripItems}
+                        title={`Cleaner's photos — ${matchedCleanerSection}`}
+                        className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-8"
+                      />
+                    </div>
+                  ) : null}
 
                   {sectionPhotoKeys.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
@@ -3123,6 +3217,9 @@ export function QaInspectionWorkspace({
                     .filter((field: any) => !["signature", "instruction", "inventory"].includes(field.type))
                     .map((field: any) => {
                       const answerable = !SKIP_FIELD_TYPES.has(field.type);
+                      // Legacy Pass/Minor/Fail radios are no longer answered
+                      // directly — the verdict below derives their answer.
+                      const legacyDerived = isPassChoiceField(field);
                       const requiredPhoto =
                         isUploadFieldType(field.type) && (Boolean(field.required) || Number(field.minPhotos) > 0);
                       const meta = itemMeta[field.id];
@@ -3134,7 +3231,10 @@ export function QaInspectionWorkspace({
                           requiredPhoto={requiredPhoto}
                           meta={meta}
                           state={verdictState(field.id)}
-                          onPatch={(patch) => patchVerdict(field.id, patch)}
+                          onPatch={(patch) => {
+                            patchVerdict(field.id, patch);
+                            if (legacyDerived && patch.verdict) deriveLegacyAnswer(field.id, patch.verdict);
+                          }}
                           missing={Boolean(missingEvidence[field.id])}
                           onToggleMissing={(v) => toggleMissing(field.id, v)}
                           issueCategories={issueCategories}
@@ -3149,7 +3249,14 @@ export function QaInspectionWorkspace({
                           }
                           onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                         >
-                          {answerable ? (
+                          {legacyDerived ? (
+                            // The Pass/Minor/Fail control is gone — keep the item
+                            // label; the answer comes from the verdict row below.
+                            <div className="text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">
+                              {field.label}
+                              {field.required ? <span className="ml-1 text-[hsl(var(--e-danger))]">*</span> : null}
+                            </div>
+                          ) : answerable ? (
                             <EFieldInput field={field} value={data[field.id]} onChange={(v) => setField(field.id, v)} />
                           ) : (
                             <div className="flex items-center gap-2 text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">

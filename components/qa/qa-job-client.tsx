@@ -61,6 +61,8 @@ import {
   type QaInspectionTools,
   type QaNextCleanRequest,
 } from "@/lib/qa/inspection-tools";
+import { matchCleanerSection } from "@/lib/qa/section-match";
+import { PASS_OPTIONS } from "@/lib/qa/seed-templates/_helpers";
 import {
   DEFAULT_ACCOUNTABILITY_SCORING,
   DEFAULT_ISSUE_CATEGORIES,
@@ -110,6 +112,26 @@ function isVideoKey(key: string): boolean {
 
 const DAMAGE_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 const REWORK_SEVERITIES = ["MINOR", "MODERATE", "MAJOR"] as const;
+
+/** True when a choice field's options are exactly the legacy Pass/Minor
+ *  issues/Fail set (PASS_OPTIONS in lib/qa/seed-templates/_helpers). These
+ *  fields no longer render their own control — the answer is derived from the
+ *  accountability verdict instead (mirrors the v2 workspace). */
+function isPassChoiceField(field: any): boolean {
+  if (field?.type !== "radio" && field?.type !== "select") return false;
+  const options = Array.isArray(field?.options) ? field.options.map(String) : [];
+  return options.length === PASS_OPTIONS.length && PASS_OPTIONS.every((o) => options.includes(o));
+}
+
+/** Verdict → derived legacy radio answer. NA (or null) = unanswered, so the
+ *  blank-excluding legacy engine (lib/qa/scoring.ts) skips the field. */
+const VERDICT_TO_LEGACY_ANSWER: Record<AccountabilityVerdict, string | null> = {
+  PASS: "Pass",
+  MINOR: "Minor issues",
+  MAJOR: "Fail",
+  CRITICAL: "Fail",
+  NA: null,
+};
 
 /* ── Accountability Phase 4b (v1) — compact per-item verdict control. Mirrors
  *    the v2 workspace in the legacy shadcn skin: 5-way verdict, issue fields for
@@ -530,6 +552,40 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   function setField(id: string, value: unknown) {
     setData((prev) => ({ ...prev, [id]: value }));
   }
+
+  /** Derive the hidden legacy Pass/Minor/Fail answer from the verdict so the
+   *  stored legacy percent keeps working: PASS→"Pass", MINOR→"Minor issues",
+   *  MAJOR/CRITICAL→"Fail", NA→unanswered (key removed — excluded from the
+   *  score by the blank-exclusion in lib/qa/scoring.ts). */
+  function deriveLegacyAnswer(fieldId: string, verdict: AccountabilityVerdict) {
+    const answer = VERDICT_TO_LEGACY_ANSWER[verdict];
+    setData((prev) => {
+      if (answer == null) {
+        if (!(fieldId in prev)) return prev;
+        const next = { ...prev };
+        delete next[fieldId];
+        return next;
+      }
+      if (prev[fieldId] === answer) return prev;
+      return { ...prev, [fieldId]: answer };
+    });
+  }
+
+  // ── Cleaner photos grouped by the CLEANER form's sections (server-built) ──
+  const cleanerSectionMedia: Array<{ sectionTitle: string; mediaIds: string[] }> =
+    payload?.cleanerSectionMedia ?? [];
+  const cleanerSectionTitles = useMemo(
+    () => cleanerSectionMedia.map((s) => s.sectionTitle),
+    [cleanerSectionMedia]
+  );
+  const cleanerMediaIdsBySection = useMemo(
+    () => new Map(cleanerSectionMedia.map((s) => [s.sectionTitle, s.mediaIds])),
+    [cleanerSectionMedia]
+  );
+  const cleanerMediaById = useMemo(
+    () => new Map(mediaItems.map((m: any) => [m.id as string, m])),
+    [mediaItems]
+  );
 
   // ── Accountability: scoring/categories (settings when exposed, else defaults) ──
   const acctScoring: AccountabilityScoring =
@@ -1850,6 +1906,16 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                   (typeof section.label === "string" && section.label.trim()) ||
                   (typeof section.title === "string" && section.title.trim()) ||
                   "Area";
+                // Cleaner's photos from the MATCHING section of the cleaner's
+                // form (normalized-title match, lib/qa/section-match.ts).
+                const matchedCleanerSection = latestSubmission
+                  ? matchCleanerSection(roomLabel, cleanerSectionTitles)
+                  : null;
+                const cleanerStripItems = matchedCleanerSection
+                  ? (cleanerMediaIdsBySection.get(matchedCleanerSection) ?? [])
+                      .map((id) => cleanerMediaById.get(id))
+                      .filter((m): m is { id: string; url: string; mediaType?: string; label?: string } => Boolean(m))
+                  : [];
                 return (
                   <div key={section.id} className="space-y-3 rounded-2xl border border-border bg-surface-raised/40 p-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1889,6 +1955,19 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         </Button>
                       </div>
                     </div>
+                    {/* What the cleaner submitted for this area — compact strip. */}
+                    {cleanerStripItems.length > 0 ? (
+                      <div>
+                        <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                          Cleaner&apos;s photos — {matchedCleanerSection}
+                        </p>
+                        <MediaGallery
+                          items={cleanerStripItems}
+                          title={`Cleaner's photos — ${matchedCleanerSection}`}
+                          className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-8"
+                        />
+                      </div>
+                    ) : null}
                     {sectionPhotoKeys.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {sectionPhotoKeys.map((key) => {
@@ -1979,6 +2058,9 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                       .filter((field: any) => !["signature", "instruction", "inventory"].includes(field.type))
                       .map((field: any) => {
                         const answerable = !isUploadFieldType(field.type);
+                        // Legacy Pass/Minor/Fail radios are no longer answered
+                        // directly — the verdict below derives their answer.
+                        const legacyDerived = isPassChoiceField(field);
                         const requiredPhoto =
                           isUploadFieldType(field.type) && (Boolean(field.required) || Number(field.minPhotos) > 0);
                         const meta = itemMeta[field.id];
@@ -1990,7 +2072,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                             requiredPhoto={requiredPhoto}
                             meta={meta}
                             state={verdictState(field.id)}
-                            onPatch={(patch) => patchVerdict(field.id, patch)}
+                            onPatch={(patch) => {
+                              patchVerdict(field.id, patch);
+                              if (legacyDerived && patch.verdict) deriveLegacyAnswer(field.id, patch.verdict);
+                            }}
                             missing={Boolean(missingEvidence[field.id])}
                             onToggleMissing={(v) => toggleMissing(field.id, v)}
                             issueCategories={issueCategories}
@@ -1999,7 +2084,14 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                             onAddPhoto={(key) => addVerdictPhoto(field.id, key)}
                             onRemovePhoto={(key) => removeVerdictPhoto(field.id, key)}
                           >
-                            {answerable ? (
+                            {legacyDerived ? (
+                              // The Pass/Minor/Fail control is gone — keep the
+                              // item label; the verdict row derives the answer.
+                              <div className="text-sm font-medium text-foreground">
+                                {field.label}
+                                {field.required ? <span className="ml-1 text-destructive">*</span> : null}
+                              </div>
+                            ) : answerable ? (
                               <FieldInput
                                 field={field}
                                 value={data[field.id]}

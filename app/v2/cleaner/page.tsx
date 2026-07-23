@@ -17,6 +17,7 @@ import { AlertTriangle, CheckCircle2, ChevronRight, Clock, Coins, MapPin, Timer 
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { DailyBriefing } from "@/components/v2/cleaner/daily-briefing";
 import { CleanerCoachingCard } from "@/components/v2/cleaner/coaching-card";
+import { CleanerQaFeedbackCard } from "@/components/v2/cleaner/qa-feedback-card";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { getAppSettings } from "@/lib/settings";
@@ -222,6 +223,9 @@ export default async function CleanerTodayPage() {
 
       {/* Coaching & feedback — self-hides when the cleaner has no records */}
       <CleanerCoachingCard />
+
+      {/* QA feedback — recent inspection outcomes, self-hides when empty */}
+      <CleanerQaFeedbackCard />
 
       <section className="grid grid-cols-3 gap-3">
         <EStatCard label="Today" value={String(jobCount)} />
