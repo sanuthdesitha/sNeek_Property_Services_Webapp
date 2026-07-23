@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { QaReworkSeverity, QaReworkTransferStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -44,8 +46,11 @@ type ReworkRow = {
   status: QaReworkTransferStatus;
   reason: string;
   areas: unknown;
+  createdAt: Date;
+  minutesFromCleaner: number | null;
+  amountFromCleaner: number | null;
   cleaner: { name: string | null } | null;
-  job: { property: { name: string | null; suburb: string | null } | null } | null;
+  job: { id: string; scheduledDate: Date | null; property: { name: string | null; suburb: string | null } | null } | null;
 };
 
 async function getRework(): Promise<ReworkRow[]> {
@@ -59,11 +64,39 @@ async function getRework(): Promise<ReworkRow[]> {
         status: true,
         reason: true,
         areas: true,
+        // The list was ORDERED by createdAt but never showed it, and hid the
+        // time/pay being moved off the cleaner — the figures that make a rework
+        // row reviewable.
+        createdAt: true,
+        minutesFromCleaner: true,
+        amountFromCleaner: true,
         cleaner: { select: { name: true } },
-        job: { select: { property: { select: { name: true, suburb: true } } } },
+        job: {
+          select: { id: true, scheduledDate: true, property: { select: { name: true, suburb: true } } },
+        },
       },
     })
     .catch(() => [] as ReworkRow[]);
+}
+
+const TZ = "Australia/Sydney";
+
+function shortDate(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return format(toZonedTime(value, TZ), "EEE d MMM");
+  } catch {
+    return null;
+  }
+}
+
+function dateTime(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return format(toZonedTime(value, TZ), "d MMM · HH:mm");
+  } catch {
+    return null;
+  }
 }
 
 function areaSummary(areas: unknown): string | null {
@@ -88,6 +121,8 @@ export default async function QaReworkPage() {
             const propName = f.job?.property?.name ?? "Property";
             const suburb = f.job?.property?.suburb ?? "";
             const areas = areaSummary(f.areas);
+            const jobDate = shortDate(f.job?.scheduledDate);
+            const raisedAt = dateTime(f.createdAt);
             return (
               <ECard key={f.id}>
                 <ECardBody className="space-y-2 pt-6">
@@ -100,7 +135,23 @@ export default async function QaReworkPage() {
                   </div>
                   {areas ? <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{areas}</p> : null}
                   <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{f.reason}</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Cleaner: {f.cleaner?.name ?? "Unassigned"}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    Cleaner: {f.cleaner?.name ?? "Unassigned"}
+                    {jobDate ? <> · Job <span className="tabular-nums">{jobDate}</span></> : null}
+                    {raisedAt ? <> · Raised <span className="tabular-nums">{raisedAt}</span></> : null}
+                  </p>
+                  {/* What is actually being moved off the cleaner — pending until
+                      an admin approves it in the Approval Center. */}
+                  {f.minutesFromCleaner || f.amountFromCleaner ? (
+                    <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))]">
+                      {f.minutesFromCleaner ? <span className="tabular-nums">{f.minutesFromCleaner} min</span> : null}
+                      {f.minutesFromCleaner && f.amountFromCleaner ? " · " : ""}
+                      {f.amountFromCleaner ? (
+                        <span className="tabular-nums">${f.amountFromCleaner.toFixed(2)}</span>
+                      ) : null}
+                      <span className="font-normal text-[hsl(var(--e-muted-foreground))]"> from cleaner</span>
+                    </p>
+                  ) : null}
                 </ECardBody>
               </ECard>
             );
