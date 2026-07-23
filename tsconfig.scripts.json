@@ -1,0 +1,20 @@
+{
+  // tsconfig used ONLY for running maintenance scripts with tsx, e.g.
+  //   npx tsx --tsconfig tsconfig.scripts.json scripts/bake-standard-sections.ts
+  //
+  // Server modules like lib/db.ts begin with `import "server-only"`. Next
+  // special-cases that at build time to stop server code leaking into a client
+  // bundle, and we want to keep that guard. But outside Next it breaks scripts:
+  // in a pruned production image the package isn't installed at all, and the
+  // real npm package deliberately throws when imported outside a React Server
+  // Component. Mapping it to a local no-op here lets scripts run in dev AND in
+  // the deployed container, while the app's own tsconfig — and therefore the
+  // build-time guard — is completely untouched.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "server-only": ["./scripts/_stubs/server-only.ts"]
+    }
+  }
+}
