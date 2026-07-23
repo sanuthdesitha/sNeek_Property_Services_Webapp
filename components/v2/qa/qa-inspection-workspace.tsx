@@ -72,6 +72,8 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { getAccuratePosition, formatAccuracy } from "@/lib/geo/get-position";
 import type { BriefItem } from "@/lib/qa/brief-rules";
+import { predictionBasis } from "@/lib/qa/progress";
+import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { isStampableImage, type StampOptions } from "@/lib/uploads/stamp";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import {
@@ -756,6 +758,169 @@ function AccountabilityItemV2({
   );
 }
 
+/* ── monitor mode (job assigned before the clean finished) ──────────────
+   Rendered INSTEAD of the check-in gate + grading steps while the cleaner is
+   still working. Everything on it is knowable without a submission: where the
+   property is, who is on site, how long they've been there, when we expect them
+   to finish, and the brief rules that don't depend on submitted work. */
+function monitorHhmm(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function monitorDuration(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(Number(minutes))) return null;
+  const total = Math.max(0, Math.round(Number(minutes)));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function QaMonitorPanel({
+  readiness,
+  progress,
+  job,
+  brief,
+  refreshing,
+  onRefresh,
+}: {
+  readiness: "CLEANING" | "READY" | "REWORK_PENDING";
+  progress: any;
+  job: any;
+  brief: BriefItem[];
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const property = progress?.property ?? job?.property ?? null;
+  const directionsUrl = googleMapsDirectionsUrl({
+    address: property?.address ?? null,
+    suburb: property?.suburb ?? null,
+    state: property?.state ?? null,
+    postcode: property?.postcode ?? null,
+    latitude: property?.lat ?? property?.latitude ?? null,
+    longitude: property?.lng ?? property?.longitude ?? null,
+  });
+  const estFinish = monitorHhmm(progress?.estFinishAt);
+  const onSite = monitorDuration(progress?.elapsedMinutes);
+  const remaining = monitorDuration(progress?.minutesRemaining);
+  const basis = predictionBasis(progress?.prediction, progress?.prediction?.sampleCount);
+  const cleaners: Array<{ id: string; name: string; elapsedMinutes: number | null }> = progress?.cleaners ?? [];
+  const highlights: string[] = progress?.timingHighlights ?? [];
+
+  return (
+    <ECard>
+      <ECardHeader>
+        <ECardTitle className="flex flex-wrap items-center gap-2">
+          <Clock className="h-4 w-4" style={{ color: "hsl(var(--e-accent-portal))" }} />
+          {readiness === "REWORK_PENDING" ? "Rework in progress" : "Clean in progress"}
+          <EBadge tone="warning" soft>{titleCase(String(progress?.status ?? job?.status ?? ""))}</EBadge>
+          {progress?.runningOver ? <EBadge tone="danger" soft>Running over</EBadge> : null}
+        </ECardTitle>
+      </ECardHeader>
+      <ECardBody className="space-y-4">
+        {/* big live state */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-4">
+            <p className="e-eyebrow">On site</p>
+            <p className="mt-1 text-[1.5rem] font-semibold leading-none">{onSite ?? "—"}</p>
+            <p className="mt-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              {cleaners.length > 0 ? cleaners.map((c) => c.name).join(", ") : "No cleaner clocked in yet"}
+            </p>
+          </div>
+          <div
+            className="rounded-[var(--e-radius)] border p-4"
+            style={{
+              borderColor: progress?.runningOver ? "hsl(var(--e-danger))" : "hsl(var(--e-border))",
+              backgroundColor: progress?.runningOver ? "hsl(var(--e-danger-soft))" : "hsl(var(--e-surface-raised))",
+            }}
+          >
+            <p className="e-eyebrow">EST finish</p>
+            <p className="mt-1 text-[1.5rem] font-semibold leading-none">{estFinish ?? "Unknown"}</p>
+            <p className="mt-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              {progress?.runningOver
+                ? "Past the estimate — check in with the cleaner."
+                : [remaining ? `${remaining} to go` : null, basis].filter(Boolean).join(" · ") ||
+                  "Not enough history to estimate yet."}
+            </p>
+          </div>
+        </div>
+
+        {progress?.checklist ? (
+          <div>
+            <div className="flex items-center justify-between text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              <span>Cleaner checklist</span>
+              <span>
+                {progress.checklist.answered}/{progress.checklist.total} · {progress.checklist.percent}%
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[hsl(var(--e-surface-raised))]">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${progress.checklist.percent}%`, backgroundColor: "hsl(var(--e-gold))" }}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {/* travel planning */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+          <div className="min-w-0">
+            <p className="text-[0.8125rem] font-medium">{property?.name ?? "Property"}</p>
+            <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              {[property?.address, property?.suburb].filter(Boolean).join(", ") || "No address on file"}
+            </p>
+          </div>
+          {directionsUrl ? (
+            <EButton asChild variant="outline" size="sm">
+              <a href={directionsUrl} target="_blank" rel="noopener noreferrer">
+                <MapPin className="h-4 w-4" /> Navigate
+              </a>
+            </EButton>
+          ) : null}
+        </div>
+
+        {/* timing highlights + guest arrival */}
+        {highlights.length > 0 || progress?.guestArrivalAt ? (
+          <div className="space-y-1.5">
+            {highlights.map((item) => (
+              <p key={item} className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                • {item}
+              </p>
+            ))}
+            {progress?.guestArrivalAt ? (
+              <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                • Guest arrival: {progress.guestArrivalAt}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* brief items that are already knowable */}
+        {brief.length > 0 ? (
+          <div className="space-y-2">
+            <p className="e-eyebrow">Know before you go</p>
+            {brief.map((item) => (
+              <EAlert key={item.id} tone={item.tone === "danger" ? "danger" : item.tone === "warning" ? "warning" : "info"}>
+                <span className="font-[550]">{item.title}</span> — {item.detail}
+              </EAlert>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] pt-3">
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Inspection unlocks when the cleaner submits — this page updates itself every 45 seconds.
+          </p>
+          <EButton variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Refresh
+          </EButton>
+        </div>
+      </ECardBody>
+    </ECard>
+  );
+}
+
 /* ── main workspace ───────────────────────────────────────────────────── */
 export function QaInspectionWorkspace({
   jobId,
@@ -982,6 +1147,57 @@ export function QaInspectionWorkspace({
     if (ratio > 1.3) return "hsl(var(--e-warning))";
     return "hsl(var(--e-success))";
   }, [briefJob?.expectedHours, briefJob?.actualHours]);
+
+  /* ── MONITOR MODE (early assignment) ──────────────────────────────────
+     An admin can hand out this inspection BEFORE the cleaner submits, so the
+     workspace must not dead-end on "nothing to grade". While the job is not
+     READY we render a live monitor panel (EST finish, navigation, brief items
+     that are already knowable) and poll /progress; the moment readiness flips
+     to READY the normal check-in → brief → grade flow appears in place, with no
+     page reload and no loss of the local draft. */
+  const [progress, setProgress] = useState<any>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const readiness: "CLEANING" | "READY" | "REWORK_PENDING" = useMemo(() => {
+    if (progress?.readiness) return progress.readiness;
+    const status = String(job?.status ?? "").toUpperCase();
+    if ((job?.formSubmissions?.length ?? 0) > 0) return "READY";
+    if (["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(status)) return "READY";
+    if (!job) return "READY"; // don't flash the monitor before the job loads
+    return job?.isRework ? "REWORK_PENDING" : "CLEANING";
+  }, [progress?.readiness, job]);
+  const monitoring = readiness !== "READY";
+
+  const loadProgress = useCallback(async () => {
+    setProgressLoading(true);
+    try {
+      const res = await fetch(`/api/qa/jobs/${jobId}/progress`, { cache: "no-store" });
+      if (res.ok) setProgress(await res.json());
+    } catch {
+      /* the monitor is advisory — a failed poll just leaves the last values */
+    } finally {
+      setProgressLoading(false);
+    }
+  }, [jobId]);
+
+  // Fetch once the job is known, then poll while the clean is still running.
+  useEffect(() => {
+    if (!job) return;
+    void loadProgress();
+  }, [job?.id, loadProgress]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!monitoring) return;
+    const interval = setInterval(() => void loadProgress(), 45_000);
+    return () => clearInterval(interval);
+  }, [monitoring, loadProgress]);
+
+  // Readiness flipped while we were watching — pull the full inspection payload
+  // (template, submission, media) so the grading flow renders complete.
+  const wasMonitoringRef = useRef(false);
+  useEffect(() => {
+    if (wasMonitoringRef.current && !monitoring) void load();
+    wasMonitoringRef.current = monitoring;
+  }, [monitoring, load]);
 
   // The gate: an assignment exists and nothing has been stamped yet. Ad-hoc
   // reviews without an assignment (admin) are never gated.
@@ -1588,7 +1804,18 @@ export function QaInspectionWorkspace({
       {/* ── ARRIVAL CHECK-IN GATE ──
           The inspection is locked until the inspector stamps an arrival (or
           explicitly records a remote review with a reason). */}
-      {needsCheckIn ? (
+      {monitoring ? (
+        <QaMonitorPanel
+          readiness={readiness}
+          progress={progress}
+          job={job}
+          brief={brief}
+          refreshing={progressLoading}
+          onRefresh={() => void loadProgress()}
+        />
+      ) : null}
+
+      {!monitoring && needsCheckIn ? (
         <ECard>
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2">
@@ -1665,7 +1892,7 @@ export function QaInspectionWorkspace({
         </div>
       ) : null}
 
-      <div className={needsCheckIn ? "hidden" : "space-y-6"}>
+      <div className={needsCheckIn || monitoring ? "hidden" : "space-y-6"}>
       {/* step tabs */}
       <div className="sticky top-0 z-20 flex gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 p-2 backdrop-blur">
         {QA_STEPS.map((label, i) => (
