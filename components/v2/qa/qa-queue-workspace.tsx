@@ -94,6 +94,23 @@ function durationLabel(minutes: number | null | undefined): string | null {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/**
+ * "Wed 23 Jul" — the job's scheduled date, always shown on the row. The queue
+ * spans multiple days (date-range filter), so a time-only slot is ambiguous
+ * without it.
+ */
+function jobDateLabel(job: any): string | null {
+  if (!job?.scheduledDate) return null;
+  const d = new Date(job.scheduledDate);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "Australia/Sydney",
+  });
+}
+
 /** Planned slot for a row: the assignment's scheduledFor, else the job window. */
 function slotLabel(assignment: any, job: any): string | null {
   if (assignment?.scheduledFor) {
@@ -451,6 +468,7 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
           filtered.map((row, index) => {
             const state = jobStateChip(row.job);
             const slot = slotLabel(row.assignment, row.job);
+            const jobDate = jobDateLabel(row.job);
             const seq = row.assignment?.sequence ?? null;
             const readiness = readinessOf(row.job);
             const progress = progressByJob[row.jobId] ?? null;
@@ -508,6 +526,7 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                     {[row.job?.property?.address, row.job?.property?.suburb].filter(Boolean).join(", ")}
                   </p>
                   <p className="flex flex-wrap items-center gap-x-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                    {jobDate ? <span className="tabular-nums font-[550] text-[hsl(var(--e-text-secondary))]">{jobDate}</span> : null}
                     {slot ? (
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5" /> {slot}

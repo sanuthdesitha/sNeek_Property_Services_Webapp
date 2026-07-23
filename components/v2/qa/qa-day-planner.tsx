@@ -145,7 +145,20 @@ function InspectorColumn({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[0.8125rem] font-medium">{row.job?.property?.name ?? "Property"}</p>
                 <p className="truncate text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                  {[row.job?.property?.suburb, row.job?.status].filter(Boolean).join(" · ")}
+                  {[
+                    row.job?.scheduledDate
+                      ? new Date(row.job.scheduledDate).toLocaleDateString("en-AU", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                          timeZone: "Australia/Sydney",
+                        })
+                      : null,
+                    row.job?.property?.suburb,
+                    row.job?.status,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </div>
               <EInput
