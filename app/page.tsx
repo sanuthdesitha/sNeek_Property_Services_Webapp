@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import type { Metadata } from "next";
 import { getSession } from "@/lib/auth/session";
+import { getDefaultPortalVersion } from "@/lib/portal-version-store";
+import { PORTAL_VERSION_COOKIE, effectivePortalVersion, parsePortalVersion } from "@/lib/portal-version";
 import { Role } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { PublicSiteShell } from "@/components/public/public-site-shell";
@@ -115,11 +118,26 @@ export default async function HomePage() {
     );
   }
 
+  // Signed-in users get sent to their portal in the current look. This is the
+  // landing spot for the classic sign-in flow, so it is where "make v2 the
+  // default" has to be honoured — otherwise everyone would touch down in v1
+  // and only then be bounced.
+  //
+  // QA_INSPECTOR and MAINTENANCE were missing here and fell through to
+  // /login, which middleware then bounced straight back — a redirect loop for
+  // those two roles. Every role is now covered.
   const role = session.user.role as Role;
-  if (role === Role.ADMIN || role === Role.OPS_MANAGER) return redirect("/admin");
-  if (role === Role.CLEANER) return redirect("/cleaner");
-  if (role === Role.CLIENT) return redirect("/client");
-  if (role === Role.LAUNDRY) return redirect("/laundry");
+  const look = effectivePortalVersion(
+    await getDefaultPortalVersion(),
+    parsePortalVersion(cookies().get(PORTAL_VERSION_COOKIE)?.value),
+  );
+  const v2 = look === "v2";
+  if (role === Role.ADMIN || role === Role.OPS_MANAGER) return redirect(v2 ? "/v2/admin" : "/admin");
+  if (role === Role.CLEANER) return redirect(v2 ? "/v2/cleaner" : "/cleaner");
+  if (role === Role.CLIENT) return redirect(v2 ? "/v2/client" : "/client");
+  if (role === Role.LAUNDRY) return redirect(v2 ? "/v2/laundry" : "/laundry");
+  if (role === Role.QA_INSPECTOR) return redirect(v2 ? "/v2/qa" : "/qa");
+  if (role === Role.MAINTENANCE) return redirect(v2 ? "/v2/maintenance" : "/maintenance");
 
   return redirect("/login");
 }

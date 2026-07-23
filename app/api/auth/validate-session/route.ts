@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getUserExtendedProfile } from "@/lib/accounts/user-details";
 import { getAuthUserState, getMissingRequiredProfileFields } from "@/lib/auth/account-state";
 import { resolveImpersonation } from "@/lib/auth/impersonation-server";
+import { getDefaultPortalVersion } from "@/lib/portal-version-store";
 
 export async function GET(request: NextRequest) {
   const token = await getToken({
@@ -30,6 +31,13 @@ export async function GET(request: NextRequest) {
   // and password-reset prompts are suppressed: those belong to the real user's
   // account, and forcing an admin through a cleaner's onboarding wizard would
   // both be wrong and write to that cleaner's record.
+
+  // Which look (v1 classic / v2 Estate) is the house default. Middleware runs
+  // on the edge and cannot touch Prisma, so it rides along on the call
+  // middleware already makes for every authenticated navigation rather than
+  // costing a second round trip.
+  const defaultPortalVersion = await getDefaultPortalVersion();
+
   const impersonation = await resolveImpersonation(user.id);
   if (impersonation) {
     return NextResponse.json({
@@ -38,6 +46,7 @@ export async function GET(request: NextRequest) {
       requiresPasswordReset: false,
       requiresOnboarding: false,
       impersonating: true,
+      defaultPortalVersion,
     });
   }
 
@@ -56,5 +65,6 @@ export async function GET(request: NextRequest) {
     role: user.role,
     requiresPasswordReset: authState?.requiresPasswordReset === true,
     requiresOnboarding,
+    defaultPortalVersion,
   });
 }

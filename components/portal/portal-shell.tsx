@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import type { PortalTheme } from "@/lib/settings";
 import { ProfileCompletionGate } from "@/components/shared/profile-completion-gate";
 import { ShieldCheck } from "lucide-react";
+import { LookSwitchLink } from "@/components/look-switch-link";
 
 type PortalNavItem = {
   href: string;
@@ -225,6 +226,14 @@ export function PortalShell({
             <Settings2 className="h-4 w-4 shrink-0" />
             {!compact && <span>Settings</span>}
           </Link>
+
+          {/* Personal switch to the Estate look, independent of the house
+              default in Settings → Default look. */}
+          {!compact ? (
+            <div className="px-2.5 py-1">
+              <LookSwitchLink className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground" />
+            </div>
+          ) : null}
 
           {!compact ? (
             <div className="flex items-center gap-2.5 rounded-xl px-2.5 py-2">

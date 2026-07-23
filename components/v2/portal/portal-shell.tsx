@@ -10,6 +10,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
+import { LookSwitchLink } from "@/components/look-switch-link";
 import { LogOut, Menu, X } from "lucide-react";
 
 export interface NavItem {
@@ -92,6 +93,11 @@ export function PortalShell({
         })}
       </nav>
       <div className="border-t border-[hsl(var(--e-sidebar-hairline))] px-4 py-3">
+        {/* Personal escape hatch to the classic app, independent of the house
+            default set in Settings → Default look. */}
+        <div className="mb-2">
+          <LookSwitchLink />
+        </div>
         <div className="flex items-center gap-3">
           <span
             className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[0.75rem] font-semibold text-[hsl(var(--e-sidebar-active-fg))] ring-2"
