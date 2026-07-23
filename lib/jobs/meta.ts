@@ -117,6 +117,15 @@ const DEFAULT_RULE: JobTimingRule = {
   preset: "none",
 };
 
+// Internal bookkeeping tag prefixes — admin surfaces may show them, but they
+// are hidden from cleaner/client-facing tag chips.
+const INTERNAL_TAG_PREFIXES = ["rework-of:"];
+
+/** True for internal bookkeeping tags (e.g. "rework-of:<jobId>"). */
+export function isInternalJobTag(tag: string): boolean {
+  return INTERNAL_TAG_PREFIXES.some((prefix) => tag.startsWith(prefix));
+}
+
 export function defaultJobMeta(): JobMeta {
   return {
     version: 1,

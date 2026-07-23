@@ -231,7 +231,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           },
           assignments: {
             where: { removedAt: null },
-            select: { user: { select: { id: true, name: true, email: true } } },
+            select: { user: { select: { id: true, name: true, email: true, hourlyRate: true } } },
           },
           jobTasks: true,
           laundryTask: { include: { confirmations: { orderBy: { createdAt: "desc" }, take: 1 } } },
@@ -282,7 +282,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // The cleaners on the job roster — candidates for the rework transfer.
     const cleanerCandidates = job.assignments
       .map((a) => a.user)
-      .filter((u): u is { id: string; name: string | null; email: string } => Boolean(u));
+      .filter((u): u is { id: string; name: string | null; email: string; hourlyRate: number | null } => Boolean(u));
+
+    // The whole active cleaner roster — payee candidates for "Assign a
+    // different cleaner", which must not be limited to who was on the job.
+    const reworkPayeeCandidates = await db.user.findMany({
+      where: { role: Role.CLEANER, isActive: true },
+      select: { id: true, name: true, email: true, hourlyRate: true },
+      orderBy: { name: "asc" },
+    });
 
     // Resolve previously-saved per-section QA photos (keys → presigned URLs) so
     // re-opening the QA job shows the existing thumbnails.
@@ -561,6 +569,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       mediaOverrides,
       propertyStock,
       cleanerCandidates,
+      reworkPayeeCandidates,
       sectionPhotos,
       watchOuts,
       brief,
@@ -639,6 +648,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (!rkPre.payeeCleanerId || !(Number(rkPre.payAmount) > 0)) {
         return NextResponse.json(
           { error: "Select the cleaner and a pay amount for a reassigned rework." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Every flagged area feeding a rework job must carry the inspector's photo —
+    // it's the cleaner's only evidence of what to fix. (Legacy flat `areas` have
+    // no photo field and are exempt.)
+    if (willCreateRework) {
+      const missingPhotoArea = (rkPre?.flaggedAreas ?? []).find((a) => (a.photoKeys ?? []).length === 0);
+      if (missingPhotoArea) {
+        return NextResponse.json(
+          { error: `Add at least one photo for the flagged area "${missingPhotoArea.label}".` },
           { status: 400 }
         );
       }

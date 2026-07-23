@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import {
   getJobTimingHighlights,
+  isInternalJobTag,
   mergeUniqueJobHighlights,
   parseJobInternalNotes,
 } from "@/lib/jobs/meta";
@@ -256,6 +257,7 @@ export default async function CleanerJobsPage({
             <div className="divide-y">
               {sortedJobs.map((job) => {
                 const jobMeta = parseJobInternalNotes(job.internalNotes);
+                const visibleTags = jobMeta.tags.filter((tag) => !isInternalJobTag(tag));
                 const timingHighlights = mergeUniqueJobHighlights(
                   getJobTimingHighlights(jobMeta),
                   [job.priorityReason]
@@ -302,9 +304,9 @@ export default async function CleanerJobsPage({
                           ))}
                         </div>
                       ) : null}
-                      {(jobMeta.tags?.length ?? 0) > 0 || hasCleanerNotes ? (
+                      {visibleTags.length > 0 || hasCleanerNotes ? (
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {jobMeta.tags?.map((tag) => (
+                          {visibleTags.map((tag) => (
                             <Badge
                               key={`${job.id}-tag-${tag}`}
                               variant="secondary"

@@ -1219,7 +1219,12 @@ export function QaInspectionWorkspace({
     job?.property?.postcode,
   ]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
-  const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> = payload?.cleanerCandidates ?? [];
+  const cleanerCandidates: Array<{ id: string; name: string | null; email: string; hourlyRate?: number | null }> =
+    payload?.cleanerCandidates ?? [];
+  // The whole active roster for "Assign a different cleaner" (older payloads
+  // only carry the job's own cleaners).
+  const reworkPayeeCandidates: Array<{ id: string; name: string | null; email: string; hourlyRate?: number | null }> =
+    payload?.reworkPayeeCandidates ?? cleanerCandidates;
   const existingReworks: any[] = job?.qaReworkTransfers ?? [];
   const latestSubmission = job?.formSubmissions?.[0];
   const mediaItems = useMemo(
@@ -1433,7 +1438,22 @@ export function QaInspectionWorkspace({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const body = await res.json().catch(() => null);
+        // Reconcile a start with the server's authoritative segment start +
+        // accumulated minutes (the local clock keeps ticking in the meantime).
+        if (action === "start" && body?.persisted && body.onSiteStartedAt) {
+          const accMs = Math.max(0, Number(body.onSiteMinutes ?? 0)) * 60000;
+          const since = new Date(body.onSiteStartedAt).getTime();
+          if (Number.isFinite(since)) {
+            // Skip if the inspector already paused/ended before the response.
+            setTimer((p) => (p.running ? { running: true, elapsedMs: accMs, runningSince: since } : p));
+          }
+        }
+      })
+      .catch(() => {});
   }
   function startOrResumeOnSite() {
     setTimer((p) => (p.running ? p : { ...p, running: true, runningSince: Date.now() }));
@@ -1748,13 +1768,49 @@ export function QaInspectionWorkspace({
   const reworkDecision: "OFFER_ORIGINAL" | "OTHER" | "QA_SELF" =
     rework.decision ?? (rework.assignee === "OTHER" ? "OTHER" : "OFFER_ORIGINAL");
 
+  // "Different cleaner" can be anyone active EXCEPT the original cleaner — the
+  // same-cleaner path is the separate "Offer it back" decision.
+  const originalCleanerId = cleanerCandidates[0]?.id ?? null;
+  const payeeOptions = reworkPayeeCandidates.filter((c) => c.id !== originalCleanerId);
+  // Hours basis for the pay suggestion: allocated rework hours, else the job's
+  // estimated hours.
+  const reworkHoursBasis =
+    rework.allocatedHours ?? (Number(job?.estimatedHours ?? 0) > 0 ? Number(job.estimatedHours) : null);
+  const paySuggestion = useMemo(() => {
+    const payee = reworkPayeeCandidates.find((c) => c.id === rework.payeeCleanerId);
+    const rate = Number(payee?.hourlyRate ?? 0);
+    if (!(rate > 0) || !(Number(reworkHoursBasis ?? 0) > 0)) return null;
+    const hours = Number(reworkHoursBasis);
+    return { hours, rate, amount: Math.round(hours * rate * 100) / 100 };
+  }, [reworkPayeeCandidates, rework.payeeCleanerId, reworkHoursBasis]);
+  const originalCleanerRate = Number(cleanerCandidates[0]?.hourlyRate ?? 0);
+  const selfClaimSuggestion =
+    reworkDecision === "QA_SELF" && originalCleanerRate > 0 && rework.minutesFromCleaner > 0
+      ? Math.round((rework.minutesFromCleaner / 60) * originalCleanerRate * 100) / 100
+      : null;
+
+  // Suggested defaults only — an amount the inspector already typed is never
+  // overwritten.
+  useEffect(() => {
+    if (!rework.enabled || reworkDecision !== "OTHER") return;
+    if (rework.payAmount > 0 || !paySuggestion) return;
+    setRework({ payAmount: paySuggestion.amount });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rework.enabled, reworkDecision, rework.payeeCleanerId, paySuggestion?.amount]);
+  useEffect(() => {
+    if (!rework.enabled || reworkDecision !== "QA_SELF") return;
+    if (rework.amountFromCleaner > 0 || selfClaimSuggestion == null) return;
+    setRework({ amountFromCleaner: selfClaimSuggestion });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rework.enabled, reworkDecision, rework.minutesFromCleaner, selfClaimSuggestion]);
+
   /** What the chosen rework path actually costs, line by line. */
   const reworkMoneyPreview = useMemo(() => {
     const originalName = cleanerCandidates[0]?.name || cleanerCandidates[0]?.email || "Original cleaner";
     const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
     if (reworkDecision === "OTHER") {
       const payee =
-        cleanerCandidates.find((c) => c.id === rework.payeeCleanerId)?.name ?? "New cleaner";
+        reworkPayeeCandidates.find((c) => c.id === rework.payeeCleanerId)?.name ?? "New cleaner";
       return [
         { label: `Paid to ${payee}`, value: money(rework.payAmount), color: "hsl(var(--e-success))" },
         {
@@ -1795,6 +1851,7 @@ export function QaInspectionWorkspace({
     rework.amountFromCleaner,
     rework.minutesFromCleaner,
     cleanerCandidates,
+    reworkPayeeCandidates,
   ]);
 
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
@@ -1835,6 +1892,15 @@ export function QaInspectionWorkspace({
       }
       if (rework.flaggedAreas.filter((a) => a.label.trim()).length === 0) {
         pushToast({ title: "Flag at least one area for the cleaner to fix.", tone: "danger" });
+        return;
+      }
+      const areaWithoutPhoto = rework.flaggedAreas.find((a) => a.photoKeys.length === 0);
+      if (areaWithoutPhoto) {
+        pushToast({
+          title: "Add a photo for each flagged area",
+          description: `"${areaWithoutPhoto.label.trim() || "Flagged area"}" has no photo of the problem.`,
+          tone: "danger",
+        });
         return;
       }
       if (reworkDecision === "OTHER") {
@@ -2815,7 +2881,14 @@ export function QaInspectionWorkspace({
                         onChange={(e) => setRework({ minutesFromCleaner: Number(e.target.value || 0) })}
                       />
                     </EField>
-                    <EField label="Amount to move ($)">
+                    <EField
+                      label="Amount to move ($)"
+                      hint={
+                        selfClaimSuggestion != null
+                          ? `Suggested: ${rework.minutesFromCleaner} min × $${originalCleanerRate}/h = $${selfClaimSuggestion.toFixed(2)}`
+                          : undefined
+                      }
+                    >
                       <EInput
                         type="number"
                         min={0}
@@ -2832,12 +2905,19 @@ export function QaInspectionWorkspace({
                     <EField label="New cleaner">
                       <ESelect value={rework.payeeCleanerId ?? ""} onChange={(e) => setRework({ payeeCleanerId: e.target.value })}>
                         <option value="">Select cleaner</option>
-                        {cleanerCandidates.map((c) => (
+                        {payeeOptions.map((c) => (
                           <option key={c.id} value={c.id}>{c.name || c.email}</option>
                         ))}
                       </ESelect>
                     </EField>
-                    <EField label="Pay amount ($)">
+                    <EField
+                      label="Pay amount ($)"
+                      hint={
+                        paySuggestion
+                          ? `Suggested: ${paySuggestion.hours}h × $${paySuggestion.rate}/h = $${paySuggestion.amount.toFixed(2)}`
+                          : undefined
+                      }
+                    >
                       <EInput type="number" min={0} step="0.01" value={rework.payAmount || ""} onChange={(e) => setRework({ payAmount: Number(e.target.value || 0) })} />
                     </EField>
                   </div>

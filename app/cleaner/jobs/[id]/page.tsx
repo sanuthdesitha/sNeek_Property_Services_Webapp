@@ -20,7 +20,7 @@ import { AccessInstructionsPanel } from "@/components/shared/access-instructions
 import { PropertyAccessGuide } from "@/components/cleaner/property-access-guide";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { SignaturePad } from "@/components/shared/signature-pad";
-import type { JobSpecialRequestTask } from "@/lib/jobs/meta";
+import { isInternalJobTag, type JobSpecialRequestTask } from "@/lib/jobs/meta";
 import {
   collectRequiredAnswerFields,
   isTemplateNodeVisible,
@@ -1715,7 +1715,9 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const cleanerInstructionText =
     typeof payload?.jobMeta?.internalNoteText === "string" ? payload.jobMeta.internalNoteText.trim() : "";
   const cleanerTags: string[] = Array.isArray(payload?.jobMeta?.tags)
-    ? payload.jobMeta.tags.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+    ? payload.jobMeta.tags
+        .filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+        .filter((tag: string) => !isInternalJobTag(tag))
     : [];
   const hasJobNotes = Boolean(typeof job?.notes === "string" && job.notes.trim().length > 0);
   const unifiedJobTasks: Array<any> = Array.isArray(payload?.jobTasks)
