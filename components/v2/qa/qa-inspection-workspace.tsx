@@ -42,6 +42,10 @@ import {
   Loader2,
   Image as ImageIcon,
   MapPin,
+  Pencil,
+  ChevronDown,
+  Info,
+  Undo2,
 } from "lucide-react";
 import {
   EAlert,
@@ -69,6 +73,7 @@ import {
 } from "@/lib/qa/inspection-tools";
 import { buildEvidenceStamp } from "@/components/v2/cleaner/media-capture";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { ImageAnnotator } from "@/components/shared/image-annotator";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { getAccuratePosition, formatAccuracy } from "@/lib/geo/get-position";
 import type { BriefItem } from "@/lib/qa/brief-rules";
@@ -85,7 +90,9 @@ import {
   cleanerAnsweredAffirmatively,
   computeAccountabilityPreview,
   emptyVerdictState,
+  gradingExplainer,
   validateAccountability,
+  verdictGuide,
   verdictRequiresIssue,
   type AccountabilityScoring,
   type AccountabilityVerdict,
@@ -398,16 +405,31 @@ function EFieldInput({
   );
 }
 
-/* ── A photo thumbnail with remove control ────────────────────────────── */
+/* ── A photo thumbnail with remove control, and (for images) an "Annotate"
+ *    action that opens the shared full-screen markup tool. The markup overlay
+ *    is layered over the thumbnail so a marked-up photo reads at a glance.
+ *    Annotation is always optional — it never blocks submit and the original
+ *    photo is kept untouched (the overlay is stored alongside it). ────────── */
 function Thumb({
   url,
+  overlayUrl,
   video,
+  annotated,
+  annotateTitle,
+  onAnnotate,
   onRemove,
 }: {
   url?: string;
+  /** Transparent markup PNG stored against this photo, if any. */
+  overlayUrl?: string;
   video?: boolean;
+  annotated?: boolean;
+  annotateTitle?: string;
+  /** Omit to render a plain thumbnail (e.g. read-only contexts). */
+  onAnnotate?: () => void;
   onRemove: () => void;
 }) {
+  const canAnnotate = Boolean(onAnnotate) && !video && Boolean(url);
   return (
     <div className="relative">
       {url && video ? (
@@ -420,6 +442,26 @@ function Thumb({
           <ImageIcon className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
         </div>
       )}
+      {overlayUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={overlayUrl} alt="" className="pointer-events-none absolute inset-0 h-16 w-16 rounded-[var(--e-radius)] object-cover" />
+      ) : null}
+      {canAnnotate ? (
+        <button
+          type="button"
+          aria-label="Annotate photo"
+          title={annotateTitle || "Circle, arrow or label what's wrong on this photo"}
+          className="absolute -bottom-1.5 -left-1.5 rounded-full bg-[hsl(var(--e-primary))] p-1 text-[hsl(var(--e-primary-foreground))] shadow"
+          onClick={onAnnotate}
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      ) : null}
+      {annotated ? (
+        <span className="pointer-events-none absolute left-0 top-0 rounded-br-[var(--e-radius)] rounded-tl-[var(--e-radius)] bg-[hsl(var(--e-primary))] px-1 py-0.5 text-[8px] font-bold text-[hsl(var(--e-primary-foreground))]">
+          ✎
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label="Remove"
@@ -616,8 +658,10 @@ function AccountabilityItemV2({
   jobId,
   qaStamp,
   urlByKey,
+  scoring,
   onAddPhoto,
   onRemovePhoto,
+  onAnnotatePhoto,
   onError,
   children,
 }: {
@@ -632,12 +676,16 @@ function AccountabilityItemV2({
   jobId?: string;
   qaStamp: StampOptions;
   urlByKey: Record<string, string>;
+  /** Live scoring settings — the guidance quotes the numbers actually applied. */
+  scoring: AccountabilityScoring;
   onAddPhoto: (key: string, url?: string) => void;
   onRemovePhoto: (key: string) => void;
+  onAnnotatePhoto: (key: string, url: string) => void;
   onError: (msg: string) => void;
   children?: ReactNode;
 }) {
   const showIssue = verdictRequiresIssue(state.verdict);
+  const guide = verdictGuide(state.verdict, scoring);
   const missingCategory = showIssue && !(state.category && state.category.trim());
   const missingDescription = showIssue && !(state.description && state.description.trim());
   return (
@@ -646,7 +694,7 @@ function AccountabilityItemV2({
       <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))]">
-            Verdict
+            How was it done?
           </span>
           {meta.cleanerMarkedComplete ? (
             <EBadge tone="neutral" soft>Cleaner marked complete</EBadge>
@@ -655,11 +703,13 @@ function AccountabilityItemV2({
             {VERDICT_OPTIONS.map((v) => {
               const active = state.verdict === v;
               const tone = VERDICT_TONE[v];
+              const g = verdictGuide(v, scoring);
               return (
                 <button
                   key={v}
                   type="button"
                   aria-pressed={active}
+                  title={`${g.label} — ${g.meaning} ${g.consequence}`}
                   onClick={() => onPatch({ verdict: v })}
                   className="rounded-[var(--e-radius-sm)] border px-2.5 py-1 text-[0.75rem] font-[600] transition-colors"
                   style={{
@@ -675,6 +725,20 @@ function AccountabilityItemV2({
           </div>
         </div>
 
+        {/* What the grade you picked means, and what it actually does. Written
+            from the scoring code (see verdictGuide in accountability.ts) so the
+            inspector never has to guess what a button costs someone. */}
+        <p className="mt-1.5 text-[0.6875rem] leading-snug text-[hsl(var(--e-text-secondary))]">
+          <span className="font-[600] text-[hsl(var(--e-foreground))]">{guide.label}:</span> {guide.meaning}{" "}
+          <span className="text-[hsl(var(--e-muted-foreground))]">{guide.consequence}</span>
+          {!showIssue ? (
+            <span className="text-[hsl(var(--e-text-faint))]">
+              {" "}
+              Pick Minor, Major or Critical and you&apos;ll be asked what kind of problem it was and what was wrong.
+            </span>
+          ) : null}
+        </p>
+
         {requiredPhoto ? (
           <label className="mt-2 flex items-center gap-2 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
             <input
@@ -689,6 +753,10 @@ function AccountabilityItemV2({
 
         {showIssue ? (
           <div className="mt-2.5 space-y-2.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2.5">
+            <p className="text-[0.6875rem] text-[hsl(var(--e-text-secondary))]">
+              Both boxes below are required before you can submit — they are what the cleaner is shown and what the
+              repeat-problem reports are built from. A photo helps; you can circle or label the problem on it.
+            </p>
             <div className="grid gap-2.5 sm:grid-cols-2">
               <EField label="Issue category *">
                 <ESelect
@@ -721,7 +789,14 @@ function AccountabilityItemV2({
             {state.qaPhotoKeys && state.qaPhotoKeys.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {state.qaPhotoKeys.map((p) => (
-                  <Thumb key={p.key} url={urlByKey[p.key]} onRemove={() => onRemovePhoto(p.key)} />
+                  <Thumb
+                    key={p.key}
+                    url={urlByKey[p.key]}
+                    overlayUrl={p.annotatedKey ? urlByKey[p.annotatedKey] : undefined}
+                    annotated={Boolean(p.annotatedKey)}
+                    onAnnotate={urlByKey[p.key] ? () => onAnnotatePhoto(p.key, urlByKey[p.key]) : undefined}
+                    onRemove={() => onRemovePhoto(p.key)}
+                  />
                 ))}
               </div>
             ) : null}
@@ -954,6 +1029,36 @@ export function QaInspectionWorkspace({
   // ── Accountability Phase 4b — per-item verdicts + evidence flags ──
   const [verdicts, setVerdicts] = useState<Record<string, VerdictState>>({});
   const [missingEvidence, setMissingEvidence] = useState<Record<string, boolean>>({});
+
+  // ── Photo markup ──
+  // EVERY image the inspector uploads in this workspace can be annotated: the
+  // per-section evidence photos, the per-item issue photos, damage photos and
+  // rework flagged-area photos. All four go through the SAME shared annotator
+  // (components/shared/image-annotator) and the SAME storage shape — the
+  // transparent overlay PNG is uploaded as its own object and the original photo
+  // is never overwritten. `scope` says which collection owns the photo.
+  const [annotateTarget, setAnnotateTarget] = useState<
+    | {
+        scope: "section" | "damage" | "flagged" | "issue";
+        sectionId?: string;
+        entryId?: string;
+        areaId?: string;
+        fieldId?: string;
+        key: string;
+        url: string;
+      }
+    | null
+  >(null);
+  const [savingAnnotation, setSavingAnnotation] = useState(false);
+
+  // ── Reopen / amend a submitted inspection (lib/qa/reopen.ts) ──
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopening, setReopening] = useState(false);
+  const [reopenError, setReopenError] = useState<string | null>(null);
+  // Set once this session (or seeded from the server) when the open assignment
+  // is an amendment: submitting UPDATES that review instead of creating one.
+  const [amendingReviewId, setAmendingReviewId] = useState<string | null>(null);
+  const [showGradingHelp, setShowGradingHelp] = useState(false);
 
   // ── local draft autosave ──
   const draftRestoredRef = useRef(false);
@@ -1203,6 +1308,43 @@ export function QaInspectionWorkspace({
   // reviews without an assignment (admin) are never gated.
   const needsCheckIn = Boolean(payload?.assignment) && !checkIn.at;
 
+  /* ── REOPEN A SUBMITTED INSPECTION ───────────────────────────────────────
+     `payload.reopen` is present when this job's inspection is submitted and
+     closed; `payload.amendingReviewId` when it is open again on top of an
+     existing review (so submitting amends that review rather than adding a
+     second one). Both come from GET /api/qa/jobs/[id]. */
+  const reopenState = (payload as any)?.reopen ?? null;
+  useEffect(() => {
+    setAmendingReviewId(((payload as any)?.amendingReviewId as string | null) ?? null);
+  }, [payload]);
+
+  const doReopen = useCallback(async () => {
+    setReopening(true);
+    setReopenError(null);
+    try {
+      const res = await fetch(`/api/qa/jobs/${jobId}/reopen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignmentId: reopenState?.assignmentId ?? null, reason: reopenReason.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReopenError(body?.error ?? "Could not reopen this inspection.");
+        return;
+      }
+      setAmendingReviewId(body?.amendingReviewId ?? null);
+      setReopenReason("");
+      pushToast({
+        title: "Inspection reopened",
+        description: "Amend it and submit again — your changes update the existing review.",
+        tone: "info",
+      });
+      await load();
+    } finally {
+      setReopening(false);
+    }
+  }, [jobId, reopenReason, reopenState?.assignmentId, pushToast, load]);
+
   // seed the arrival check-in from the server assignment
   useEffect(() => {
     const a = payload?.assignment;
@@ -1392,6 +1534,7 @@ export function QaInspectionWorkspace({
     () => computeAccountabilityPreview(verdicts, missingEvidence, acctScoring),
     [verdicts, missingEvidence, acctScoring]
   );
+  const gradingHelp = useMemo(() => gradingExplainer(acctScoring), [acctScoring]);
 
   function verdictState(fieldId: string): VerdictState {
     return verdicts[fieldId] ?? emptyVerdictState();
@@ -1422,6 +1565,103 @@ export function QaInspectionWorkspace({
       if (!cur) return prev;
       return { ...prev, [fieldId]: { ...cur, qaPhotoKeys: (cur.qaPhotoKeys ?? []).filter((p) => p.key !== key) } };
     });
+  }
+
+  /* ── photo markup ──────────────────────────────────────────────────────
+     Upload the transparent overlay PNG the annotator exports, then record it
+     against the ORIGINAL key in whichever collection owns the photo. The
+     original upload is untouched — the markup is stored in addition to it:
+       section  → tools.mediaAnnotations[key]           = { overlayKey, comment }
+       damage   → damage[].annotations[key]             = { overlayKey, comment }
+       flagged  → rework.flaggedAreas[].annotations[key]= { overlayKey, comment }
+                  (lib/qa/rework-jobs flattens these onto the photo for the
+                   cleaner's fix checklist)
+       issue    → verdict.qaPhotoKeys[].annotatedKey    (the wire shape the QA
+                  submit route already sanitises into QaIssue.qaPhotoKeys)
+     Markup is always optional and never gates submit. */
+  const annotationFor = useCallback(
+    (target: NonNullable<typeof annotateTarget>): { overlayKey?: string; comment?: string } | undefined => {
+      if (target.scope === "damage") return tools.damage.find((d) => d.id === target.entryId)?.annotations?.[target.key];
+      if (target.scope === "flagged") {
+        return (tools.rework ?? emptyReworkProposal()).flaggedAreas.find((a) => a.id === target.areaId)?.annotations?.[
+          target.key
+        ];
+      }
+      if (target.scope === "issue") {
+        const entry = (verdicts[target.fieldId ?? ""]?.qaPhotoKeys ?? []).find((p) => p.key === target.key);
+        return entry?.annotatedKey ? { overlayKey: entry.annotatedKey } : undefined;
+      }
+      return tools.mediaAnnotations[target.key];
+    },
+    [tools.damage, tools.rework, tools.mediaAnnotations, verdicts]
+  );
+
+  async function saveAnnotation(blob: Blob, comment: string) {
+    const target = annotateTarget;
+    if (!target) return;
+    setSavingAnnotation(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", new File([blob], `qa-markup-${Date.now()}.png`, { type: "image/png" }));
+      fd.append("folder", "qa-annotations");
+      if (jobId) fd.append("jobId", jobId);
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.key) {
+        pushToast({ title: "Could not save the markup", description: body?.error ?? "Please retry.", tone: "danger" });
+        return;
+      }
+      const overlayKey = String(body.key);
+      const markup = { overlayKey, comment: comment || undefined };
+      if (body.url) setUrlByKey((prev) => ({ ...prev, [overlayKey]: body.url }));
+
+      if (target.scope === "damage" && target.entryId) {
+        setTools((prev) => ({
+          ...prev,
+          damage: prev.damage.map((d) =>
+            d.id === target.entryId ? { ...d, annotations: { ...(d.annotations ?? {}), [target.key]: markup } } : d
+          ),
+        }));
+      } else if (target.scope === "flagged" && target.areaId) {
+        setTools((prev) => {
+          const rw = prev.rework ?? emptyReworkProposal();
+          return {
+            ...prev,
+            rework: {
+              ...rw,
+              flaggedAreas: rw.flaggedAreas.map((a) =>
+                a.id === target.areaId ? { ...a, annotations: { ...(a.annotations ?? {}), [target.key]: markup } } : a
+              ),
+            },
+          };
+        });
+      } else if (target.scope === "issue" && target.fieldId) {
+        const fieldId = target.fieldId;
+        setVerdicts((prev) => {
+          const cur = prev[fieldId] ?? emptyVerdictState();
+          return {
+            ...prev,
+            [fieldId]: {
+              ...cur,
+              qaPhotoKeys: (cur.qaPhotoKeys ?? []).map((p) =>
+                p.key === target.key ? { ...p, annotatedKey: overlayKey } : p
+              ),
+            },
+          };
+        });
+      } else {
+        setTools((prev) => ({
+          ...prev,
+          mediaAnnotations: { ...prev.mediaAnnotations, [target.key]: markup },
+        }));
+      }
+      pushToast({ title: "Markup saved", tone: "info" });
+      setAnnotateTarget(null);
+    } catch {
+      pushToast({ title: "Could not save the markup", description: "Please retry.", tone: "danger" });
+    } finally {
+      setSavingAnnotation(false);
+    }
   }
 
   /* ── damage ── */
@@ -1685,6 +1925,9 @@ export function QaInspectionWorkspace({
         templateId: template.id,
         data,
         notes,
+        // Amending a reopened inspection updates that review in place instead of
+        // stacking a second one on the job (see lib/qa/reopen.ts).
+        ...(amendingReviewId ? { reopenedReviewId: amendingReviewId } : {}),
         ...(accountability ? { accountability } : {}),
         tools: {
           damage: tools.damage,
@@ -1713,10 +1956,14 @@ export function QaInspectionWorkspace({
     if (body.reworkOffer) extras.push("offered to the original cleaner");
     if (body.reworkTransferId) extras.push("rework transfer pending");
     pushToast({
-      title: "QA submitted",
+      title: body.amended ? "QA updated" : "QA submitted",
       description: `Score ${Math.round(body.review?.score ?? 0)}%.${extras.length ? ` Created: ${extras.join(", ")}.` : ""}`,
       tone: "info",
     });
+    if (body.reworkBlockedReason) {
+      pushToast({ title: "Rework not duplicated", description: String(body.reworkBlockedReason), tone: "danger" });
+    }
+    setAmendingReviewId(null);
     setTimer({ running: false, elapsedMs: 0, runningSince: null });
     setVerdicts({});
     setMissingEvidence({});
@@ -1800,6 +2047,76 @@ export function QaInspectionWorkspace({
         </EBadge>
       </div>
       <div className="e-signature-rule" />
+
+      {/* ── REOPEN A SUBMITTED INSPECTION ──
+          A submitted inspection is not a dead end: the inspector who did it (or
+          an admin / ops manager) can put it back into progress to fix a wrong
+          grade, add a photo they missed or correct a score. It is a pay- and
+          scoring-relevant record, so it costs a written reason and is recorded
+          in the audit trail — and it never quietly unwinds money that has
+          already moved (those warnings are listed before the button). */}
+      {reopenState ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex flex-wrap items-center gap-2">
+              <Undo2 className="h-4 w-4" style={{ color: "hsl(var(--e-accent-portal))" }} /> This inspection is submitted
+              {reopenState.completedAt ? (
+                <EBadge tone="neutral" soft>
+                  {new Date(reopenState.completedAt).toLocaleString()}
+                </EBadge>
+              ) : null}
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-3">
+            {reopenState.eligible ? (
+              <>
+                <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                  Need to change something — a wrong grade, a missed photo, a score that isn&apos;t right? Reopen it,
+                  make the change and submit again. Your changes update the existing review rather than adding a second
+                  one, and who reopened it and why is recorded.
+                </p>
+                {(reopenState.warnings ?? []).length > 0 ? (
+                  <div className="space-y-2">
+                    {(reopenState.warnings as string[]).map((w) => (
+                      <EAlert key={w} tone="warning">
+                        {w}
+                      </EAlert>
+                    ))}
+                  </div>
+                ) : null}
+                {reopenError ? <EAlert tone="danger">{reopenError}</EAlert> : null}
+                <EField label="Why are you reopening it?" hint="Required — this goes on the record with your name.">
+                  <ETextarea
+                    value={reopenReason}
+                    onChange={(e) => setReopenReason(e.target.value)}
+                    placeholder="e.g. Graded the ensuite Major by mistake — it was a Minor smudge on the mirror."
+                  />
+                </EField>
+                <EButton
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  disabled={reopening || reopenReason.trim().length < 10}
+                  onClick={() => void doReopen()}
+                >
+                  {reopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                  {reopening ? "Reopening…" : "Reopen inspection"}
+                </EButton>
+              </>
+            ) : (
+              <EAlert tone="info">{reopenState.blockedReason ?? "This inspection can't be reopened."}</EAlert>
+            )}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {amendingReviewId ? (
+        <EAlert tone="warning">
+          <span className="font-[550]">You&apos;re amending a submitted inspection.</span> Submitting updates the
+          existing review and its findings — it does not create a second one. Anything already actioned (a rework job,
+          or pay that has been proposed or approved) stays as it is; change that in the Approval Center.
+        </EAlert>
+      ) : null}
 
       {/* ── ARRIVAL CHECK-IN GATE ──
           The inspection is locked until the inspector stamps an arrival (or
@@ -2160,9 +2477,24 @@ export function QaInspectionWorkspace({
                 </EField>
                 {entry.photoKeys.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {entry.photoKeys.map((key) => (
-                      <Thumb key={key} url={urlByKey[key]} onRemove={() => removeDamagePhoto(entry.id, key)} />
-                    ))}
+                    {entry.photoKeys.map((key) => {
+                      const annotation = entry.annotations?.[key];
+                      return (
+                        <Thumb
+                          key={key}
+                          url={urlByKey[key]}
+                          overlayUrl={annotation?.overlayKey ? urlByKey[annotation.overlayKey] : undefined}
+                          annotated={Boolean(annotation)}
+                          annotateTitle={annotation?.comment || undefined}
+                          onAnnotate={
+                            urlByKey[key]
+                              ? () => setAnnotateTarget({ scope: "damage", entryId: entry.id, key, url: urlByKey[key] })
+                              : undefined
+                          }
+                          onRemove={() => removeDamagePhoto(entry.id, key)}
+                        />
+                      );
+                    })}
                   </div>
                 ) : null}
                 <div className="flex items-center justify-between">
@@ -2371,9 +2703,25 @@ export function QaInspectionWorkspace({
                       <ETextarea value={area.note ?? ""} onChange={(e) => updateFlaggedArea(area.id, { note: e.target.value })} placeholder="What's wrong / what to fix" />
                       {area.photoKeys.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
-                          {area.photoKeys.map((key) => (
-                            <Thumb key={key} url={urlByKey[key]} onRemove={() => removeFlaggedAreaPhoto(area.id, key)} />
-                          ))}
+                          {area.photoKeys.map((key) => {
+                            const annotation = area.annotations?.[key];
+                            return (
+                              <Thumb
+                                key={key}
+                                url={urlByKey[key]}
+                                overlayUrl={annotation?.overlayKey ? urlByKey[annotation.overlayKey] : undefined}
+                                annotated={Boolean(annotation)}
+                                annotateTitle={annotation?.comment || undefined}
+                                onAnnotate={
+                                  urlByKey[key]
+                                    ? () =>
+                                        setAnnotateTarget({ scope: "flagged", areaId: area.id, key, url: urlByKey[key] })
+                                    : undefined
+                                }
+                                onRemove={() => removeFlaggedAreaPhoto(area.id, key)}
+                              />
+                            );
+                          })}
                         </div>
                       ) : null}
                       <Uploader
@@ -2516,6 +2864,57 @@ export function QaInspectionWorkspace({
           </ECardBody>
         </ECard>
 
+        {/* ── HOW GRADING WORKS ──
+            The five grade buttons used to be five bare words. This says, in
+            plain English and using the numbers actually configured, what each
+            one costs and what it sets off. Copy lives in accountability.ts
+            (verdictGuide / gradingExplainer) and is derived from the scoring
+            code, so it can't drift into wishful thinking. */}
+        <ECard>
+          <ECardBody className="pt-6">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 text-left"
+              aria-expanded={showGradingHelp}
+              onClick={() => setShowGradingHelp((v) => !v)}
+            >
+              <Info className="h-4 w-4 shrink-0" style={{ color: "hsl(var(--e-accent-portal))" }} />
+              <span className="flex-1 text-[0.875rem] font-semibold">How grading works</span>
+              <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                {showGradingHelp ? "Hide" : "Read this"}
+              </span>
+              <ChevronDown
+                className="h-4 w-4 shrink-0 transition-transform"
+                style={{ transform: showGradingHelp ? "rotate(180deg)" : undefined }}
+              />
+            </button>
+            <p className="mt-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{gradingHelp.passLine}</p>
+            {showGradingHelp ? (
+              <div className="mt-3 space-y-3">
+                <ul className="space-y-1.5">
+                  {gradingHelp.gradeLines.map((line) => (
+                    <li key={line} className="text-[0.8125rem] leading-snug text-[hsl(var(--e-text-secondary))]">
+                      • {line}
+                    </li>
+                  ))}
+                </ul>
+                <ul className="space-y-1.5 border-t border-[hsl(var(--e-border))] pt-3">
+                  {gradingHelp.extraLines.map((line) => (
+                    <li key={line} className="text-[0.8125rem] leading-snug text-[hsl(var(--e-text-secondary))]">
+                      • {line}
+                    </li>
+                  ))}
+                </ul>
+                <EAlert tone="info">{gradingHelp.notAutomatic}</EAlert>
+                <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                  Anything below Pass asks you for the kind of problem and a short description — that&apos;s what the
+                  cleaner is shown, so write it as if they&apos;ll read it, because they will.
+                </p>
+              </div>
+            ) : null}
+          </ECardBody>
+        </ECard>
+
         {/* accountability live score */}
         <ECard className="sticky top-[68px] z-10">
           <ECardHeader>
@@ -2608,9 +3007,25 @@ export function QaInspectionWorkspace({
 
                   {sectionPhotoKeys.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
-                      {sectionPhotoKeys.map((key) => (
-                        <Thumb key={key} url={urlByKey[key]} video={isVideoKey(key)} onRemove={() => removeSectionPhoto(section.id, key)} />
-                      ))}
+                      {sectionPhotoKeys.map((key) => {
+                        const annotation = tools.mediaAnnotations[key];
+                        return (
+                          <Thumb
+                            key={key}
+                            url={urlByKey[key]}
+                            overlayUrl={annotation?.overlayKey ? urlByKey[annotation.overlayKey] : undefined}
+                            annotated={Boolean(annotation)}
+                            annotateTitle={annotation?.comment || undefined}
+                            video={isVideoKey(key)}
+                            onAnnotate={
+                              urlByKey[key]
+                                ? () => setAnnotateTarget({ scope: "section", sectionId: section.id, key, url: urlByKey[key] })
+                                : undefined
+                            }
+                            onRemove={() => removeSectionPhoto(section.id, key)}
+                          />
+                        );
+                      })}
                     </div>
                   ) : null}
 
@@ -2646,8 +3061,12 @@ export function QaInspectionWorkspace({
                           jobId={jobId}
                           qaStamp={qaStamp}
                           urlByKey={urlByKey}
+                          scoring={acctScoring}
                           onAddPhoto={(key, url) => addVerdictPhoto(field.id, key, url)}
                           onRemovePhoto={(key) => removeVerdictPhoto(field.id, key)}
+                          onAnnotatePhoto={(key, url) =>
+                            setAnnotateTarget({ scope: "issue", fieldId: field.id, key, url })
+                          }
                           onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                         >
                           {answerable ? (
@@ -2738,6 +3157,22 @@ export function QaInspectionWorkspace({
         )}
       </div>
       </div>
+
+      {/* Shared photo markup tool — the same annotator every other QA photo in
+          the product uses. Optional everywhere: closing it changes nothing and
+          the original photo is always kept. */}
+      {annotateTarget ? (
+        <ImageAnnotator
+          src={annotateTarget.url}
+          open={Boolean(annotateTarget)}
+          onOpenChange={(v) => {
+            if (!v) setAnnotateTarget(null);
+          }}
+          initialComment={annotationFor(annotateTarget)?.comment ?? ""}
+          saving={savingAnnotation}
+          onSave={({ blob, comment }) => saveAnnotation(blob, comment)}
+        />
+      ) : null}
     </div>
   );
 }

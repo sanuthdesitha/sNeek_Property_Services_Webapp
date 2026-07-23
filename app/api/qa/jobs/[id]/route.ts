@@ -34,6 +34,8 @@ import {
   assertSelfReworkMinutes,
   guardInvariant,
 } from "@/lib/qa/rework-invariants";
+import { canReopenInspection, reopenMoneyWarnings } from "@/lib/qa/reopen";
+import { collectReopenMoneyFacts } from "@/lib/qa/reopen-facts";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -157,6 +159,11 @@ const submitSchema = z.object({
   // defensively via sanitizeAccountabilityAssessment — kept permissive here so a
   // malformed blob degrades to the legacy path rather than 400-ing the submit.
   accountability: z.any().optional(),
+  // AMENDMENT (see lib/qa/reopen.ts). Set when this submit is the re-submission
+  // of a REOPENED inspection: the named QAReview is UPDATED in place (keeping
+  // the job's single authoritative score and recording who changed it via the
+  // editedById/editedAt fields) instead of a second review being created.
+  reopenedReviewId: z.string().trim().min(1).nullable().optional(),
 });
 
 async function resolveTemplate(jobId: string) {
@@ -482,12 +489,75 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       briefContext = null;
     }
 
+    // ── REOPEN / AMEND STATE (see lib/qa/reopen.ts) ──────────────────────────
+    //    A submitted inspection is not terminal: the inspector who did it (or an
+    //    admin / ops manager) can reopen it to correct a verdict, add a missed
+    //    photo or fix a wrong score. Two mutually exclusive shapes:
+    //      reopen          → nothing is open; offer the "Reopen inspection" action
+    //                        (with the money warnings it will NOT undo).
+    //      amendingReviewId→ an inspection is open again AND a QA review already
+    //                        exists, so submitting UPDATES that review in place
+    //                        instead of stacking a second one on the job.
+    //    Fully degradable: any failure leaves both null and the page works as
+    //    before.
+    let reopen: {
+      assignmentId: string;
+      reviewId: string | null;
+      eligible: boolean;
+      blockedReason: string | null;
+      completedAt: string | null;
+      warnings: string[];
+    } | null = null;
+    let amendingReviewId: string | null = null;
+    try {
+      const latestQaReview = await db.qAReview.findFirst({
+        where: { jobId: params.id, kind: "QA" },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (assignment) {
+        amendingReviewId = latestQaReview?.id ?? null;
+      } else {
+        const completedAssignment = await db.qaAssignment.findFirst({
+          where: { jobId: params.id, status: QaAssignmentStatus.COMPLETED },
+          orderBy: [{ completedAt: "desc" }, { updatedAt: "desc" }],
+        });
+        if (completedAssignment) {
+          const eligibility = canReopenInspection({
+            actorUserId: session.user.id,
+            actorRole: String(session.user.role),
+            assignment: {
+              status: String(completedAssignment.status),
+              assignedToId: completedAssignment.assignedToId,
+              pickedUpById: completedAssignment.pickedUpById,
+            },
+            jobStatus: String(job.status),
+          });
+          const facts = await collectReopenMoneyFacts(params.id, latestQaReview?.id ?? null);
+          reopen = {
+            assignmentId: completedAssignment.id,
+            reviewId: latestQaReview?.id ?? null,
+            eligible: eligibility.ok,
+            blockedReason: eligibility.ok ? null : eligibility.message ?? null,
+            completedAt: completedAssignment.completedAt?.toISOString() ?? null,
+            warnings: reopenMoneyWarnings(facts),
+          };
+        }
+      }
+    } catch (err) {
+      console.error("[qa-get] reopen state failed", err);
+      reopen = null;
+      amendingReviewId = null;
+    }
+
     return NextResponse.json({
       job,
       template,
       assignment: assignment
         ? { ...assignment, reworkOfferStatus: effectiveOfferStatus(assignment as any) }
         : assignment,
+      reopen,
+      amendingReviewId,
       mediaOverrides,
       propertyStock,
       cleanerCandidates,
@@ -587,30 +657,96 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ...(tools ? { [QA_TOOLS_DATA_KEY]: { ...tools, onSite: { ...tools.onSite, minutes: onSiteMinutes } } } : {}),
     };
 
+    // AMENDMENT TARGET. When this submit re-submits a reopened inspection, the
+    // named review must belong to THIS job and be a real QA inspection review —
+    // otherwise we refuse rather than silently stacking a duplicate review (the
+    // exact bug amend-in-place exists to prevent).
+    const amendReview = body.reopenedReviewId
+      ? await db.qAReview.findFirst({
+          where: { id: body.reopenedReviewId, jobId: params.id, kind: "QA" },
+          select: { id: true },
+        })
+      : null;
+    if (body.reopenedReviewId && !amendReview) {
+      return NextResponse.json(
+        { error: "The inspection you're amending no longer exists — reload the job and try again." },
+        { status: 409 }
+      );
+    }
+
     const created = await db.$transaction(async (tx) => {
-      const review = await tx.qAReview.create({
-        data: {
-          jobId: params.id,
-          reviewedById: session.user.id,
-          // When an accountability assessment is present, the raw accountability
-          // score is the review score at creation (final = raw; admin adjustments
-          // land later via the adjust endpoint). Legacy percent is used otherwise.
-          score: accountabilityResult ? accountabilityResult.rawScore : result.score,
-          passed: reviewPassed,
-          // A real on-site QA inspection — the authoritative score for the job
-          // (overrides any earlier admin/auto quick score). See lib/qa/authority.
-          kind: "QA",
-          notes: body.notes || null,
-          flags: { categoryScores: result.categoryScores, data: dataWithTools } as any,
-          ...(accountabilityResult
-            ? {
-                rawScore: accountabilityResult.rawScore,
-                rating: accountabilityResult.rating,
-                managementReview: accountabilityResult.managementReview,
-              }
-            : {}),
-        },
-      });
+      const reviewFields = {
+        // When an accountability assessment is present, the raw accountability
+        // score is the review score at creation (final = raw; admin adjustments
+        // land later via the adjust endpoint). Legacy percent is used otherwise.
+        score: accountabilityResult ? accountabilityResult.rawScore : result.score,
+        passed: reviewPassed,
+        // A real on-site QA inspection — the authoritative score for the job
+        // (overrides any earlier admin/auto quick score). See lib/qa/authority.
+        kind: "QA",
+        notes: body.notes || null,
+        flags: { categoryScores: result.categoryScores, data: dataWithTools } as any,
+        ...(accountabilityResult
+          ? {
+              rawScore: accountabilityResult.rawScore,
+              rating: accountabilityResult.rating,
+              managementReview: accountabilityResult.managementReview,
+            }
+          : { rawScore: null, rating: null, managementReview: false }),
+      };
+      // Amend in place (keeping the original reviewedBy as the author of record
+      // and stamping who changed it) or create the first review for this job.
+      const review = amendReview
+        ? await tx.qAReview.update({
+            where: { id: amendReview.id },
+            data: { ...reviewFields, editedById: session.user.id, editedAt: new Date() },
+          })
+        : await tx.qAReview.create({
+            data: { jobId: params.id, reviewedById: session.user.id, ...reviewFields },
+          });
+
+      // On an amendment the previous findings are REPLACED by the ones below —
+      // but only the ones nothing has been done about yet. An issue that already
+      // carries a proposed pay adjustment, or that has been rectified/reviewed,
+      // is money already actioned and is left exactly where it is (reopening
+      // never silently reverses money; see lib/qa/reopen.ts).
+      let keptActionedIssues = 0;
+      if (amendReview) {
+        const priorIssues = await tx.qaIssue.findMany({
+          where: { qaReviewId: review.id },
+          select: {
+            id: true,
+            payAdjustmentId: true,
+            rectificationStatus: true,
+            falseConfReviewedAt: true,
+          },
+        });
+        const replaceable = priorIssues.filter(
+          (i) =>
+            !i.payAdjustmentId &&
+            String(i.rectificationStatus) === "PENDING" &&
+            !i.falseConfReviewedAt
+        );
+        keptActionedIssues = priorIssues.length - replaceable.length;
+        if (replaceable.length > 0) {
+          await tx.qaIssue.deleteMany({ where: { id: { in: replaceable.map((i) => i.id) } } });
+        }
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            jobId: params.id,
+            action: "QA_REVIEW_AMENDED",
+            entity: "QAReview",
+            entityId: review.id,
+            after: {
+              score: reviewFields.score,
+              passed: reviewFields.passed,
+              replacedIssues: replaceable.length,
+              keptActionedIssues,
+            } as any,
+          },
+        });
+      }
       const submission = await tx.qaFormSubmission.create({
         data: {
           jobId: params.id,
@@ -946,6 +1082,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     let reworkTransferId: string | null = null;
     let reworkJobId: string | null = null;
     let reworkOffer: { assignmentId: string; status: string; expiresAt: string } | null = null;
+    let reworkBlockedReason: string | null = null;
     const rk = tools?.rework;
     // Honour the inspector's explicit rework toggle regardless of the numeric
     // pass/fail — if they enabled rework and flagged areas, they are requesting a
@@ -986,7 +1123,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         { actorUserId: session.user.id, jobId: params.id, entity: "Job", entityId: params.id }
       );
 
-      if (flagged.length > 0) {
+      // AMENDMENT GUARD — a re-submitted (reopened) inspection must not spawn a
+      // SECOND rework job for the same failure. The first one already exists and
+      // may already be paid/started; duplicating it would double the money.
+      const duplicateRework =
+        amendReview &&
+        (await db.job
+          .count({ where: { reworkOfJobId: params.id, isRework: true } })
+          .catch(() => 0)) > 0;
+      if (duplicateRework) {
+        reworkBlockedReason =
+          "A rework job already exists for this inspection — the amendment did not create another. Manage the existing rework from the job list.";
+      }
+
+      if (flagged.length > 0 && !duplicateRework) {
         try {
           reworkJobId = await createReworkJobFromFailure({
             originalJobId: params.id,
@@ -1041,7 +1191,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // (c) QA SELF-REWORK / legacy: the inspector redid the work themselves and
       //     moved minutes/$ from the cleaner. INVARIANT 6 bounds the claim by the
       //     measured on-site window.
-      if (rk.cleanerUserId && (rk.minutesFromCleaner > 0 || rk.amountFromCleaner > 0)) {
+      //     On an amendment the earlier transfer already moved that money, so a
+      //     second claim for the same visit is refused (see duplicateRework).
+      const duplicateTransfer =
+        amendReview &&
+        (await db.qaReworkTransfer.count({ where: { jobId: params.id } }).catch(() => 0)) > 0;
+      if (duplicateTransfer) {
+        reworkBlockedReason =
+          reworkBlockedReason ??
+          "A rework time/pay transfer already exists for this inspection — the amendment did not create another.";
+      }
+      if (!duplicateTransfer && rk.cleanerUserId && (rk.minutesFromCleaner > 0 || rk.amountFromCleaner > 0)) {
         await guardInvariant(
           () =>
             assertSelfReworkMinutes({
@@ -1130,6 +1290,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       reworkTransferId,
       reworkJobId,
       reworkOffer,
+      reworkBlockedReason,
+      amended: Boolean(amendReview),
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
