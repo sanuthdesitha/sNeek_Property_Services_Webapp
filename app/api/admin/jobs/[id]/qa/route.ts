@@ -68,8 +68,27 @@ export async function POST(
     const passed = body.score >= settings.qaAutomation.failureThreshold;
 
     // CORE: the QA review + job status must always commit. A new review is
-    // appended each time (the latest supersedes any earlier quick/auto review).
+    // appended each time (the latest supersedes any earlier quick/auto review)
+    // — EXCEPT an identical save moments after the last one, which is a
+    // double-click, not a re-review. Pressing Save twice used to file two
+    // reviews and the cleaner saw duplicate feedback for one clean.
+    const IDEMPOTENCY_WINDOW_MS = 2 * 60_000;
     const qa = await db.$transaction(async (tx) => {
+      // Serialize concurrent saves for this job so a double-click's second
+      // request queues behind the first and sees its review.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
+      const recentDuplicate = await tx.qAReview.findFirst({
+        where: {
+          jobId: params.id,
+          reviewedById: session.user.id,
+          kind: "ADMIN",
+          score: body.score,
+          createdAt: { gte: new Date(Date.now() - IDEMPOTENCY_WINDOW_MS) },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (recentDuplicate) return { review: recentDuplicate, duplicate: true as const };
+
       const createdReview = await tx.qAReview.create({
         data: {
           jobId: params.id,
@@ -108,8 +127,14 @@ export async function POST(
         },
       });
 
-      return createdReview;
+      return { review: createdReview, duplicate: false as const };
     });
+
+    // A deduped save already did all of this the first time — re-running the
+    // automation would double the loyalty award and client emails.
+    if (qa.duplicate) {
+      return NextResponse.json({ ...qa.review, duplicate: true, reworkPrompt: null });
+    }
 
     // Respect QA authority: if a real on-site QA inspection already exists for
     // this job, it remains the authoritative score — this admin quick-score does
@@ -220,7 +245,7 @@ export async function POST(
       ]);
     }
 
-    return NextResponse.json({ ...qa, reworkPrompt });
+    return NextResponse.json({ ...qa.review, reworkPrompt });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
