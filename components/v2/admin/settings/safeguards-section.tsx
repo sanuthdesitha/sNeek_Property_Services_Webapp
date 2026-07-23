@@ -330,7 +330,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
               checked={form.qaAutomation.autoCreateReworkJob}
               onChange={(v) => setForm((p) => ({ ...p, qaAutomation: { ...p.qaAutomation, autoCreateReworkJob: v } }))}
               disabled={readOnly}
-              label="Auto-create rework on QA fail"
+              label="Offer a rework job on a QA fail"
             />
             <div className="grid gap-5 sm:grid-cols-2">
               <EField label="QA fail threshold">

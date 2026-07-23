@@ -1950,7 +1950,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
 
             <div className="space-y-2 rounded border p-3">
               <div className="flex items-center justify-between">
-                <Label className="text-xs">Auto-create rework on QA fail</Label>
+                <Label className="text-xs">Offer a rework job on a QA fail</Label>
                 <Switch
                   checked={settings.qaAutomation.autoCreateReworkJob}
                   onCheckedChange={(value) =>

@@ -403,8 +403,21 @@ export default function JobsPage() {
       return true;
     });
   }, [filters, jobs]);
+  // "Awaiting QA" means NOT YET REVIEWED. The old predicate was status-only, so
+  // a failing score — which leaves the job in QA_REVIEW — kept the row in the
+  // queue forever, and it looked like the save had not worked. A reviewed job
+  // is done with this queue; if it failed it is still visible in the main list
+  // with its QA_REVIEW status and its issue case.
   const qaQueueJobs = useMemo(
-    () => filteredJobs.filter((job) => job.status === "SUBMITTED" || job.status === "QA_REVIEW"),
+    () =>
+      filteredJobs.filter((job) => {
+        if (job.status !== "SUBMITTED" && job.status !== "QA_REVIEW") return false;
+        const latest = job.qaReviews?.[0];
+        // Client star-ratings are a different `kind` and must not silence the
+        // queue; only a QA inspection or an admin score counts as reviewed.
+        const reviewed = latest && (!latest.kind || latest.kind === "QA" || latest.kind === "ADMIN");
+        return !reviewed;
+      }),
     [filteredJobs]
   );
   const pendingContinuationJobIds = useMemo(
@@ -442,6 +455,68 @@ export default function JobsPage() {
     });
   }
 
+  /**
+   * A below-threshold score used to create a rework job on its own — a real
+   * scheduled job, an assigned cleaner and two emails to the client, all from
+   * typing a number. Now we ask, and we say what the QA inspector decided,
+   * because a low score with the inspector deliberately not asking for a return
+   * visit is a normal outcome rather than something to override by reflex.
+   */
+  async function offerRework(
+    jobId: string,
+    prompt: {
+      score: number;
+      threshold: number;
+      inspectorReviewed: boolean;
+      inspectorRequestedRework: boolean;
+      existingReworkJobId: string | null;
+    },
+    notes: string
+  ) {
+    if (prompt.existingReworkJobId) {
+      toast({
+        title: "Rework already scheduled",
+        description: "This job already has a rework job — no second one was created.",
+      });
+      return;
+    }
+
+    const inspectorLine = prompt.inspectorRequestedRework
+      ? "The QA inspector asked for a rework on this job."
+      : prompt.inspectorReviewed
+        ? "The QA inspector inspected this job and did NOT ask for a rework."
+        : "No QA inspector has inspected this job.";
+
+    const ok = window.confirm(
+      `Scored ${Math.round(prompt.score)}%, below the ${prompt.threshold}% threshold.\n\n` +
+        `${inspectorLine}\n\n` +
+        `Create a rework job? This schedules a real job, assigns a cleaner, and emails the client twice — telling them an issue was found and when the re-clean is booked.`
+    );
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/qa/rework`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: notes.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not create the rework job.");
+      toast({
+        title: body.created ? "Rework job created" : "No rework created",
+        description: body.created
+          ? "The client has been emailed and a cleaner assigned where possible."
+          : (body.message ?? "A rework job already existed."),
+      });
+    } catch (err: any) {
+      toast({
+        title: "Rework failed",
+        description: err.message ?? "Could not create the rework job.",
+        variant: "destructive",
+      });
+    }
+  }
+
   async function submitQaReview(
     jobId: string,
     options?: { score?: string; notes?: string; suppressToast?: boolean }
@@ -472,10 +547,20 @@ export default function JobsPage() {
         toast({
           title: "QA review saved",
           description: `Recorded ${Math.round(score)}%${
-            typeof body?.passed === "boolean" ? ` — ${body.passed ? "Passed" : "Flagged for rework"}` : ""
+            typeof body?.passed === "boolean" ? ` — ${body.passed ? "Passed" : "Below threshold"}` : ""
           }.`,
         });
       }
+      // A failing score no longer creates a rework job by itself — the server
+      // hands back the facts and we ask. Skipped in batch mode (suppressToast):
+      // a stack of confirm dialogs is not a review process.
+      if (body?.reworkPrompt && !options?.suppressToast) {
+        await offerRework(jobId, body.reworkPrompt, notesValue);
+      }
+      // Refresh so the reviewed job leaves the queue. Without this the row sat
+      // there looking unsaved.
+      await loadJobs();
+      router.refresh();
       return true;
     } catch (err: any) {
       if (!options?.suppressToast) {

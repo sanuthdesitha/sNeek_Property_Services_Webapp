@@ -37,6 +37,54 @@ export function QuickQaReview({
 
   const reviewable = REVIEWABLE.has(jobStatus);
 
+  async function offerRework(prompt: {
+    score: number;
+    threshold: number;
+    inspectorReviewed: boolean;
+    inspectorRequestedRework: boolean;
+    existingReworkJobId: string | null;
+  }) {
+    if (prompt.existingReworkJobId) {
+      toast({
+        title: "Rework already scheduled",
+        description: "This job already has a rework job — no second one was created.",
+      });
+      return;
+    }
+    const inspectorLine = prompt.inspectorRequestedRework
+      ? "The QA inspector asked for a rework on this job."
+      : prompt.inspectorReviewed
+        ? "The QA inspector inspected this job and did NOT ask for a rework."
+        : "No QA inspector has inspected this job.";
+    const ok = window.confirm(
+      `Scored ${Math.round(prompt.score)}%, below the ${prompt.threshold}% threshold.\n\n` +
+        `${inspectorLine}\n\n` +
+        `Create a rework job? This schedules a real job, assigns a cleaner, and emails the client twice — telling them an issue was found and when the re-clean is booked.`,
+    );
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/qa/rework`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: notes.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not create the rework job.");
+      toast({
+        title: body.created ? "Rework job created" : "No rework created",
+        description: body.created
+          ? "The client has been emailed and a cleaner assigned where possible."
+          : (body.message ?? "A rework job already existed."),
+      });
+    } catch (err: any) {
+      toast({
+        title: "Rework failed",
+        description: err?.message ?? "Could not create the rework job.",
+        variant: "destructive",
+      });
+    }
+  }
+
   async function submit() {
     const n = Number(score);
     if (!Number.isFinite(n) || n < 0 || n > 100) {
@@ -56,10 +104,17 @@ export function QuickQaReview({
         return;
       }
       toast({
-        title: body.passed === false ? "Scored — sent to rework" : "QA review submitted",
-        description: `Score ${n} · ${body.passed === false ? "failed" : "passed"}`,
+        title: "QA review submitted",
+        description: `Score ${n} · ${body.passed === false ? "below threshold" : "passed"}`,
       });
       setOpen(false);
+
+      // A low score no longer creates a rework job by itself — that schedules a
+      // real job and emails the client twice, which is not something a typed
+      // number should do on its own. The server returns the facts; we ask.
+      if (body?.reworkPrompt) {
+        await offerRework(body.reworkPrompt);
+      }
       router.refresh();
     } finally {
       setBusy(false);

@@ -437,13 +437,59 @@ export default function JobDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ score: parseFloat(qaScore), notes: qaNotes }),
     });
+    const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast({ title: "QA failed", description: err.error ?? "Could not submit QA review.", variant: "destructive" });
+      toast({ title: "QA failed", description: body.error ?? "Could not submit QA review.", variant: "destructive" });
       return;
     }
     toast({ title: "QA review submitted" });
     setQaOpen(false);
+
+    // A below-threshold score no longer creates a rework job on its own — it
+    // schedules a real job and emails the client twice, so it is asked for
+    // explicitly, with the QA inspector's own decision stated.
+    const prompt = body?.reworkPrompt;
+    if (prompt) {
+      if (prompt.existingReworkJobId) {
+        toast({
+          title: "Rework already scheduled",
+          description: "This job already has a rework job — no second one was created.",
+        });
+      } else {
+        const inspectorLine = prompt.inspectorRequestedRework
+          ? "The QA inspector asked for a rework on this job."
+          : prompt.inspectorReviewed
+            ? "The QA inspector inspected this job and did NOT ask for a rework."
+            : "No QA inspector has inspected this job.";
+        const ok = window.confirm(
+          `Scored ${Math.round(prompt.score)}%, below the ${prompt.threshold}% threshold.\n\n` +
+            `${inspectorLine}\n\n` +
+            `Create a rework job? This schedules a real job, assigns a cleaner, and emails the client twice — telling them an issue was found and when the re-clean is booked.`
+        );
+        if (ok) {
+          const rw = await fetch(`/api/admin/jobs/${params.id}/qa/rework`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes: qaNotes?.trim() || undefined }),
+          });
+          const rwBody = await rw.json().catch(() => ({}));
+          toast(
+            rw.ok
+              ? {
+                  title: rwBody.created ? "Rework job created" : "No rework created",
+                  description: rwBody.created
+                    ? "The client has been emailed and a cleaner assigned where possible."
+                    : (rwBody.message ?? "A rework job already existed."),
+                }
+              : {
+                  title: "Rework failed",
+                  description: rwBody.error ?? "Could not create the rework job.",
+                  variant: "destructive",
+                }
+          );
+        }
+      }
+    }
     load();
   }
 

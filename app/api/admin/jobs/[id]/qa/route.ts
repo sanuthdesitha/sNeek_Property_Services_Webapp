@@ -4,9 +4,6 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { Role, JobStatus } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
-import { serializeJobInternalNotes } from "@/lib/jobs/meta";
-import { reserveJobNumber } from "@/lib/jobs/job-number";
-import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
 import { scheduleJobFollowUps } from "@/lib/ops/follow-up-sequences";
 import { logger } from "@/lib/logger";
@@ -16,7 +13,7 @@ import {
   meetsAutoOpenThreshold,
 } from "@/lib/cases/auto-case";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
-import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { getAdminReworkContext } from "@/lib/qa/admin-rework";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -119,10 +116,9 @@ export async function POST(
     // not override it. (No-op when this is the only/highest review.)
     await recomputeJobQaOutcome(params.id).catch(() => null);
 
-    // BEST-EFFORT AUTOMATION: an issue-ticket or rework-job failure must never
-    // roll back the QA review itself, so these run outside the core transaction
-    // and each is individually guarded + logged.
-    let reworkJobId: string | null = null;
+    // BEST-EFFORT AUTOMATION: an issue-ticket failure must never roll back the
+    // QA review itself, so these run outside the core transaction and each is
+    // individually guarded + logged.
     if (
       !passed &&
       settings.qaAutomation.createIssueTicket &&
@@ -179,52 +175,41 @@ export async function POST(
       }
     }
 
+    // REWORK IS NEVER AUTOMATIC FROM THIS SURFACE.
+    //
+    // A failing score used to create a rework job on its own, purely because
+    // `qaAutomation.autoCreateReworkJob` defaults to true. That silently
+    // schedules a real job, assigns a cleaner and emails the client twice — far
+    // too much to hang off a typed number, and it overruled the QA inspector,
+    // whose own workspace has an explicit rework decision that this path never
+    // read. A low score with the inspector deliberately NOT requesting rework
+    // is a normal outcome, not an oversight to correct.
+    //
+    // So a fail now RETURNS the facts and lets the admin decide. Creation
+    // happens only when they confirm, via POST …/qa/rework.
+    let reworkPrompt: {
+      score: number;
+      threshold: number;
+      inspectorReviewed: boolean;
+      inspectorRequestedRework: boolean;
+      existingReworkJobId: string | null;
+    } | null = null;
+    //
+    // The `autoCreateReworkJob` setting is still honoured, but now as "offer
+    // rework on a fail" rather than "do it silently": an admin who turned it
+    // off is not asked either.
     if (!passed && settings.qaAutomation.autoCreateReworkJob) {
       try {
-        const reworkTag = `rework-of:${job.id}`;
-        const existingRework = await db.job.findFirst({
-          where: {
-            propertyId: job.propertyId,
-            jobType: job.jobType,
-            internalNotes: { contains: reworkTag },
-            status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
-          },
-          select: { id: true },
-        });
-        if (!existingRework) {
-          const nextScheduledDate = new Date(
-            job.scheduledDate.getTime() + settings.qaAutomation.reworkDelayHours * 3600_000
-          );
-          const notes = serializeJobInternalNotes({
-            internalNoteText: `Auto-generated rework for job ${job.id}.`,
-            tags: ["auto-rework", reworkTag],
-          });
-          reworkJobId = await db.$transaction(async (tx) => {
-            const jobNumber = await reserveJobNumber(tx);
-            const reworkJob = await tx.job.create({
-              data: {
-                jobNumber,
-                propertyId: job.propertyId,
-                jobType: job.jobType,
-                status: JobStatus.UNASSIGNED,
-                scheduledDate: nextScheduledDate,
-                startTime: job.startTime,
-                dueTime: job.dueTime,
-                estimatedHours: job.estimatedHours,
-                notes: "Auto rework job from failed QA.",
-                internalNotes: notes,
-                // Mark as a real rework so the cleaner gets the fix checklist and
-                // laundry pickup is suppressed (both gate on isRework), and so the
-                // QA-inspection dedupe (which keys on reworkOfJobId) sees this job.
-                isRework: true,
-                reworkOfJobId: job.id,
-              },
-            });
-            return reworkJob.id;
-          });
-        }
+        const context = await getAdminReworkContext(job);
+        reworkPrompt = {
+          score: body.score,
+          threshold: settings.qaAutomation.failureThreshold,
+          inspectorReviewed: context.inspectorReviewed,
+          inspectorRequestedRework: context.inspectorRequestedRework,
+          existingReworkJobId: context.existingReworkJobId,
+        };
       } catch (err) {
-        logger.error({ err, jobId: params.id }, "QA automation: rework-job creation failed (non-fatal)");
+        logger.error({ err, jobId: params.id }, "QA: rework context lookup failed (non-fatal)");
       }
     }
 
@@ -234,33 +219,8 @@ export async function POST(
         scheduleJobFollowUps(params.id),
       ]);
     }
-    if (reworkJobId) {
-      await assignPreferredCleanerIfAvailable({
-        jobId: reworkJobId,
-        propertyId: job.propertyId,
-        jobType: job.jobType,
-      }).catch(() => null);
-    }
 
-    // QA fail that spawned a rework job: tell the client we found something we're
-    // putting right (ISSUE_RAISED on the ORIGINAL job), then confirm the re-clean
-    // and its new schedule (RECLEAN_SCHEDULED on the rework job, whose date the
-    // lifecycle service reads for the schedule text). Best-effort auto sends.
-    if (reworkJobId) {
-      await sendLifecycleEmail({
-        jobId: job.id,
-        stage: "ISSUE_RAISED",
-        mode: "auto",
-        extra: { reason: body.notes?.trim() || undefined },
-      }).catch(() => {});
-      await sendLifecycleEmail({
-        jobId: reworkJobId,
-        stage: "RECLEAN_SCHEDULED",
-        mode: "auto",
-      }).catch(() => {});
-    }
-
-    return NextResponse.json(qa);
+    return NextResponse.json({ ...qa, reworkPrompt });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
