@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   getJobTimingHighlights,
+  isInternalJobTag,
   mergeUniqueJobHighlights,
   parseJobInternalNotes,
 } from "@/lib/jobs/meta";
@@ -241,6 +242,7 @@ export default async function CleanerDashboard() {
 
     function JobCard({ job }: { job: (typeof jobs)[0] }) {
     const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const visibleTags = jobMeta.tags.filter((tag) => !isInternalJobTag(tag));
     const timingHighlights = mergeUniqueJobHighlights(getJobTimingHighlights(jobMeta), [job.priorityReason]);
     const hasCleanerNotes = Boolean(
       jobMeta.internalNoteText && jobMeta.internalNoteText.trim()
@@ -288,9 +290,9 @@ export default async function CleanerDashboard() {
                   ))}
                 </div>
               ) : null}
-              {(jobMeta.tags?.length ?? 0) > 0 || hasCleanerNotes ? (
+              {visibleTags.length > 0 || hasCleanerNotes ? (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {jobMeta.tags?.map((tag) => (
+                  {visibleTags.map((tag) => (
                     <Badge
                       key={`${job.id}-tag-${tag}`}
                       variant="secondary"
@@ -531,10 +533,10 @@ export default async function CleanerDashboard() {
                     ))}
                   </div>
                 )}
-                {((ongoingJobMeta?.tags?.length ?? 0) > 0 ||
+                {((ongoingJobMeta?.tags?.filter((tag) => !isInternalJobTag(tag)).length ?? 0) > 0 ||
                   Boolean(ongoingJobMeta?.internalNoteText?.trim())) && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {ongoingJobMeta?.tags?.map((tag) => (
+                    {ongoingJobMeta?.tags?.filter((tag) => !isInternalJobTag(tag)).map((tag) => (
                       <Badge key={`ongoing-tag-${tag}`} variant="secondary" className="border-info/30 bg-info/10 text-info">{tag}</Badge>
                     ))}
                     {Boolean(ongoingJobMeta?.internalNoteText?.trim()) && (

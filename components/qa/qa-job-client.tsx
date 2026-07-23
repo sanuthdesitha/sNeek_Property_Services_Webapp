@@ -508,8 +508,12 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     job?.property?.postcode,
   ]);
   const propertyStock: any[] = payload?.propertyStock ?? [];
-  const cleanerCandidates: Array<{ id: string; name: string | null; email: string }> =
+  const cleanerCandidates: Array<{ id: string; name: string | null; email: string; hourlyRate?: number | null }> =
     payload?.cleanerCandidates ?? [];
+  // The whole active roster for "Different cleaner" (older payloads only carry
+  // the job's own cleaners).
+  const reworkPayeeCandidates: Array<{ id: string; name: string | null; email: string; hourlyRate?: number | null }> =
+    payload?.reworkPayeeCandidates ?? cleanerCandidates;
   const existingReworks: any[] = job?.qaReworkTransfers ?? [];
   const latestSubmission = job?.formSubmissions?.[0];
   const mediaItems = useMemo(
@@ -850,6 +854,29 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   function setRework(patch: Partial<typeof rework>) {
     setTools((prev) => ({ ...prev, rework: { ...(prev.rework ?? emptyReworkProposal()), ...patch } }));
   }
+  // "Different cleaner" can be anyone active EXCEPT the original cleaner.
+  const originalCleanerId = cleanerCandidates[0]?.id ?? null;
+  const payeeOptions = reworkPayeeCandidates.filter((c) => c.id !== originalCleanerId);
+  // Suggested pay default: allocated rework hours (else the job's estimated
+  // hours) × the payee's hourly rate. Prefill only — a typed amount stays.
+  const reworkHoursBasis =
+    rework.allocatedHours ?? (Number(job?.estimatedHours ?? 0) > 0 ? Number(job.estimatedHours) : null);
+  const reworkPayee = reworkPayeeCandidates.find((c) => c.id === rework.payeeCleanerId);
+  const reworkPayeeRate = Number(reworkPayee?.hourlyRate ?? 0);
+  const paySuggestion =
+    reworkPayeeRate > 0 && Number(reworkHoursBasis ?? 0) > 0
+      ? {
+          hours: Number(reworkHoursBasis),
+          rate: reworkPayeeRate,
+          amount: Math.round(Number(reworkHoursBasis) * reworkPayeeRate * 100) / 100,
+        }
+      : null;
+  useEffect(() => {
+    if (!rework.enabled || rework.assignee !== "OTHER") return;
+    if (rework.payAmount > 0 || !paySuggestion) return;
+    setRework({ payAmount: paySuggestion.amount });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rework.enabled, rework.assignee, rework.payeeCleanerId, paySuggestion?.amount]);
   // ── Rework flagged areas (each carries QA photos → the cleaner's fix list) ──
   function addFlaggedArea() {
     const value = reworkAreaDraft.trim();
@@ -931,6 +958,15 @@ export function QaJobClient({ jobId }: { jobId: string }) {
       }
       if (rework.flaggedAreas.filter((a) => a.label.trim()).length === 0) {
         toast({ title: "Flag at least one area for the cleaner to fix.", variant: "destructive" });
+        return;
+      }
+      const areaWithoutPhoto = rework.flaggedAreas.find((a) => a.photoKeys.length === 0);
+      if (areaWithoutPhoto) {
+        toast({
+          title: "Add a photo for each flagged area",
+          description: `"${areaWithoutPhoto.label.trim() || "Flagged area"}" has no photo of the problem.`,
+          variant: "destructive",
+        });
         return;
       }
       if (rework.assignee === "OTHER") {
@@ -1699,7 +1735,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                         <Select value={rework.payeeCleanerId ?? ""} onValueChange={(v) => setRework({ payeeCleanerId: v })}>
                           <SelectTrigger><SelectValue placeholder="Select cleaner" /></SelectTrigger>
                           <SelectContent>
-                            {cleanerCandidates.map((c) => (
+                            {payeeOptions.map((c) => (
                               <SelectItem key={c.id} value={c.id}>{c.name || c.email}</SelectItem>
                             ))}
                           </SelectContent>
@@ -1715,6 +1751,11 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                           value={rework.payAmount || ""}
                           onChange={(e) => setRework({ payAmount: Number(e.target.value || 0) })}
                         />
+                        {paySuggestion ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Suggested: {paySuggestion.hours}h × ${paySuggestion.rate}/h = ${paySuggestion.amount.toFixed(2)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   ) : null}

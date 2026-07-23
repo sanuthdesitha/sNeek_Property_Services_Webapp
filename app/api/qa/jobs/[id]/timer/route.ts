@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const session = await requireRole([...QA_ROLES]);
     const { action } = bodySchema.parse(await req.json());
 
-    const assignment = await db.qaAssignment.findFirst({
+    let assignment = await db.qaAssignment.findFirst({
       where: {
         jobId: params.id,
         status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED, QaAssignmentStatus.IN_PROGRESS] },
@@ -27,9 +27,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
       orderBy: { createdAt: "desc" },
     });
-    // No assignment yet (e.g. admin reviewing ad-hoc): the client keeps a local
-    // timer; nothing to persist.
-    if (!assignment) return NextResponse.json({ persisted: false });
+    // No assignment yet (job opened directly, e.g. admin ad-hoc review): a
+    // start must still be recorded, so attach an assignment to this inspector
+    // (mirrors pickup/route.ts). A pause with nothing to pause stays local.
+    if (!assignment) {
+      if (action !== "start") return NextResponse.json({ persisted: false });
+      const job = await db.job.findUnique({ where: { id: params.id }, select: { id: true } });
+      if (!job) return NextResponse.json({ error: "QA job not found." }, { status: 404 });
+      assignment = await db.qaAssignment.create({
+        data: {
+          jobId: params.id,
+          status: QaAssignmentStatus.IN_PROGRESS,
+          pickedUpById: session.user.id,
+          pickedUpAt: new Date(),
+        },
+      });
+    }
 
     if (action === "start") {
       if (!assignment.onSiteStartedAt) {
