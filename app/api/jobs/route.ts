@@ -74,7 +74,10 @@ const JOB_INCLUDE = {
     include: { user: { select: { id: true, name: true } } },
   },
   qaReviews: {
-    select: { id: true, score: true, passed: true, createdAt: true },
+    // `kind` distinguishes a real review (QA inspection / ADMIN quick score)
+    // from a client rating, so the QA queue can tell "not yet reviewed" from
+    // "reviewed and failed".
+    select: { id: true, score: true, passed: true, createdAt: true, kind: true },
     orderBy: { createdAt: "desc" as const },
     take: 1,
   },
