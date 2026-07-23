@@ -21,6 +21,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname),
+      // Server modules (lib/db.ts et al) start with `import "server-only"`.
+      // Next special-cases it at build time to stop server code leaking into a
+      // client bundle — a guard we keep. The real npm package deliberately
+      // THROWS anywhere outside a React Server Component, which would break
+      // every test that transitively imports lib/db. Point it at a harmless
+      // no-op for tests only; the app build is unaffected.
+      "server-only": path.resolve(__dirname, "scripts/_stubs/server-only.ts"),
     },
   },
 });
