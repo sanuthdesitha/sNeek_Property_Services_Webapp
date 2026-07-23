@@ -1205,3 +1205,20 @@ gmp-place-autocomplete::part(prediction-item-selected) {
 [data-portal-theme] {
   max-width: 100%;
 }
+
+/* ---------------------------------------------------------------------
+ * Admin "test as" (impersonation) bar.
+ *
+ * The bar is position:fixed at the very top so it survives every portal
+ * shell, v1 and v2. Padding alone would not be enough: portal headers use
+ * `sticky top-0`, which anchors to the VIEWPORT, so they would slide
+ * underneath the bar on scroll. Offsetting both by the bar height keeps the
+ * page fully usable while impersonating.
+ * --------------------------------------------------------------------- */
+html.impersonating body {
+  padding-top: 2.25rem; /* h-9 */
+}
+
+html.impersonating .sticky.top-0 {
+  top: 2.25rem;
+}

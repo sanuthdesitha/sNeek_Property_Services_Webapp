@@ -6,6 +6,7 @@ import { Providers } from "./providers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { getThemeForUser } from "@/lib/theme/server";
+import { getImpersonationBanner, ImpersonationSlot } from "@/components/admin/impersonation-slot";
 
 const fontSans = Inter({
   subsets: ["latin"],
@@ -89,7 +90,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // OS prefers dark — this prevents a flash-of-wrong-theme.
   const session = await getServerSession(authOptions);
   const themePref = await getThemeForUser((session as any)?.user?.id);
-  const initialClass = themePref === "dark" ? "dark" : "light";
+  // Admin "test as": the class drives the layout offsets in globals.css so the
+  // fixed warning bar pushes the page (and any sticky portal header) down
+  // rather than covering it.
+  const impersonation = await getImpersonationBanner();
+  const initialClass = `${themePref === "dark" ? "dark" : "light"}${impersonation ? " impersonating" : ""}`;
 
   // Pre-hydration script: resolves "system" against the OS preference and
   // applies .dark before paint. Uses the cookie/localStorage written by the
@@ -116,6 +121,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontEstateSerif.variable} ${fontMono.variable} antialiased`}>
+        {/* Admin "test as" banner. Renders nothing (and hits no database)
+            unless an impersonation ticket is active; when it does render it
+            adds .has-impersonation-bar to <html> so sticky portal headers are
+            pushed below it instead of hiding underneath. */}
+        {impersonation ? <ImpersonationSlot banner={impersonation} /> : null}
         <Providers>{children}</Providers>
       </body>
     </html>
