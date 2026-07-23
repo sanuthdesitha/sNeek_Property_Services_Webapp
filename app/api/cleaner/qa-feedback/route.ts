@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getPresignedDownloadUrl, publicUrl } from "@/lib/s3";
+import { pickAuthoritativeReviews } from "@/lib/qa/review-dedupe";
 
 /**
  * Cleaner-facing QA feedback feed. Returns the signed-in cleaner's recent QA
@@ -38,14 +39,17 @@ export async function GET() {
     const session = await requireRole([Role.CLEANER]);
     const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
 
-    const reviews = await db.qAReview.findMany({
+    // Over-fetch, then keep ONE review per job (QA outranks ADMIN, newest
+    // wins): double-submits used to append duplicate reviews, and showing a
+    // cleaner two verdicts for the same clean reads as two separate failures.
+    const rawReviews = await db.qAReview.findMany({
       where: {
         kind: { in: ["QA", "ADMIN"] },
         createdAt: { gte: since },
         job: { assignments: { some: { userId: session.user.id, removedAt: null } } },
       },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 60,
       select: {
         id: true,
         jobId: true,
@@ -64,6 +68,8 @@ export async function GET() {
         },
       },
     });
+
+    const reviews = pickAuthoritativeReviews(rawReviews).slice(0, 20);
 
     const jobIds = Array.from(new Set(reviews.map((r) => r.jobId)));
     const issues = jobIds.length

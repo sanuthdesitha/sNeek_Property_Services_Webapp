@@ -765,7 +765,45 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    // DOUBLE-SUBMIT GUARD. A fresh submit (no reopenedReviewId) must be the
+    // job's FIRST inspection — pressing Submit twice used to append a second
+    // kind-"QA" review, and the cleaner then saw two verdicts for one clean.
+    // Amending after a reopen goes through the update path above and is exempt.
+    if (!amendReview) {
+      const alreadyInspected = await db.qAReview.findFirst({
+        where: { jobId: params.id, kind: "QA" },
+        select: { id: true },
+      });
+      if (alreadyInspected) {
+        return NextResponse.json(
+          {
+            error:
+              "This job has already been inspected. Reopen the inspection from the workspace if you need to amend it.",
+            code: "QA_ALREADY_SUBMITTED",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const created = await db.$transaction(async (tx) => {
+      // Serialize concurrent submits for the same job — two near-simultaneous
+      // requests (a double-tap) would both pass the pre-check above, so the
+      // race is settled here: the lock queues the second request, and the
+      // re-check behind it sees the first one's review.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
+      if (!amendReview) {
+        const dupe = await tx.qAReview.findFirst({
+          where: { jobId: params.id, kind: "QA" },
+          select: { id: true },
+        });
+        if (dupe) {
+          throw new Error(
+            "This job has already been inspected. Reopen the inspection from the workspace if you need to amend it."
+          );
+        }
+      }
+
       const reviewFields = {
         // When an accountability assessment is present, the raw accountability
         // score is the review score at creation (final = raw; admin adjustments
