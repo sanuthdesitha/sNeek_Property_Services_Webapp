@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { LookSwitchLink } from "@/components/look-switch-link";
 
 export const ADMIN_NAV_GROUPS = [
   {
@@ -198,6 +199,13 @@ export function AdminSidebar({
               <p className="truncate text-sm font-medium">{userName || "Admin"}</p>
               <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Signed in</p>
             </div>
+          </div>
+        ) : null}
+        {/* Personal switch to the Estate look, independent of the house
+            default in Settings → Default look. */}
+        {!collapsed ? (
+          <div className="px-3 pb-1">
+            <LookSwitchLink className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground" />
           </div>
         ) : null}
         <Button

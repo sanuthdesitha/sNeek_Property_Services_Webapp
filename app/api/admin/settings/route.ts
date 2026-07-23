@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings, saveAppSettings } from "@/lib/settings";
+import { invalidateDefaultPortalVersion } from "@/lib/portal-version-store";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { EMAIL_TEMPLATE_KEYS } from "@/lib/email-templates";
@@ -159,6 +160,7 @@ const updateSchema = z.object({
   companyName: z.string().trim().min(1).optional(),
   companyPhone: z.string().trim().optional(),
   cleanerClientContact: z.boolean().optional(),
+  defaultPortalVersion: z.enum(["v1", "v2"]).optional(),
   projectName: z.string().trim().min(1).optional(),
   logoUrl: z.string().trim().optional(),
   logoDarkBgUrl: z.string().trim().optional(),
@@ -292,6 +294,13 @@ export async function PATCH(req: NextRequest) {
     const body = updateSchema.parse(await req.json());
     const before = await getAppSettings();
     const settings = await saveAppSettings(body as any);
+
+    // The default look is cached for a few seconds (middleware asks for it on
+    // every navigation); drop it now so the admin who just flipped the switch
+    // sees the change immediately rather than after the TTL.
+    if (body.defaultPortalVersion !== undefined) {
+      invalidateDefaultPortalVersion();
+    }
 
     // When public-website content (or branding shown on the marketing site)
     // changes, drop the cached render of every public marketing route so edits

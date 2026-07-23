@@ -7,6 +7,14 @@ import {
   isReadOnlySafeMethod,
   readImpersonationTicket,
 } from "@/lib/auth/impersonation";
+import {
+  PORTAL_VERSION_COOKIE,
+  PORTAL_VERSION_COOKIE_MAX_AGE,
+  effectivePortalVersion,
+  parsePortalVersion,
+  portalRootIn,
+  type PortalVersion,
+} from "@/lib/portal-version";
 
 export default withAuth(
   async function middleware(req) {
@@ -48,13 +56,36 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.next());
     }
 
+    // ── Look switching (v1 classic ↔ v2 Estate) ──────────────────────────
+    // `?look=v2` on any URL records a personal preference and drops the param.
+    // Handled here rather than in a client handler so the switch links are
+    // plain anchors that work without JavaScript, and so the redirect happens
+    // before any page renders in the wrong skin.
+    const requestedLook = parsePortalVersion(req.nextUrl.searchParams.get("look"));
+    if (requestedLook) {
+      const clean = req.nextUrl.clone();
+      clean.searchParams.delete("look");
+      const res = applySecurityHeaders(NextResponse.redirect(clean));
+      res.cookies.set(PORTAL_VERSION_COOKIE, requestedLook, {
+        httpOnly: false, // read by the switcher UI to show the current look
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: PORTAL_VERSION_COOKIE_MAX_AGE,
+      });
+      return res;
+    }
+    const lookOverride = parsePortalVersion(req.cookies.get(PORTAL_VERSION_COOKIE)?.value);
+
     let role = token?.role as Role | undefined;
+    let houseLook: PortalVersion | undefined;
     if (token) {
       const validation = await validateActiveSession(req);
       if (validation.valid === false) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/api/auth/local-signout", req.url)));
       }
       role = validation.role ?? role;
+      houseLook = validation.defaultPortalVersion;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
       // v2-context users get the Estate onboarding; v1 keeps the classic one.
@@ -78,9 +109,27 @@ export default withAuth(
       }
     }
 
-    // Redirect logged-in users away from auth pages
+    // The look this request should be served in: a personal override beats the
+    // house default, so one person can work in the other version without
+    // anyone else being affected.
+    const look = effectivePortalVersion(houseLook, lookOverride);
+    const homeForLook = (r: Role | undefined) => (look === "v2" ? v2PortalHome(r) : portalHome(r));
+
+    // Redirect logged-in users away from auth pages, into the current look.
     if ((pathname === "/login" || pathname === "/register") && token) {
-      return applySecurityHeaders(NextResponse.redirect(new URL(portalHome(role), req.url)));
+      return applySecurityHeaders(NextResponse.redirect(new URL(homeForLook(role), req.url)));
+    }
+
+    // A portal ROOT opened in the other version follows the current look. Only
+    // roots are rewritten — deep links stay exactly where they point, so a
+    // bookmark or an emailed link never breaks because of a global switch, and
+    // portalRootIn() returns null when the path is already correct, which is
+    // what makes this incapable of looping.
+    if (token) {
+      const target = portalRootIn(pathname, look);
+      if (target) {
+        return applySecurityHeaders(NextResponse.redirect(new URL(target, req.url)));
+      }
     }
 
     // v2 (Estate) portals. /v2 has its own Estate-themed login at /v2/login —
@@ -88,9 +137,9 @@ export default withAuth(
     // changes where the user lands afterwards. v1 logins/redirects untouched;
     // v2 public pages stay unrouted pre-cutover.
     if (pathname === "/v2/login") {
-      // Already signed in → straight to the role's v2 portal home.
+      // Already signed in → straight to the role's home in the current look.
       if (token) {
-        return applySecurityHeaders(NextResponse.redirect(new URL(v2PortalHome(role), req.url)));
+        return applySecurityHeaders(NextResponse.redirect(new URL(homeForLook(role), req.url)));
       }
       return applySecurityHeaders(NextResponse.next());
     }
@@ -298,12 +347,16 @@ async function validateActiveSession(req: NextRequestWithAuth) {
       role?: Role;
       requiresPasswordReset?: boolean;
       requiresOnboarding?: boolean;
+      defaultPortalVersion?: PortalVersion;
     };
     return {
       valid: data.valid === true,
       role: data.role as Role | undefined,
       requiresPasswordReset: data.requiresPasswordReset === true,
       requiresOnboarding: data.requiresOnboarding === true,
+      // The house look rides along on this call — middleware is edge and
+      // cannot read the settings row itself.
+      defaultPortalVersion: parsePortalVersion(data.defaultPortalVersion) ?? undefined,
     };
   } catch {
     return {
@@ -311,6 +364,9 @@ async function validateActiveSession(req: NextRequestWithAuth) {
       role: req.nextauth.token?.role as Role | undefined,
       requiresPasswordReset: false,
       requiresOnboarding: false,
+      // Unknown → the caller falls back to the classic app rather than
+      // guessing, so a blip in this call can never bounce people around.
+      defaultPortalVersion: undefined,
     };
   }
 }

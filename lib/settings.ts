@@ -298,6 +298,14 @@ export interface AppSettings {
   /** When true (default) cleaners see the client's name & phone on their jobs;
    *  when false the client contact is withheld from the cleaner portal. */
   cleanerClientContact: boolean;
+  /**
+   * Which look everyone lands in: "v1" = the classic app, "v2" = the Estate
+   * redesign. Both remain fully routable — this only decides where the entry
+   * points (login, `/`, a portal root) send people, so a deep link into either
+   * version keeps working and nobody can be stranded. Defaults to "v1" so
+   * existing installs are unaffected until an admin flips it.
+   */
+  defaultPortalVersion: "v1" | "v2";
   projectName: string;
   // Primary logo, for LIGHT backgrounds (white/ivory) — quotes, invoices,
   // checklists, reports, emails. Should be the coloured/dark artwork.
@@ -513,6 +521,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
   companyPhone: "",
   cleanerClientContact: true,
+  defaultPortalVersion: "v1",
   projectName: "sneek-ops-dashboard",
   logoUrl: "",
   logoDarkBgUrl: "",
@@ -1368,6 +1377,14 @@ function sanitizeSettings(input: unknown): AppSettings {
       typeof (parsed as any).cleanerClientContact === "boolean"
         ? (parsed as any).cleanerClientContact
         : DEFAULT_SETTINGS.cleanerClientContact,
+    // Anything other than the two known versions falls back to the default —
+    // a typo in this field must never route users into a 404.
+    defaultPortalVersion:
+      (parsed as any).defaultPortalVersion === "v2"
+        ? "v2"
+        : (parsed as any).defaultPortalVersion === "v1"
+          ? "v1"
+          : DEFAULT_SETTINGS.defaultPortalVersion,
     projectName: typeof parsed.projectName === "string" && parsed.projectName.trim()
       ? parsed.projectName.trim()
       : DEFAULT_SETTINGS.projectName,

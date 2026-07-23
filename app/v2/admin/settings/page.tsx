@@ -25,6 +25,7 @@ import {
   History,
   ClipboardCheck,
   Megaphone,
+  Palette,
 } from "lucide-react";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
 import { BankSection } from "@/components/v2/admin/settings/bank-section";
@@ -33,6 +34,7 @@ import { NotificationsAutomationSection } from "@/components/v2/admin/settings/n
 import { RatesSection } from "@/components/v2/admin/settings/rates-section";
 import { PricingVariablesSection } from "@/components/v2/admin/settings/pricing-variables-section";
 import { PortalsSection } from "@/components/v2/admin/settings/portals-section";
+import { LookSection } from "@/components/v2/admin/settings/look-section";
 import { LaundrySection } from "@/components/v2/admin/settings/laundry-section";
 import { PublicWidgetsSection } from "@/components/v2/admin/settings/public-widgets-section";
 import { ProfilePermissionsSection } from "@/components/v2/admin/settings/profile-permissions-section";
@@ -53,6 +55,7 @@ export const dynamic = "force-dynamic";
 
 type TabKey =
   | "overview"
+  | "look"
   | "company"
   | "bank"
   | "safeguards"
@@ -76,6 +79,7 @@ type TabKey =
 
 const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly: boolean }> = [
   { key: "overview", label: "Overview", icon: <LayoutGrid className="h-4 w-4" />, adminOnly: false },
+  { key: "look", label: "Default look", icon: <Palette className="h-4 w-4" />, adminOnly: true },
   { key: "company", label: "Company & brand", icon: <Building2 className="h-4 w-4" />, adminOnly: false },
   { key: "bank", label: "Bank & payment", icon: <Landmark className="h-4 w-4" />, adminOnly: false },
   { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true },
@@ -145,6 +149,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       />
 
       {activeTab === "overview" ? <OverviewSection isAdmin={isAdmin} /> : null}
+
+      {activeTab === "look" && isAdmin ? (
+        <LookSection initial={appSettings.defaultPortalVersion} readOnly={!isAdmin} />
+      ) : null}
 
       {activeTab === "company" ? (
         <CompanySection
