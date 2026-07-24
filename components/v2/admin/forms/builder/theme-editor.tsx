@@ -3,7 +3,7 @@
 /**
  * ESTATE form builder — form theme editor. Same FormTheme shape v1 stores
  * (accentColor / headerColor / logoKey|logoUrl / showDividers / heading &
- * body fonts). Reuses the shared upload endpoints (/api/uploads/presign,
+ * body fonts). Reuses the shared upload endpoints (/api/uploads/direct,
  * /api/uploads/access). Native Estate controls.
  */
 import * as React from "react";
@@ -47,6 +47,7 @@ export function ThemeEditor({
   onChange: (next: FormTheme | undefined) => void;
 }) {
   const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [logoPreview, setLogoPreview] = React.useState("");
   const t = theme ?? {};
 
@@ -73,24 +74,24 @@ export function ThemeEditor({
     const file = files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadError(null);
     try {
-      const presignRes = await fetch("/api/uploads/presign", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "image/png",
-          folder: "form-theme",
-        }),
-      });
-      const presign = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok || !presign.uploadUrl || !presign.key) return;
-      await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "image/png" },
-        body: file,
-      });
-      patch({ logoKey: presign.key, logoUrl: undefined });
+      // Upload THROUGH the server (/api/uploads/direct) — the previous
+      // presigned browser PUT silently failed in production (no bucket CORS
+      // for the site origin, and the PUT's result was never checked), leaving
+      // a logoKey pointing at an object that was never uploaded.
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("folder", "form-theme");
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.key) {
+        setUploadError(body.error ?? `Logo upload failed (${res.status}).`);
+        return;
+      }
+      patch({ logoKey: body.key as string, logoUrl: undefined });
+    } catch {
+      setUploadError("Logo upload failed — check your connection and try again.");
     } finally {
       setUploading(false);
     }
@@ -179,6 +180,9 @@ export function ThemeEditor({
             )}
           </div>
         </div>
+        {uploadError ? (
+          <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadError}</p>
+        ) : null}
         <EInput
           value={t.logoUrl ?? ""}
           onChange={(e) => patch({ logoUrl: e.target.value || undefined, logoKey: undefined })}
