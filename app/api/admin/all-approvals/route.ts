@@ -7,6 +7,7 @@ import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
+import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 
 // Accountability-sourced pay adjustments are surfaced in their own dedicated
 // queues (rectificationAdjustments / bonusProposals) — NOT in the generic
@@ -48,6 +49,7 @@ export async function GET() {
       bonusProposals,
       falseConfirmations,
       managementReviews,
+      qaOutcomes,
     ] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
@@ -205,6 +207,9 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           take: 50,
         }),
+        // Failed-inspection jobs parked in QA_REVIEW awaiting the admin
+        // "approve outcome → COMPLETED" decision (blocks invoicing until done).
+        listQaOutcomeApprovals(),
       ]);
 
     // Resolve the requesting client user for each pending skip request (no FK relation in schema).
@@ -331,6 +336,7 @@ export async function GET() {
       bonusProposals,
       falseConfirmations,
       managementReviews: managementReviewRows,
+      qaOutcomes,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -345,6 +351,7 @@ export async function GET() {
         bonusProposals: bonusProposals.length,
         falseConfirmations: falseConfirmations.length,
         managementReviews: managementReviewRows.length,
+        qaOutcomes: qaOutcomes.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -358,7 +365,8 @@ export async function GET() {
           rectificationAdjustments.length +
           bonusProposals.length +
           falseConfirmations.length +
-          managementReviewRows.length,
+          managementReviewRows.length +
+          qaOutcomes.length,
       },
     });
   } catch (err: any) {

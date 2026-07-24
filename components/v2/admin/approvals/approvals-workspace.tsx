@@ -10,6 +10,7 @@
  *   client        PATCH /api/admin/client-approvals/[id]      { status }
  *   reschedule    PATCH /api/admin/job-tasks/[id]             { decision }
  *   QA rework     PATCH /api/admin/qa/rework-transfers/[id]   { status }
+ *   QA outcome    POST  /api/admin/qa/outcomes                { jobIds }
  *   skip          PATCH /api/admin/jobs/[id]/skip             { action }
  * Continuations and flagged laundry are review-and-route queues (links only),
  * exactly as in v1. Presentation is pure Estate; zero v1 component imports.
@@ -21,6 +22,7 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   DollarSign,
   Gift,
@@ -47,6 +49,7 @@ type AllApprovals = {
   flaggedLaundry: any[];
   rescheduleRequests: any[];
   qaReworkTransfers: any[];
+  qaOutcomes: any[];
   skipRequests: any[];
   rectificationAdjustments: any[];
   bonusProposals: any[];
@@ -64,6 +67,7 @@ const QUEUES = [
   { key: "flaggedLaundry", label: "Laundry", icon: Shirt },
   { key: "rescheduleRequests", label: "Reschedules", icon: CalendarClock },
   { key: "qaReworkTransfers", label: "QA reworks", icon: RotateCcw },
+  { key: "qaOutcomes", label: "QA outcomes", icon: ClipboardCheck },
   { key: "skipRequests", label: "Skips", icon: XCircle },
   { key: "rectificationAdjustments", label: "Rectifications", icon: Wrench },
   { key: "bonusProposals", label: "Bonuses", icon: Gift },
@@ -718,6 +722,36 @@ export function ApprovalsWorkspace() {
     } catch (err: any) {
       setData(snapshot); // roll back the optimistic removal
       toast({ title: "Failed", description: err?.message ?? "Action failed", variant: "destructive" });
+    } finally {
+      setActing(null);
+    }
+  }
+
+  /**
+   * Approve QA outcomes: POST /api/admin/qa/outcomes { jobIds } moves each
+   * QA_REVIEW job to COMPLETED so it can be invoiced. The endpoint reports
+   * per-job results — jobs no longer in QA_REVIEW come back as skipped.
+   */
+  async function approveQaOutcomes(jobIds: string[]) {
+    if (jobIds.length === 0) return;
+    setActing(jobIds[0]);
+    try {
+      const res = await fetch("/api/admin/qa/outcomes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Approval failed");
+      const approvedCount = Array.isArray(json.approved) ? json.approved.length : 0;
+      const skippedCount = Array.isArray(json.skipped) ? json.skipped.length : 0;
+      toast({
+        title: `${approvedCount} job${approvedCount === 1 ? "" : "s"} marked completed`,
+        description: skippedCount > 0 ? `${skippedCount} skipped (no longer awaiting approval).` : undefined,
+      });
+      await load();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err?.message ?? "Approval failed", variant: "destructive" });
     } finally {
       setActing(null);
     }
@@ -1379,6 +1413,96 @@ export function ApprovalsWorkspace() {
                 }
               />
             ))}
+
+          {/* ── QA outcomes (failed inspections parked in QA_REVIEW → COMPLETED) ── */}
+          {active === "qaOutcomes" && (
+            <>
+              {activeRows.length > 0 ? (
+                <div className="flex justify-end">
+                  <EButton
+                    size="sm"
+                    variant="gold"
+                    disabled={busy}
+                    onClick={() => {
+                      const n = activeRows.length;
+                      if (
+                        window.confirm(
+                          `Marks ${n} job${n === 1 ? "" : "s"} as completed so they can be invoiced. QA scores and any rework jobs are unaffected.`
+                        )
+                      ) {
+                        approveQaOutcomes(activeRows.map((row) => row.id));
+                      }
+                    }}
+                  >
+                    <ClipboardCheck className="h-3.5 w-3.5" />
+                    Approve all ({activeRows.length})
+                  </EButton>
+                </div>
+              ) : null}
+              {activeRows.map((row) => (
+                <QueueCard
+                  key={row.id}
+                  eyebrow="QA outcome"
+                  title={<>{row.property?.name ?? `Job #${row.jobNumber}`}</>}
+                  status={
+                    <>
+                      {row.review ? (
+                        <EBadge tone={row.review.passed ? "success" : "danger"} soft>
+                          {row.review.passed ? "Passed" : "Failed"}
+                        </EBadge>
+                      ) : null}
+                      {row.review ? (
+                        <EBadge tone="aubergine" soft>
+                          {row.review.kind === "QA" ? "Inspection" : "Admin score"}
+                        </EBadge>
+                      ) : null}
+                      {row.review?.cleanerAcknowledgedAt ? (
+                        <EBadge tone="info" soft>
+                          Seen by cleaner
+                        </EBadge>
+                      ) : null}
+                      {row.openRework ? (
+                        <EBadge tone="warning" soft>
+                          Rework in progress
+                        </EBadge>
+                      ) : null}
+                    </>
+                  }
+                  lines={[
+                    [row.property?.suburb, `Job #${row.jobNumber}`, fmtDay(row.scheduledDate)]
+                      .filter(Boolean)
+                      .join(" · "),
+                    <>Cleaner: {row.cleaners?.length ? row.cleaners.join(", ") : "—"}</>,
+                    row.review ? (
+                      <>
+                        Score:{" "}
+                        <span className="e-numeral text-[0.9375rem]">
+                          {Number(row.review.score).toFixed(0)}%
+                        </span>
+                      </>
+                    ) : null,
+                  ]}
+                  footer={row.review ? `Scored ${fmt(row.review.createdAt)}` : undefined}
+                  actions={
+                    <>
+                      <EButton
+                        size="sm"
+                        variant="gold"
+                        disabled={busy}
+                        onClick={() => approveQaOutcomes([row.id])}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Approve — mark completed
+                      </EButton>
+                      <EButton size="sm" variant="ghost" asChild>
+                        <Link href={`/v2/admin/jobs/${row.id}`}>View job</Link>
+                      </EButton>
+                    </>
+                  }
+                />
+              ))}
+            </>
+          )}
 
           {/* ── Skip requests (approving cancels the clean → confirm both) ── */}
           {active === "skipRequests" &&

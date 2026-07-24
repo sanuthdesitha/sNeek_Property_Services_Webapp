@@ -70,6 +70,7 @@ export interface AdminAttentionSummary {
   newCases: number;
   pendingContinuations: number;
   pendingClientApprovals: number;
+  pendingQaOutcomes: number;
   openCases: number;
   overdueCases: number;
   attentionCount: number;
@@ -121,10 +122,19 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
 
   // Approval categories the attention count previously omitted — so it doesn't
   // read "nothing needs attention" while timing / QA-rework / skip requests wait.
-  const [pendingTimingRequests, pendingQaReworkTransfers, pendingSkipRequests] = await Promise.all([
+  const [pendingTimingRequests, pendingQaReworkTransfers, pendingSkipRequests, pendingQaOutcomes] = await Promise.all([
     listEarlyCheckoutRequests({ status: "PENDING" }).then((rows) => rows.length),
     listQaReworkTransfers(QaReworkTransferStatus.PENDING).then((rows) => rows.length),
     safeCount(db.job.count({ where: { cleanSkipStatus: "REQUESTED" } }), 0),
+    // QA outcomes awaiting the admin "approve → COMPLETED" decision: failed
+    // inspections parked in QA_REVIEW (with a QA/ADMIN review filed). Jobs
+    // still waiting for their inspection are excluded (they're not actionable).
+    safeCount(
+      db.job.count({
+        where: { status: JobStatus.QA_REVIEW, qaReviews: { some: { kind: { in: ["QA", "ADMIN"] } } } },
+      }),
+      0
+    ),
   ]);
 
   const now = Date.now();
@@ -148,7 +158,8 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
     pendingClientApprovals +
     pendingTimingRequests +
     pendingQaReworkTransfers +
-    pendingSkipRequests;
+    pendingSkipRequests +
+    pendingQaOutcomes;
 
   return {
     pendingPayRequests,
@@ -161,6 +172,7 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
     newCases,
     pendingContinuations,
     pendingClientApprovals,
+    pendingQaOutcomes,
     openCases: openCases.length,
     overdueCases,
     attentionCount,
