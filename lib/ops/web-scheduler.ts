@@ -20,6 +20,8 @@ import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
+import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
+import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
 import { runAccountabilityNightly } from "@/lib/accountability/streaks";
 
 const TZ = "Australia/Sydney";
@@ -70,6 +72,9 @@ const JOBS: FallbackJob[] = [
   // Revert jobs abandoned in EN_ROUTE (no arrival within 6h) back to ASSIGNED so
   // they don't sit "on the way" forever.
   { name: "stale-en-route-sweep", minIntervalMs: 30 * MIN, run: async () => { await sweepStaleEnRouteJobs(new Date()); } },
+  // Close the clocks on jobs stuck IN_PROGRESS > 24h and move them to PAUSED so
+  // they land back on the admin radar (see lib/ops/auto-pause.ts).
+  { name: "auto-pause-stale-jobs", minIntervalMs: 30 * MIN, run: async () => { await autoPauseStaleJobs(new Date()); } },
   // Time-pinned daily jobs (Sydney). minInterval > 1h so they only fire once
   // per window across multiple 5-min ticks.
   { name: "daily-ops-briefing", minIntervalMs: 20 * HOUR, hour: 7, run: async () => { await sendDailyOpsBriefing(new Date()); } },
@@ -90,6 +95,10 @@ const JOBS: FallbackJob[] = [
     const endDate = new Date(Date.now() + settings.recurringJobs.lookaheadDays * DAY).toISOString().slice(0, 10);
     await generateRecurringJobs({ startDate, endDate });
   } },
+  // End-of-day push nudge to cleaners with genuinely stale unfinished jobs
+  // (PAUSED / IN_PROGRESS scheduled before today). Push-only; de-duped per
+  // job per day inside the dispatcher.
+  { name: "unfinished-job-push-reminder", minIntervalMs: 20 * HOUR, hour: 17, run: async () => { await dispatchUnfinishedJobPushReminders(new Date()); } },
   { name: "location-pings-cleanup", minIntervalMs: 20 * HOUR, hour: 3, run: async () => {
     const cutoff = new Date(Date.now() - 7 * DAY);
     await db.cleanerLocationPing.deleteMany({ where: { timestamp: { lt: cutoff } } });

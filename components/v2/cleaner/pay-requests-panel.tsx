@@ -72,20 +72,28 @@ async function uploadPayRequestFile(file: File): Promise<Attachment> {
 export function PayRequestsPanel({
   jobs,
   properties,
+  initialJobId,
 }: {
   jobs: JobOption[];
   properties: PropertyOption[];
+  /** Deep-link from a job (?jobId=…): preselect that job and open the form. */
+  initialJobId?: string | null;
 }) {
+  // Only honour the deep-link when the job is actually selectable here.
+  const initialJobValid = Boolean(initialJobId && jobs.some((job) => job.id === initialJobId));
+
   const [payRequests, setPayRequests] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("ALL");
   const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(initialJobValid);
   const [saving, setSaving] = useState(false);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
 
   // Form state
   const [scope, setScope] = useState<"JOB" | "PROPERTY" | "STANDALONE">("JOB");
-  const [payJobId, setPayJobId] = useState<string>(jobs[0]?.id ?? "");
+  const [payJobId, setPayJobId] = useState<string>(
+    initialJobValid && initialJobId ? initialJobId : jobs[0]?.id ?? ""
+  );
   const [propertyId, setPropertyId] = useState<string>(properties[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [payType, setPayType] = useState<"HOURLY" | "FIXED">("HOURLY");

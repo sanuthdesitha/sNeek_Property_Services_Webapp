@@ -92,14 +92,39 @@ function getFilterRange(mode: FilterMode, anchorDate: string) {
   if (mode === "week") return { start: startOfWeek(anchor, { weekStartsOn: 1 }), end: endOfWeek(anchor, { weekStartsOn: 1 }) };
   return { start: startOfMonth(anchor), end: endOfMonth(anchor) };
 }
+// Friendly labels for the real LaundryStatus enum — CONFIRMED and PICKED_UP
+// must read (and colour) differently so the client can tell "we've scheduled
+// it" apart from "the linen has left the property". Mirrors the admin helper
+// in components/v2/admin/laundry/laundry-shared.ts.
+const LAUNDRY_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Pending",
+  CONFIRMED: "Confirmed",
+  PICKED_UP: "Picked up",
+  DROPPED: "Delivered",
+  FLAGGED: "Flagged",
+  SKIPPED_PICKUP: "Skipped",
+};
 function formatLaundryStatus(task: any) {
-  return String(task.status ?? "").replace(/_/g, " ");
+  const status = String(task.status ?? "");
+  return LAUNDRY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
 }
-function statusTone(task: any): "success" | "gold" | "neutral" {
-  if (isCompletedTask(task)) return "success";
-  // In-flight = sent to the laundry team (CONFIRMED) or already collected (PICKED_UP).
-  if (task.status === "PICKED_UP" || task.status === "CONFIRMED") return "gold";
-  return "neutral";
+function statusTone(task: any): "success" | "gold" | "info" | "warning" | "danger" | "neutral" {
+  switch (String(task.status ?? "")) {
+    case "DROPPED":
+      return "success";
+    // Scheduled with the laundry team, but the linen hasn't moved yet.
+    case "CONFIRMED":
+      return "info";
+    // Collected and in transit — the gold "in flight" state.
+    case "PICKED_UP":
+      return "gold";
+    case "FLAGGED":
+      return "danger";
+    case "SKIPPED_PICKUP":
+      return "warning";
+    default:
+      return "neutral";
+  }
 }
 function buildLatestLaundrySummary(task: any) {
   const latest = Array.isArray(task.confirmations) ? task.confirmations[0] : null;
@@ -111,14 +136,27 @@ function buildLatestLaundrySummary(task: any) {
       detail: task.skipReasonNote ? `${reason} • ${task.skipReasonNote}` : reason,
     };
   }
+  // Movement milestones outrank the raw confirmation feed: once the linen has
+  // been delivered or collected, the headline must say so — not the earlier
+  // "cleaner marked ready" confirmation-era wording.
+  if (task.status === "DROPPED" || task.droppedAt) {
+    return {
+      title: "Laundry delivered",
+      detail: task.droppedAt ? format(toLocalDate(task.droppedAt), "dd MMM yyyy") : "Delivered back to the property",
+    };
+  }
+  if (task.status === "PICKED_UP" || task.pickedUpAt) {
+    return {
+      title: "Laundry picked up",
+      detail: task.pickedUpAt ? format(toLocalDate(task.pickedUpAt), "dd MMM yyyy") : "Collected by the laundry team",
+    };
+  }
   if (latest) {
     return {
       title: latest.laundryReady ? "Cleaner marked laundry ready" : "Laundry update recorded",
       detail: [format(new Date(latest.createdAt), "dd MMM yyyy HH:mm"), latest.bagLocation || null].filter(Boolean).join(" • "),
     };
   }
-  if (task.droppedAt) return { title: "Laundry returned", detail: format(toLocalDate(task.droppedAt), "dd MMM yyyy") };
-  if (task.pickedUpAt) return { title: "Laundry picked up", detail: format(toLocalDate(task.pickedUpAt), "dd MMM yyyy") };
   return { title: "Laundry schedule created", detail: `Pickup ${format(toLocalDate(task.pickupDate), "dd MMM yyyy")}` };
 }
 

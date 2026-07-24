@@ -9,7 +9,7 @@
  * as pre-start context.
  */
 import * as React from "react";
-import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, Shirt, MapPin } from "lucide-react";
+import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, Shirt, MapPin, ChevronDown } from "lucide-react";
 import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
@@ -61,6 +61,10 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         checkoutTime={api.property?.defaultCheckoutTime}
         checkinTime={api.property?.defaultCheckinTime}
       />
+
+      {/* Setup reference — collapsed by default, right under the booking facts
+          so the top of the stage is guest count → how the property is set up. */}
+      <SetupReferenceDisclosure entries={setupGuideEntries} />
 
       <BriefingCard briefing={briefing} />
 
@@ -131,38 +135,6 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
               items={readFirstItems}
               heading={`Read first — ${readFirstItems.length} note${readFirstItems.length === 1 ? "" : "s"} for this job`}
             />
-          ) : null}
-
-          {setupGuideEntries.length > 0 ? (
-            <div className="space-y-2">
-              <p className="e-eyebrow flex items-center gap-1.5">
-                <BookOpen className="h-3.5 w-3.5" /> Setup reference
-              </p>
-              {setupGuideEntries.map((entry, ei) => {
-                const images = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
-                return (
-                  <div key={entry.id || `setup-${ei}`} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                    {entry.label ? <p className="text-[0.8125rem] font-[550]">{entry.label}</p> : null}
-                    {entry.instructions ? (
-                      <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                        {entry.instructions}
-                      </p>
-                    ) : null}
-                    {images.length > 0 ? (
-                      <MediaGallery
-                        items={images.map((im, ii) => ({
-                          id: `${entry.id || ei}-${ii}`,
-                          url: im.url as string,
-                          label: im.caption || entry.label || undefined,
-                        }))}
-                        title={entry.label || "Setup reference"}
-                        className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
           ) : null}
 
           {restockNeeds.length > 0 ? (
@@ -248,6 +220,82 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         onPause={api.pauseClock}
       />
     </div>
+  );
+}
+
+/**
+ * Property setup reference as a collapsed disclosure (same idiom as the
+ * property access guide): a one-line header with a photo count and chevron,
+ * expanding to the existing per-entry MediaGallery strip. Renders nothing when
+ * the property has no setup guide.
+ */
+function SetupReferenceDisclosure({ entries }: { entries: WorkspaceApi["setupGuideEntries"] }) {
+  const [open, setOpen] = React.useState(false);
+  if (!entries || entries.length === 0) return null;
+
+  const photoCount = entries.reduce(
+    (count, entry) =>
+      count + (Array.isArray(entry.images) ? entry.images.filter((im) => im?.url).length : 0),
+    0
+  );
+
+  return (
+    <section className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]">
+          <BookOpen className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[0.9375rem] font-[550] text-[hsl(var(--e-foreground))]">
+            Property setup reference
+            {photoCount > 0 ? ` (${photoCount} photo${photoCount === 1 ? "" : "s"})` : ""}
+          </span>
+          <span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            How this property should be set up
+          </span>
+        </span>
+        <ChevronDown
+          className={
+            "h-5 w-5 shrink-0 text-[hsl(var(--e-muted-foreground))] transition-transform duration-200 " +
+            (open ? "rotate-180" : "")
+          }
+        />
+      </button>
+
+      {open ? (
+        <div className="space-y-2 border-t border-[hsl(var(--e-border))] p-3">
+          {entries.map((entry, ei) => {
+            const images = Array.isArray(entry.images) ? entry.images.filter((im) => im?.url) : [];
+            return (
+              <div key={entry.id || `setup-${ei}`} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                {entry.label ? <p className="text-[0.8125rem] font-[550]">{entry.label}</p> : null}
+                {entry.instructions ? (
+                  <p className="mt-0.5 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                    {entry.instructions}
+                  </p>
+                ) : null}
+                {images.length > 0 ? (
+                  <MediaGallery
+                    items={images.map((im, ii) => ({
+                      id: `${entry.id || ei}-${ii}`,
+                      url: im.url as string,
+                      label: im.caption || entry.label || undefined,
+                    }))}
+                    title={entry.label || "Setup reference"}
+                    className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4"
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

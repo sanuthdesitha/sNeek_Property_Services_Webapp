@@ -16,7 +16,7 @@
  * Everything is Estate-token styled; zero live-component imports.
  */
 import * as React from "react";
-import { format, isSameDay, startOfDay } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import jsQR from "jsqr";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import {
@@ -43,6 +43,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
+import { useLaundryDateScope, type LaundryDateRange } from "@/components/v2/laundry/date-scope";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
@@ -116,6 +117,10 @@ export const STATUS_LABEL: Record<LaundryStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
   PICKED_UP: "Picked up",
+  // Deliberately "Returned" (not the client-facing "Delivered"): the laundry
+  // team's action verb is returning the sets to the property, and every board
+  // action/timeline here says "Return"/"Returned". Client + admin surfaces
+  // say "Delivered" for the same DROPPED status.
   DROPPED: "Returned",
   FLAGGED: "Flagged",
   SKIPPED_PICKUP: "Skipped",
@@ -339,7 +344,7 @@ function PhotoStrip({ photos }: { photos: Array<{ id: string; url: string; label
 }
 
 /* ── Shared data hook: fetch the real week feed, refresh every 20s ──────── */
-function useLaundryFeed(days: number) {
+function useLaundryFeed(range: LaundryDateRange) {
   const [tasks, setTasks] = React.useState<BoardTask[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [submittingId, setSubmittingId] = React.useState<string | null>(null);
@@ -348,8 +353,8 @@ function useLaundryFeed(days: number) {
     async (opts?: { silent?: boolean }) => {
       if (!opts?.silent) setLoading(true);
       try {
-        const start = startOfDay(new Date()).toISOString();
-        const res = await fetch(`/api/laundry/week?start=${start}&days=${days}`, {
+        const start = range.start.toISOString();
+        const res = await fetch(`/api/laundry/week?start=${start}&days=${range.days}`, {
           cache: "no-store",
         });
         const data = await res.json().catch(() => null);
@@ -376,7 +381,7 @@ function useLaundryFeed(days: number) {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [days]
+    [range]
   );
 
   React.useEffect(() => {
@@ -439,8 +444,10 @@ const QUEUE_STAGES: { status: LaundryStatus; tone: Tone }[] = [
 ];
 
 export function QueueBoard() {
-  // 30-day window so the queue shows the genuine backlog, not just today.
-  const { tasks, loading, load } = useLaundryFeed(30);
+  // Default to the whole week so the queue shows the genuine backlog, not just
+  // today; the scope chips (Today / Tomorrow / This week / Custom) narrow it.
+  const { range, control } = useLaundryDateScope("week");
+  const { tasks, loading, load } = useLaundryFeed(range);
 
   // Active queue = anything not a no-pickup task; FLAGGED shown in its own strip.
   const active = tasks.filter((t) => !t.noPickupRequired);
@@ -448,7 +455,8 @@ export function QueueBoard() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
       </div>
 
@@ -552,8 +560,8 @@ export function QueueBoard() {
    RUNS — today's pickup + drop-off loops with accurate done counts.
    A pickup is "done" once picked up; a drop is "done" once returned.
    ══════════════════════════════════════════════════════════════════════════ */
-function classifyRuns(tasks: BoardTask[]) {
-  const today = startOfDay(new Date());
+function classifyRuns(tasks: BoardTask[], range: LaundryDateRange) {
+  const inRange = (d: Date) => d >= range.start && d < range.endExclusive;
   const pickups: BoardTask[] = [];
   const dropoffs: BoardTask[] = [];
 
@@ -562,17 +570,16 @@ function classifyRuns(tasks: BoardTask[]) {
     const pickup = new Date(t.pickupDate);
     const dropoff = new Date(t.dropoffDate);
 
-    // Pickup loop: still-to-collect (or collected today) sets scheduled for today.
-    if (["PENDING", "CONFIRMED", "FLAGGED"].includes(t.status) && isSameDay(pickup, today)) {
-      pickups.push(t);
-    } else if (t.status === "PICKED_UP" && isSameDay(pickup, today)) {
+    // Pickup loop: still-to-collect (or collected) sets scheduled in the range.
+    if (["PENDING", "CONFIRMED", "FLAGGED", "PICKED_UP"].includes(t.status) && inRange(pickup)) {
       pickups.push(t);
     }
 
-    // Drop-off loop: picked-up sets due back today (or overdue), plus today's returns.
+    // Drop-off loop: picked-up sets due back in range (or overdue), plus
+    // returns completed within the range.
     if (t.status === "PICKED_UP") {
-      if (isSameDay(dropoff, today) || dropoff < today) dropoffs.push(t);
-    } else if (t.status === "DROPPED" && t.droppedAt && isSameDay(new Date(t.droppedAt), today)) {
+      if (dropoff < range.endExclusive) dropoffs.push(t);
+    } else if (t.status === "DROPPED" && t.droppedAt && inRange(new Date(t.droppedAt))) {
       dropoffs.push(t);
     }
   }
@@ -582,21 +589,23 @@ function classifyRuns(tasks: BoardTask[]) {
 }
 
 export function RunsBoard() {
-  const { tasks, loading, submittingId, load } = useLaundryFeed(2);
+  const { range, control } = useLaundryDateScope("today");
+  const { tasks, loading, submittingId, load } = useLaundryFeed(range);
   const { openAction, modal } = useLaundryActionModal(() => void load({ silent: true }));
-  const { pickups, dropoffs } = classifyRuns(tasks);
+  const { pickups, dropoffs } = classifyRuns(tasks, range);
 
   const pickupsDone = pickups.filter((t) => Boolean(t.pickedUpAt) || t.status === "PICKED_UP" || t.status === "DROPPED").length;
   const dropsDone = dropoffs.filter((t) => Boolean(t.droppedAt) || t.status === "DROPPED").length;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
       </div>
 
       {pickups.length === 0 && dropoffs.length === 0 ? (
-        <EEmptyState eyebrow="Quiet" title="No runs today" description="No pickups or drop-offs are scheduled for today." />
+        <EEmptyState eyebrow="Quiet" title="No runs" description="No pickups or drop-offs are scheduled in the selected range." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           <RunColumn
@@ -684,9 +693,9 @@ function RunColumn({
               return (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{propertyLabel(t)}</p>
                     {t.property?.address || t.property?.suburb ? (
                       <p className="mt-0.5 inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -784,7 +793,8 @@ async function decodeQrFromFile(file: File): Promise<string | null> {
 }
 
 export function TrackingBoard() {
-  const { tasks, loading, submittingId, load, act } = useLaundryFeed(14);
+  const { range, control } = useLaundryDateScope("week");
+  const { tasks, loading, submittingId, load, act } = useLaundryFeed(range);
   const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
   const [scanningQr, setScanningQr] = React.useState(false);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
@@ -878,7 +888,9 @@ export function TrackingBoard() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {control}
+        <div className="flex flex-wrap items-center justify-end gap-2">
         <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))] transition-colors hover:bg-[hsl(var(--e-muted))]">
           <QrCode className="h-3.5 w-3.5" />
           {scanningQr ? "Scanning…" : "Scan bag QR"}
@@ -899,6 +911,7 @@ export function TrackingBoard() {
           Copy summary
         </EButton>
         <RefreshButton loading={loading} onClick={() => void load()} />
+        </div>
       </div>
 
       {tracked.length === 0 ? (

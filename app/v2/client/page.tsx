@@ -163,15 +163,27 @@ export default async function ClientHomePage() {
     };
   });
 
+  const nowSyd = toZonedTime(new Date(), TZ);
+  const dateLine = format(nowSyd, "EEEE · d MMMM").toUpperCase();
+  const todayKey = format(nowSyd, "yyyy-MM-dd");
+
   const activeJobs = jobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status));
   const upcoming = [...activeJobs].sort(
     (a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime()
   );
-  const nextJob = upcoming[0] ?? null;
-  const cleaner = nextJob?.assignments[0]?.user?.name ?? null;
-
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const dateLine = format(nowSyd, "EEEE · d MMMM").toUpperCase();
+  // "Next service" = the earliest active job scheduled today or later (Sydney
+  // day boundary). Past-but-open jobs still show in the jobs board's past
+  // group — they just aren't "next".
+  const nextJob =
+    upcoming.find((job) => format(toZonedTime(job.scheduledDate, TZ), "yyyy-MM-dd") >= todayKey) ??
+    null;
+  const showCleanerNames = visibility?.showCleanerNames ?? false;
+  const cleanerNames = showCleanerNames
+    ? nextJob?.assignments.map((a) => a.user?.name).filter(Boolean).join(" & ") || null
+    : null;
+  const cleanerCount = showCleanerNames
+    ? nextJob?.assignments.filter((a) => a.user?.name).length ?? 0
+    : 0;
 
   const balanceDue = money(finance?.summary.pendingChargeTotal);
   const openInvoices =
@@ -211,13 +223,14 @@ export default async function ClientHomePage() {
                   </span>
                 </p>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {cleaner ? (
+                  {cleanerNames ? (
                     <EBadge tone="primary" soft>
-                      <MapPin className="h-3 w-3" /> {cleaner} assigned
+                      <MapPin className="h-3 w-3" /> {cleanerNames}{" "}
+                      {cleanerCount > 1 ? "· cleaners assigned" : "assigned"}
                     </EBadge>
-                  ) : (
+                  ) : showCleanerNames ? (
                     <EBadge tone="warning" soft>Awaiting cleaner</EBadge>
-                  )}
+                  ) : null}
                   <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-3">
@@ -528,6 +541,28 @@ export default async function ClientHomePage() {
                   const meta = parseConfirmationMeta(task.confirmations[0]?.notes);
                   const price = typeof meta?.totalPrice === "number" ? meta.totalPrice : null;
                   const isComplete = task.status === "DROPPED";
+                  // Same six labels/tones as the client laundry workspace, so
+                  // "Picked up" and "Confirmed" never blur into one state.
+                  const laundryLabel =
+                    (
+                      {
+                        PENDING: "Pending",
+                        CONFIRMED: "Confirmed",
+                        PICKED_UP: "Picked up",
+                        DROPPED: "Delivered",
+                        FLAGGED: "Flagged",
+                        SKIPPED_PICKUP: "Skipped",
+                      } as Record<string, string>
+                    )[String(task.status)] ?? titleCase(task.status);
+                  const laundryTone = isComplete
+                    ? ("success" as const)
+                    : task.status === "PICKED_UP"
+                      ? ("primary" as const)
+                      : task.status === "CONFIRMED"
+                        ? ("info" as const)
+                        : task.status === "FLAGGED"
+                          ? ("danger" as const)
+                          : ("neutral" as const);
                   return (
                     <div
                       key={task.id}
@@ -540,8 +575,8 @@ export default async function ClientHomePage() {
                             {task.property.suburb}
                           </p>
                         </div>
-                        <EBadge tone={isComplete ? "success" : "neutral"} soft>
-                          {titleCase(task.status)}
+                        <EBadge tone={laundryTone} soft>
+                          {laundryLabel}
                         </EBadge>
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

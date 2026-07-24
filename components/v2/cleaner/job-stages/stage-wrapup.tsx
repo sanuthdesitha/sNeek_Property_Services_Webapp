@@ -16,6 +16,7 @@ import * as React from "react";
 import {
   WashingMachine,
   Forward,
+  HandCoins,
   Plus,
   Trash2,
   Camera,
@@ -115,6 +116,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                 Back to Today
               </EButton>
             </Link>
+            <EButton asChild variant="outline" size="sm" className="w-full">
+              <Link href={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}>
+                <HandCoins className="h-3.5 w-3.5" /> Request extra pay for this job
+              </Link>
+            </EButton>
           </ECardBody>
         </ECard>
       </div>
@@ -417,6 +423,20 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
               Tick the box to leave notes or a photo for whoever cleans here next.
             </p>
           )}
+        </ECardBody>
+      </ECard>
+
+      {/* Extra pay — quiet entry into the full pay-requests flow */}
+      <ECard>
+        <ECardBody className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <p className="e-eyebrow flex items-center gap-1.5">
+            <HandCoins className="h-3.5 w-3.5" /> Extra work today?
+          </p>
+          <EButton asChild variant="outline" size="sm">
+            <Link href={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}>
+              <Plus className="h-3.5 w-3.5" /> Request extra pay
+            </Link>
+          </EButton>
         </ECardBody>
       </ECard>
 

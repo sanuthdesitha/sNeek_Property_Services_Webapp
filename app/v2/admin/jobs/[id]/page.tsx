@@ -43,6 +43,7 @@ import {
 import { SubmissionReview, type SubmissionRow } from "@/components/v2/admin/jobs/submission-review";
 import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
 import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
+import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -488,6 +489,16 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
   const marginPct =
     clientCharge != null && clientCharge > 0 ? Math.round(((margin ?? 0) / clientCharge) * 100) : null;
 
+  // "Send reminder" is offered when the job is PAUSED, or has been IN_PROGRESS
+  // for more than 24h (running-since = earliest open TimeLog, else latest log).
+  const openLogs = job.timeLogs.filter((log) => log.stoppedAt === null);
+  const runningSince = openLogs[0]?.startedAt ?? job.timeLogs[job.timeLogs.length - 1]?.startedAt ?? null;
+  const staleInProgress =
+    job.status === JobStatus.IN_PROGRESS &&
+    runningSince != null &&
+    Date.now() - runningSince.getTime() > 24 * 60 * 60 * 1000;
+  const showReminderButton = job.status === JobStatus.PAUSED || staleInProgress;
+
   const linkedCases = job.issueTickets ?? [];
   const linkedInvoiceLines = job.invoiceLines ?? [];
   const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
@@ -506,6 +517,7 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
         actions={
           <div className="flex items-center gap-2">
             <EBadge tone={statusTone(job.status)} soft>{titleCase(job.status)}</EBadge>
+            {showReminderButton ? <JobReminderButton jobId={job.id} statusLabel={titleCase(job.status)} /> : null}
             <JobDetailManage job={manageJob} />
           </div>
         }
@@ -686,6 +698,8 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           initialClientVisible={job.report?.clientVisible !== false}
           initialSentToClient={job.report?.sentToClient ?? false}
           clientEmail={job.property?.client?.email ?? ""}
+          hasSubmission={job.formSubmissions.length > 0}
+          hasQaReview={Boolean(qa)}
         />
       </div>
 
