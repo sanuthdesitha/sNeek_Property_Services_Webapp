@@ -51,7 +51,8 @@ function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSumm
     summary.pendingClientTaskRequests +
     summary.pendingContinuations +
     summary.pendingClientApprovals +
-    summary.pendingLaundryRescheduleDraft;
+    summary.pendingLaundryRescheduleDraft +
+    summary.pendingQaOutcomes;
 
   const items = [
     { label: "Approvals / review items", count: approvalCount },
@@ -61,6 +62,7 @@ function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSumm
     { label: "Pause / continue approvals pending", count: summary.pendingContinuations },
     { label: "Client approvals awaiting response", count: summary.pendingClientApprovals },
     { label: "Laundry reschedule drafts pending", count: summary.pendingLaundryRescheduleDraft },
+    { label: "QA outcomes awaiting approval", count: summary.pendingQaOutcomes },
     { label: "Unassigned jobs", count: summary.unassignedJobs },
     { label: "Open cases", count: summary.openCases },
     { label: "Overdue cases", count: summary.overdueCases },
