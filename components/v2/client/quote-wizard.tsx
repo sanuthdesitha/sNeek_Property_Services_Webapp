@@ -3,7 +3,7 @@
 /**
  * Estate quote wizard (client portal) — native v2 port of the legacy
  * RequestQuotePage (mode="client"). Same 8-step flow and the SAME endpoints:
- *   GET  /api/uploads/presign?filename&contentType   → { url, publicUrl } (photo uploads)
+ *   POST /api/uploads/direct (FormData file+folder)   → { key, url } (photo uploads)
  *   GET  /api/public/campaign?code&serviceType        (promo validation)
  *   POST /api/public/quote                            (instant estimate)
  *   POST /api/public/lead                             (submit request w/ structuredContext)
@@ -295,17 +295,18 @@ export function EstateQuoteWizard({
     const tempId = `${file.name}-${Date.now()}`;
     setUploadingPhotos((prev) => new Set(prev).add(tempId));
     try {
-      const params = new URLSearchParams({ filename: file.name, contentType: file.type });
-      const presignRes = await fetch(`/api/uploads/presign?${params.toString()}`);
-      if (!presignRes.ok) throw new Error("Could not get upload URL.");
-      const { url, publicUrl } = (await presignRes.json()) as { url: string; publicUrl: string };
-      const uploadRes = await fetch(url, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!uploadRes.ok) throw new Error("Upload failed.");
-      setPhotoUrls((prev) => [...prev, publicUrl]);
+      // Upload THROUGH the server (/api/uploads/direct) — the old presigned
+      // browser PUT silently failed in production (no bucket CORS for the
+      // site origin), so URLs were saved for objects that never uploaded.
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("folder", "uploads");
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.key || !body.url) {
+        throw new Error(body.error ?? `Photo upload failed (${res.status}).`);
+      }
+      setPhotoUrls((prev) => [...prev, body.url as string]);
     } catch (err: any) {
       setError(err?.message ?? "Photo upload failed.");
     } finally {

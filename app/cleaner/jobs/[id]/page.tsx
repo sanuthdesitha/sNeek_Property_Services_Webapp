@@ -2664,46 +2664,12 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     });
   }
 
-  async function uploadViaPresign(file: File, onProgress?: (progress: number) => void): Promise<string> {
-    const res = await fetch("/api/uploads/presign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: file.name, contentType: file.type, folder: `jobs/${params.id}` }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error ?? "Failed to create upload URL");
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", body.uploadUrl);
-      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable || !event.total) return;
-        onProgress?.(Math.min(99, Math.max(0, Math.round((event.loaded / event.total) * 100))));
-      };
-      xhr.onerror = () => reject(new Error("Presigned upload failed"));
-      xhr.onload = () => {
-        if (xhr.status < 200 || xhr.status >= 300) {
-          reject(new Error("Presigned upload failed"));
-          return;
-        }
-        onProgress?.(100);
-        resolve(body.key);
-      };
-      xhr.send(file);
-    });
-  }
-
   async function uploadOneFile(file: File, onProgress?: (progress: number) => void): Promise<string> {
-    if (isVideoFile(file)) {
-      return uploadViaDirect(file, onProgress);
-    }
-
-    try {
-      return await uploadViaPresign(file, onProgress);
-    } catch {
-      onProgress?.(0);
-      return uploadViaDirect(file, onProgress);
-    }
+    // All uploads go THROUGH the server (/api/uploads/direct). The old
+    // presign + browser-PUT path silently failed in production: the bucket
+    // has no CORS rules for the site origin, so the PUT died in the browser
+    // and keys were saved for objects that were never uploaded.
+    return uploadViaDirect(file, onProgress);
   }
 
   async function uploadFilesForField(fieldId: string, files: FileList | File[], source: UploadSource = "gallery") {

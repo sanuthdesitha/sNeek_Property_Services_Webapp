@@ -264,13 +264,20 @@ export function RequestQuotePage({ mode }: { mode: Mode }) {
     const tempId = `${file.name}-${Date.now()}`;
     setUploadingPhotos((prev) => new Set(prev).add(tempId));
     try {
-      const params = new URLSearchParams({ filename: file.name, contentType: file.type });
-      const presignRes = await fetch(`/api/uploads/presign?${params.toString()}`);
-      if (!presignRes.ok) throw new Error("Could not get upload URL.");
-      const { url, publicUrl } = (await presignRes.json()) as { url: string; publicUrl: string };
-      const uploadRes = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-      if (!uploadRes.ok) throw new Error("Upload failed.");
-      setPhotoUrls((prev) => [...prev, publicUrl]);
+      // Upload THROUGH the server (/api/uploads/direct) — the old presigned
+      // browser PUT silently failed in production (no bucket CORS for the
+      // site origin), so URLs were saved for objects that never uploaded.
+      // Note: presign always required a session, so anonymous uploads on the
+      // public page were never functional; direct keeps the same auth gate.
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("folder", "uploads");
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.key || !body.url) {
+        throw new Error(body.error ?? `Photo upload failed (${res.status}).`);
+      }
+      setPhotoUrls((prev) => [...prev, body.url as string]);
     } catch (error: any) {
       toast({ title: "Photo upload failed", description: error.message, variant: "destructive" });
     } finally {

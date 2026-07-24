@@ -46,6 +46,7 @@ async function resolveReferenceUrl(ref: FormFieldReference): Promise<string> {
 export function ReferenceMediaEditor({ references, onChange }: ReferenceMediaEditorProps) {
   const [linkDraft, setLinkDraft] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [previewUrls, setPreviewUrls] = React.useState<Record<number, string>>({});
 
   // Resolve viewable URLs for any reference that only has a storageKey.
@@ -77,32 +78,37 @@ export function ReferenceMediaEditor({ references, onChange }: ReferenceMediaEdi
   async function handleUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploading(true);
+    setUploadError(null);
     try {
+      // Upload THROUGH the server (/api/uploads/direct), not via a presigned
+      // browser PUT to the bucket. The presign path silently did nothing in
+      // production: the bucket has no CORS rules for the site's origin, the
+      // PUT failed in the browser, and the old code never checked the result —
+      // so a storageKey was saved for an object that was never uploaded.
       const added: FormFieldReference[] = [];
+      const failed: string[] = [];
       for (const file of Array.from(files)) {
-        const presignRes = await fetch("/api/uploads/presign", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type || "application/octet-stream",
-            folder: "form-references",
-          }),
-        });
-        const presign = await presignRes.json().catch(() => ({}));
-        if (!presignRes.ok || !presign.uploadUrl || !presign.key) continue;
-        await fetch(presign.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
-        added.push({
-          kind: file.type.startsWith("video") ? "video" : "image",
-          url: "",
-          storageKey: presign.key,
-        });
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("folder", "form-references");
+          const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || !body.key) {
+            failed.push(`${file.name}: ${body.error ?? `upload failed (${res.status})`}`);
+            continue;
+          }
+          added.push({
+            kind: file.type.startsWith("video") ? "video" : "image",
+            url: "",
+            storageKey: body.key as string,
+          });
+        } catch {
+          failed.push(`${file.name}: network error`);
+        }
       }
       if (added.length) update([...references, ...added]);
+      if (failed.length) setUploadError(failed.join(" · "));
     } finally {
       setUploading(false);
     }
@@ -194,6 +200,8 @@ export function ReferenceMediaEditor({ references, onChange }: ReferenceMediaEdi
           />
         </label>
       </div>
+
+      {uploadError ? <p className="text-xs text-destructive">{uploadError}</p> : null}
 
       <div className="flex items-center gap-2">
         <Input

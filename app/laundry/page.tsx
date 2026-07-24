@@ -832,39 +832,12 @@ export default function LaundryPortal() {
     return body.key;
   }
 
-  async function uploadViaPresign(file: File, folder: string): Promise<string> {
-    const contentType = file.type || "application/octet-stream";
-    const presignRes = await fetch("/api/uploads/presign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: file.name, contentType, folder }),
-    });
-    const presignBody = await presignRes.json();
-    if (!presignRes.ok) throw new Error(presignBody.error ?? "Failed to create upload URL.");
-
-    const putRes = await fetch(presignBody.uploadUrl, {
-      method: "PUT",
-      body: file,
-      headers: { "Content-Type": contentType },
-    });
-    if (!putRes.ok) throw new Error("Upload failed");
-    return presignBody.key;
-  }
-
   async function uploadOneFile(file: File, folder: string): Promise<string> {
-    try {
-      return await uploadViaDirect(file, folder);
-    } catch (directErr) {
-      try {
-        return await uploadViaPresign(file, folder);
-      } catch (presignErr: any) {
-        const directMessage =
-          directErr instanceof Error ? directErr.message : "Direct upload failed";
-        const presignMessage =
-          presignErr instanceof Error ? presignErr.message : "Presigned upload failed";
-        throw new Error(`${directMessage} / ${presignMessage}`);
-      }
-    }
+    // All uploads go THROUGH the server (/api/uploads/direct). The old
+    // presign + browser-PUT fallback silently failed in production: the
+    // bucket has no CORS rules for the site origin, so the PUT died in the
+    // browser and keys were saved for objects that were never uploaded.
+    return uploadViaDirect(file, folder);
   }
 
   async function submitActionUpdate() {
