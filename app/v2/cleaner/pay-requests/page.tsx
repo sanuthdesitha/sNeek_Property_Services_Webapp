@@ -11,7 +11,11 @@ export const dynamic = "force-dynamic";
 
 const TZ = "Australia/Sydney";
 
-export default async function CleanerPayRequestsRoutePage() {
+export default async function CleanerPayRequestsRoutePage({
+  searchParams,
+}: {
+  searchParams?: { jobId?: string };
+}) {
   const session = await requireRole([Role.CLEANER]);
 
   // Same data source + scoping as the live cleaner pay-requests route: the
@@ -55,7 +59,11 @@ export default async function CleanerPayRequestsRoutePage() {
         title="Extra pay requests"
         description="Submit job-linked, property, or standalone extra payment requests with evidence."
       />
-      <PayRequestsPanel jobs={jobOptions} properties={propertyOptions} />
+      <PayRequestsPanel
+        jobs={jobOptions}
+        properties={propertyOptions}
+        initialJobId={searchParams?.jobId ?? null}
+      />
     </div>
   );
 }

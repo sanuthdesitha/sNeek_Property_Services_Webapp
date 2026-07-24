@@ -753,11 +753,11 @@ function TwoFactorSection() {
                   {status?.method === "EMAIL" ? "email" : "authenticator"}. They won&apos;t be shown
                   again.
                 </p>
-                <div className="grid grid-cols-2 gap-1.5 font-mono text-[0.875rem]">
+                <div className="grid grid-cols-1 gap-1.5 font-mono text-[0.875rem] sm:grid-cols-2">
                   {backupCodes.map((c) => (
                     <span
                       key={c}
-                      className="rounded-[var(--e-radius-xs)] bg-[hsl(var(--e-surface))] px-2 py-1"
+                      className="break-all rounded-[var(--e-radius-xs)] bg-[hsl(var(--e-surface))] px-2 py-1"
                     >
                       {c}
                     </span>
@@ -853,7 +853,7 @@ function TwoFactorSection() {
                     />
                     <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       Can&apos;t scan? Enter this key manually:{" "}
-                      <code className="font-mono">{setup.secret}</code>
+                      <code className="break-all font-mono">{setup.secret}</code>
                     </p>
                   </div>
                 ) : (

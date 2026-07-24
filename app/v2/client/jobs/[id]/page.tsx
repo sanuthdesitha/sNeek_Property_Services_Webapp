@@ -111,6 +111,7 @@ async function getScopedJob(id: string, clientId: string) {
         },
         assignments: {
           where: { removedAt: null },
+          orderBy: { isPrimary: "desc" },
           select: {
             isPrimary: true,
             user: { select: { id: true, name: true, phone: true } },
@@ -255,8 +256,11 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
   if (!job) notFound();
 
   const scheduled = toZonedTime(job.scheduledDate, TZ);
-  const primary = job.assignments.find((a) => a.isPrimary) ?? job.assignments[0];
-  const cleaner = primary?.user ?? null;
+  // Cleaner names are visibility-gated, mirroring the jobs board.
+  const showCleanerNames = portal?.visibility?.showCleanerNames ?? false;
+  const cleanerAssignments = showCleanerNames
+    ? job.assignments.filter((a) => a.user)
+    : [];
   const totalCharged = job.invoiceLines.reduce((sum, line) => sum + line.lineTotal, 0);
   const skipStatus = job.cleanSkipStatus ?? "NONE";
   const canSkip =
@@ -366,29 +370,41 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
           </ECardBody>
         </ECard>
 
-        {/* Cleaner */}
-        {cleaner ? (
+        {/* Cleaners — every active assignment, primary first (query orders by isPrimary) */}
+        {cleanerAssignments.length > 0 ? (
           <ECard>
             <ECardHeader>
               <ECardTitle className="flex items-center gap-2 text-[1rem]">
-                <User className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Cleaner
+                <User className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />{" "}
+                {cleanerAssignments.length > 1 ? "Cleaners" : "Cleaner"}
               </ECardTitle>
             </ECardHeader>
-            <ECardBody className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[0.875rem] font-bold text-[hsl(var(--e-accent-portal))]">
-                  {cleaner.name?.[0]?.toUpperCase() ?? "?"}
-                </div>
-                <div>
-                  <p className="text-[0.875rem] font-medium">{cleaner.name}</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Assigned cleaner</p>
-                </div>
-              </div>
-              {cleaner.phone ? (
-                <a href={`tel:${cleaner.phone}`}>
-                  <EButton variant="outline" size="sm">Call</EButton>
-                </a>
-              ) : null}
+            <ECardBody className="space-y-3">
+              {cleanerAssignments.map((assignment) => {
+                const person = assignment.user!;
+                return (
+                  <div key={person.id} className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[0.875rem] font-bold text-[hsl(var(--e-accent-portal))]">
+                        {person.name?.[0]?.toUpperCase() ?? "?"}
+                      </div>
+                      <div>
+                        <p className="text-[0.875rem] font-medium">{person.name}</p>
+                        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                          {assignment.isPrimary && cleanerAssignments.length > 1
+                            ? "Lead cleaner"
+                            : "Assigned cleaner"}
+                        </p>
+                      </div>
+                    </div>
+                    {person.phone ? (
+                      <a href={`tel:${person.phone}`}>
+                        <EButton variant="outline" size="sm">Call</EButton>
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
             </ECardBody>
           </ECard>
         ) : null}

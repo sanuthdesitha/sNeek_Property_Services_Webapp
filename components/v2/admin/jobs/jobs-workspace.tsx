@@ -12,12 +12,14 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { JobType } from "@prisma/client";
 import {
+  BellRing,
   ChevronLeft,
   ChevronRight,
   Download,
   LayoutGrid,
   Rows3,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   UserRoundPlus,
   X,
@@ -204,6 +206,11 @@ export function JobsWorkspace() {
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState("ASSIGNED");
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkRemindOpen, setBulkRemindOpen] = useState(false);
+  const [bulkRemindMethod, setBulkRemindMethod] = useState<"PUSH" | "EMAIL">("PUSH");
+  const [bulkQaOpen, setBulkQaOpen] = useState(false);
+  const [bulkQaInspectorId, setBulkQaInspectorId] = useState("");
+  const [inspectors, setInspectors] = useState<Cleaner[]>([]);
   const [exporting, setExporting] = useState(false);
 
   function buildQuery(overrides?: Record<string, string>): URLSearchParams {
@@ -273,6 +280,30 @@ export function JobsWorkspace() {
         setProperties(next);
       })
       .catch(() => setProperties([]));
+  }, []);
+
+  // QA roster for the bulk "Assign QA" action — same eligibility rule as the
+  // job-detail QaAssignPanel: active QA inspectors + ops managers.
+  useEffect(() => {
+    Promise.all(
+      ["QA_INSPECTOR", "OPS_MANAGER"].map((role) =>
+        fetch(`/api/admin/users?role=${role}`)
+          .then((r) => r.json().catch(() => []))
+          .then((rows) => (Array.isArray(rows) ? rows : []))
+          .catch(() => [])
+      )
+    )
+      .then(([qaRows, opsRows]) => {
+        const next = [...qaRows, ...opsRows.map((row: any) => ({ ...row, name: `${row.name ?? row.email ?? ""} (Ops)` }))]
+          .map((row: any) => ({
+            id: String(row.id ?? ""),
+            name: String(row.name ?? row.email ?? "").trim(),
+            email: String(row.email ?? "").trim(),
+          }))
+          .filter((row: Cleaner) => row.id);
+        setInspectors(next);
+      })
+      .catch(() => setInspectors([]));
   }, []);
 
   useEffect(() => {
@@ -415,6 +446,81 @@ export function JobsWorkspace() {
       await loadJobs(pagination.page);
     } catch (err: any) {
       toast({ title: "Bulk status failed", description: err?.message ?? "Request failed.", variant: "destructive" });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }
+
+  async function submitBulkReminders() {
+    if (selectedIds.length === 0) return;
+    setBulkSubmitting(true);
+    try {
+      // Client-side loop per job — the route rejects non-remindable states
+      // (409) so those report as clean skips rather than failures.
+      let remindedJobs = 0;
+      let remindedCleaners = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (const jobId of selectedIds) {
+        try {
+          const res = await fetch(`/api/admin/jobs/${jobId}/remind`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ method: bulkRemindMethod }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (res.ok) {
+            remindedJobs += 1;
+            remindedCleaners += Array.isArray(body?.sent) ? body.sent.length : 0;
+          } else if (res.status === 409 || body?.notRemindable) {
+            skipped += 1;
+          } else {
+            failed += 1;
+          }
+        } catch {
+          failed += 1;
+        }
+      }
+      toast({
+        title: "Bulk reminders complete",
+        description: `Reminded ${remindedJobs} job${remindedJobs === 1 ? "" : "s"} (${remindedCleaners} cleaner${
+          remindedCleaners === 1 ? "" : "s"
+        })${skipped > 0 ? `, skipped ${skipped} (not in a remindable state)` : ""}${failed > 0 ? `, ${failed} failed` : ""}.`,
+        variant: remindedJobs === 0 && failed > 0 ? "destructive" : undefined,
+      });
+      setBulkRemindOpen(false);
+      setSelectedIds([]);
+    } finally {
+      setBulkSubmitting(false);
+    }
+  }
+
+  async function submitBulkQaAssign() {
+    if (selectedIds.length === 0 || !bulkQaInspectorId) {
+      toast({ title: "Select jobs and an inspector first.", variant: "destructive" });
+      return;
+    }
+    setBulkSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/qa/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds: selectedIds, assignedToId: bulkQaInspectorId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not create QA assignments.");
+      const created = body.created ?? selectedIds.length;
+      const skippedCount = selectedIds.length - created;
+      toast({
+        title: "QA assignments created",
+        description: `${created} inspection${created === 1 ? "" : "s"} assigned${
+          skippedCount > 0 ? `, ${skippedCount} skipped` : ""
+        }.`,
+      });
+      setBulkQaOpen(false);
+      setSelectedIds([]);
+    } catch (err: any) {
+      toast({ title: "Assign QA failed", description: err?.message ?? "Request failed.", variant: "destructive" });
     } finally {
       setBulkSubmitting(false);
     }
@@ -799,6 +905,14 @@ export function JobsWorkspace() {
           <EButton size="sm" variant="outline" onClick={() => setBulkStatusOpen(true)}>
             Change status
           </EButton>
+          <EButton size="sm" variant="outline" onClick={() => setBulkRemindOpen(true)}>
+            <BellRing className="h-3.5 w-3.5" />
+            Send reminders
+          </EButton>
+          <EButton size="sm" variant="outline" onClick={() => setBulkQaOpen(true)}>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Assign QA
+          </EButton>
           <EButton size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
             Clear
           </EButton>
@@ -890,6 +1004,68 @@ export function JobsWorkspace() {
             </EButton>
             <EButton variant="gold" onClick={submitBulkAssign} disabled={bulkSubmitting || !bulkCleanerId}>
               {bulkSubmitting ? "Applying…" : "Apply assignment"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+
+      {/* ── Bulk reminders ── */}
+      <EModal open={bulkRemindOpen} title="Send reminders" onClose={() => setBulkRemindOpen(false)}>
+        <div className="space-y-4">
+          <div>
+            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Method</p>
+            <select
+              value={bulkRemindMethod}
+              onChange={(event) => setBulkRemindMethod(event.target.value as "PUSH" | "EMAIL")}
+              className={FIELD_CLS + " cursor-pointer"}
+            >
+              <option value="PUSH">Push notification</option>
+              <option value="EMAIL">Email</option>
+            </select>
+          </div>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Reminds the assigned cleaners on the {selectedIds.length} selected jobs to finish and
+            submit their checklist. Jobs that aren&apos;t paused, in progress, or submitted are skipped.
+          </p>
+          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+            <EButton variant="outline" onClick={() => setBulkRemindOpen(false)} disabled={bulkSubmitting}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" onClick={submitBulkReminders} disabled={bulkSubmitting}>
+              {bulkSubmitting ? "Sending…" : "Send reminders"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+
+      {/* ── Bulk QA assign ── */}
+      <EModal open={bulkQaOpen} title="Assign QA inspections" onClose={() => setBulkQaOpen(false)}>
+        <div className="space-y-4">
+          <div>
+            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Inspector</p>
+            <select
+              value={bulkQaInspectorId}
+              onChange={(event) => setBulkQaInspectorId(event.target.value)}
+              className={FIELD_CLS + " cursor-pointer"}
+            >
+              <option value="">Choose inspector…</option>
+              {inspectors.map((inspector) => (
+                <option key={inspector.id} value={inspector.id}>
+                  {inspector.name || inspector.email}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Creates a QA inspection for each of the {selectedIds.length} selected jobs, assigned to
+            this inspector.
+          </p>
+          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+            <EButton variant="outline" onClick={() => setBulkQaOpen(false)} disabled={bulkSubmitting}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" onClick={submitBulkQaAssign} disabled={bulkSubmitting || !bulkQaInspectorId}>
+              {bulkSubmitting ? "Assigning…" : "Assign QA"}
             </EButton>
           </div>
         </div>

@@ -27,11 +27,17 @@ export function ReportActions({
   initialClientVisible,
   initialSentToClient,
   clientEmail,
+  hasSubmission = true,
+  hasQaReview = true,
 }: {
   jobId: string;
   initialClientVisible: boolean;
   initialSentToClient: boolean;
   clientEmail?: string;
+  /** False until a checklist has been submitted — gates report download/share/visibility. */
+  hasSubmission?: boolean;
+  /** False until the job has a QA review — gates the QA report download. */
+  hasQaReview?: boolean;
 }) {
   const [clientVisible, setClientVisible] = useState(initialClientVisible);
   const [sentToClient, setSentToClient] = useState(initialSentToClient);
@@ -130,15 +136,33 @@ export function ReportActions({
       </ECardHeader>
       <ECardBody className="pt-0">
         <div className="flex flex-wrap items-center gap-2">
-          <EButton variant="outline" size="sm" onClick={downloadReport} disabled={downloading}>
+          <EButton
+            variant="outline"
+            size="sm"
+            onClick={downloadReport}
+            disabled={downloading || !hasSubmission}
+            title={!hasSubmission ? "No submitted checklist yet" : undefined}
+          >
             {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             {downloading ? "Preparing…" : "Download report"}
           </EButton>
-          <EButton variant="outline" size="sm" onClick={downloadQaReport} disabled={downloadingQa}>
+          <EButton
+            variant="outline"
+            size="sm"
+            onClick={downloadQaReport}
+            disabled={downloadingQa || !hasQaReview}
+            title={!hasQaReview ? "No QA review yet" : undefined}
+          >
             {downloadingQa ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
             {downloadingQa ? "Preparing…" : "Download QA report"}
           </EButton>
-          <EButton variant="outline" size="sm" onClick={toggleVisibility} disabled={updatingVisibility}>
+          <EButton
+            variant="outline"
+            size="sm"
+            onClick={toggleVisibility}
+            disabled={updatingVisibility || !hasSubmission}
+            title={!hasSubmission ? "No submitted checklist yet" : undefined}
+          >
             {updatingVisibility ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : clientVisible ? (
@@ -148,11 +172,22 @@ export function ReportActions({
             )}
             {updatingVisibility ? "Updating…" : clientVisible ? "Hide from client" : "Show to client"}
           </EButton>
-          <EButton variant="outline" size="sm" onClick={shareReport} disabled={sharing}>
+          <EButton
+            variant="outline"
+            size="sm"
+            onClick={shareReport}
+            disabled={sharing || !hasSubmission}
+            title={!hasSubmission ? "No submitted checklist yet" : undefined}
+          >
             {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             {sharing ? "Sharing…" : "Share to client"}
           </EButton>
         </div>
+        {!hasSubmission ? (
+          <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            Report actions unlock once the cleaner submits their checklist.
+          </p>
+        ) : null}
       </ECardBody>
     </ECard>
   );
