@@ -68,11 +68,18 @@ function arrayMove<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-function duplicateField(field: FormField): FormField {
+/**
+ * Fresh ids always; the "(copy)" label suffix only when duplicating a single
+ * field, where the twin sits next to its original and needs telling apart.
+ * Duplicating a whole SECTION keeps every field label as-is — the section
+ * title already carries the "(copy)" marker, and suffixing 20 items inside
+ * just creates 20 labels someone has to clean up by hand.
+ */
+function duplicateField(field: FormField, opts?: { keepLabel?: boolean }): FormField {
   return {
     ...(JSON.parse(JSON.stringify(field)) as FormField),
     id: newFieldId(),
-    label: `${field.label} (copy)`,
+    label: opts?.keepLabel ? field.label : `${field.label} (copy)`,
     children: field.children?.map((child) => ({ ...(JSON.parse(JSON.stringify(child)) as FormField), id: newFieldId() })),
   };
 }
@@ -180,7 +187,7 @@ export function EstateFormBuilder({
         ...(JSON.parse(JSON.stringify(src)) as typeof src),
         id: `s-${Date.now()}`,
         title: `${src.title} (copy)`,
-        fields: src.fields.map((f) => duplicateField(f)),
+        fields: src.fields.map((f) => duplicateField(f, { keepLabel: true })),
       };
       const sections = s.sections.slice();
       sections.splice(idx + 1, 0, copy);
