@@ -35,6 +35,7 @@ import {
   statusLabel,
 } from "./job-row";
 import { JobManageModal } from "./job-manage";
+import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
 
 const TZ = "Australia/Sydney";
 const PAGE_SIZE = 50;
@@ -585,6 +586,9 @@ export function JobsWorkspace() {
     setDateTo("");
   }
 
+  // List view: agenda-style Sydney-day groups (input order = server sort order).
+  const listGroups = useMemo(() => groupJobsBySydneyDay(filteredJobs, new Date()), [filteredJobs]);
+
   const boardLanes = useMemo(
     () =>
       BOARD_LANES.map((lane) => ({
@@ -821,7 +825,9 @@ export function JobsWorkspace() {
           description="No jobs match the current scope. Adjust the date range, status, or search."
         />
       ) : view === "list" ? (
-        <ECard className="overflow-hidden">
+        // overflow-clip (not hidden) keeps the rounded-corner clipping without
+        // creating a scroll container, so the sticky day headers can stick.
+        <ECard className="overflow-clip">
           {/* header rule with select-all */}
           <div className="flex items-center gap-4 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.5)] px-5 py-2.5">
             <ECheck checked={allSelected} onChange={toggleSelectAll} label="Select all jobs" />
@@ -829,18 +835,31 @@ export function JobsWorkspace() {
               {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Engagements"}
             </EEyebrow>
           </div>
-          <div className="divide-y divide-[hsl(var(--e-border))]">
-            {filteredJobs.map((job) => (
-              <EJobRow
-                key={job.id}
-                job={job}
-                selected={selectedIds.includes(job.id)}
-                onToggleSelect={toggleSelect}
-                onQuickAssign={openAssign}
-                onManage={setManageJob}
-              />
-            ))}
-          </div>
+          {listGroups.map((group) => (
+            <div key={group.dayKey}>
+              {/* Sticky agenda day header */}
+              <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-5 py-2">
+                <span className="text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-secondary))]">
+                  {group.label}
+                </span>
+                <span className="e-numeral rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))] px-2 py-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                  {group.jobs.length}
+                </span>
+              </div>
+              <div className="divide-y divide-[hsl(var(--e-border))]">
+                {group.jobs.map((job) => (
+                  <EJobRow
+                    key={job.id}
+                    job={job}
+                    selected={selectedIds.includes(job.id)}
+                    onToggleSelect={toggleSelect}
+                    onQuickAssign={openAssign}
+                    onManage={setManageJob}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </ECard>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

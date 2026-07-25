@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { RefreshCw, TrendingUp, ShieldAlert, Flame, Award, GraduationCap } from "lucide-react";
+import { RefreshCw, TrendingUp, ShieldAlert, Flame, Award, GraduationCap, Star } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEyebrow, EEmptyState, EStatCard } from "@/components/v2/ui/primitives";
 import { ETableShell } from "@/components/v2/admin/estate-kit";
 
@@ -31,9 +31,35 @@ type CleanerRow = {
   pendingBonuses: { count: number; amount: number };
 };
 
+type LaundryTeamRow = {
+  userId: string;
+  name: string;
+  pickups: number;
+  drops: number;
+  onTimeDropPct: number | null;
+  photoCompliancePct: number | null;
+  avgCycleDays: number | null;
+  stuckCount: number;
+};
+
+type LaundrySupplierRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  pricePerKg: number | null;
+  avgTurnaround: number | null;
+  reliabilityScore: number | null;
+  tasksInPeriod: number;
+};
+
 type Overview = {
   period: Period;
   cleaners: CleanerRow[];
+  laundry?: {
+    team: LaundryTeamRow[];
+    teamTotals: Omit<LaundryTeamRow, "userId" | "name"> & { stuckUnattributed: number };
+    suppliers: LaundrySupplierRow[];
+  };
   company: {
     weekly: { weekStart: string; avgScore: number | null; count: number }[];
     issuesByCategory: { category: string; label: string; count: number }[];
@@ -58,6 +84,17 @@ function scoreTone(score: number | null): "success" | "warning" | "danger" | "ne
 }
 
 function fmtScore(v: number | null) {
+  return v == null ? "—" : `${v}%`;
+}
+
+function pctTone(v: number | null): "success" | "warning" | "danger" | "neutral" {
+  if (v == null) return "neutral";
+  if (v >= 90) return "success";
+  if (v >= 70) return "warning";
+  return "danger";
+}
+
+function fmtPct(v: number | null) {
   return v == null ? "—" : `${v}%`;
 }
 
@@ -331,6 +368,105 @@ export function AccountabilityDashboard() {
                     );
                   })}
                 </div>
+              )}
+            </ECardBody>
+          </ECard>
+        </div>
+      </div>
+
+      {/* Laundry suppliers — internal team + external vendors */}
+      <div className="space-y-3">
+        <EEyebrow>LAUNDRY SUPPLIERS</EEyebrow>
+
+        {/* Our laundry team — per-person stat cards */}
+        <div className="space-y-3">
+          <p className="text-[0.8125rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Our laundry team</p>
+          {(data?.laundry?.team.length ?? 0) === 0 && !loading ? (
+            <EEmptyState eyebrow="No data" title="No laundry team activity" description="No active laundry accounts or activity in this window." />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {(data?.laundry?.team ?? []).map((m) => (
+                <ECard key={m.userId}>
+                  <ECardBody className="space-y-3 pt-6">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-[550] text-[hsl(var(--e-foreground))]">{m.name}</span>
+                      {m.stuckCount > 0 ? (
+                        <EBadge tone="danger" soft><ShieldAlert className="h-3 w-3" /> {m.stuckCount} stuck</EBadge>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[0.8125rem]">
+                      <div>
+                        <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Pickups</p>
+                        <p className="e-tnum font-[550]">{m.pickups}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Drops</p>
+                        <p className="e-tnum font-[550]">{m.drops}</p>
+                      </div>
+                      <div>
+                        <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">On-time drops</p>
+                        <EBadge tone={pctTone(m.onTimeDropPct)} soft>{fmtPct(m.onTimeDropPct)}</EBadge>
+                      </div>
+                      <div>
+                        <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Photo compliance</p>
+                        <EBadge tone={pctTone(m.photoCompliancePct)} soft>{fmtPct(m.photoCompliancePct)}</EBadge>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Avg pickup → drop</p>
+                        <p className="e-tnum">{m.avgCycleDays == null ? "—" : `${m.avgCycleDays} days`}</p>
+                      </div>
+                    </div>
+                  </ECardBody>
+                </ECard>
+              ))}
+            </div>
+          )}
+          {(data?.laundry?.teamTotals.stuckUnattributed ?? 0) > 0 ? (
+            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+              {data!.laundry!.teamTotals.stuckUnattributed} stuck task
+              {data!.laundry!.teamTotals.stuckUnattributed === 1 ? "" : "s"} awaiting pickup are not yet
+              attributable to a team member.
+            </p>
+          ) : null}
+        </div>
+
+        {/* External suppliers */}
+        <div className="space-y-3">
+          <p className="text-[0.8125rem] font-[550] text-[hsl(var(--e-muted-foreground))]">External suppliers</p>
+          <ECard>
+            <ECardBody className="pt-6">
+              {(data?.laundry?.suppliers.length ?? 0) === 0 ? (
+                <EEmptyState eyebrow="No suppliers" title="No external suppliers" description="No active laundry suppliers on file." />
+              ) : (
+                <ETableShell
+                  headers={[
+                    { label: "Supplier" },
+                    { label: "Phone" },
+                    { label: "Price / kg", align: "right" },
+                    { label: "Reliability", align: "right" },
+                    { label: "Tasks in period", align: "right" },
+                  ]}
+                >
+                  {(data?.laundry?.suppliers ?? []).map((s) => (
+                    <tr key={s.id}>
+                      <td className="px-4 py-3 font-[550]">{s.name}</td>
+                      <td className="px-4 py-3 text-[hsl(var(--e-muted-foreground))]">{s.phone ?? "—"}</td>
+                      <td className="px-4 py-3 text-right e-tnum">
+                        {s.pricePerKg == null ? "—" : `$${s.pricePerKg.toFixed(2)}`}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {s.reliabilityScore == null ? (
+                          <span className="text-[hsl(var(--e-text-faint))]">—</span>
+                        ) : (
+                          <EBadge tone={s.reliabilityScore >= 4 ? "success" : s.reliabilityScore >= 2.5 ? "warning" : "danger"} soft>
+                            <Star className="h-2.5 w-2.5" /> {s.reliabilityScore.toFixed(1)}/5
+                          </EBadge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right e-tnum">{s.tasksInPeriod}</td>
+                    </tr>
+                  ))}
+                </ETableShell>
               )}
             </ECardBody>
           </ECard>
