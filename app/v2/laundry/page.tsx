@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
   EBadge,
+  EButton,
   ECard,
   ECardBody,
   ECardHeader,
@@ -13,8 +14,12 @@ import {
   EStatCard,
   EThread,
 } from "@/components/v2/ui/primitives";
+import Link from "next/link";
 import { LaundryRouteMap } from "@/components/v2/laundry/route-map";
-import { PackageCheck, Timer, Truck, Waves } from "lucide-react";
+import { PlanBrief } from "@/components/v2/laundry/plan-brief";
+import { sydneyDayKey } from "@/lib/laundry/route-candidates";
+import { nextIncompleteStop, parseRouteStops } from "@/lib/laundry/route-plan";
+import { ArrowRight, Navigation, PackageCheck, Route as RouteIcon, Timer, Truck, Waves } from "lucide-react";
 
 export const metadata = { title: "Today · Estate laundry" };
 export const dynamic = "force-dynamic";
@@ -112,9 +117,47 @@ async function getLaundry() {
   return { tasks, inQueue, inTransit, ready };
 }
 
+/**
+ * Today's route card data for the signed-in driver: an ACTIVE route ("Stop 3
+ * of 8 · next: …" + Continue) or a Build-today's-route CTA.
+ */
+async function getRouteCard(userId: string) {
+  const todayKey = sydneyDayKey(new Date());
+  const routes = await db.laundryRoute
+    .findMany({ where: { userId, date: todayKey, status: { in: ["ACTIVE", "DRAFT"] } } })
+    .catch(() => []);
+  const route =
+    routes.find((r) => r.status === "ACTIVE") ??
+    routes.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ??
+    null;
+  if (!route || route.status !== "ACTIVE") {
+    return { active: false as const, hasDraft: route?.status === "DRAFT" };
+  }
+
+  const stops = parseRouteStops(route.stops);
+  const next = nextIncompleteStop(stops);
+  const doneCount = stops.filter((s) => s.completedAt).length;
+  let nextLabel: string | null = null;
+  if (next) {
+    const property = await db.property
+      .findUnique({ where: { id: next.propertyId }, select: { name: true } })
+      .catch(() => null);
+    nextLabel = `${property?.name ?? "Unknown property"} ${next.kind === "PICKUP" ? "pickup" : "drop-off"}`;
+  }
+  return {
+    active: true as const,
+    stopNumber: Math.min(doneCount + 1, stops.length),
+    stopCount: stops.length,
+    nextLabel,
+  };
+}
+
 export default async function LaundryTodayPage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
-  const { tasks, inQueue, inTransit, ready } = await getLaundry();
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const [{ tasks, inQueue, inTransit, ready }, routeCard] = await Promise.all([
+    getLaundry(),
+    getRouteCard(session.user.id),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -124,6 +167,47 @@ export default async function LaundryTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
+      {/* 1. Route card — continue the live run, or build one. */}
+      <ECard>
+        <ECardBody className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
+              {routeCard.active ? <Navigation className="h-4 w-4" /> : <RouteIcon className="h-4 w-4" />}
+            </span>
+            <div className="min-w-0">
+              {routeCard.active ? (
+                <>
+                  <p className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
+                    Route in progress — stop {routeCard.stopNumber} of {routeCard.stopCount}
+                  </p>
+                  <p className="truncate text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                    {routeCard.nextLabel ? `Next: ${routeCard.nextLabel}` : "All stops complete — end the route."}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
+                    {routeCard.hasDraft ? "Your route draft is waiting" : "Build today's route"}
+                  </p>
+                  <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                    Pick today&apos;s, tomorrow&apos;s and overdue stops, order the run, go.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+          <EButton asChild>
+            <Link href="/v2/laundry/route">
+              {routeCard.active ? "Continue route" : routeCard.hasDraft ? "Resume draft" : "Build route"}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </EButton>
+        </ECardBody>
+      </ECard>
+
+      {/* 2. Plan brief — counts, weather, traffic, special days, deadlines. */}
+      <PlanBrief />
+
       <section className="grid gap-4 sm:grid-cols-4">
         <EStatCard label="In queue" value={String(inQueue)} delta="pending" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
         <EStatCard label="In transit" value={String(inTransit)} delta="picked up" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
@@ -131,13 +215,24 @@ export default async function LaundryTodayPage() {
         <EStatCard label="Loads today" value={String(tasks.length)} delta="in the pipeline" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
       </section>
 
+      {/* 3. Live queue — next 5 only; the full list lives on /v2/laundry/queue. */}
       <ECard>
-        <ECardHeader><ECardTitle>Live queue</ECardTitle></ECardHeader>
+        <ECardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <ECardTitle>Live queue</ECardTitle>
+            <Link
+              href="/v2/laundry/queue"
+              className="text-[0.8125rem] font-medium text-[hsl(var(--e-accent-portal))] hover:underline"
+            >
+              View all →
+            </Link>
+          </div>
+        </ECardHeader>
         <ECardBody className="space-y-1">
           {tasks.length === 0 ? (
             <EEmptyState eyebrow="Quiet" title="No laundry scheduled" description="Nothing in the laundry pipeline right now." />
           ) : (
-            tasks.map((t, i) => {
+            tasks.slice(0, 5).map((t, i) => {
               const name = t.property?.name ?? "Property";
               const suburb = t.property?.suburb ?? "";
               return (

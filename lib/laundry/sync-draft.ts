@@ -87,7 +87,8 @@ function sanitizeDraftItem(value: unknown): LaundrySyncDraftItem | null {
       row.scenario === "BACK_TO_BACK" ||
       row.scenario === "MICRO_CYCLE" ||
       row.scenario === "COMPRESSED" ||
-      row.scenario === "FALLBACK"
+      row.scenario === "FALLBACK" ||
+      row.scenario === "KEY_LOST"
         ? row.scenario
         : "FALLBACK",
     linenBufferSets: Number.isFinite(Number(row.linenBufferSets)) ? Math.max(0, Math.trunc(Number(row.linenBufferSets))) : 0,

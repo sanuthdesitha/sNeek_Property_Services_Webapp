@@ -166,6 +166,11 @@ export const createPropertySchema = z.object({
   preferredCleanerUserId: z.string().cuid().optional().nullable(),
   showCleanerContactToClient: z.boolean().optional(),
   laundryEnabled: z.boolean().optional(),
+  // Key-lost laundry mode: while ON, laundry pickup AND drop-off are both
+  // scheduled on the cleaning day itself, after the clean starts (12:30 when
+  // the job has a late checkout, else 10:00). `keyLostSince` is server-managed
+  // in the property PATCH route — deliberately not accepted from the client.
+  keyLostMode: z.boolean().optional(),
   // ── Quality & accountability config ────────────────────────────────────────
   cleaningDurationMinutes: z.number().int().min(0).max(1440).optional().nullable(),
   // Decimal assigned cleaning hours (e.g. 2.75). First-class property default

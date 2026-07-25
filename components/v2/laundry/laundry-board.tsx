@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Copy,
   FilePenLine,
+  KeyRound,
   MapPin,
   Navigation,
   Package,
@@ -42,6 +43,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
+import { EInput } from "@/components/v2/cleaner/fields";
 import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
 import { useLaundryDateScope, type LaundryDateRange } from "@/components/v2/laundry/date-scope";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
@@ -95,6 +97,7 @@ export type BoardTask = {
     latitude?: number | null;
     longitude?: number | null;
     linenBufferSets?: number | null;
+    keyLostMode?: boolean | null;
     accessInfo?: unknown;
     client?: { id?: string; name: string | null; email?: string | null } | null;
   } | null;
@@ -125,6 +128,26 @@ export const STATUS_LABEL: Record<LaundryStatus, string> = {
   FLAGGED: "Flagged",
   SKIPPED_PICKUP: "Skipped",
 };
+
+/**
+ * Key-lost mode: pickup + drop-off both happen ON the clean day, after the
+ * clean starts (12:30 late checkout, else 10:00), because the spare key is
+ * lost and the driver can't enter alone. Detected from the property flag (live
+ * mode) OR the KEY_LOST tag the planner persists into the task's flagNotes
+ * (so tasks scheduled under the mode stay badged even after it's toggled off).
+ */
+function isKeyLost(t: BoardTask): boolean {
+  return t.property?.keyLostMode === true || (typeof t.flagNotes === "string" && t.flagNotes.includes("KEY_LOST"));
+}
+
+function KeyLostBadge({ task }: { task: BoardTask }) {
+  if (!isKeyLost(task)) return null;
+  return (
+    <EBadge tone="danger" soft>
+      <KeyRound className="h-2.5 w-2.5" /> Key lost
+    </EBadge>
+  );
+}
 
 function propertyLabel(t: BoardTask): string {
   const name = t.property?.name ?? "Property";
@@ -490,9 +513,12 @@ export function QueueBoard() {
                     <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-danger))]">{t.flagNotes}</p>
                   ) : null}
                 </div>
-                <EBadge tone={STATUS_TONE[t.status]} soft>
-                  {STATUS_LABEL[t.status]}
-                </EBadge>
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  <KeyLostBadge task={t} />
+                  <EBadge tone={STATUS_TONE[t.status]} soft>
+                    {STATUS_LABEL[t.status]}
+                  </EBadge>
+                </div>
               </div>
             ))}
           </ECardBody>
@@ -527,7 +553,10 @@ export function QueueBoard() {
                             key={it.id}
                             className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
                           >
-                            <p className="min-w-0 truncate font-medium">{propertyLabel(it)}</p>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="min-w-0 truncate font-medium">{propertyLabel(it)}</p>
+                              <KeyLostBadge task={it} />
+                            </div>
                             {it.property?.address || it.property?.suburb ? (
                               <p className="mt-0.5 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                                 <MapPin className="h-3 w-3 shrink-0" />
@@ -561,6 +590,11 @@ export function QueueBoard() {
    A pickup is "done" once picked up; a drop is "done" once returned.
    ══════════════════════════════════════════════════════════════════════════ */
 function classifyRuns(tasks: BoardTask[], range: LaundryDateRange) {
+  // Key-lost tasks have pickupDate === dropoffDate (same-day, on the clean
+  // day). They flow through both loops SEQUENTIALLY by design: while still
+  // PENDING/CONFIRMED they sit in the pickup loop only; the moment the driver
+  // marks them PICKED_UP they join the drop-off loop for the same visit. The
+  // "Key lost" badge on the card tells the driver both legs happen in one stop.
   const inRange = (d: Date) => d >= range.start && d < range.endExclusive;
   const pickups: BoardTask[] = [];
   const dropoffs: BoardTask[] = [];
@@ -711,6 +745,7 @@ function RunColumn({
                   </div>
                   <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
                     <NavButton task={t} />
+                    <KeyLostBadge task={t} />
                     {overdue ? <EBadge tone="danger" soft>Overdue</EBadge> : null}
                     {canPickup ? (
                       <>
@@ -790,6 +825,128 @@ async function decodeQrFromFile(file: File): Promise<string | null> {
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const result = jsQR(imageData.data, imageData.width, imageData.height);
   return result?.data?.trim() || null;
+}
+
+/**
+ * Small inline editor for `totalPrice` / `loadWeightKg` on DROPPED task cards.
+ * Uses the existing post-completion PATCH /api/laundry/[taskId]/status (the
+ * EDIT_COMPLETED flow with its audit trail); other fields keep their values —
+ * the endpoint merges unspecified fields from the stored completion metadata.
+ */
+function InlinePriceWeightEdit({ task, onSaved }: { task: BoardTask; onSaved: () => void }) {
+  const droppedMeta = parseNotes(eventConfirmation(task, "DROPPED")?.notes);
+  const [open, setOpen] = React.useState(false);
+  const [price, setPrice] = React.useState("");
+  const [weight, setWeight] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  function openEditor() {
+    setPrice(droppedMeta?.totalPrice != null ? String(droppedMeta.totalPrice) : "");
+    setWeight(
+      droppedMeta?.loadWeightKg != null
+        ? String(droppedMeta.loadWeightKg)
+        : task.bagWeightKg != null
+          ? String(task.bagWeightKg)
+          : ""
+    );
+    setOpen(true);
+  }
+
+  async function save() {
+    const payload: Record<string, unknown> = {
+      confirm: true,
+      // The PATCH requires a correction reason (>= 3 chars) for the audit log.
+      notes: "Inline price/weight correction from the tracking board.",
+    };
+    if (price.trim()) {
+      const v = Number(price);
+      if (!Number.isFinite(v) || v < 0) {
+        toast({ title: "Invalid price", description: "Enter a valid total laundry price.", variant: "destructive" });
+        return;
+      }
+      payload.totalPrice = Number(v.toFixed(2));
+    }
+    if (weight.trim()) {
+      const v = Number(weight);
+      if (!Number.isFinite(v) || v < 0) {
+        toast({ title: "Invalid weight", description: "Enter a valid load weight (kg).", variant: "destructive" });
+        return;
+      }
+      payload.loadWeightKg = Number(v.toFixed(2));
+    }
+    if (payload.totalPrice === undefined && payload.loadWeightKg === undefined) {
+      toast({ title: "Nothing to save", description: "Enter a price or a weight first.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/laundry/${task.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Update failed", description: body?.error ?? "Could not save price/weight.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Price/weight updated", description: propertyLabel(task) });
+      setOpen(false);
+      onSaved();
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <EButton variant="ghost" size="sm" onClick={openEditor}>
+        <FilePenLine className="h-3 w-3" />
+        {droppedMeta?.totalPrice != null || task.bagWeightKg != null ? "Edit price/weight" : "Add price/weight"}
+      </EButton>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-2">
+      <label className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+        Total price ($)
+        <EInput
+          type="number"
+          min={0}
+          step="0.01"
+          inputMode="decimal"
+          className="mt-0.5 h-8 w-24"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder="0.00"
+        />
+      </label>
+      <label className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+        Weight (kg)
+        <EInput
+          type="number"
+          min={0}
+          step="0.1"
+          inputMode="decimal"
+          className="mt-0.5 h-8 w-24"
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          placeholder="0.0"
+        />
+      </label>
+      <div className="flex items-center gap-1.5">
+        <EButton size="sm" disabled={saving} onClick={() => void save()}>
+          {saving ? "Saving…" : "Save"}
+        </EButton>
+        <EButton variant="ghost" size="sm" disabled={saving} onClick={() => setOpen(false)}>
+          Cancel
+        </EButton>
+      </div>
+    </div>
+  );
 }
 
 export function TrackingBoard() {
@@ -985,6 +1142,7 @@ export function TrackingBoard() {
                           Overdue
                         </EBadge>
                       ) : null}
+                      <KeyLostBadge task={t} />
                       <EBadge tone={STATUS_TONE[t.status]} soft>
                         {STATUS_LABEL[t.status]}
                       </EBadge>
@@ -1054,12 +1212,19 @@ export function TrackingBoard() {
 
                   {/* Evidence photos + costs */}
                   <PhotoStrip photos={photos} />
-                  {config.showCostTracking && droppedMeta?.totalPrice != null ? (
-                    <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))]">
-                      ${Number(droppedMeta.totalPrice).toFixed(2)}
-                      {droppedMeta?.loadWeightKg != null ? ` · ${Number(droppedMeta.loadWeightKg).toFixed(1)} kg` : ""}
-                      {t.supplier?.name ? ` · ${t.supplier.name}` : ""}
-                    </p>
+                  {config.showCostTracking && (droppedMeta?.totalPrice != null || t.status === "DROPPED") ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {droppedMeta?.totalPrice != null ? (
+                        <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))]">
+                          ${Number(droppedMeta.totalPrice).toFixed(2)}
+                          {droppedMeta?.loadWeightKg != null ? ` · ${Number(droppedMeta.loadWeightKg).toFixed(1)} kg` : ""}
+                          {t.supplier?.name ? ` · ${t.supplier.name}` : ""}
+                        </p>
+                      ) : null}
+                      {t.status === "DROPPED" ? (
+                        <InlinePriceWeightEdit task={t} onSaved={() => void load({ silent: true })} />
+                      ) : null}
+                    </div>
                   ) : null}
 
                   {/* Property access instructions (same data the v1 planner showed) */}

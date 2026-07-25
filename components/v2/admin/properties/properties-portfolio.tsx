@@ -25,6 +25,8 @@ export type EstatePropertyRow = {
   hasIcal: boolean;
   icalSyncStatus: string | null;
   hasCoords: boolean;
+  /** Key-lost laundry mode — pickup + drop-off happen on the clean day. */
+  keyLostMode: boolean;
 };
 
 const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
@@ -175,9 +177,16 @@ export function PropertiesPortfolio({ rows }: { rows: EstatePropertyRow[] }) {
               <div className="flex flex-1 flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="truncate font-[550] text-[hsl(var(--e-foreground))]">{prop.name}</h3>
-                  <EBadge tone="success" soft>
-                    Active
-                  </EBadge>
+                  <span className="flex flex-shrink-0 items-center gap-1.5">
+                    {prop.keyLostMode ? (
+                      <EBadge tone="danger" soft>
+                        Key lost
+                      </EBadge>
+                    ) : null}
+                    <EBadge tone="success" soft>
+                      Active
+                    </EBadge>
+                  </span>
                 </div>
                 <p className="mt-0.5 flex items-center gap-1.5 truncate text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                   {prop.suburb}

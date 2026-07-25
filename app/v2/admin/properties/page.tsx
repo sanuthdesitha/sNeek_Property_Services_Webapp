@@ -54,6 +54,7 @@ export default async function EstatePropertiesPage({
     hasIcal: Boolean(p.integration?.isEnabled && p.integration.icalUrl),
     icalSyncStatus: p.integration?.syncStatus ? String(p.integration.syncStatus) : null,
     hasCoords: p.latitude !== null && p.longitude !== null,
+    keyLostMode: p.keyLostMode === true,
   }));
 
   return (

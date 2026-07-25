@@ -8,6 +8,7 @@ import {
   replacePendingLaundrySyncDraftForProperty,
   type LaundrySyncDraftItem,
 } from "@/lib/laundry/sync-draft";
+import { computeKeyLostDraftItem } from "@/lib/laundry/key-lost";
 
 type PlannerJob = Prisma.JobGetPayload<{
   include: {
@@ -28,7 +29,7 @@ type PlannerJobWithLaundry = Prisma.JobGetPayload<{
   };
 }>;
 
-export type LaundryScenario = "BACK_TO_BACK" | "MICRO_CYCLE" | "COMPRESSED" | "FALLBACK";
+export type LaundryScenario = "BACK_TO_BACK" | "MICRO_CYCLE" | "COMPRESSED" | "FALLBACK" | "KEY_LOST";
 
 export interface LaundryPlanDraftItem {
   jobId: string;
@@ -92,10 +93,19 @@ function canPlannerOverrideStatus(task: NonNullable<PlannerJobWithLaundry["laund
   return task.status === LaundryStatus.PENDING || task.status === LaundryStatus.FLAGGED;
 }
 
-async function computeDraftItem(
+// Exported for tests (tests/lib/key-lost.test.ts pins both branches).
+export async function computeDraftItem(
   job: PlannerJob,
   operations: LaundryOperationsSettings
 ): Promise<LaundryPlanDraftItem> {
+  // Key-lost mode: the spare key is gone, so the driver can only enter while
+  // the cleaner is inside — pickup AND drop-off happen on the clean day, after
+  // the clean starts. This is the ONLY branch point; the normal path below is
+  // untouched.
+  if (job.property.keyLostMode) {
+    return computeKeyLostDraftItem(job);
+  }
+
   const cleanDate = normalizeDate(job.scheduledDate);
   const nextCleanDate = await getNextTurnoverCleanDate(job);
   const fallbackQuickReturnDays = Math.max(1, operations.fastReturnDaysWhenNoNextClean);
@@ -274,8 +284,14 @@ export async function buildLaundrySyncDraft(options: {
     const nextFlagReason = canPlannerOverrideStatus(currentTask) ? desired.flagReason : currentTask.flagReason;
     const nextFlagNotes = canPlannerOverrideStatus(currentTask) ? desired.flagNotes : currentTask.flagNotes;
 
-    const currentPickupDate = serializeDate(currentTask.pickupDate);
-    const currentDropoffDate = serializeDate(currentTask.dropoffDate);
+    // Compare raw instants, not day-normalized ones. Normal-path tasks are
+    // stored at exactly their serialized local midnight, so this is identical
+    // to the old startOfDay comparison for them — but key-lost tasks carry a
+    // real time-of-day, and day-flattening here would (a) never detect a
+    // pending task that needs its key-lost time applied and (b) never move a
+    // stale 10:00/12:30 task back to midnight after the mode is switched off.
+    const currentPickupDate = currentTask.pickupDate.toISOString();
+    const currentDropoffDate = currentTask.dropoffDate.toISOString();
     const hasChanged =
       currentPickupDate !== desired.pickupDate ||
       currentDropoffDate !== desired.dropoffDate ||

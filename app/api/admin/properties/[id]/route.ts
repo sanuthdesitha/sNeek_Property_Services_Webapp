@@ -6,6 +6,12 @@ import { Role } from "@prisma/client";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
+import { logger } from "@/lib/logger";
+import { applyLaundryPlanDraft, refreshLaundrySyncDraftForProperty } from "@/lib/laundry/planner";
+import {
+  clearPendingLaundrySyncDraftForProperty,
+  notifyLaundryTeamsForApprovedSyncDraft,
+} from "@/lib/laundry/sync-draft";
 
 function buildPropertyAccessInfo(input: Record<string, any>) {
   const accessInfo =
@@ -95,6 +101,15 @@ export async function PATCH(
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updatePropertySchema.parse(await req.json());
     const normalizedAccessInfo = buildPropertyAccessInfo(body as Record<string, any>);
+
+    // Key-lost mode bookkeeping: keyLostSince is server-managed — stamped when
+    // the mode turns ON, cleared when it turns OFF, untouched otherwise.
+    const existing =
+      body.keyLostMode !== undefined
+        ? await db.property.findUnique({ where: { id: params.id }, select: { keyLostMode: true } })
+        : null;
+    const keyLostModeChanged = existing !== null && body.keyLostMode !== existing.keyLostMode;
+
     const property = await db.property.update({
       where: { id: params.id },
       data: {
@@ -122,8 +137,32 @@ export async function PATCH(
         preferredCleanerUserId: body.preferredCleanerUserId ?? undefined,
         setupGuide:
           body.setupGuide !== undefined ? (sanitizeSetupGuide(body.setupGuide) as any) : undefined,
+        keyLostSince: keyLostModeChanged ? (body.keyLostMode ? new Date() : null) : undefined,
       },
     });
+
+    // Toggling key-lost mode reschedules this property's future laundry in
+    // BOTH directions (into same-clean-day service, or back to the normal
+    // day-after/day-before window). Same refresh→apply→notify→clear flow the
+    // iCal sync uses; completed/in-flight tasks are protected inside the
+    // planner (canPlannerOverrideStatus). Failures must not fail the save.
+    if (keyLostModeChanged) {
+      try {
+        const draft = await refreshLaundrySyncDraftForProperty({ propertyId: params.id });
+        const items = draft.items.filter((item) => item.sourcePropertyId === params.id);
+        if (items.length > 0) {
+          await applyLaundryPlanDraft(items);
+          await notifyLaundryTeamsForApprovedSyncDraft(items);
+          await clearPendingLaundrySyncDraftForProperty(params.id);
+        }
+      } catch (laundryError: any) {
+        logger.error(
+          { err: laundryError, propertyId: params.id, keyLostMode: body.keyLostMode },
+          "Laundry reschedule after key-lost mode toggle failed"
+        );
+      }
+    }
+
     return NextResponse.json(property);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

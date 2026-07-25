@@ -98,6 +98,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     linenBufferSets: "0",
     inventoryEnabled: false,
     laundryEnabled: true,
+    keyLostMode: false,
     defaultCheckinTime: "14:00",
     defaultCheckoutTime: "10:00",
     hasBalcony: false,
@@ -122,6 +123,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
   const [savingProperty, setSavingProperty] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Confirm dialog gate before switching key-lost laundry mode ON.
+  const [keyLostConfirmOpen, setKeyLostConfirmOpen] = useState(false);
 
   // Integration
   const [icalUrl, setIcalUrl] = useState("");
@@ -177,6 +180,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       linenBufferSets: String(data.linenBufferSets ?? 0),
       inventoryEnabled: Boolean(data.inventoryEnabled),
       laundryEnabled: data.laundryEnabled !== false,
+      keyLostMode: data.keyLostMode === true,
       defaultCheckinTime: data.defaultCheckinTime ?? "14:00",
       defaultCheckoutTime: data.defaultCheckoutTime ?? "10:00",
       hasBalcony: Boolean(data.hasBalcony),
@@ -249,6 +253,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       linenBufferSets: Number(form.linenBufferSets || 0),
       inventoryEnabled: form.inventoryEnabled,
       laundryEnabled: form.laundryEnabled,
+      keyLostMode: form.keyLostMode,
       defaultCheckinTime: form.defaultCheckinTime,
       defaultCheckoutTime: form.defaultCheckoutTime,
       hasBalcony: form.hasBalcony,
@@ -496,6 +501,11 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
           .join(" · ")}
         actions={
           <>
+            {property.keyLostMode ? (
+              <EBadge tone="danger" soft>
+                <KeyRound className="h-3 w-3" /> Key lost mode
+              </EBadge>
+            ) : null}
             <EButton asChild variant="outline" size="sm">
               <Link href={`/v2/admin/properties/new?copyFrom=${property.id}`}>Copy</Link>
             </EButton>
@@ -613,6 +623,18 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                 <ToggleTile title="Has balcony" hint="Enable balcony checklist fields." checked={form.hasBalcony} onChange={(v) => setF("hasBalcony", v)} />
                 <ToggleTile title="Inventory enabled" hint="Track stock for this property." checked={form.inventoryEnabled} onChange={(v) => setF("inventoryEnabled", v)} />
                 <ToggleTile title="Laundry service" hint="Exclude from laundry scheduling when off." checked={form.laundryEnabled} onChange={(v) => setF("laundryEnabled", v)} />
+                <ToggleTile
+                  title="Key lost mode"
+                  hint="Pickup and drop-off both happen on the cleaning day, after the clean starts — 12:30 on late checkouts, otherwise 10:00."
+                  checked={form.keyLostMode}
+                  onChange={(v) => {
+                    if (v && !form.keyLostMode) {
+                      setKeyLostConfirmOpen(true);
+                      return;
+                    }
+                    setF("keyLostMode", v);
+                  }}
+                />
                 <ToggleTile title="Show cleaner contact to client" hint="Reveal assigned cleaner's contact." checked={form.showCleanerContactToClient} onChange={(v) => setF("showCleanerContactToClient", v)} />
               </div>
 
@@ -967,6 +989,19 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
           </div>
         </div>
       </EModal>
+
+      {/* Key lost mode confirm (enable only; turning it off needs no gate) */}
+      <EConfirmModal
+        open={keyLostConfirmOpen}
+        onClose={() => setKeyLostConfirmOpen(false)}
+        title="Enable key lost mode"
+        description="The laundry driver can't enter this property alone. While this is on, laundry pickup and drop-off are both scheduled on the cleaning day itself, after the clean starts — 12:30 when the job has a late checkout, otherwise 10:00. Saving the property reschedules upcoming laundry immediately."
+        confirmLabel="Enable"
+        onConfirm={() => {
+          setF("keyLostMode", true);
+          setKeyLostConfirmOpen(false);
+        }}
+      />
 
       {/* Deactivate confirm */}
       <EConfirmModal

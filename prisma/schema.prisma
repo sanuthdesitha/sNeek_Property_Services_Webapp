@@ -749,6 +749,7 @@ model User {
   marketingAssets              MarketingAsset[]            @relation("MarketingAssetUploadedBy")
   socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
   cleanerLocationPings         CleanerLocationPing[]
+  laundryRoutes                LaundryRoute[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
   uploadFailures               UploadFailure[]
@@ -908,6 +909,11 @@ model Property {
   preferredCleanerUserId     String?
   showCleanerContactToClient Boolean  @default(false)
   laundryEnabled             Boolean  @default(true) // false = no laundry service for this property
+  // Key-lost mode: while true, laundry pickup AND drop-off are scheduled on the
+  // cleaning day itself, after the clean starts (12:30 with a late checkout,
+  // else 10:00) — the driver meets the cleaner instead of using the spare key.
+  keyLostMode                Boolean  @default(false)
+  keyLostSince               DateTime?
   isActive                   Boolean  @default(true)
   /// Amenity/feature flags driving the per-property checklist composition —
   /// { dishwasher, oven, microwave, fridge, washer, dryer, rangehood, bbq,
@@ -2071,6 +2077,27 @@ model HeldStockDelivery {
 // ─────────────────────────────────────────────
 // Laundry
 // ─────────────────────────────────────────────
+
+/// A driver's planned run for one Sydney day: which pickup/drop stops are in,
+/// in what order. One ACTIVE route per (userId, date) — superseded routes get
+/// status ABANDONED. Stops live as JSON (small N, whole-list reorder writes):
+/// [{ taskId, kind: "PICKUP"|"DROP", order, propertyId, arrivedAt?, completedAt? }]
+model LaundryRoute {
+  id        String    @id @default(cuid())
+  userId    String
+  date      DateTime // Sydney day, startOfDay-normalized like LaundryTask dates
+  stops     Json
+  status    String    @default("DRAFT") // DRAFT|ACTIVE|COMPLETED|ABANDONED
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, date])
+  @@index([status, date])
+}
 
 model LaundryTask {
   id                 String        @id @default(cuid())
