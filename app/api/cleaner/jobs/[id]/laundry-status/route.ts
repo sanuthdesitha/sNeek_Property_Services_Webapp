@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { cleanerLaundryStatusSchema } from "@/lib/validations/job";
 import { applyCleanerLaundryStatusUpdate } from "@/lib/laundry/cleaner-status";
+import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { resolveAppUrl } from "@/lib/app-url";
 
 function normalizeLaundrySubmission(body: {
@@ -56,14 +57,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // Laundry only exists on Airbnb turnovers at laundry-enabled properties, and
-    // never on reworks — mirror the submit route's `laundrySuppressed` rule so
-    // this standalone endpoint stays server-authoritative and can't pollute the
-    // laundry queue for a job that should have no laundry task.
-    const laundrySuppressed =
-      job.jobType !== "AIRBNB_TURNOVER" ||
-      job.isRework ||
-      job.property?.laundryEnabled === false;
-    if (laundrySuppressed) {
+    // never on reworks — the SAME shared predicate the submit route enforces
+    // (lib/laundry/eligibility.ts), so this standalone endpoint stays
+    // server-authoritative and can't pollute the laundry queue for a job that
+    // should have no laundry task.
+    if (!isLaundryUpdateEligible(job, job.property)) {
       return NextResponse.json(
         { error: "This job has no laundry step." },
         { status: 400 }

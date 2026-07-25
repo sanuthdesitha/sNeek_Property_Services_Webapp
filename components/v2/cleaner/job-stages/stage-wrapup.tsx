@@ -448,14 +448,25 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
               <AlertTriangle className="h-4 w-4" /> Mark every checklist item done or not done before submitting.
             </p>
           ) : null}
+          {api.timingRules?.earlyCheckin?.time ? (
+            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-warning))]">
+              <AlertTriangle className="h-4 w-4" /> Early check-in — the property must be guest-ready
+              before {api.timingRules.earlyCheckin.time}.
+            </p>
+          ) : null}
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Submitting sends the form + checklist for QA and records your clock-out.
+            {api.finalCheckupItems.length > 0
+              ? ` A quick final check-up (${api.finalCheckupItems.length} item${
+                  api.finalCheckupItems.length === 1 ? "" : "s"
+                }) comes first.`
+              : ""}
           </p>
           <EButton
             variant="gold"
             className="w-full"
             disabled={busy === "submit" || tasksPending}
-            onClick={() => api.submit()}
+            onClick={() => api.requestSubmit()}
           >
             {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             Submit &amp; clock out

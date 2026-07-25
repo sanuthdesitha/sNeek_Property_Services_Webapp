@@ -12,6 +12,12 @@ import { createCase } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
 import { getAppSettings } from "@/lib/settings";
 import { applyCleanerLaundryStatusUpdate } from "@/lib/laundry/cleaner-status";
+import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
+import {
+  guestSummaryFromReservation,
+  resolveFinalCheckupItems,
+  validateFinalCheckupAck,
+} from "@/lib/forms/final-checkup";
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
@@ -207,9 +213,10 @@ export async function POST(
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
     // Laundry only exists on Airbnb turnovers. Rework/reclean jobs (and
     // laundry-disabled properties) never create a laundry booking or record a
-    // laundry update — they reuse the original clean's linen.
-    const laundrySuppressed =
-      job.jobType !== "AIRBNB_TURNOVER" || job.isRework || job.property.laundryEnabled === false;
+    // laundry update — they reuse the original clean's linen. Shared predicate:
+    // lib/laundry/eligibility.ts (also used by the laundry-status route + the
+    // v2 cleaner workspace).
+    const laundrySuppressed = !isLaundryUpdateEligible(job, job.property);
     const { outcome: rawLaundryOutcome, legacyReady: rawLegacyReady } = normalizeLaundrySubmission(body);
     const laundryOutcome = laundrySuppressed ? undefined : rawLaundryOutcome;
     const legacyReady = laundrySuppressed ? undefined : rawLegacyReady;
@@ -418,6 +425,44 @@ export async function POST(
       selfInspectionIncompleteKeys = untickedSelfInspection.map((f) => f.id);
     }
 
+    // Final check-up gate (R7) — beside the self-inspection gate. Recompute the
+    // acknowledgement items server-side (same resolver + same admin-request
+    // source selection as the form read route) and require an ack for each.
+    // Disabled/empty config resolves to [] → no gate.
+    const finalCheckupSettings = await getAppSettings();
+    const finalCheckupAdminRequests = hasUnifiedAdminTasks
+      ? unifiedJobTasks
+          .filter((task) => task.source === "ADMIN")
+          .map((task) => ({ id: String(task.id), title: String(task.title ?? "") }))
+      : (jobMeta.specialRequestTasks ?? []).map((task) => ({
+          id: String(task.id),
+          title: String(task.title ?? ""),
+        }));
+    const finalCheckupItems = resolveFinalCheckupItems(
+      finalCheckupSettings,
+      { jobType: job.jobType },
+      {
+        guestSummary: guestSummaryFromReservation(jobMeta.reservationContext),
+        adminRequests: finalCheckupAdminRequests,
+      }
+    );
+    if (finalCheckupItems.length > 0) {
+      const ackResult = validateFinalCheckupAck(finalCheckupItems, body.finalCheckupAck);
+      if (!ackResult.ok) {
+        const missingItems = finalCheckupItems.filter((item) =>
+          ackResult.missingIds.includes(item.id)
+        );
+        return NextResponse.json(
+          {
+            error: "Complete the final check-up before submitting.",
+            code: "FINAL_CHECKUP_REQUIRED",
+            items: missingItems,
+          },
+          { status: 422 }
+        );
+      }
+    }
+
     const incompleteAdminTask = adminRequestedTasks.find((task) => !task.completed);
     if (incompleteAdminTask) {
       return NextResponse.json(
@@ -549,6 +594,14 @@ export async function POST(
               __jobTasks: unifiedTaskSnapshot,
               ...(selfInspectionIncompleteKeys.length > 0
                 ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
+                : {}),
+              ...(finalCheckupItems.length > 0
+                ? {
+                    __finalCheckup: {
+                      items: finalCheckupItems,
+                      acknowledgements: body.finalCheckupAck ?? [],
+                    },
+                  }
                 : {}),
             } as any,
             laundryReady: laundryOutcome ? legacyReady : body.laundryReady,

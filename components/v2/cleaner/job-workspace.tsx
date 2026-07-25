@@ -65,6 +65,13 @@ import {
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
+import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
+import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
+import type {
+  FinalCheckupAckEntry,
+  ResolvedFinalCheckupItem,
+} from "@/lib/forms/final-checkup";
+import { TimingRuleBanners, type JobTimingRulesPayload } from "@/components/v2/cleaner/job-stages/timing-banner";
 import { cn } from "@/lib/utils";
 import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
 import { deriveJobStage, type JobStage } from "@/lib/cleaner/job-stage";
@@ -251,6 +258,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [propertyCodeConfirmed, setPropertyCodeConfirmed] = React.useState(false);
   const [laundryBagConfirmed, setLaundryBagConfirmed] = React.useState(false);
 
+  // Final check-up dialog (R7): shown before submit when the payload resolves
+  // acknowledgement items. `finalCheckupServerItems` holds the list a 422
+  // FINAL_CHECKUP_REQUIRED response returned (server-authoritative retry).
+  const [finalCheckupOpen, setFinalCheckupOpen] = React.useState(false);
+  const [finalCheckupServerItems, setFinalCheckupServerItems] = React.useState<
+    ResolvedFinalCheckupItem[] | null
+  >(null);
+  // Acks already transmitted this session — merged into a retry so a 422 that
+  // only lists the MISSING items still resubmits a complete acknowledgement set.
+  const finalCheckupAckRef = React.useRef<FinalCheckupAckEntry[]>([]);
+
   // Journey-stage UI state (presentation only — the gates/handlers below are
   // unchanged; the stage just decides which slice is on screen).
   const [activeStage, setActiveStage] = React.useState<JobStage>(1);
@@ -428,13 +446,29 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
   // Laundry is captured on submit only for AIRBNB_TURNOVER jobs on
   // laundry-enabled properties, and never on reworks (reworks reuse the
-  // original clean's linen) — mirrors the submit route's `laundrySuppressed`
-  // rule so the UI matches what's persisted. Non-turnover jobs show NO laundry
-  // fields at all (no bag row, no start confirm, no outcome section).
-  const laundryEnabled =
-    job?.jobType === "AIRBNB_TURNOVER" &&
-    (property as any)?.laundryEnabled !== false &&
-    job?.isRework !== true;
+  // original clean's linen) — the SAME shared predicate the submit route
+  // enforces (lib/laundry/eligibility.ts), so the UI matches what's persisted.
+  // Non-turnover jobs show NO laundry fields at all (no bag row, no start
+  // confirm, no outcome section).
+  const laundryEnabled = isLaundryUpdateEligible(job, property as any);
+
+  // Final check-up items resolved server-side in the form payload (R7). A 422
+  // FINAL_CHECKUP_REQUIRED response overrides this with the server's missing
+  // list until the next successful submit attempt.
+  const finalCheckupPayloadItems: ResolvedFinalCheckupItem[] = React.useMemo(
+    () =>
+      Array.isArray(payload?.finalCheckup?.items)
+        ? (payload.finalCheckup.items as ResolvedFinalCheckupItem[]).filter(
+            (item) => item && typeof item.id === "string" && typeof item.title === "string"
+          )
+        : [],
+    [payload]
+  );
+  const finalCheckupItems = finalCheckupServerItems ?? finalCheckupPayloadItems;
+
+  // Structured early-check-in / late-checkout rules (R6c).
+  const timingRules: JobTimingRulesPayload | null =
+    payload?.timingRules && typeof payload.timingRules === "object" ? payload.timingRules : null;
 
   // ── Job-start "Before you start" gate ──────────────────────────────────────
   // Two different questions (see lib/cleaner/team-state.ts): "is the clean
@@ -709,7 +743,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       body: JSON.stringify(body ?? {}),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Request failed");
+    if (!res.ok) {
+      // Carry the server's machine-readable rejection through so callers can
+      // branch (e.g. FINAL_CHECKUP_REQUIRED reopens the acknowledgement dialog).
+      const err = new Error(data.error || "Request failed") as Error & {
+        code?: string;
+        data?: unknown;
+      };
+      if (typeof data.code === "string") err.code = data.code;
+      err.data = data;
+      throw err;
+    }
     return data;
   }
 
@@ -824,7 +868,20 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setTaskDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
-  async function submit() {
+  /**
+   * The submit entry point the UI calls: when final check-up items apply, open
+   * the acknowledgement dialog first; the dialog's completion calls submit()
+   * with the recorded acknowledgements. No items → straight to submit.
+   */
+  function requestSubmit() {
+    if (finalCheckupItems.length > 0) {
+      setFinalCheckupOpen(true);
+      return;
+    }
+    void submit();
+  }
+
+  async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
     // Client-side validation gate (mirrors the server's required-field rules):
     // reveal inline errors + scroll to the first, and block the submit so the
     // cleaner sees exactly what's missing instead of a bare server rejection.
@@ -915,6 +972,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         data: { ...answers, uploads: uploadKeys, carryForward: carryForwardPayload },
         jobTasks: jobTasksPayload,
       };
+      if (opts?.finalCheckupAck && opts.finalCheckupAck.length > 0) {
+        // Merge with anything acknowledged on a previous attempt (retry after a
+        // 422 only re-walks the missing items). Latest ack per item wins.
+        const merged = new Map<string, FinalCheckupAckEntry>();
+        for (const entry of [...finalCheckupAckRef.current, ...opts.finalCheckupAck]) {
+          if (entry?.itemId) merged.set(entry.itemId, entry);
+        }
+        const ackList = Array.from(merged.values());
+        finalCheckupAckRef.current = ackList;
+        body.finalCheckupAck = ackList;
+      }
       // Only send the laundry block when it hasn't already been transmitted
       // unchanged. Previously submit re-sent it unconditionally, so an early
       // "send to laundry team now" produced a SECOND identical update at submit.
@@ -931,6 +999,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         }
       }
       const data = await post(`/api/cleaner/jobs/${jobId}/submit`, body);
+      setFinalCheckupServerItems(null);
       // The job is done — clear the shared draft so no one resumes stale state.
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       void fetch(`/api/cleaner/jobs/${jobId}/draft`, { method: "DELETE" }).catch(() => {});
@@ -945,6 +1014,19 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       await load();
       return data;
     } catch (e: any) {
+      // Server-side final check-up gate (R7): reopen the dialog for exactly the
+      // items the server says are missing.
+      if (e?.code === "FINAL_CHECKUP_REQUIRED") {
+        const serverItems = Array.isArray(e?.data?.items)
+          ? (e.data.items as ResolvedFinalCheckupItem[]).filter(
+              (item) => item && typeof item.id === "string" && typeof item.title === "string"
+            )
+          : [];
+        if (serverItems.length > 0) setFinalCheckupServerItems(serverItems);
+        setFinalCheckupOpen(true);
+        flash("info", "Please complete the final check-up to submit.");
+        return;
+      }
       flash("danger", e.message);
     } finally {
       setBusy(null);
@@ -1110,11 +1192,14 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setCarryNotes,
     carryPhotos,
     setCarryPhotos,
+    finalCheckupItems,
+    timingRules,
     flash,
     clockIn,
     pauseClock,
     clockOutEarly,
     submit,
+    requestSubmit,
     load,
     openInfoDrawer: () => setInfoDrawerOpen(true),
     openContactSheet: () => setContactSheetOpen(true),
@@ -1125,6 +1210,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       <BackLink />
 
       <JobHeader api={api} />
+
+      {/* Early-check-in / late-checkout rules (R6c) — visible on every stage. */}
+      {!locked ? <TimingRuleBanners rules={timingRules} /> : null}
 
       {notice ? (
         <EAlert tone={notice.tone === "danger" ? "danger" : notice.tone === "success" ? "success" : "info"}>
@@ -1203,6 +1291,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           </EButton>
         </div>
       </EModal>
+
+      {/* Final check-up acknowledgement — opens on submit when items apply. */}
+      <FinalCheckupDialog
+        open={finalCheckupOpen}
+        items={finalCheckupItems}
+        onClose={() => setFinalCheckupOpen(false)}
+        onComplete={(ack) => {
+          setFinalCheckupOpen(false);
+          void submit({ finalCheckupAck: ack });
+        }}
+      />
 
       <ContactSheet
         open={contactSheetOpen}

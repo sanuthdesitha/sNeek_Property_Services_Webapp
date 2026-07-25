@@ -18,6 +18,11 @@ import type { FormSchema } from "@/lib/forms/types";
 import type { ReadFirstItem } from "@/components/v2/cleaner/read-first-block";
 import type { JobContact } from "@/components/v2/cleaner/contact-sheet";
 import type { JobStage } from "@/lib/cleaner/job-stage";
+import type {
+  FinalCheckupAckEntry,
+  ResolvedFinalCheckupItem,
+} from "@/lib/forms/final-checkup";
+import type { JobTimingRulesPayload } from "@/components/v2/cleaner/job-stages/timing-banner";
 
 export interface JobTask {
   id: string;
@@ -166,12 +171,21 @@ export interface WorkspaceApi {
   carryPhotos: CapturedMedia[];
   setCarryPhotos: (v: CapturedMedia[]) => void;
 
+  /* ── Final check-up (R7) + timing rules (R6c) ────────────────────────── */
+  /** Resolved acknowledgement items for this job ([] = no dialog, no gate). */
+  finalCheckupItems: ResolvedFinalCheckupItem[];
+  /** Structured early-check-in / late-checkout rules (null = none). */
+  timingRules: JobTimingRulesPayload | null;
+
   /* ── Actions ─────────────────────────────────────────────────────────── */
   flash: (tone: "success" | "danger" | "info", text: string) => void;
   clockIn: () => void;
   pauseClock: () => void;
   clockOutEarly: () => void;
-  submit: () => void;
+  /** Raw submit. Prefer requestSubmit() so the final check-up dialog can gate. */
+  submit: (opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) => void;
+  /** Submit entry point: opens the final check-up dialog first when items apply. */
+  requestSubmit: () => void;
   load: () => void;
 
   /* ── Drawers / sheets opened from the header + FAB ───────────────────── */

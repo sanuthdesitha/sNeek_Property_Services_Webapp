@@ -5,7 +5,11 @@ import { Role } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
+import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
+import {
+  guestSummaryFromReservation,
+  resolveFinalCheckupItems,
+} from "@/lib/forms/final-checkup";
 import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { getJobStartReminders } from "@/lib/accountability/patterns";
@@ -16,6 +20,7 @@ import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
+import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import {
@@ -121,6 +126,15 @@ export async function GET(
     }
     const jobMeta = parseJobInternalNotes(job.internalNotes);
     const jobTimingHighlights = getJobTimingHighlights(jobMeta);
+
+    // Structured timing rules (R6c) so the cleaner UI can render distinct
+    // early-check-in / late-checkout chips (only enabled rules, resolved time).
+    const earlyCheckinTime = resolveRuleTime(jobMeta.earlyCheckin);
+    const lateCheckoutTime = resolveRuleTime(jobMeta.lateCheckout);
+    const timingRules = {
+      ...(earlyCheckinTime ? { earlyCheckin: { time: earlyCheckinTime } } : {}),
+      ...(lateCheckoutTime ? { lateCheckout: { time: lateCheckoutTime } } : {}),
+    };
 
     // Where the cleaner collects keys (from the quote's service context), surfaced
     // once so the Set-up + info drawer can show a distinct "Key pickup" row.
@@ -499,12 +513,42 @@ export async function GET(
         ? { clientName, clientPhone, companyPhone, guestName, guestPhone }
         : null;
 
+    // Final check-up (R7): resolve the acknowledgement items server-side so the
+    // cleaner dialog and the submit-route gate work from the same list. Admin
+    // requests = unified ADMIN jobTasks, falling back to the legacy
+    // specialRequestTasks when no unified admin task exists (mirrors the submit
+    // route's sanitizeAdminRequestedTasks source selection).
+    const unifiedAdminTasks = jobTasks
+      .filter((task) => task.source === "ADMIN")
+      .map((task) => ({ id: String(task.id), title: String(task.title ?? "") }));
+    const finalCheckupAdminRequests =
+      unifiedAdminTasks.length > 0
+        ? unifiedAdminTasks
+        : (jobMeta.specialRequestTasks ?? []).map((task) => ({
+            id: String(task.id),
+            title: String(task.title ?? ""),
+          }));
+    const finalCheckupItems = resolveFinalCheckupItems(
+      settings,
+      { jobType: job.jobType },
+      {
+        guestSummary: guestSummaryFromReservation(jobMeta.reservationContext),
+        adminRequests: finalCheckupAdminRequests,
+      }
+    );
+
     return NextResponse.json({
       job,
       contact,
       jobMeta,
       jobTasks,
       jobTimingHighlights,
+      /** Same labels as jobTimingHighlights (R6c) — explicit name for the v2 UI. */
+      timingHighlights: jobTimingHighlights,
+      /** Structured early-check-in / late-checkout rules for distinct chips. */
+      timingRules,
+      /** Pre-submit acknowledgement items (R7); empty = no dialog, no gate. */
+      finalCheckup: { items: finalCheckupItems },
       keyPickupLocation,
       payForJob,
       continuationProgressSnapshot,
@@ -517,7 +561,14 @@ export async function GET(
       template: templateWithExtras,
       templateSource,
       configuredPropertyTemplateId,
-      inventoryStock,
+      // Template-level inventory selection (R8a): the stock list the cleaner
+      // can record usage against is narrowed to the template's configured
+      // items. restockNeeds (above) deliberately stays computed from the FULL
+      // stock list — low-stock warnings are property facts, not form config.
+      inventoryStock: filterStockByConfig(
+        inventoryStock,
+        normalizeInventoryConfig((templateWithExtras?.schema as any)?.inventoryConfig)
+      ),
       restockNeeds,
       recurringIssues,
       requireJobStartConfirmation,

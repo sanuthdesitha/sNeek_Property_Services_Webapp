@@ -165,6 +165,13 @@ export interface FormSchema {
   /** Optional appearance overrides for the form body (see FormTheme). */
   theme?: FormTheme;
   /**
+   * Template-level inventory capture config (R8a): which PropertyStock items
+   * the hardcoded "Stock & consumables used" block offers. Absent / mode "all"
+   * = every stocked item; mode "selected" = only `itemIds` (empty = none).
+   * See lib/forms/inventory-config.ts.
+   */
+  inventoryConfig?: { mode: "all" | "selected"; itemIds: string[] };
+  /**
    * Template-owned standard sections opt-out. `false` = the arrival-evidence /
    * reported-exceptions / sign-off sections are already baked into `sections`
    * and must NOT be re-injected at read time (see lib/forms/standard-sections).
