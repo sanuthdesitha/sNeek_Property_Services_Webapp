@@ -4,6 +4,11 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getPerformanceMetrics } from "@/lib/workforce/performance";
+import {
+  computeLaundryTeamStats,
+  type LaundryConfirmationLite,
+  type LaundryTaskLite,
+} from "@/lib/accountability/laundry-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +143,80 @@ export async function GET(req: Request) {
         })
         .catch(() => [] as { cleanerId: string; source: string | null; requestedAmount: number }[]),
     ]);
+
+    // ── Laundry accountability inputs (team + external suppliers) ──────────
+    // Tasks with pickup/drop activity in the window, plus any still-open task
+    // (needed for stuck detection regardless of age). Confirmations carry the
+    // acting user for per-person attribution (see lib/accountability/laundry-stats).
+    const [laundryUsers, laundryTasks, laundrySuppliers] = await Promise.all([
+      db.user
+        .findMany({
+          where: { role: Role.LAUNDRY, isActive: true },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+        .catch(() => [] as { id: string; name: string | null }[]),
+      db.laundryTask
+        .findMany({
+          where: {
+            OR: [
+              { pickedUpAt: { gte: windowStart } },
+              { droppedAt: { gte: windowStart } },
+              { status: { in: ["PENDING", "CONFIRMED", "PICKED_UP"] as any } },
+            ],
+          },
+          select: {
+            id: true,
+            status: true,
+            pickupDate: true,
+            dropoffDate: true,
+            pickedUpAt: true,
+            droppedAt: true,
+            supplierId: true,
+          },
+        })
+        .catch(() => [] as (LaundryTaskLite & { supplierId: string | null })[]),
+      db.laundrySupplier
+        .findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            pricePerKg: true,
+            avgTurnaround: true,
+            reliabilityScore: true,
+          },
+          orderBy: { name: "asc" },
+        })
+        .catch(
+          () =>
+            [] as {
+              id: string;
+              name: string;
+              phone: string | null;
+              pricePerKg: number | null;
+              avgTurnaround: number | null;
+              reliabilityScore: number | null;
+            }[],
+        ),
+    ]);
+    const laundryConfirmations =
+      laundryTasks.length > 0
+        ? await db.laundryConfirmation
+            .findMany({
+              where: { laundryTaskId: { in: laundryTasks.map((t) => t.id) } },
+              select: {
+                laundryTaskId: true,
+                confirmedById: true,
+                photoUrl: true,
+                s3Key: true,
+                notes: true,
+                createdAt: true,
+              },
+            })
+            .catch(() => [] as LaundryConfirmationLite[])
+        : ([] as LaundryConfirmationLite[]);
 
     const cleanerIds = new Set(cleaners.map((c) => c.id));
 
@@ -323,6 +402,42 @@ export async function GET(req: Request) {
     const totalScoreN = authReviews.length;
     const totalScoreSum = authReviews.reduce((s, r) => s + r.score, 0);
 
+    // ── Laundry team + external suppliers ──────────────────────────────────
+    const nowDate = new Date();
+    const laundryStats = computeLaundryTeamStats({
+      tasks: laundryTasks,
+      confirmations: laundryConfirmations,
+      rangeStart: windowStart,
+      rangeEnd: nowDate,
+      now: nowDate,
+      userIds: laundryUsers.map((u) => u.id),
+    });
+    const laundryNameById = new Map(laundryUsers.map((u) => [u.id, u.name ?? "Laundry"]));
+    const laundryUserIds = new Set(laundryUsers.map((u) => u.id));
+    // Active LAUNDRY roster first (zero-activity rows included); attributed
+    // activity from since-deactivated/other accounts still shows, labelled by id
+    // fallback, so period totals reconcile.
+    const laundryTeam = laundryStats.perUser
+      .filter(
+        (row) =>
+          laundryUserIds.has(row.userId) ||
+          row.pickups > 0 || row.drops > 0 || row.stuckCount > 0,
+      )
+      .map((row) => ({ ...row, name: laundryNameById.get(row.userId) ?? "Former team member" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const supplierTaskCounts = new Map<string, number>();
+    for (const t of laundryTasks) {
+      if (!t.supplierId) continue;
+      if (t.droppedAt && t.droppedAt >= windowStart) {
+        supplierTaskCounts.set(t.supplierId, (supplierTaskCounts.get(t.supplierId) ?? 0) + 1);
+      }
+    }
+    const suppliers = laundrySuppliers.map((s) => ({
+      ...s,
+      tasksInPeriod: supplierTaskCounts.get(s.id) ?? 0,
+    }));
+
     return NextResponse.json({
       period,
       windowStart: windowStart.toISOString(),
@@ -335,6 +450,14 @@ export async function GET(req: Request) {
         managementReviewQueue,
         totalCleansReviewed: totalScoreN,
         avgScore: totalScoreN > 0 ? Math.round((totalScoreSum / totalScoreN) * 10) / 10 : null,
+      },
+      laundry: {
+        // Per-user attribution via LaundryConfirmation.confirmedById (each
+        // pickup/drop transition writes one); PENDING/CONFIRMED stuck tasks
+        // have no actor yet and only appear in teamTotals.stuckUnattributed.
+        team: laundryTeam,
+        teamTotals: laundryStats.teamTotals,
+        suppliers,
       },
     });
   } catch (err: any) {

@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import {
   ArrowDown,
   ArrowUp,
+  BadgeCheck,
   Building2,
   Check,
   FileText,
@@ -84,9 +85,18 @@ const PAY_METHODS = [
   { value: "STRIPE", label: "Stripe" },
   { value: "OTHER", label: "Other" },
 ];
-const PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
-  PAY_METHODS.map((m) => [m.value, m.label]),
-);
+const PAY_METHOD_LABEL: Record<string, string> = {
+  ...Object.fromEntries(PAY_METHODS.map((m) => [m.value, m.label])),
+  // One-click "Mark as paid" — not offered in the record-payment dropdown,
+  // but shown in the ledger/receipt for payments recorded that way.
+  MANUAL: "Marked as paid",
+};
+
+/** Statuses on which a payment can be recorded / the invoice marked paid. */
+const PAYABLE_STATUSES: InvoiceStatus[] = ["DRAFT", "APPROVED", "SENT", "PART_PAID"];
+
+const outstandingOf = (inv: { totalAmount?: number | null; paidAmount?: number | null }) =>
+  Math.max(0, Number(inv.totalAmount ?? 0) - Number(inv.paidAmount ?? 0));
 
 type Client = { id: string; name: string; email: string };
 type Property = { id: string; name: string; suburb: string; clientId: string };
@@ -186,6 +196,10 @@ export function EstateInvoices() {
   const [payRef, setPayRef] = useState("");
   const [paySaving, setPaySaving] = useState(false);
 
+  // One-click mark-as-paid confirm
+  const [markPaidFor, setMarkPaidFor] = useState<Invoice | null>(null);
+  const [markPaidSaving, setMarkPaidSaving] = useState(false);
+
   // Payment-record (receipt) viewer
   const [receiptFor, setReceiptFor] = useState<Invoice | null>(null);
   const [receipt, setReceipt] = useState<FullInvoice | null>(null);
@@ -257,7 +271,7 @@ export function EstateInvoices() {
 
   /* ── Record payment (proper procedure) ─────────────────────────────────── */
   function openPay(inv: Invoice) {
-    const outstanding = Math.max(0, Number(inv.totalAmount ?? 0) - Number(inv.paidAmount ?? 0));
+    const outstanding = outstandingOf(inv);
     setPayAmount(outstanding.toFixed(2));
     setPayMethod("BANK_TRANSFER");
     setPayDate(format(new Date(), "yyyy-MM-dd"));
@@ -299,6 +313,42 @@ export function EstateInvoices() {
       await load();
     } finally {
       setPaySaving(false);
+    }
+  }
+
+  /* ── One-click "Mark as paid" ──────────────────────────────────────────── */
+  async function markAsPaid() {
+    if (!markPaidFor) return;
+    const outstanding = outstandingOf(markPaidFor);
+    setMarkPaidSaving(true);
+    try {
+      // Settle the outstanding balance via the payment-recording procedure —
+      // the PATCH route flips the status to PAID once fully settled and appends
+      // to the metadata.payments[] ledger. If nothing is outstanding (edge:
+      // already fully paid but status never flipped), fall back to the legacy
+      // direct status flip.
+      const payload =
+        outstanding > 0
+          ? { recordPayment: { amount: outstanding, method: "MANUAL", reference: "Marked as paid" } }
+          : { status: "PAID" };
+      const res = await fetch(`/api/admin/invoices/${markPaidFor.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not mark as paid", description: body.error, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Invoice marked as paid",
+        description: outstanding > 0 ? `${money(outstanding)} recorded as received.` : undefined,
+      });
+      setMarkPaidFor(null);
+      await load();
+    } finally {
+      setMarkPaidSaving(false);
     }
   }
 
@@ -650,16 +700,27 @@ export function EstateInvoices() {
                         <Send className="h-3.5 w-3.5" /> Send
                       </EButton>
                     ) : null}
-                    {inv.status === "SENT" || inv.status === "PART_PAID" ? (
-                      <EButton
-                        size="sm"
-                        variant="outline"
-                        disabled={busy === inv.id}
-                        onClick={() => openPay(inv)}
-                        title="Record a payment against this invoice"
-                      >
-                        <Wallet className="h-3.5 w-3.5" /> Record payment
-                      </EButton>
+                    {PAYABLE_STATUSES.includes(inv.status) ? (
+                      <>
+                        <EButton
+                          size="sm"
+                          variant="outline"
+                          disabled={busy === inv.id}
+                          onClick={() => openPay(inv)}
+                          title="Record a payment against this invoice"
+                        >
+                          <Wallet className="h-3.5 w-3.5" /> Record payment
+                        </EButton>
+                        <EButton
+                          size="sm"
+                          variant="outline"
+                          disabled={busy === inv.id}
+                          onClick={() => setMarkPaidFor(inv)}
+                          title="Settle the outstanding balance and mark this invoice paid"
+                        >
+                          <BadgeCheck className="h-3.5 w-3.5" /> Mark as paid
+                        </EButton>
+                      </>
                     ) : null}
                     {inv.status === "PAID" || inv.status === "PART_PAID" ? (
                       <EButton
@@ -1169,6 +1230,33 @@ export function EstateInvoices() {
           </div>
         )}
       </EModal>
+
+      {/* Mark as paid confirm */}
+      <EConfirmModal
+        open={Boolean(markPaidFor)}
+        onClose={() => setMarkPaidFor(null)}
+        title={`Mark ${markPaidFor?.invoiceNumber ?? "invoice"} as paid?`}
+        description={
+          markPaidFor ? (
+            outstandingOf(markPaidFor) > 0 ? (
+              <>
+                Records the outstanding{" "}
+                <span className="e-tnum font-[550] text-[hsl(var(--e-foreground))]">
+                  {money(outstandingOf(markPaidFor))}
+                </span>{" "}
+                as received and marks the invoice paid. Use Record payment instead for a partial
+                amount or to note the method and reference.
+              </>
+            ) : (
+              "Nothing is outstanding on this invoice — it will simply be marked as paid."
+            )
+          ) : null
+        }
+        confirmLabel="Mark as paid"
+        danger={false}
+        loading={markPaidSaving}
+        onConfirm={markAsPaid}
+      />
 
       {/* Delete invoice */}
       <EConfirmModal

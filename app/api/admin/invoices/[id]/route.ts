@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice } from "@/lib/billing/client-invoices";
+import { canTransitionInvoice } from "@/lib/finance/invoice-transitions";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { db } from "@/lib/db";
 
@@ -15,7 +16,9 @@ const lineUpdateSchema = z.object({
 
 const recordPaymentSchema = z.object({
   amount: z.number().positive(),
-  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "OTHER"]),
+  // MANUAL = the one-click "Mark as paid" action (settles the outstanding
+  // balance without an itemised bank/card record).
+  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "MANUAL", "OTHER"]),
   paidDate: z.string().optional().nullable(),
   reference: z.string().trim().max(500).optional().nullable(),
 });
@@ -69,6 +72,14 @@ export async function PATCH(
       include: { lines: true },
     });
     if (!existing) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+
+    // Status changes must follow the allowed lifecycle graph.
+    if (body.status && !canTransitionInvoice(existing.status, body.status)) {
+      return NextResponse.json(
+        { error: `Cannot move invoice from ${existing.status} to ${body.status}.` },
+        { status: 400 },
+      );
+    }
 
     // Handle line operations in a transaction
     if (body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length) {
@@ -216,6 +227,12 @@ export async function PATCH(
     });
 
     if (body.recordPayment) {
+      // Flag settlements that never went through the client-facing send step
+      // (one-click "Mark as paid" on a DRAFT/APPROVED invoice).
+      const paidWithoutSending =
+        updated.status === ClientInvoiceStatus.PAID &&
+        (existing.status === ClientInvoiceStatus.DRAFT ||
+          existing.status === ClientInvoiceStatus.APPROVED);
       await db.auditLog.create({
         data: {
           userId: session.user.id,
@@ -228,6 +245,7 @@ export async function PATCH(
             reference: body.recordPayment.reference ?? null,
             paidAmount: (paymentUpdate as any).paidAmount,
             status: updated.status,
+            ...(paidWithoutSending ? { note: "Marked paid without sending" } : {}),
           } as any,
         },
       });

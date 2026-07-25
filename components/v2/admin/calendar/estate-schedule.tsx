@@ -8,9 +8,10 @@
  * dispatch calendar (linked from the page header).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, RefreshCw, Shirt, User2, UserPlus } from "lucide-react";
+import { agendaStartDay } from "@/lib/calendar/agenda-window";
 import { EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import {
   AssignCleanersModal,
@@ -254,11 +255,13 @@ export function EstateSchedule() {
     return list;
   }, [cursor]);
 
-  /* Agenda: every day of the cursor month that has jobs — paging months moves it. */
+  /* Agenda: every day of the cursor month that has jobs — paging months moves it.
+     On the current (Sydney) month it starts at today; other months show in full. */
   const agendaDays = useMemo(() => {
     const days: Array<{ day: string; label: string; jobs: JobEntry[] }> = [];
     const daysInMonth = new Date(cursor.year, cursor.month + 1, 0).getDate();
-    for (let d = 1; d <= daysInMonth; d += 1) {
+    const startDay = agendaStartDay(cursor, todayIso);
+    for (let d = startDay; d <= daysInMonth; d += 1) {
       const date = new Date(cursor.year, cursor.month, d);
       const day = `${cursor.year}-${pad(cursor.month + 1)}-${pad(d)}`;
       const dayJobs = jobsByDay.get(day) ?? [];
@@ -270,7 +273,20 @@ export function EstateSchedule() {
       });
     }
     return days;
-  }, [jobsByDay, cursor]);
+  }, [jobsByDay, cursor, todayIso]);
+
+  /* Bring today's cell into view once on load when the visible month is the
+     current Sydney month (the grid can sit below the legend/toolbar fold). */
+  const todayCellRef = useRef<HTMLDivElement | null>(null);
+  const scrolledToTodayRef = useRef(false);
+  const cursorOnCurrentMonth =
+    cursor.year === Number(todayIso.slice(0, 4)) && cursor.month === Number(todayIso.slice(5, 7)) - 1;
+  useEffect(() => {
+    if (scrolledToTodayRef.current || !cursorOnCurrentMonth) return;
+    if (!todayCellRef.current) return;
+    todayCellRef.current.scrollIntoView({ block: "nearest" });
+    scrolledToTodayRef.current = true;
+  }, [cursorOnCurrentMonth, view]);
 
   function shiftMonth(delta: number) {
     setCursor((current) => {
@@ -431,8 +447,11 @@ export function EstateSchedule() {
                 return (
                   <div
                     key={cell.day}
+                    ref={isToday ? todayCellRef : undefined}
                     className={`min-h-[112px] space-y-1 border-b border-r border-[hsl(var(--e-border))] p-1.5 [&:nth-child(7n)]:border-r-0 ${
-                      isToday ? "bg-[hsl(var(--e-gold-soft))]" : "bg-[hsl(var(--e-surface))]"
+                      isToday
+                        ? "relative z-[1] bg-[hsl(var(--e-gold-soft))] ring-2 ring-inset ring-[hsl(var(--e-gold))]"
+                        : "bg-[hsl(var(--e-surface))]"
                     }`}
                   >
                     <p
