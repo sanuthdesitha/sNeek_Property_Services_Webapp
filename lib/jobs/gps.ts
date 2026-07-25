@@ -1,13 +1,12 @@
-function toRadians(value: number) {
-  return (value * Math.PI) / 180;
-}
+/**
+ * Thin delegate over the single shared haversine implementation in
+ * lib/gps/distance.ts — kept so existing `@/lib/jobs/gps` imports
+ * (gps-checkin / gps-checkout routes) continue to work. This variant returns
+ * a rounded integer number of meters, matching its historical behaviour.
+ */
+
+import { haversine } from "@/lib/gps/distance";
 
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const radius = 6371000;
-  const dLat = toRadians(lat2 - lat1);
-  const dLng = toRadians(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
-  return Math.round(radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  return Math.round(haversine(lat1, lng1, lat2, lng2));
 }

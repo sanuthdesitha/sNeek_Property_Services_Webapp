@@ -29,6 +29,7 @@ export type SafeguardsSettings = {
     graceMinutes: number;
     fallbackAtMidnight: boolean;
     maxJobLengthHours: number;
+    geofenceExit: boolean;
   };
   sla: {
     enabled: boolean;
@@ -188,6 +189,15 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             disabled={readOnly}
             label="Fallback auto clock-out at midnight"
             description="Safety net when a job has no due or end time."
+          />
+          <EToggle
+            checked={form.autoClockOut.geofenceExit}
+            onChange={(v) =>
+              setForm((p) => ({ ...p, autoClockOut: { ...p.autoClockOut, geofenceExit: v } }))
+            }
+            disabled={readOnly}
+            label="Auto clock-out on geofence exit"
+            description="Clock a cleaner out when GPS confirms they left the job site (sustained run outside the property geofence)."
           />
           <div className="grid gap-5 sm:grid-cols-2">
             <EField label="Grace minutes after due time" hint="Timers auto-stop this many minutes after the job's due/end time.">

@@ -143,6 +143,11 @@ export interface AutoClockOutSettings {
   graceMinutes: number;
   fallbackAtMidnight: boolean;
   maxJobLengthHours: number;
+  /**
+   * Auto clock-out when GPS confirms the cleaner left the job site (sustained
+   * outside-geofence run — see lib/gps/departure.ts). Default true.
+   */
+  geofenceExit: boolean;
 }
 
 export interface LaundryOperationsSettings {
@@ -657,6 +662,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     graceMinutes: 30,
     fallbackAtMidnight: true,
     maxJobLengthHours: 8,
+    geofenceExit: true,
   },
   laundryOperations: {
     pickupCutoffTime: "10:00",
@@ -989,6 +995,8 @@ function sanitizeAutoClockOut(
       1,
       24
     ),
+    geofenceExit:
+      typeof row.geofenceExit === "boolean" ? row.geofenceExit : fallback.geofenceExit,
   };
 }
 

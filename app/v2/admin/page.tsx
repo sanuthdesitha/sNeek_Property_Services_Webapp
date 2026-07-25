@@ -119,7 +119,8 @@ async function getTodayDispatch() {
  *
  * Mirrors the ops live-locations feed's liveness definition (keep in sync with
  * app/api/admin/ops/live-locations/route.ts): only TODAY's (Sydney) work counts
- * — an EN_ROUTE / IN_PROGRESS / PAUSED job scheduled today, or an open timer
+ * — an EN_ROUTE / IN_PROGRESS job scheduled today (PAUSED is excluded from the
+ * on-site count: a paused cleaner is not actively on site), or an open timer
  * started today (or on a job scheduled today) — AND the cleaner must have a
  * fresh GPS ping (within STALE_AFTER_MS). A leftover open timer or active-status
  * job from a previous day, and cleaners whose only ping is stale, are excluded
@@ -148,8 +149,11 @@ async function getLiveNow() {
         select: { assignments: { where: { removedAt: null }, select: { userId: true } } },
       }),
       db.job.findMany({
+        // GPS-truth: only IN_PROGRESS counts as "on site" — a PAUSED job's
+        // cleaner is by definition not actively working (often already gone),
+        // so counting it inflated the KPI.
         where: {
-          status: { in: [JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
+          status: JobStatus.IN_PROGRESS,
           scheduledDate: { gte: todayStart, lte: todayEnd },
           assignments: { some: { removedAt: null } },
         },

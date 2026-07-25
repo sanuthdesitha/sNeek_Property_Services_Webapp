@@ -205,6 +205,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               graceMinutes: appSettings.autoClockOut.graceMinutes,
               fallbackAtMidnight: appSettings.autoClockOut.fallbackAtMidnight,
               maxJobLengthHours: appSettings.autoClockOut.maxJobLengthHours,
+              geofenceExit: appSettings.autoClockOut.geofenceExit,
             },
             sla: {
               enabled: appSettings.sla.enabled,

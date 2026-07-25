@@ -104,6 +104,7 @@ const autoClockOutSchema = z.object({
   graceMinutes: z.number().int().min(0).max(240).optional(),
   fallbackAtMidnight: z.boolean().optional(),
   maxJobLengthHours: z.number().int().min(1).max(24).optional(),
+  geofenceExit: z.boolean().optional(),
 });
 
 const laundryOperationsSchema = z.object({

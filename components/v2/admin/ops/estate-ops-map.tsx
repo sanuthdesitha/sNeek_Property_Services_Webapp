@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Crosshair, RadioTower } from "lucide-react";
 import { ensureGoogleMaps } from "@/lib/maps/loader";
 import { EBadge } from "@/components/v2/ui/primitives";
+import { formatRelativeAgo } from "@/lib/ops/live-status";
 
 export type OpsMapProperty = {
   /** Present when the pin represents an active job (deep-links to the job). */
@@ -42,7 +43,15 @@ type RawPing = {
   positionSource?: "gps" | "property" | "none";
   stale?: boolean;
   pingAgeMinutes?: number | null;
-  liveStatus?: "EN_ROUTE" | "ON_SITE" | "IDLE";
+  liveStatus?:
+    | "ON_SITE"
+    | "OFF_SITE"
+    | "NO_SIGNAL"
+    | "PAUSED"
+    | "LEFT_SITE"
+    | "EN_ROUTE"
+    | "IDLE";
+  liveLabel?: string | null;
   activeJob?: {
     id: string;
     jobNumber: string | number | null;
@@ -83,16 +92,36 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+const STATUS_FALLBACK_LABEL: Record<string, string> = {
+  ON_SITE: "On site",
+  EN_ROUTE: "En route",
+  OFF_SITE: "Clocked in · off site",
+  NO_SIGNAL: "Clocked in · no signal",
+  PAUSED: "Paused",
+  LEFT_SITE: "Left site",
+  IDLE: "Idle",
+};
+
 function liveStatusLabel(ping: RawPing): string {
-  if (ping.liveStatus === "EN_ROUTE") return "En route";
-  if (ping.liveStatus === "ON_SITE") return "On site";
-  return "Idle";
+  return ping.liveLabel ?? STATUS_FALLBACK_LABEL[ping.liveStatus ?? "IDLE"] ?? "Idle";
 }
 
-function liveStatusTone(ping: RawPing): "info" | "success" | "neutral" {
-  if (ping.liveStatus === "EN_ROUTE") return "info";
-  if (ping.liveStatus === "ON_SITE") return "success";
-  return "neutral";
+function liveStatusTone(ping: RawPing): "info" | "success" | "neutral" | "warning" | "danger" | "gold" {
+  switch (ping.liveStatus) {
+    case "EN_ROUTE":
+      return "info";
+    case "ON_SITE":
+      return "success";
+    case "OFF_SITE":
+      return "warning";
+    case "NO_SIGNAL":
+    case "LEFT_SITE":
+      return "danger";
+    case "PAUSED":
+      return "gold";
+    default:
+      return "neutral";
+  }
 }
 
 function formatElapsed(minutes: number): string {
@@ -122,17 +151,8 @@ function formatEta(etaMinutes: number | null): string | null {
   return `ETA ${Math.round(etaMinutes)} min · ~${time}`;
 }
 
-function relativePing(iso: string | null | undefined): string {
-  if (!iso) return "no GPS fix yet";
-  const ms = new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "no GPS fix yet";
-  const seconds = Math.floor((Date.now() - ms) / 1000);
-  if (seconds < 60) return `${Math.max(0, seconds)}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return hours === 1 ? "1 hr ago" : `${hours} hrs ago`;
-}
+// Shared relative-age formatting (same helper the server derivation uses).
+const relativePing = (iso: string | null | undefined) => formatRelativeAgo(iso ?? null);
 
 function cleanerName(ping: RawPing): string {
   return ping.user?.name ?? ping.userId.slice(0, 8);
@@ -152,7 +172,11 @@ function cleanerTooltip(ping: RawPing): string {
       `Clocked in ${formatClockIn(ping.timer.startedAt)} · elapsed ${formatElapsed(elapsedFromStart(ping.timer.startedAt, ping.timer.elapsedMinutes))}`,
     );
   }
-  parts.push(`Last ping ${relativePing(ping.timestamp)}`);
+  if (ping.positionSource === "property") {
+    parts.push("No GPS yet — shown at job address");
+  } else {
+    parts.push(`Last ping ${relativePing(ping.timestamp)}`);
+  }
   return parts.join("\n");
 }
 
@@ -363,15 +387,28 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
       }
       seen.add(ping.userId);
       const pos = { lat: ping.lat as number, lng: ping.lng as number };
-      const icon = {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: staleTier(ping.timestamp).color,
-        fillOpacity: 1,
-        strokeColor: "#ffffff",
-        strokeWeight: 2,
-        labelOrigin: new google.maps.Point(0, -2.4),
-      };
+      // Property-fallback positions (no GPS fix) render HOLLOW so they can't
+      // be mistaken for a live dot at that spot.
+      const isPropertyFallback = ping.positionSource === "property";
+      const icon = isPropertyFallback
+        ? {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: "#ffffff",
+            fillOpacity: 0.15,
+            strokeColor: "#8a7f70",
+            strokeWeight: 2,
+            labelOrigin: new google.maps.Point(0, -2.4),
+          }
+        : {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: staleTier(ping.timestamp).color,
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+            labelOrigin: new google.maps.Point(0, -2.4),
+          };
       const label = {
         text: cleanerName(ping),
         fontSize: "11px",
@@ -596,6 +633,10 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-[#7a6f2e] opacity-55" aria-hidden />
           Property / job
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full border-2 border-[#8a7f70] bg-transparent" aria-hidden />
+          No GPS · shown at job address
         </span>
         <span className="ml-auto">Live stream + 15s snapshot refresh</span>
       </div>
