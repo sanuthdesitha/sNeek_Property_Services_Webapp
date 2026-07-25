@@ -18,13 +18,22 @@ import {
   ECardHeader,
   ECardTitle,
 } from "@/components/v2/ui/primitives";
+import { formatRelativeAgo } from "@/lib/ops/live-status";
 
 const POLL_INTERVAL_MS = 15_000;
 
 type LivePing = {
   userId: string;
   user?: { name?: string | null } | null;
-  liveStatus?: "EN_ROUTE" | "ON_SITE" | "IDLE";
+  liveStatus?:
+    | "ON_SITE"
+    | "OFF_SITE"
+    | "NO_SIGNAL"
+    | "PAUSED"
+    | "LEFT_SITE"
+    | "EN_ROUTE"
+    | "IDLE";
+  liveLabel?: string | null;
   lastPingAt?: string | null;
   timestamp?: string | null;
   stale?: boolean;
@@ -41,27 +50,40 @@ type LivePing = {
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
+const STATUS_TONE: Record<string, Tone> = {
+  ON_SITE: "success",
+  EN_ROUTE: "info",
+  OFF_SITE: "warning",
+  NO_SIGNAL: "danger",
+  PAUSED: "gold",
+  LEFT_SITE: "danger",
+  IDLE: "neutral",
+};
+
+const STATUS_FALLBACK_LABEL: Record<string, string> = {
+  ON_SITE: "On site",
+  EN_ROUTE: "En route",
+  OFF_SITE: "Clocked in · off site",
+  NO_SIGNAL: "Clocked in · no signal",
+  PAUSED: "Paused",
+  LEFT_SITE: "Left site",
+  IDLE: "Idle",
+};
+
 function stateLabel(loc: LivePing): { label: string; tone: Tone } {
-  if (loc.liveStatus === "ON_SITE") return { label: "On site", tone: "success" };
-  if (loc.liveStatus === "EN_ROUTE") return { label: "En route", tone: "info" };
-  return { label: "Active", tone: "neutral" };
+  const status = loc.liveStatus ?? "IDLE";
+  return {
+    label: loc.liveLabel ?? STATUS_FALLBACK_LABEL[status] ?? "Active",
+    tone: STATUS_TONE[status] ?? "neutral",
+  };
 }
 
 function cleanerName(loc: LivePing): string {
   return loc.user?.name ?? loc.userId.slice(0, 8);
 }
 
-function relativePing(iso?: string | null) {
-  if (!iso) return "no GPS yet";
-  const ms = new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "no GPS yet";
-  const minutes = Math.floor((Date.now() - ms) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes === 1) return "1 min ago";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  return hours === 1 ? "1 hr ago" : `${hours} hrs ago`;
-}
+// Shared relative-age formatting (same helper the server derivation uses).
+const relativePing = (iso?: string | null) => formatRelativeAgo(iso ?? null);
 
 function formatEta(minutes?: number | null) {
   if (minutes == null) return null;

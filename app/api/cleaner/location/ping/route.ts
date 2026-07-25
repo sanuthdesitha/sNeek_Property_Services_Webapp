@@ -4,6 +4,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 import { checkGeofenceForPing } from "@/lib/gps/geofence";
+import { handleGeofenceDeparture } from "@/lib/gps/departure-clockout";
 
 const pingSchema = z.object({
   jobId: z.string(),
@@ -118,6 +119,21 @@ export async function POST(req: NextRequest) {
     lng: latest.lng,
     pingAt: latest.timestamp ? new Date(latest.timestamp) : now,
   });
+
+  // Departure work only runs when the latest ping is already outside the
+  // fence, and is fully best-effort — ping ingestion must never fail on it.
+  if (geofenceResult.departed) {
+    try {
+      await handleGeofenceDeparture({
+        jobId: geofenceResult.departed.jobId,
+        userId,
+        distanceM: geofenceResult.departed.distanceM,
+        now,
+      });
+    } catch {
+      // Best-effort: swallow — the pings are already persisted.
+    }
+  }
 
   return NextResponse.json({
     ok: true,

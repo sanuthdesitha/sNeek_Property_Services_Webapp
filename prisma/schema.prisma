@@ -1268,6 +1268,10 @@ model Job {
   drivingDelayedAt          DateTime?
   drivingDelayedReason      String?
   arrivedAt                 DateTime?
+  // Set when GPS confirms the cleaner left the site (sustained outside-fence
+  // run — see lib/gps/departure.ts). Cleared when a fresh inside-fence ping
+  // arrives (re-entry).
+  departedAt                DateTime?
   lastEtaNotificationAt     DateTime?
   lastEtaNotifiedMinutes    Int?
   lastDelayedNotificationAt DateTime?

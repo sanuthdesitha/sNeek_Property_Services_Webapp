@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth/auth-options";
 import { getServerSession } from "next-auth";
 import { db } from "@/lib/db";
 import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
+import { deriveLiveStatus, LIVE_STALE_AFTER_MS } from "@/lib/ops/live-status";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,7 @@ export const dynamic = "force-dynamic";
 // ping (within STALE_AFTER_MS). If their ping is older than that (or absent) they
 // are STILL surfaced — flagged `stale`, positioned from their last ping or the
 // job's property — so ops keeps eyes on today's work without a false "live" dot.
-const STALE_AFTER_MS = 3 * 60_000;
+const STALE_AFTER_MS = LIVE_STALE_AFTER_MS;
 
 type ActiveJobInfo = {
   id: string;
@@ -29,6 +31,7 @@ type ActiveJobInfo = {
   etaMinutes: number | null;
   propertyLat: number | null;
   propertyLng: number | null;
+  departedAt: Date | null;
 };
 
 /**
@@ -75,6 +78,7 @@ export async function GET() {
             id: true,
             jobNumber: true,
             status: true,
+            departedAt: true,
             enRouteEtaMinutes: true,
             property: { select: { name: true, suburb: true, latitude: true, longitude: true } },
           },
@@ -95,6 +99,7 @@ export async function GET() {
         jobNumber: true,
         status: true,
         arrivedAt: true,
+        departedAt: true,
         enRouteEtaMinutes: true,
         property: { select: { name: true, suburb: true, latitude: true, longitude: true } },
         assignments: { where: { removedAt: null }, select: { userId: true } },
@@ -145,6 +150,7 @@ export async function GET() {
           etaMinutes: job.enRouteEtaMinutes,
           propertyLat: job.property.latitude ?? null,
           propertyLng: job.property.longitude ?? null,
+          departedAt: job.departedAt ?? null,
         });
       }
     }
@@ -167,16 +173,28 @@ export async function GET() {
           etaMinutes: null,
           propertyLat: timerJob.property.latitude ?? null,
           propertyLng: timerJob.property.longitude ?? null,
+          departedAt: timerJob.departedAt ?? null,
         }
       : fallbackJob;
 
-    const liveStatus = timer
-      ? "ON_SITE"
-      : activeJob?.status === "EN_ROUTE"
-        ? "EN_ROUTE"
-        : activeJob
-          ? "ON_SITE"
-          : "IDLE";
+    // Truthful status: ON_SITE only when timer + fresh ping + inside fence
+    // agree (see lib/ops/live-status.ts for the full truth table).
+    const hasGeofence = activeJob?.propertyLat != null && activeJob?.propertyLng != null;
+    const insideGeofence =
+      ping && hasGeofence
+        ? haversine(ping.lat, ping.lng, activeJob!.propertyLat!, activeJob!.propertyLng!) <=
+          DEFAULT_GEOFENCE_RADIUS_M
+        : null;
+
+    const { status: liveStatus, label: liveLabel } = deriveLiveStatus({
+      hasOpenTimer: Boolean(timer),
+      jobStatus: activeJob?.status ?? null,
+      lastPingAt: ping?.timestamp ?? null,
+      insideGeofence,
+      departedAt: activeJob?.departedAt ?? null,
+      now: new Date(now),
+      hasGeofence,
+    });
 
     // Position: prefer the real GPS ping; otherwise fall back to the active
     // job's property so an on-job cleaner still shows on the map.
@@ -212,6 +230,7 @@ export async function GET() {
       lastPingAt: timestamp,
       positionSource,
       liveStatus,
+      liveLabel,
       activeJob: activeJob
         ? {
             id: activeJob.id,
@@ -219,6 +238,7 @@ export async function GET() {
             status: activeJob.status,
             propertyName: activeJob.propertyName,
             etaMinutes: activeJob.etaMinutes,
+            departedAt: activeJob.departedAt ? activeJob.departedAt.toISOString() : null,
           }
         : null,
       pingAgeMinutes,
