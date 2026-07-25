@@ -69,6 +69,14 @@ const JOBS: FallbackJob[] = [
   } },
   { name: "sla-escalation", minIntervalMs: HOUR, run: async () => { await runSlaEscalation(new Date()); } },
   { name: "safety-checkin-alerts", minIntervalMs: 30 * MIN, run: async () => { await runSafetyCheckinAlerts(new Date()); } },
+  // One-shot repair of jobs whose start/due times drifted from their admin
+  // timing rules (early check-in / late checkout) before the iCal sync fix.
+  // Gated on the AppSetting flag `timingRuleReconcilePending` — runs once,
+  // clears the flag, then every later tick is a cheap flag check.
+  { name: "timing-rule-reconcile", minIntervalMs: 30 * MIN, run: async () => {
+    const { runTimingRuleReconcileIfPending } = await import("@/lib/ops/timing-rule-reconcile");
+    await runTimingRuleReconcileIfPending(new Date());
+  } },
   // Revert jobs abandoned in EN_ROUTE (no arrival within 6h) back to ASSIGNED so
   // they don't sit "on the way" forever.
   { name: "stale-en-route-sweep", minIntervalMs: 30 * MIN, run: async () => { await sweepStaleEnRouteJobs(new Date()); } },

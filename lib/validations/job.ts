@@ -202,6 +202,18 @@ export const submitJobSchema = z.object({
   draftDamageItems: z.array(draftDamageItemSchema).max(20).optional(),
   draftPayRequestPayload: draftPayRequestItemSchema.optional(),
   draftPayRequestItems: z.array(draftPayRequestItemSchema).max(20).optional(),
+  // Final check-up acknowledgements (R7): one entry per resolved item the
+  // cleaner tapped "Acknowledge" on. Validated against the server-side
+  // resolved list in the submit route.
+  finalCheckupAck: z
+    .array(
+      z.object({
+        itemId: z.string().trim().min(1),
+        at: z.string().trim().max(64).optional(),
+      })
+    )
+    .max(200)
+    .optional(),
 });
 
 export const cleanerLaundryStatusSchema = z.object({

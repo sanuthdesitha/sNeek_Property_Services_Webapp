@@ -48,6 +48,7 @@ import { NotificationToolsSection } from "@/components/v2/admin/settings/notific
 import { RolesSection } from "@/components/v2/admin/settings/roles-section";
 import { AuditSection } from "@/components/v2/admin/settings/audit-section";
 import { AccountabilitySection } from "@/components/v2/admin/settings/accountability-section";
+import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/final-checkup-settings";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
 
 export const metadata = { title: "Settings · Estate admin" };
@@ -268,7 +269,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       ) : null}
 
       {activeTab === "accountability" && isAdmin ? (
-        <AccountabilitySection initial={appSettings.accountability} readOnly={!isAdmin} />
+        <>
+          <AccountabilitySection initial={appSettings.accountability} readOnly={!isAdmin} />
+          {/* Final check-up (R7) — the pre-submit acknowledgement dialog config
+              lives beside the other cleaner-submission gates. */}
+          <FinalCheckupSettingsSection initial={appSettings.finalCheckup} readOnly={!isAdmin} />
+        </>
       ) : null}
 
       {activeTab === "portals" && isAdmin ? (

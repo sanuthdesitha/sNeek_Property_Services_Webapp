@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { parseJobInternalNotes, serializeJobInternalNotes, type JobReservationContext } from "@/lib/jobs/meta";
+import { resolveJobTimesFromReservation } from "@/lib/ical/times";
 import { classifySameDayCheckinPriority } from "@/lib/jobs/priority";
 import { SyncStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { addDays } from "date-fns";
@@ -708,6 +709,16 @@ async function syncTurnoverJobsForReservations(params: {
 
     if (!existingJob) {
       const jobNumber = await reserveJobNumber(db);
+      // New jobs normally carry no admin timing rules yet, but route through the
+      // same resolver as the re-sync path so the two can never diverge.
+      const createNotes = mergeReservationContextIntoInternalNotes(undefined, reservationContext);
+      const createMeta = parseJobInternalNotes(createNotes);
+      const createTimes = resolveJobTimesFromReservation({
+        reservationStartTime: startTime,
+        reservationDueTime: sameDayCheckinTime,
+        earlyCheckin: createMeta.earlyCheckin,
+        lateCheckout: createMeta.lateCheckout,
+      });
       const created = await db.job.create({
         data: {
           jobNumber,
@@ -716,10 +727,10 @@ async function syncTurnoverJobsForReservations(params: {
           jobType: "AIRBNB_TURNOVER",
           status: "UNASSIGNED",
           scheduledDate: turnoverDate,
-          startTime,
-          dueTime: sameDayCheckinTime,
+          startTime: createTimes.startTime ?? startTime,
+          dueTime: createTimes.dueTime ?? sameDayCheckinTime,
           estimatedHours: defaultTurnoverHours ?? undefined,
-          internalNotes: mergeReservationContextIntoInternalNotes(undefined, reservationContext),
+          internalNotes: createNotes,
           priorityBucket: priority.priorityBucket,
           priorityReason: priority.priorityReason,
           sameDayCheckin: priority.sameDayCheckin,
@@ -768,6 +779,16 @@ async function syncTurnoverJobsForReservations(params: {
     const activeAssignments = (existingJob.assignments ?? []).filter((a) => a.removedAt == null);
     if (dateMoved && activeAssignments.length > 0 && existingJob.manuallyRescheduledAt == null) {
       const before = jobState(existingJob);
+      // Re-apply the job's admin timing rules (early check-in / late checkout,
+      // stored in internalNotes meta) so moving the booking never resets the
+      // rule-driven start/due times back to the raw reservation times.
+      const movedMeta = parseJobInternalNotes(existingJob.internalNotes);
+      const movedTimes = resolveJobTimesFromReservation({
+        reservationStartTime: startTime,
+        reservationDueTime: sameDayCheckinTime,
+        earlyCheckin: movedMeta.earlyCheckin,
+        lateCheckout: movedMeta.lateCheckout,
+      });
       await db.jobAssignment.updateMany({
         where: { jobId: existingJob.id, removedAt: null },
         data: { removedAt: new Date() },
@@ -776,8 +797,8 @@ async function syncTurnoverJobsForReservations(params: {
         where: { id: existingJob.id },
         data: {
           scheduledDate: turnoverDate,
-          startTime,
-          dueTime: sameDayCheckinTime,
+          startTime: movedTimes.startTime ?? startTime,
+          dueTime: movedTimes.dueTime ?? sameDayCheckinTime,
           status: "UNASSIGNED",
           priorityBucket: priority.priorityBucket,
           priorityReason: priority.priorityReason,
@@ -831,14 +852,28 @@ async function syncTurnoverJobsForReservations(params: {
     const isManuallyRescheduled = existingJob.manuallyRescheduledAt != null;
     const syncDates = params.syncOptions.updateExistingLinkedJobs && !isManuallyRescheduled;
 
+    // Re-apply the job's admin timing rules to the reservation-derived raw
+    // times before persisting, so re-syncs never undo a "late checkout" /
+    // "early check-in" override. Parse the rules from the LATEST notes value
+    // (the merge above may have just rewritten internalNotes).
+    const latestMeta = parseJobInternalNotes(mergedInternalNotes ?? existingJob.internalNotes);
+    const resolvedTimes = resolveJobTimesFromReservation({
+      reservationStartTime: startTime,
+      reservationDueTime: sameDayCheckinTime,
+      earlyCheckin: latestMeta.earlyCheckin,
+      lateCheckout: latestMeta.lateCheckout,
+    });
+    const syncedStartTime = resolvedTimes.startTime ?? startTime;
+    const syncedDueTime = resolvedTimes.dueTime ?? sameDayCheckinTime;
+
     const afterCandidate: JobState | null = {
       id: existingJob.id,
       reservationId: reservation.id,
       scheduledDate: syncDates
         ? turnoverDate.toISOString()
         : existingJob.scheduledDate.toISOString(),
-      startTime: syncDates ? startTime : existingJob.startTime ?? null,
-      dueTime: syncDates ? sameDayCheckinTime : existingJob.dueTime ?? null,
+      startTime: syncDates ? syncedStartTime : existingJob.startTime ?? null,
+      dueTime: syncDates ? syncedDueTime : existingJob.dueTime ?? null,
       estimatedHours: shouldBackfillEstimatedHours ? defaultTurnoverHours : currentEstimatedHours,
       internalNotes: shouldUpdateReservationContext ? mergedInternalNotes ?? null : existingJob.internalNotes ?? null,
       status: existingJob.status,
@@ -863,8 +898,8 @@ async function syncTurnoverJobsForReservations(params: {
         ...(syncDates
           ? {
               scheduledDate: turnoverDate,
-              startTime,
-              dueTime: sameDayCheckinTime,
+              startTime: syncedStartTime,
+              dueTime: syncedDueTime,
               priorityBucket: priority.priorityBucket,
               priorityReason: priority.priorityReason,
               sameDayCheckin: priority.sameDayCheckin,

@@ -77,8 +77,15 @@ function FlagPills({ job }: { job: any }) {
   const hasPayRequest = Array.isArray(job?.payAdjustments) && job.payAdjustments.length > 0;
   const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
   const skip = String(job?.cleanSkipStatus ?? "");
+  // Server-computed timing-rule chips from /api/jobs (`timingBadges`):
+  // early = "finish before HH:MM" (early check-in), late = "start after HH:MM"
+  // (late checkout). Only present when the admin rule is enabled.
+  const earlyTime = typeof job?.timingBadges?.early === "string" ? job.timingBadges.early : "";
+  const lateTime = typeof job?.timingBadges?.late === "string" ? job.timingBadges.late : "";
   return (
     <>
+      {earlyTime ? <EBadge tone="warning" soft>{`EARLY ${earlyTime}`}</EBadge> : null}
+      {lateTime ? <EBadge tone="info" soft>{`LATE ${lateTime}`}</EBadge> : null}
       {job?.isRework ? <EBadge tone="aubergine" soft>Rework</EBadge> : null}
       {hasPayRequest ? <EBadge tone="info" soft>Pay request</EBadge> : null}
       {hasDamage ? <EBadge tone="danger" soft>Damage</EBadge> : null}

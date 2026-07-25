@@ -17,6 +17,7 @@
 
 import { withStandardSections } from "@/lib/checklists/compose";
 import { schemaOptsOutOfStandardSections } from "@/lib/forms/standard-sections";
+import { normalizeInventoryConfig, type InventoryConfig } from "@/lib/forms/inventory-config";
 
 type AnyRec = Record<string, any>;
 
@@ -80,7 +81,7 @@ function normalizeSection(section: unknown, index: number): AnyRec | null {
  */
 export function normalizeFormSchema(
   schema: unknown
-): { sections: any[]; theme?: any; standardSections?: boolean } {
+): { sections: any[]; theme?: any; standardSections?: boolean; inventoryConfig?: InventoryConfig } {
   const raw = (schema && typeof schema === "object" ? schema : {}) as AnyRec;
   const rawSections = Array.isArray(raw.sections) ? raw.sections : [];
   const canonical = rawSections.map((s: unknown, i: number) => normalizeSection(s, i)).filter(Boolean) as AnyRec[];
@@ -91,8 +92,15 @@ export function normalizeFormSchema(
   const withStandard = withStandardSections(canonical, {
     standardSections: optedOut ? false : undefined,
   }) as any[];
-  const out: { sections: any[]; theme?: any; standardSections?: boolean } = { sections: withStandard };
+  const out: { sections: any[]; theme?: any; standardSections?: boolean; inventoryConfig?: InventoryConfig } = {
+    sections: withStandard,
+  };
   if (raw.theme && typeof raw.theme === "object") out.theme = raw.theme;
+  // Template-level inventory capture config (R8a) rides on the schema root —
+  // carry it through so a read → save round-trip (or the form read route) never
+  // silently widens the selection back to "all items".
+  const inventoryConfig = normalizeInventoryConfig(raw.inventoryConfig);
+  if (inventoryConfig) out.inventoryConfig = inventoryConfig;
   // Carry the flag through so a read → save round-trip doesn't silently
   // re-enable injection on a baked template.
   if (optedOut) out.standardSections = false;

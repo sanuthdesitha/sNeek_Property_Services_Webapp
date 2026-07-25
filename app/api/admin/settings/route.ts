@@ -271,6 +271,9 @@ const updateSchema = z.object({
   // by sanitizeAccountabilitySettings in lib/settings.ts). Passthrough so the
   // settings editor can send the full nested blob.
   accountability: z.object({}).passthrough().optional(),
+  // Pre-submit final check-up dialog config (R7) — loosely validated here; the
+  // shape is enforced/coerced by sanitizeFinalCheckupSettings in lib/settings.ts.
+  finalCheckup: z.object({}).passthrough().optional(),
   // Audience-level outbound-message controls (global channel masters + the
   // per-audience Email/SMS/Push matrix). Loosely validated here; the shape is
   // enforced/coerced by the audience-controls sanitizer in lib/settings.ts.

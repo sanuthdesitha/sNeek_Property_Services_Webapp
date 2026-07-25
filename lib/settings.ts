@@ -252,6 +252,25 @@ export interface AccountabilityRectificationSettings {
   reworkOfferTtlMinutes: number;
 }
 
+/**
+ * One admin-defined item in the pre-submit "final check-up" acknowledgement
+ * dialog (R7). `appliesTo` holds JobType values; empty/undefined = every job
+ * type. `referenceImageKeys` are S3 keys uploaded via /api/uploads/direct
+ * (folder "final-checkup") and resolved to signed URLs client-side.
+ */
+export interface FinalCheckupItem {
+  id: string;
+  title: string;
+  detail?: string;
+  referenceImageKeys: string[];
+  appliesTo?: string[];
+}
+
+export interface FinalCheckupSettings {
+  enabled: boolean;
+  items: FinalCheckupItem[];
+}
+
 export interface AccountabilitySettings {
   scoring: AccountabilityScoringSettings;
   bonuses: AccountabilityBonusSettings;
@@ -356,6 +375,8 @@ export interface AppSettings {
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
   accountability: AccountabilitySettings;
+  /** Pre-submit final check-up acknowledgement dialog for cleaners (R7). */
+  finalCheckup: FinalCheckupSettings;
   pricing: PricingSettings;
   evidenceStamp: EvidenceStampSettings;
   propertyFormTemplateOverrides: PropertyFormTemplateOverrides;
@@ -685,6 +706,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     createIssueTicket: true,
   },
   accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
+  finalCheckup: { enabled: false, items: [] },
   pricing: {
     gstEnabled: true,
     cleanerHourlyCost: 32,
@@ -1227,6 +1249,53 @@ export function sanitizeAccountabilitySettings(
   };
 }
 
+export function sanitizeFinalCheckupSettings(
+  input: unknown,
+  fallback: FinalCheckupSettings
+): FinalCheckupSettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+
+  const jobTypes = new Set<string>(Object.values(JobType));
+  const items: FinalCheckupItem[] = [];
+  const seenIds = new Set<string>();
+  if (Array.isArray(row.items)) {
+    for (const raw of row.items) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      if (!id || !title || seenIds.has(id)) continue;
+      seenIds.add(id);
+      const detail = typeof item.detail === "string" && item.detail.trim() ? item.detail.trim() : undefined;
+      const referenceImageKeys = Array.isArray(item.referenceImageKeys)
+        ? item.referenceImageKeys
+            .filter((k): k is string => typeof k === "string")
+            .map((k) => k.trim())
+            .filter(Boolean)
+        : [];
+      const appliesToRaw = Array.isArray(item.appliesTo)
+        ? item.appliesTo
+            .filter((v): v is string => typeof v === "string")
+            .map((v) => v.trim())
+            .filter((v) => jobTypes.has(v))
+        : [];
+      items.push({
+        id,
+        title,
+        ...(detail ? { detail } : {}),
+        referenceImageKeys,
+        ...(appliesToRaw.length > 0 ? { appliesTo: Array.from(new Set(appliesToRaw)) } : {}),
+      });
+    }
+  }
+
+  return {
+    enabled: typeof row.enabled === "boolean" ? row.enabled : fallback.enabled,
+    items,
+  };
+}
+
 function sanitizePricingSettings(input: unknown, fallback: PricingSettings): PricingSettings {
   if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
   const row = input as Record<string, unknown>;
@@ -1505,6 +1574,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).accountability,
       DEFAULT_SETTINGS.accountability
     ),
+    finalCheckup: sanitizeFinalCheckupSettings(
+      (parsed as any).finalCheckup,
+      DEFAULT_SETTINGS.finalCheckup
+    ),
     pricing: sanitizePricingSettings((parsed as any).pricing, DEFAULT_SETTINGS.pricing),
     evidenceStamp: sanitizeEvidenceStamp(
       (parsed as any).evidenceStamp,
@@ -1578,6 +1651,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
     accountability: input.accountability ?? current.accountability,
+    finalCheckup: input.finalCheckup ?? current.finalCheckup,
     pricing: { ...current.pricing, ...(input.pricing ?? {}) },
     evidenceStamp: input.evidenceStamp ?? current.evidenceStamp,
     websiteContent: input.websiteContent ?? current.websiteContent,

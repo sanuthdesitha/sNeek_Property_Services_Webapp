@@ -15,6 +15,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
 import { BookingCard } from "@/components/v2/cleaner/booking-card";
+import { TimingRuleBanners } from "@/components/v2/cleaner/job-stages/timing-banner";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 export function StageSetup({ api }: { api: WorkspaceApi }) {
@@ -52,6 +53,10 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           You clocked out without submitting the form. This job is not complete until the form is submitted.
         </EAlert>
       ) : null}
+
+      {/* Early-check-in / late-checkout rules (R6c) — right at the top of Set
+          up so the start/finish constraints are seen before clocking in. */}
+      <TimingRuleBanners rules={api.timingRules} />
 
       {/* Guest count / booking details from the iCal sync — first thing the
           cleaner needs to know when setting the property up. */}

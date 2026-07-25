@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
 import { Role, JobStatus, JobType, PayAdjustmentStatus } from "@prisma/client";
+
+/**
+ * Server-computed early-checkin / late-checkout badge times (HH:MM) from the
+ * job's internalNotes meta, so list UIs can render timing chips without
+ * re-parsing the raw notes JSON client-side. Only present when a rule is
+ * enabled.
+ */
+function withTimingBadges<T extends { internalNotes?: string | null }>(job: T) {
+  const meta = parseJobInternalNotes(job.internalNotes);
+  const early = resolveRuleTime(meta.earlyCheckin);
+  const late = resolveRuleTime(meta.lateCheckout);
+  if (!early && !late) return job;
+  return { ...job, timingBadges: { ...(early ? { early } : {}), ...(late ? { late } : {}) } };
+}
 
 function buildWhereClause(params: {
   status: JobStatus | null;
@@ -207,13 +222,13 @@ export async function GET(req: NextRequest) {
 
       const totalPages = Math.max(1, Math.ceil(totalCount / limit));
       return NextResponse.json({
-        jobs,
+        jobs: jobs.map(withTimingBadges),
         pagination: { page, limit, totalCount, totalPages, hasMore: page < totalPages },
       });
     }
 
     const jobs = await db.job.findMany({ where, include: JOB_INCLUDE, orderBy });
-    return NextResponse.json(jobs);
+    return NextResponse.json(jobs.map(withTimingBadges));
   } catch (err: any) {
     let httpStatus = 500;
     if (err.message === "UNAUTHORIZED") httpStatus = 401;

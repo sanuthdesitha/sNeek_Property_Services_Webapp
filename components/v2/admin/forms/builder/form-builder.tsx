@@ -34,6 +34,7 @@ import { FieldPalette } from "./field-palette";
 import { BuilderCanvas } from "./builder-canvas";
 import { PropertiesPanel } from "./properties-panel";
 import { ThemeEditor } from "./theme-editor";
+import { InventorySettingsCard } from "./inventory-settings";
 import { FormPreview } from "./form-preview";
 import { DIVIDER_LABEL } from "./blocks";
 
@@ -392,7 +393,7 @@ export function EstateFormBuilder({
             {showPreview ? "Editor" : "Preview"}
           </EButton>
           <EButton variant="outline" size="sm" onClick={() => setShowTheme(true)}>
-            <Palette className="size-4" /> Theme
+            <Palette className="size-4" /> Theme &amp; settings
           </EButton>
           <EButton variant="outline" size="sm" onClick={togglePublish}>
             {isActive ? "Archive" : "Publish"}
@@ -574,8 +575,8 @@ export function EstateFormBuilder({
           <div className="relative z-10 h-full w-full max-w-md overflow-y-auto border-l border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]">
             <div className="flex items-center justify-between border-b border-[hsl(var(--e-border))] px-5 py-4">
               <div>
-                <EEyebrow>Appearance</EEyebrow>
-                <h2 className="e-display-sm">Form theme</h2>
+                <EEyebrow>Appearance &amp; settings</EEyebrow>
+                <h2 className="e-display-sm">Form theme &amp; settings</h2>
               </div>
               <button
                 type="button"
@@ -586,8 +587,38 @@ export function EstateFormBuilder({
                 <X className="size-4" />
               </button>
             </div>
-            <div className="px-5 py-5">
+            <div className="space-y-6 px-5 py-5">
               <ThemeEditor theme={schema.theme} onChange={(theme) => mutate((s) => ({ ...s, theme }))} />
+
+              <div className="border-t border-[hsl(var(--e-border))] pt-5">
+                <EEyebrow className="mb-3">Template settings</EEyebrow>
+                <div className="space-y-4">
+                  {/* Inventory item selection (R8a) — stored on the schema like theme. */}
+                  <InventorySettingsCard
+                    config={schema.inventoryConfig}
+                    onChange={(inventoryConfig) =>
+                      mutate((s) => {
+                        const next = { ...s };
+                        if (inventoryConfig) next.inventoryConfig = inventoryConfig;
+                        else delete next.inventoryConfig;
+                        return next;
+                      })
+                    }
+                  />
+
+                  {/* Laundry is not builder-configurable (R8b) — surfaced so admins
+                      know where the switch actually lives. */}
+                  <div className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-3">
+                    <p className="text-[0.75rem] font-[600] text-[hsl(var(--e-text-secondary))]">
+                      Laundry update: automatic
+                    </p>
+                    <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                      Airbnb turnovers only (per-property toggle in Property settings). Rework jobs
+                      never show it.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
