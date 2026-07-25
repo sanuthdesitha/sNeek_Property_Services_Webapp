@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { addDays } from "date-fns";
 import { getApiErrorStatus } from "@/lib/api/http";
-import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { fetchLaundryWeekTasks } from "@/lib/laundry/week-feed";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,55 +17,12 @@ export async function GET(req: NextRequest) {
     const weekStart = startParam ? new Date(startParam) : new Date();
     const weekEnd = addDays(weekStart, rangeDays);
 
-    const tasks = await db.laundryTask.findMany({
-      where: {
-        OR: [
-          // Tasks within the selected date range
-          { pickupDate: { gte: weekStart, lt: weekEnd } },
-          { dropoffDate: { gte: weekStart, lt: weekEnd } },
-          // Always include FLAGGED tasks regardless of week — they need attention
-          { status: "FLAGGED" },
-        ],
-      },
-      include: {
-        property: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            suburb: true,
-            latitude: true,
-            longitude: true,
-            linenBufferSets: true,
-            accessInfo: true,
-            laundryEnabled: true,
-            client: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-          },
-        },
-        supplier: {
-          select: {
-            id: true,
-            name: true,
-            pricePerKg: true,
-            avgTurnaround: true,
-          },
-        },
-        job: { select: { scheduledDate: true, status: true } },
-        confirmations: { orderBy: { createdAt: "asc" } },
-      },
-      orderBy: { pickupDate: "asc" },
+    // Query + include + team scoping live in lib/laundry/week-feed.ts (shared
+    // with the route-builder API and the plan brief).
+    const visibleTasks = await fetchLaundryWeekTasks(weekStart, weekEnd, {
+      role: session.user.role,
+      userId: session.user.id,
     });
-
-    const visibleTasks =
-      session.user.role === Role.LAUNDRY
-        ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property, session.user.id))
-        : tasks;
 
     return NextResponse.json(visibleTasks);
   } catch (err: any) {

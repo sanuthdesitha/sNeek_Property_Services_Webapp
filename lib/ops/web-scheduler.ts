@@ -23,6 +23,7 @@ import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
 import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
 import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
 import { runAccountabilityNightly } from "@/lib/accountability/streaks";
+import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
 
 const TZ = "Australia/Sydney";
 const WEB_SCHEDULER_MIN_INTERVAL_MS = 5 * 60_000;
@@ -107,6 +108,11 @@ const JOBS: FallbackJob[] = [
   // (PAUSED / IN_PROGRESS scheduled before today). Push-only; de-duped per
   // job per day inside the dispatcher.
   { name: "unfinished-job-push-reminder", minIntervalMs: 20 * HOUR, hour: 17, run: async () => { await dispatchUnfinishedJobPushReminders(new Date()); } },
+  // 15:00 laundry driver catch-up: push (web+mobile) per driver with their
+  // stale tasks (due today still PENDING/CONFIRMED, or PICKED_UP > 24h), and
+  // auto-ABANDON any ACTIVE route left over from a previous day. Admin-side
+  // laundry attention rides the existing admin-attention-summary job.
+  { name: "laundry-driver-nudge", minIntervalMs: 20 * HOUR, hour: 15, run: async () => { await dispatchLaundryDriverNudges(new Date()); } },
   { name: "location-pings-cleanup", minIntervalMs: 20 * HOUR, hour: 3, run: async () => {
     const cutoff = new Date(Date.now() - 7 * DAY);
     await db.cleanerLocationPing.deleteMany({ where: { timestamp: { lt: cutoff } } });

@@ -4,6 +4,12 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
+import {
+  isArrivedAtStop,
+  nextIncompleteStop,
+  parseRouteStops,
+  type RouteStopKind,
+} from "@/lib/laundry/route-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +30,46 @@ const STALE_PING_MS = 5 * 60_000;
 const globalRef = globalThis as unknown as { __sneekLaundryPingRateLimit?: Map<string, number> };
 if (!globalRef.__sneekLaundryPingRateLimit) globalRef.__sneekLaundryPingRateLimit = new Map();
 const lastPingByUser = globalRef.__sneekLaundryPingRateLimit;
+
+/** See the ACTIVE-route arrival note in POST — best-effort, never throws. */
+async function detectRouteArrival(
+  userId: string,
+  lat: number,
+  lng: number,
+): Promise<{ taskId: string; kind: RouteStopKind } | null> {
+  try {
+    const route = await db.laundryRoute.findFirst({
+      where: { userId, status: "ACTIVE" },
+      orderBy: { startedAt: "desc" },
+    });
+    if (!route) return null;
+    const stops = parseRouteStops(route.stops);
+    const next = nextIncompleteStop(stops);
+    if (!next || next.arrivedAt) return null;
+
+    const property = await db.property.findUnique({
+      where: { id: next.propertyId },
+      select: { latitude: true, longitude: true },
+    });
+    if (typeof property?.latitude !== "number" || typeof property?.longitude !== "number") {
+      return null;
+    }
+    if (!isArrivedAtStop(lat, lng, property.latitude, property.longitude)) return null;
+
+    const stamped = stops.map((s) =>
+      s.taskId === next.taskId && s.kind === next.kind
+        ? { ...s, arrivedAt: s.arrivedAt ?? new Date().toISOString() }
+        : s,
+    );
+    await db.laundryRoute.update({
+      where: { id: route.id },
+      data: { stops: stamped as unknown as object },
+    });
+    return { taskId: next.taskId, kind: next.kind };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Live location ping for the laundry driver while a route is active.
@@ -113,7 +159,13 @@ export async function POST(req: NextRequest) {
 
     await db.user.update({ where: { id: userId }, data: { lastSeenAt: now } });
 
-    return NextResponse.json({ ok: true, received: 1 });
+    // Route-runner arrival detection: when the driver has an ACTIVE route,
+    // compare this ping to the next incomplete stop's property. Within the
+    // arrival geofence (120m) we stamp that stop's arrivedAt ONCE and tell the
+    // client (arrivedStop) so it can auto-open the stop's action modal.
+    const arrivedStop = await detectRouteArrival(userId, ping.lat, ping.lng);
+
+    return NextResponse.json({ ok: true, received: 1, ...(arrivedStop ? { arrivedStop } : {}) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: getApiErrorStatus(err) });
   }

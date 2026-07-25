@@ -44,7 +44,40 @@ async function writeDispatchState(state: AdminAttentionDispatchState) {
   });
 }
 
-function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSummary>>) {
+/**
+ * Laundry section: tasks not DROPPED/SKIPPED whose last update is > 48h old
+ * (rule lives in lib/laundry/reminders.ts selectAdminAttentionTasks).
+ */
+async function countStaleLaundryTasks(now: Date): Promise<number> {
+  try {
+    const { selectAdminAttentionTasks } = await import("@/lib/laundry/reminders");
+    const cutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const candidates = await db.laundryTask.findMany({
+      where: {
+        status: { notIn: ["DROPPED", "SKIPPED_PICKUP"] },
+        updatedAt: { lt: cutoff },
+      },
+      select: {
+        id: true,
+        status: true,
+        pickupDate: true,
+        dropoffDate: true,
+        pickedUpAt: true,
+        updatedAt: true,
+      },
+      take: 500,
+    });
+    return selectAdminAttentionTasks(candidates, now).length;
+  } catch (err) {
+    logger.error({ err }, "Admin attention summary: stale laundry count failed");
+    return 0;
+  }
+}
+
+function buildBreakdown(
+  summary: Awaited<ReturnType<typeof getAdminAttentionSummary>>,
+  staleLaundryCount = 0
+) {
   const approvalCount =
     summary.pendingPayRequests +
     summary.pendingTimeAdjustments +
@@ -69,6 +102,7 @@ function buildBreakdown(summary: Awaited<ReturnType<typeof getAdminAttentionSumm
     { label: "High-priority cases", count: summary.highCases },
     { label: "New cases in 24h", count: summary.newCases },
     { label: "Flagged laundry tasks", count: summary.flaggedLaundry },
+    { label: "Laundry tasks stale > 48h", count: staleLaundryCount },
   ];
 
   const breakdownHtml = `
@@ -148,7 +182,8 @@ export async function sendAdminAttentionSummary(options: SendAdminAttentionSumma
   }
 
   const summary = await getAdminAttentionSummary();
-  const breakdown = buildBreakdown(summary);
+  const staleLaundryCount = await countStaleLaundryTasks(now);
+  const breakdown = buildBreakdown(summary, staleLaundryCount);
   const localNow = toZonedTime(now, timezone);
   const dateLabel = format(localNow, "EEEE, dd MMM yyyy");
   const admins = await db.user.findMany({

@@ -60,6 +60,32 @@ function parseNotesJson(notes: string | null | undefined) {
   }
 }
 
+/**
+ * Best-effort: when a pickup/drop completes, stamp the matching stop
+ * (completedAt only — arrivedAt untouched) on any ACTIVE laundry route that
+ * contains this taskId+kind, so the runner advances without a manual tick.
+ */
+async function markActiveRouteStopComplete(taskId: string, kind: "PICKUP" | "DROP") {
+  try {
+    const { parseRouteStops } = await import("@/lib/laundry/route-plan");
+    const routes = await db.laundryRoute.findMany({ where: { status: "ACTIVE" } });
+    const now = new Date().toISOString();
+    for (const route of routes) {
+      const stops = parseRouteStops(route.stops);
+      if (!stops.some((s) => s.taskId === taskId && s.kind === kind && !s.completedAt)) continue;
+      const next = stops.map((s) =>
+        s.taskId === taskId && s.kind === kind ? { ...s, completedAt: s.completedAt ?? now } : s
+      );
+      await db.laundryRoute.update({
+        where: { id: route.id },
+        data: { stops: next as unknown as object },
+      });
+    }
+  } catch {
+    // Route bookkeeping must never fail the status change itself.
+  }
+}
+
 async function createRoleNotifications(
   roles: Role[],
   subject: string,
@@ -430,6 +456,13 @@ export async function POST(
         }),
       },
     });
+
+    if (nextStatus === "PICKED_UP" || nextStatus === "DROPPED") {
+      await markActiveRouteStopComplete(
+        params.taskId,
+        nextStatus === "PICKED_UP" ? "PICKUP" : "DROP"
+      );
+    }
 
     return NextResponse.json(task);
   } catch (err: any) {
