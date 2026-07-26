@@ -86,6 +86,8 @@ interface InvoicePreview {
   shoppingTimeTotal?: number;
   extraLineRows?: Array<{ id: string; date: string; description: string; amount: number }>;
   extraLineTotal?: number;
+  qaInspectionRows?: Array<{ assignmentId: string; date: string; property: string; amount: number }>;
+  qaInspectionTotal?: number;
   pendingAdjustmentCount?: number;
   pendingAdjustmentAmount?: number;
 }
@@ -481,8 +483,18 @@ export function InvoicesPanel() {
         <EStatCard label="Shopping time" value={money(breakdown.shoppingTime)} delta="approved" deltaTone="neutral" />
       </section>
 
-      {breakdown.transport > 0 || Number(invoicePreview?.expenseTotal ?? 0) > 0 ? (
+      {breakdown.transport > 0 ||
+      Number(invoicePreview?.expenseTotal ?? 0) > 0 ||
+      Number(invoicePreview?.qaInspectionTotal ?? 0) > 0 ? (
         <div className="flex flex-wrap gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          {/* QA inspection pay is inside "Total to invoice" but has no job line,
+              so without this badge the total wouldn't reconcile on screen. */}
+          {Number(invoicePreview?.qaInspectionTotal ?? 0) > 0 ? (
+            <EBadge tone="info" soft>
+              QA inspections: {money(invoicePreview?.qaInspectionTotal)} (
+              {invoicePreview?.qaInspectionRows?.length ?? 0} listed on the invoice)
+            </EBadge>
+          ) : null}
           {breakdown.transport > 0 ? <EBadge tone="neutral" soft>Transport: {money(breakdown.transport)}</EBadge> : null}
           {Number(invoicePreview?.expenseTotal ?? 0) > 0 ? (
             <EBadge tone="info" soft>Shopping reimbursements: {money(invoicePreview?.expenseTotal)} (listed below)</EBadge>

@@ -1,4 +1,4 @@
-import { JobStatus, PayAdjustmentStatus, Prisma } from "@prisma/client";
+import { JobStatus, PayAdjustmentStatus, Prisma, QaAssignmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
@@ -7,6 +7,12 @@ import {
   adjustmentSignedAmount,
   partitionAdjustmentsForInvoice,
 } from "@/lib/finance/pay-adjustments";
+import {
+  computeQaAssignmentPay,
+  isQaAssignmentAvailableForSettlement,
+  qaAssignmentSettlementAmount,
+  sumQaPay,
+} from "@/lib/finance/qa-pay";
 import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
@@ -138,6 +144,34 @@ export interface CleanerInvoiceData {
     amount: number;
   }>;
   extraLineTotal: number;
+  /**
+   * COMPLETED QA inspections this invoice bills. A QA inspector holds no cleaner
+   * assignments, so these never arrive via `rows` — they are their own settlement
+   * stream on the same rail (see the QA block in getCleanerInvoiceData).
+   */
+  qaInspectionRows: Array<{
+    assignmentId: string;
+    jobId: string | null;
+    jobNumber: string | null;
+    date: string;
+    property: string;
+    /** Resolved pay mode: FIXED or HOURLY (a NONE/$0 inspection is not billed). */
+    mode: string;
+    /** How the hours were derived (ALLOCATED / ACTUAL / DEFAULT_HOURS / NONE). */
+    basis: string;
+    hours: number;
+    rate: number;
+    rateMissing: boolean;
+    note?: string;
+    amount: number;
+  }>;
+  qaInspectionTotal: number;
+  /**
+   * Ids of every QaAssignment this invoice settles. The send route stamps these
+   * with includedInCleanerInvoiceId + freezes paySettledAmount so neither the
+   * next invoice nor a payroll run can pay them again.
+   */
+  includedQaAssignmentIds: string[];
   /**
    * Ids of every CleanerPayAdjustment this invoice settles (both the ones
    * folded into a job line and the standalone carry-over lines). The send route
@@ -298,6 +332,104 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     },
     orderBy: { requestedAt: "asc" },
   });
+
+  // ── QA inspections ────────────────────────────────────────────────────
+  //
+  // The SECOND settlement stream on this rail. A QA inspector is paid for the
+  // inspection itself (lib/finance/qa-pay.ts) and holds NO cleaner assignment,
+  // so nothing they did would ever reach `payableJobs` — an inspections-only
+  // payee's invoice would come out empty and the money would silently never be
+  // billed. This is the invoice mirror of the `extraPayees` fix in
+  // lib/finance/payroll.ts.
+  //
+  // PERIOD vs STAMP — deliberately the same decision the adjustment rail and the
+  // committable payroll run already made: the *stamp* is what prevents double
+  // payment, never the date window. So there is NO lower bound: an inspection
+  // completed before a period closed but settled late is still billed, exactly
+  // once, on whichever invoice picks it up next. The upper bound (completedAt <=
+  // end) is kept only so an inspection completed AFTER the invoiced period isn't
+  // dragged into an earlier-dated invoice — it will be on the next one. A
+  // COMPLETED row with a null completedAt (data anomaly) is included rather than
+  // dropped: it is work that was done and is owed.
+  const qaAssignmentRows = await db.qaAssignment.findMany({
+    where: {
+      assignedToId: options.userId,
+      status: QaAssignmentStatus.COMPLETED,
+      // Never touch an inspection a payroll run already paid — the cross-rail
+      // half of the double-pay guard.
+      includedInPayrollRunId: null,
+      AND: [
+        { OR: [{ completedAt: { lte: end } }, { completedAt: null }] },
+        options.includeInvoiceId
+          ? {
+              OR: [
+                { includedInCleanerInvoiceId: null },
+                { includedInCleanerInvoiceId: options.includeInvoiceId },
+              ],
+            }
+          : { includedInCleanerInvoiceId: null },
+      ],
+    },
+    select: {
+      id: true,
+      status: true,
+      completedAt: true,
+      onSiteMinutes: true,
+      payMode: true,
+      payAmount: true,
+      payHourlyRate: true,
+      payHoursAllocated: true,
+      payNote: true,
+      paySettledAmount: true,
+      includedInPayrollRunId: true,
+      includedInCleanerInvoiceId: true,
+      job: {
+        select: { id: true, jobNumber: true, property: { select: { name: true } } },
+      },
+    },
+    orderBy: [{ completedAt: "asc" }],
+  });
+
+  const qaInspectionRows = qaAssignmentRows
+    // THE selector — re-applied in memory so the rule lives in one pure place
+    // even if the query above ever drifts. It checks BOTH stamps.
+    .filter((row) =>
+      isQaAssignmentAvailableForSettlement(row, {
+        includeInvoiceId: options.includeInvoiceId ?? null,
+      })
+    )
+    .map((row) => {
+      const pay = computeQaAssignmentPay({
+        assignment: row,
+        inspector: { hourlyRate: user.hourlyRate },
+        settings: settings.qaPay,
+      });
+      return {
+        assignmentId: row.id,
+        jobId: row.job?.id ?? null,
+        jobNumber: row.job?.jobNumber ?? null,
+        date: row.completedAt
+          ? new Date(row.completedAt).toLocaleDateString("en-AU", {
+              timeZone: "Australia/Sydney",
+            })
+          : "-",
+        property: row.job?.property?.name ?? "Inspection",
+        mode: pay.mode,
+        basis: pay.basis,
+        hours: pay.hours,
+        rate: pay.rate,
+        rateMissing: pay.rateMissing,
+        note: row.payNote ?? undefined,
+        // A frozen paySettledAmount always wins over a recomputation, so
+        // re-rendering an existing invoice shows exactly what it billed.
+        amount: qaAssignmentSettlementAmount(row, pay.amount),
+      };
+    })
+    // A $0 inspection (mode NONE, or nothing configured) is not a payable line —
+    // same rule as the payroll rail. It stays unstamped and therefore selectable
+    // if it is later given a real amount.
+    .filter((row) => row.amount > 0);
+  const qaInspectionTotal = sumQaPay(qaInspectionRows);
 
   const adjustmentSplit = partitionAdjustmentsForInvoice(settleableAdjustments, {
     jobIdsOnInvoice: jobIds,
@@ -519,7 +651,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
   const hours = rows.reduce((sum, row) => sum + row.hours, 0);
   const estimatedPay =
-    rows.reduce((sum, row) => sum + row.amount, 0) + extraLineTotal + expenseTotal + shoppingTimeTotal;
+    rows.reduce((sum, row) => sum + row.amount, 0) +
+    extraLineTotal +
+    expenseTotal +
+    shoppingTimeTotal +
+    qaInspectionTotal;
   const pendingAdjustmentAmount = pendingAdjustments.reduce(
     (sum, row) => sum + Number(row.requestedAmount ?? 0),
     0
@@ -551,6 +687,9 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     shoppingTimeTotal,
     extraLineRows,
     extraLineTotal,
+    qaInspectionRows,
+    qaInspectionTotal,
+    includedQaAssignmentIds: qaInspectionRows.map((row) => row.assignmentId),
     includedAdjustmentIds: adjustmentSplit.includedRows
       .map((row) => row.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0),
@@ -622,6 +761,35 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
       `
     )
     .join("");
+  // QA inspection lines. Basis text spells the hourly maths out (rate × hours)
+  // so the figure is self-explaining — but hours are money-adjacent detail and
+  // must obey showHours exactly like every other hours-bearing cell on this
+  // invoice, so the multiplication collapses to the bare rate when hidden.
+  const qaInspectionRows = data.qaInspectionRows ?? [];
+  const qaInspectionTotal = Number(
+    data.qaInspectionTotal ?? qaInspectionRows.reduce((sum, row) => sum + row.amount, 0)
+  );
+  const qaIncludeNoteColumn = qaInspectionRows.some((row) => Boolean(row.note?.trim()));
+  const qaInspectionRowsHtml = qaInspectionRows
+    .map((row) => {
+      const basis =
+        row.mode === "HOURLY"
+          ? showHours
+            ? `Hourly — ${formatCurrency(row.rate)} × ${row.hours.toFixed(2)}h`
+            : `Hourly — ${formatCurrency(row.rate)}/hr`
+          : "Fixed";
+      return `
+        <tr>
+          <td class="cell">${row.date}</td>
+          <td class="cell">${escapeHtml(row.property)}</td>
+          <td class="cell">${basis}${row.rateMissing ? " (rate not set)" : ""}</td>
+          <td class="cell right">${formatCurrency(row.amount)}</td>
+          ${qaIncludeNoteColumn ? `<td class="cell">${row.note?.trim() ? escapeHtml(row.note) : "-"}</td>` : ""}
+        </tr>
+      `;
+    })
+    .join("");
+
   const logoHtml = data.logoUrl
     ? `<img class="logo" src="${escapeHtml(data.logoUrl)}" alt="${escapeHtml(data.companyName)} logo" />`
     : "";
@@ -763,6 +931,14 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <div class="label">Shopping Time</div>
             <div class="value">${formatCurrency(data.shoppingTimeTotal)}</div>
           </div>
+          ${
+            qaInspectionRows.length > 0
+              ? `<div class="box">
+            <div class="label">QA Inspections</div>
+            <div class="value">${formatCurrency(qaInspectionTotal)}</div>
+          </div>`
+              : ""
+          }
           <div class="box">
             <div class="label">Payable Jobs</div>
             <div class="value">${data.rows.length}</div>
@@ -773,7 +949,16 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           </div>
         </div>
 
-        <p class="rule">Pay rule: fixed/allocated hours are paid in full and split equally across assigned cleaners. If fixed hours are not set, pay uses the cleaner's clocked timer. Approved extras are added per job.</p>
+        ${
+          data.rows.length > 0
+            ? `<p class="rule">Pay rule: fixed/allocated hours are paid in full and split equally across assigned cleaners. If fixed hours are not set, pay uses the cleaner's clocked timer. Approved extras are added per job.</p>`
+            : ""
+        }
+        ${
+          qaInspectionRows.length > 0
+            ? `<p class="rule">QA inspection pay rule: each completed inspection is paid either a fixed amount or the applicable hourly rate for the allocated/on-site hours. Each inspection is billed once — on this invoice or a pay run, never both.</p>`
+            : ""
+        }
         ${showHours && changedRowsCount > 0 ? `<p class="changed-note">Hours overridden on ${changedRowsCount} row(s). Changed rows are highlighted.</p>` : ""}
 
         ${
@@ -838,8 +1023,36 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
         }
 
         ${
+          qaInspectionRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">QA inspections</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Property</th>
+                    <th>Basis</th>
+                    <th class="right">Amount</th>
+                    ${qaIncludeNoteColumn ? `<th>Note</th>` : ""}
+                  </tr>
+                </thead>
+                <tbody>${qaInspectionRowsHtml}</tbody>
+                <tfoot>
+                  <tr>
+                    <td class="cell" colspan="3"><strong>QA inspections subtotal</strong></td>
+                    <td class="cell right"><strong>${formatCurrency(qaInspectionTotal)}</strong></td>
+                    ${qaIncludeNoteColumn ? `<td class="cell"></td>` : ""}
+                  </tr>
+                </tfoot>
+              </table>
+            `
+            : ""
+        }
+
+        ${
           data.rows.length > 0
             ? `
+              <h2 style="margin-top:20px;font-size:16px;">Cleaning jobs</h2>
               <table>
                 <thead>
                   <tr>
@@ -861,7 +1074,15 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
                 <tbody>${rowsHtml}</tbody>
               </table>
             `
-            : `<div class="empty">No payable jobs found in this date range.</div>`
+            : // Only claim "nothing here" when the invoice really is empty. An
+              // inspections-only invoice is complete and must not read as if the
+              // payee had cleans that went missing.
+              qaInspectionRows.length > 0 ||
+                data.extraLineRows.length > 0 ||
+                data.expenseRows.length > 0 ||
+                data.shoppingTimeRows.length > 0
+              ? ""
+              : `<div class="empty">No payable work found in this date range.</div>`
         }
       </body>
     </html>

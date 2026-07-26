@@ -33,6 +33,7 @@ vi.mock("@/lib/db", () => ({
     job: { findMany: jobFindMany },
     cleanerPayAdjustment: { findMany: adjFindMany },
     cleanerInvoiceSubmission: { findMany: vi.fn(async () => []) },
+    qaAssignment: { findMany: vi.fn(async () => []) },
     timeLog: { findMany: vi.fn(async () => []) },
   },
 }));
@@ -43,6 +44,12 @@ vi.mock("@/lib/settings", () => ({
     cleanerJobHourlyRates: {},
     reportLogoUrl: "",
     logoUrl: "",
+    qaPay: {
+      defaultMode: "HOURLY",
+      defaultFixedAmount: 0,
+      defaultHourlyRate: 30,
+      defaultHoursPerInspection: 1,
+    },
   })),
 }));
 

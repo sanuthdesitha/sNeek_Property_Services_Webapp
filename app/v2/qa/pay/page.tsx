@@ -156,8 +156,15 @@ export default async function QaPayPage({
                       {line.rateMissing ? (
                         <EBadge tone="danger">Rate not set</EBadge>
                       ) : (
+                        // Both rails can settle an inspection, so say WHICH one:
+                        // "Paid" alone left an inspector unable to tell whether
+                        // to look for the money on a payslip or on their invoice.
                         <EBadge tone={line.settlement === "PAID" ? "success" : "neutral"}>
-                          {line.settlement === "PAID" ? "Paid" : "Pending"}
+                          {line.settlement === "PAID"
+                            ? line.settledVia === "CLEANER_INVOICE"
+                              ? "Paid · invoice"
+                              : "Paid · pay run"
+                            : "Pending"}
                         </EBadge>
                       )}
                     </div>
@@ -204,7 +211,9 @@ export default async function QaPayPage({
                         }
                       >
                         {row.status === PayAdjustmentStatus.APPROVED && row.settlement === "PAID"
-                          ? "Paid"
+                          ? row.settledVia === "CLEANER_INVOICE"
+                            ? "Paid · invoice"
+                            : "Paid · pay run"
                           : row.status.charAt(0) + row.status.slice(1).toLowerCase()}
                       </EBadge>
                     </div>
