@@ -36,6 +36,8 @@ type Submission = {
   id: string;
   cleanerId: string;
   cleanerName: string;
+  /** CLEANER or QA_INSPECTOR — inspectors self-invoice on this same rail. */
+  cleanerRole?: string | null;
   periodStart: string;
   periodEnd: string;
   hours: number;
@@ -317,7 +319,16 @@ export function CleanerInvoicesWorkspace() {
             const busy = busyId === r.id;
             return (
               <tr key={r.id} className="border-t border-[hsl(var(--e-border))] align-middle">
-                <td className="px-4 py-3 text-[0.8125rem] font-medium">{r.cleanerName}</td>
+                <td className="px-4 py-3 text-[0.8125rem] font-medium">
+                  {r.cleanerName}
+                  {/* An inspections-only invoice shows 0 jobs / 0 hours — without
+                      this the row reads like a broken cleaner invoice. */}
+                  {r.cleanerRole === "QA_INSPECTOR" ? (
+                    <span className="ml-2 text-[0.6875rem] font-normal uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
+                      QA inspector
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   {fmt(r.periodStart)} – {fmt(r.periodEnd)}
                 </td>

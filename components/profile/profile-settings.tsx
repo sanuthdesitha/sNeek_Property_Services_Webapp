@@ -12,7 +12,11 @@ import { cn } from "@/lib/utils";
 import { Moon, Sun, Palette, Fingerprint, Trash2, CheckCircle2 } from "lucide-react";
 import type { PortalTheme } from "@/lib/settings";
 import type { AddressResult } from "@/lib/google-maps/types";
-import { requiredProfileFields, type ProfileFieldCheck } from "@/lib/profile/completeness";
+import {
+  isInvoicePayeeRole,
+  requiredProfileFields,
+  type ProfileFieldCheck,
+} from "@/lib/profile/completeness";
 import {
   browserSupportsWebAuthn,
   platformAuthenticatorIsAvailable,
@@ -529,9 +533,11 @@ export function ProfileSettings() {
   // CLEANER profile-completeness — mirrors the gate at /api/me/profile-completeness.
   // Evaluated against the persisted values on `data.user` (what the gate sees),
   // so the indicator matches the nag exactly rather than unsaved edits.
-  const isCleaner = data.user.role === "CLEANER";
+  // Cleaners AND QA inspectors invoice us, so both are held to the payee field
+  // set (identity + ABN + bank) that their invoice prints.
+  const isCleaner = isInvoicePayeeRole(data.user.role);
   const completenessFields: ProfileFieldCheck[] = isCleaner
-    ? requiredProfileFields("CLEANER")
+    ? requiredProfileFields(data.user.role as any)
     : [];
   const isFieldBlank = (key: string) => {
     const value = (data.user as Record<string, unknown>)[key];

@@ -1,6 +1,6 @@
-import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
+import { INVOICE_PAYEE_ROLES } from "@/lib/profile/completeness";
 
 /**
  * Predict what each cleaner is going to invoice for a pay period, BEFORE they
@@ -37,6 +37,8 @@ export interface ExpectedCleanerInvoice {
   cleanerId: string;
   cleanerName: string;
   cleanerEmail: string;
+  /** CLEANER or QA_INSPECTOR — both raise their own invoices on this rail. */
+  role: string;
   /** Employment type — CONTRACTOR cleaners invoice; others are payrolled. */
   employmentType: string | null;
   expectedTotal: number;
@@ -99,13 +101,18 @@ export async function getExpectedInvoicesForPeriod(opts: {
   endDate?: string;
   cleanerId?: string;
 }): Promise<ExpectedInvoicesResult> {
+  // Every role that raises its own invoice, not just cleaners. QA inspectors
+  // self-invoice on this same rail, and an inspector holds no cleaner
+  // assignments — filtering on CLEANER left their upcoming inspection pay out
+  // of the admin payday forecast entirely, even though getCleanerInvoiceData
+  // already computes it and the send route already bills it.
   const cleaners = await db.user.findMany({
     where: {
-      role: Role.CLEANER,
+      role: { in: INVOICE_PAYEE_ROLES },
       isActive: true,
       ...(opts.cleanerId ? { id: opts.cleanerId } : {}),
     },
-    select: { id: true, name: true, email: true, employmentType: true },
+    select: { id: true, name: true, email: true, employmentType: true, role: true },
     orderBy: { name: "asc" },
   });
 
@@ -183,6 +190,7 @@ export async function getExpectedInvoicesForPeriod(opts: {
       cleanerId: cleaner.id,
       cleanerName: cleaner.name ?? data.cleanerName,
       cleanerEmail: cleaner.email,
+      role: cleaner.role,
       employmentType: cleaner.employmentType ?? null,
       expectedTotal: Number(data.estimatedPay.toFixed(2)),
       expectedHours: Number(data.hours.toFixed(2)),

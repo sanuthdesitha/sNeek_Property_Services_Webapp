@@ -75,6 +75,13 @@ interface InvoiceOptions {
 export interface CleanerInvoiceData {
   cleanerName: string;
   cleanerEmail: string;
+  /**
+   * The payee's role. This rail serves CLEANERs and QA_INSPECTORs (an inspector
+   * self-invoices for inspections and adjustments with no cleans at all), so
+   * anything user-facing derived from the invoice — PDF filename, email subject
+   * — reads off this rather than assuming "cleaner".
+   */
+  payeeRole?: string;
   cleanerPhone?: string;
   cleanerAddress?: string;
   cleanerAbn?: string;
@@ -215,6 +222,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         state: true,
         postcode: true,
         abn: true,
+        role: true,
         hourlyRate: true,
         bankBsb: true,
         bankAccountNumber: true,
@@ -225,7 +233,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   ]);
 
   if (!user?.email) {
-    throw new Error("Cleaner account not found.");
+    throw new Error("Payee account not found.");
   }
 
   // Jobs the cleaner has already put on a submitted invoice — never show again.
@@ -668,6 +676,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   return {
     cleanerName: user.name ?? user.email,
     cleanerEmail: user.email,
+    payeeRole: (user as { role?: string }).role ?? undefined,
     cleanerPhone: user.phone ?? undefined,
     cleanerAddress: addressParts.length ? addressParts.join(", ") : undefined,
     cleanerAbn: user.abn ?? undefined,

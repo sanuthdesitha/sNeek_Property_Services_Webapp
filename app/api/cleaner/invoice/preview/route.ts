@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
-import { getAppSettings } from "@/lib/settings";
-import { isCleanerModuleEnabled } from "@/lib/portal-access";
+import {
+  invoiceErrorMessage,
+  invoiceErrorStatus,
+  requireInvoicePayeeSession,
+} from "@/lib/invoicing/access";
+
+// Payee = session.user.id, always. Never a caller-supplied id, which is what
+// makes it safe for this route to serve QA inspectors as well as cleaners.
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -18,11 +22,7 @@ const schema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLEANER]);
-    const settings = await getAppSettings();
-    if (!isCleanerModuleEnabled(settings, "invoices")) {
-      return NextResponse.json({ error: "Invoices are disabled for cleaners." }, { status: 403 });
-    }
+    const session = await requireInvoicePayeeSession();
     const { searchParams } = new URL(req.url);
     const startDate = searchParams.get("startDate") ?? undefined;
     const endDate = searchParams.get("endDate") ?? undefined;
@@ -38,18 +38,16 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(data);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLEANER]);
-    const settings = await getAppSettings();
-    if (!isCleanerModuleEnabled(settings, "invoices")) {
-      return NextResponse.json({ error: "Invoices are disabled for cleaners." }, { status: 403 });
-    }
+    const session = await requireInvoicePayeeSession();
     const body = schema.parse(await req.json().catch(() => ({})));
 
     const data = await getCleanerInvoiceData({
@@ -66,7 +64,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(data);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }

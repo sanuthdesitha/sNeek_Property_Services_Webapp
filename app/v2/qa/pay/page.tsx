@@ -86,6 +86,26 @@ export default async function QaPayPage({
         description={`Current period · ${periodLine}`}
       />
 
+      {/* Anything still "Pending" below is money the inspector has to bill —
+          this rail (not an admin pay run) is how most of it gets paid. */}
+      <ECard>
+        <ECardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div className="min-w-0">
+            <p className="text-[0.875rem] font-medium">Invoice this work</p>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Raise your own invoice for completed inspections and approved adjustments, and email
+              it to accounts.
+            </p>
+          </div>
+          <Link
+            href="/v2/qa/invoices"
+            className="shrink-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-accent-portal))] hover:opacity-80"
+          >
+            Go to invoices
+          </Link>
+        </ECardBody>
+      </ECard>
+
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <EStatCard
           label="Total earned"
