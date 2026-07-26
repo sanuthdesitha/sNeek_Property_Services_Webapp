@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
     const billLines = [
       ...data.rows.map((r) => ({ description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.extraLineRows.map((r) => ({ description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.qaInspectionRows.map((r) => ({ description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.expenseRows.map((r) => ({ description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.shoppingTimeRows.map((r) => ({ description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
     ].filter((l) => Number.isFinite(l.unitAmount));
@@ -105,6 +106,9 @@ export async function POST(req: NextRequest) {
       // Jobs invoiced here — used to exclude them from future invoices so a
       // job can't be submitted twice and won't reappear once invoiced.
       jobIds: data.rows.map((r) => r.jobId),
+      // QA inspections billed here. Audit trail only — the double-pay guard is
+      // the QaAssignment.includedInCleanerInvoiceId stamp written below, not this.
+      qaAssignmentIds: data.includedQaAssignmentIds,
     } as any;
 
     // BUG 2 FIX — idempotency anchor. Previously the email was sent FIRST and the
@@ -226,6 +230,38 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Settle the QA inspections this invoice billed — the SAME discipline as the
+    // adjustments above, on the same rail. Three things happen atomically per
+    // row: the invoice stamp, its timestamp, and the FROZEN amount.
+    //
+    //  • The amount frozen is the exact number that was rendered on the PDF
+    //    (row.amount, already settlement-aware), never a recomputation — a later
+    //    rate/settings change must not retro-alter what accounts was billed.
+    //  • The guard requires BOTH stamps still null, so neither a concurrent
+    //    invoice nor a payroll run committed in between can be overwritten; the
+    //    loser of the race simply updates 0 rows and the inspection stays paid
+    //    exactly once.
+    //  • Applied only after the email actually reached accounts — a failed send
+    //    deletes the anchor above and stamps nothing, so a retry re-bills them.
+    if (data.includedQaAssignmentIds.length > 0) {
+      const settledAt = new Date();
+      for (const row of data.qaInspectionRows) {
+        await db.qaAssignment.updateMany({
+          where: {
+            id: row.assignmentId,
+            assignedToId: session.user.id,
+            includedInCleanerInvoiceId: null,
+            includedInPayrollRunId: null,
+          },
+          data: {
+            includedInCleanerInvoiceId: anchorId,
+            includedInCleanerInvoiceAt: settledAt,
+            paySettledAmount: row.amount,
+          },
+        });
+      }
+    }
+
     // Email + invoiced-marking succeeded → flip the anchor to its terminal state.
     await db.cleanerInvoiceSubmission.update({
       where: { id: anchorId },
@@ -238,6 +274,8 @@ export async function POST(req: NextRequest) {
       estimatedPay: data.estimatedPay,
       sentTo: accountsEmail,
       jobs: data.rows.length,
+      qaInspections: data.qaInspectionRows.length,
+      qaInspectionTotal: data.qaInspectionTotal,
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

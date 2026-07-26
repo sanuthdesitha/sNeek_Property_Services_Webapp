@@ -38,7 +38,41 @@ export interface QaPayLine {
   note: string | null;
   /** "PAID" once a payroll run / cleaner invoice has settled it, else "PENDING". */
   settlement: "PAID" | "PENDING";
+  /** Raw id of the run/invoice that settled it. */
   settledBy: string | null;
+  /**
+   * WHICH rail settled it. Both rails can now consume an inspection, so "Paid"
+   * alone is ambiguous to an inspector reconciling their own money — they need
+   * to know whether to look for it on a payslip or on their own invoice.
+   */
+  settledVia: SettlementRail;
+  /** Human label for the rail, e.g. "Paid on a pay run". Null when unsettled. */
+  settledByLabel: string | null;
+}
+
+/** Which settlement rail consumed a row. */
+export type SettlementRail = "PAYROLL_RUN" | "CLEANER_INVOICE" | null;
+
+/**
+ * Resolve the rail from the two stamps. A row should never carry both (every
+ * writer guards on both being null), but if one somehow does, the payroll run is
+ * reported: it is the rail that actually moves money out of the business.
+ */
+export function resolveSettlementRail(row: {
+  includedInPayrollRunId?: string | null;
+  includedInCleanerInvoiceId?: string | null;
+}): { via: SettlementRail; id: string | null; label: string | null } {
+  if (row.includedInPayrollRunId) {
+    return { via: "PAYROLL_RUN", id: row.includedInPayrollRunId, label: "Paid on a pay run" };
+  }
+  if (row.includedInCleanerInvoiceId) {
+    return {
+      via: "CLEANER_INVOICE",
+      id: row.includedInCleanerInvoiceId,
+      label: "Billed on your invoice",
+    };
+  }
+  return { via: null, id: null, label: null };
 }
 
 export interface QaPayAdjustmentLine {
@@ -53,6 +87,8 @@ export interface QaPayAdjustmentLine {
   reviewedAt: Date | null;
   source: string | null;
   settlement: "PAID" | "PENDING";
+  settledVia: SettlementRail;
+  settledByLabel: string | null;
 }
 
 export interface QaPaySummary {
@@ -185,7 +221,7 @@ export async function getQaPaySummary(options: {
       inspector: { hourlyRate: inspector?.hourlyRate ?? null },
       settings: settings.qaPay,
     });
-    const settledBy = row.includedInPayrollRunId ?? row.includedInCleanerInvoiceId ?? null;
+    const settled = resolveSettlementRail(row);
     return {
       id: row.id,
       jobId: row.job?.id ?? null,
@@ -200,13 +236,15 @@ export async function getQaPaySummary(options: {
       amount: qaAssignmentSettlementAmount(row, pay.amount),
       rateMissing: pay.rateMissing,
       note: row.payNote ?? null,
-      settlement: settledBy ? "PAID" : "PENDING",
-      settledBy,
+      settlement: settled.via ? "PAID" : "PENDING",
+      settledBy: settled.id,
+      settledVia: settled.via,
+      settledByLabel: settled.label,
     };
   });
 
   const adjustments: QaPayAdjustmentLine[] = adjustmentRows.map((row) => {
-    const settledBy = row.includedInPayrollRunId ?? row.includedInCleanerInvoiceId ?? null;
+    const settled = resolveSettlementRail(row);
     return {
       id: row.id,
       title: row.title || row.job?.property?.name || row.property?.name || "Adjustment",
@@ -217,7 +255,9 @@ export async function getQaPaySummary(options: {
       requestedAmount: Number(row.requestedAmount ?? 0),
       reviewedAt: row.reviewedAt,
       source: row.source,
-      settlement: settledBy ? "PAID" : "PENDING",
+      settlement: settled.via ? "PAID" : "PENDING",
+      settledVia: settled.via,
+      settledByLabel: settled.label,
     };
   });
 

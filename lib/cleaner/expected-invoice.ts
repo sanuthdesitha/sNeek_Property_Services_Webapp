@@ -53,6 +53,9 @@ export interface ExpectedCleanerInvoice {
   rateMissingCount: number;
   expenseTotal: number;
   shoppingTimeTotal: number;
+  /** QA inspection pay this payee will bill (already inside expectedTotal). */
+  qaInspectionTotal: number;
+  qaInspectionCount: number;
   rows: ExpectedInvoiceRow[];
   /** If the cleaner has already submitted an invoice overlapping this period. */
   submission: {
@@ -122,6 +125,9 @@ export async function getExpectedInvoicesForPeriod(opts: {
       data.rows.length > 0 ||
       data.expenseTotal > 0 ||
       data.shoppingTimeTotal > 0 ||
+      // A payee who did only QA inspections has no job rows at all; without this
+      // their upcoming pay would be invisible to the admin payday forecast.
+      data.qaInspectionRows.length > 0 ||
       data.pendingAdjustmentCount > 0;
     if (!hasAnything) continue;
 
@@ -192,6 +198,8 @@ export async function getExpectedInvoicesForPeriod(opts: {
       rateMissingCount: data.rows.filter((r) => r.rateMissing).length,
       expenseTotal: Number(data.expenseTotal.toFixed(2)),
       shoppingTimeTotal: Number(data.shoppingTimeTotal.toFixed(2)),
+      qaInspectionTotal: Number(data.qaInspectionTotal.toFixed(2)),
+      qaInspectionCount: data.qaInspectionRows.length,
       rows,
       submission,
     });
