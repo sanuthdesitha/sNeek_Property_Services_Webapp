@@ -9,12 +9,15 @@ export const dynamic = "force-dynamic";
 // Today's pickup + drop-off loops with accurate done/total counts, driven by the
 // real /api/laundry/week feed and the /api/laundry/[taskId]/status endpoint.
 export default async function LaundryRunsPage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  // Deleting a set is an admin/ops action. Laundry accounts keep the existing
+  // "Failed pickup → request skip/delete approval" path (the API refuses them too).
+  const canDelete = session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER;
 
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="Dispatch" title="Runs" description="Today's pickup and drop-off loops. Confirm as you go." />
-      <RunsBoard />
+      <RunsBoard canDelete={canDelete} />
     </div>
   );
 }

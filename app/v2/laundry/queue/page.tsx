@@ -9,12 +9,15 @@ export const dynamic = "force-dynamic";
 // Live queue — reads the SAME /api/laundry/week feed the v1 workspace uses and
 // groups by the real LaundryStatus, so stages are always accurate.
 export default async function LaundryQueuePage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  // Deleting a set is an admin/ops action. Laundry accounts keep the existing
+  // "Failed pickup → request skip/delete approval" path (the API refuses them too).
+  const canDelete = session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER;
 
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="Board" title="Queue" description="Every active set, by stage." />
-      <QueueBoard />
+      <QueueBoard canDelete={canDelete} />
     </div>
   );
 }

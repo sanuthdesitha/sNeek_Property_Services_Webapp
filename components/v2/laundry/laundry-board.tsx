@@ -33,6 +33,7 @@ import {
   QrCode,
   RefreshCw,
   RotateCcw,
+  Trash2,
   Truck,
 } from "lucide-react";
 import {
@@ -45,6 +46,10 @@ import {
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import { EInput } from "@/components/v2/cleaner/fields";
 import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
+import {
+  useLaundryDeleteDialog,
+  type LaundryDeletePayload,
+} from "@/components/v2/laundry/laundry-delete-dialog";
 import { useLaundryDateScope, type LaundryDateRange } from "@/components/v2/laundry/date-scope";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
@@ -371,6 +376,12 @@ function useLaundryFeed(range: LaundryDateRange) {
   const [tasks, setTasks] = React.useState<BoardTask[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [submittingId, setSubmittingId] = React.useState<string | null>(null);
+  // Snapshot for optimistic removal rollback — a ref, because the rollback has
+  // to restore the list the user was actually looking at, not a stale closure.
+  const tasksRef = React.useRef<BoardTask[]>([]);
+  React.useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   const load = React.useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -444,7 +455,76 @@ function useLaundryFeed(range: LaundryDateRange) {
     [load]
   );
 
-  return { tasks, loading, submittingId, load, act };
+  /**
+   * DELETE /api/laundry/[taskId] — same shape as act(), but the card leaves the
+   * board immediately and is put back if the server refuses. Returns true when
+   * the delete stuck (the dialog closes on true).
+   */
+  const remove = React.useCallback(
+    async (task: BoardTask, payload: LaundryDeletePayload) => {
+      const snapshot = tasksRef.current;
+      setSubmittingId(task.id);
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      try {
+        const res = await fetch(`/api/laundry/${task.id}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setTasks(snapshot);
+          toast({
+            title: "Could not delete",
+            description: body?.error ?? "The laundry set could not be removed.",
+            variant: "destructive",
+          });
+          return false;
+        }
+        toast({
+          title: payload.mode === "PERMANENT" ? "Laundry set deleted" : "Removed from the boards",
+          description: body?.mayBeRecreated
+            ? `${propertyLabel(task)} — the plan generator may recreate this set from its job.`
+            : propertyLabel(task),
+        });
+        await load({ silent: true });
+        return true;
+      } catch (err: any) {
+        setTasks(snapshot);
+        toast({ title: "Delete failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+        return false;
+      } finally {
+        setSubmittingId(null);
+      }
+    },
+    [load]
+  );
+
+  return { tasks, loading, submittingId, load, act, remove };
+}
+
+/** Small destructive action shown only to admins / ops managers. */
+function DeleteButton({
+  task,
+  disabled,
+  onDelete,
+}: {
+  task: BoardTask;
+  disabled?: boolean;
+  onDelete: (task: BoardTask) => void;
+}) {
+  return (
+    <EButton
+      variant="ghost"
+      size="sm"
+      disabled={disabled}
+      aria-label={`Delete the laundry set for ${propertyLabel(task)}`}
+      onClick={() => onDelete(task)}
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+      Delete
+    </EButton>
+  );
 }
 
 function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
@@ -466,11 +546,19 @@ const QUEUE_STAGES: { status: LaundryStatus; tone: Tone }[] = [
   { status: "DROPPED", tone: "success" },
 ];
 
-export function QueueBoard() {
+/**
+ * `canDelete` is passed down from the server page (ADMIN / OPS_MANAGER only).
+ * LAUNDRY users deliberately get the existing "Failed pickup → request skip or
+ * delete approval" flow instead — the API refuses them either way.
+ */
+export type BoardRoleProps = { canDelete?: boolean };
+
+export function QueueBoard({ canDelete = false }: BoardRoleProps) {
   // Default to the whole week so the queue shows the genuine backlog, not just
   // today; the scope chips (Today / Tomorrow / This week / Custom) narrow it.
   const { range, control } = useLaundryDateScope("week");
-  const { tasks, loading, load } = useLaundryFeed(range);
+  const { tasks, loading, submittingId, load, remove } = useLaundryFeed(range);
+  const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
 
   // Active queue = anything not a no-pickup task; FLAGGED shown in its own strip.
   const active = tasks.filter((t) => !t.noPickupRequired);
@@ -518,6 +606,9 @@ export function QueueBoard() {
                   <EBadge tone={STATUS_TONE[t.status]} soft>
                     {STATUS_LABEL[t.status]}
                   </EBadge>
+                  {canDelete ? (
+                    <DeleteButton task={t} disabled={submittingId === t.id} onDelete={requestDelete} />
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -568,7 +659,16 @@ export function QueueBoard() {
                                 {bags} bag{bags === 1 ? "" : "s"}
                                 {it.bagWeightKg ? ` · ${it.bagWeightKg} kg` : ""}
                               </p>
-                              <NavButton task={it} />
+                              <div className="flex items-center gap-1">
+                                <NavButton task={it} />
+                                {canDelete ? (
+                                  <DeleteButton
+                                    task={it}
+                                    disabled={submittingId === it.id}
+                                    onDelete={requestDelete}
+                                  />
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         );
@@ -581,6 +681,7 @@ export function QueueBoard() {
           })}
         </div>
       )}
+      {deleteModal}
     </div>
   );
 }
@@ -622,10 +723,11 @@ function classifyRuns(tasks: BoardTask[], range: LaundryDateRange) {
   return { pickups, dropoffs };
 }
 
-export function RunsBoard() {
+export function RunsBoard({ canDelete = false }: BoardRoleProps) {
   const { range, control } = useLaundryDateScope("today");
-  const { tasks, loading, submittingId, load } = useLaundryFeed(range);
+  const { tasks, loading, submittingId, load, remove } = useLaundryFeed(range);
   const { openAction, modal } = useLaundryActionModal(() => void load({ silent: true }));
+  const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
   const { pickups, dropoffs } = classifyRuns(tasks, range);
 
   const pickupsDone = pickups.filter((t) => Boolean(t.pickedUpAt) || t.status === "PICKED_UP" || t.status === "DROPPED").length;
@@ -650,6 +752,8 @@ export function RunsBoard() {
             kind="pickup"
             submittingId={submittingId}
             openAction={openAction}
+            canDelete={canDelete}
+            onDelete={requestDelete}
           />
           <RunColumn
             title="Drop-off loop"
@@ -659,10 +763,13 @@ export function RunsBoard() {
             kind="dropoff"
             submittingId={submittingId}
             openAction={openAction}
+            canDelete={canDelete}
+            onDelete={requestDelete}
           />
         </div>
       )}
       {modal}
+      {deleteModal}
     </div>
   );
 }
@@ -675,6 +782,8 @@ function RunColumn({
   kind,
   submittingId,
   openAction,
+  canDelete = false,
+  onDelete,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -683,6 +792,8 @@ function RunColumn({
   kind: "pickup" | "dropoff";
   submittingId: string | null;
   openAction: (task: BoardTask, action: "PICKED_UP" | "RETURNED" | "FAILED_PICKUP") => void;
+  canDelete?: boolean;
+  onDelete?: (task: BoardTask) => void;
 }) {
   // Multi-stop directions for the whole loop, in scheduled order, starting from
   // the device's current location. Mirrors the route-map "Open in Google Maps".
@@ -768,6 +879,9 @@ function RunColumn({
                         {complete ? "Done" : STATUS_LABEL[t.status]}
                       </EBadge>
                     )}
+                    {canDelete && onDelete ? (
+                      <DeleteButton task={t} disabled={submittingId === t.id} onDelete={onDelete} />
+                    ) : null}
                   </div>
                 </div>
               );
@@ -949,10 +1063,11 @@ function InlinePriceWeightEdit({ task, onSaved }: { task: BoardTask; onSaved: ()
   );
 }
 
-export function TrackingBoard() {
+export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
   const { range, control } = useLaundryDateScope("week");
-  const { tasks, loading, submittingId, load, act } = useLaundryFeed(range);
+  const { tasks, loading, submittingId, load, act, remove } = useLaundryFeed(range);
   const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
+  const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
   const [scanningQr, setScanningQr] = React.useState(false);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
 
@@ -1279,6 +1394,12 @@ export function TrackingBoard() {
                         Undo
                       </EButton>
                     ) : null}
+
+                    {canDelete ? (
+                      <span className="ml-auto">
+                        <DeleteButton task={t} disabled={submittingId === t.id} onDelete={requestDelete} />
+                      </span>
+                    ) : null}
                   </div>
                 </ECardBody>
               </ECard>
@@ -1287,6 +1408,7 @@ export function TrackingBoard() {
         </div>
       )}
       {modal}
+      {deleteModal}
     </div>
   );
 }

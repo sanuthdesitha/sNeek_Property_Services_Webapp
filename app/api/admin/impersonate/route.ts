@@ -11,6 +11,7 @@ import {
   readImpersonationTicket,
   signImpersonationTicket,
 } from "@/lib/auth/impersonation";
+import { TEST_AS_UNLOCK_COOKIE, isTestAsUnlocked } from "@/lib/auth/test-as-unlock";
 
 /**
  * Start / stop an admin "test as" session.
@@ -47,6 +48,19 @@ export async function POST(request: NextRequest) {
   // testing benefit.
   if (session.user.role !== Role.ADMIN) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Being an admin is not enough: the console is password-locked, and the lock
+  // is enforced HERE as well as in the UI — a direct POST without a fresh
+  // unlock (see POST /api/admin/test-as/unlock) is refused.
+  if (!isTestAsUnlocked(request.cookies.get(TEST_AS_UNLOCK_COOKIE)?.value, session.user.id)) {
+    return NextResponse.json(
+      {
+        error: "Confirm your password to start a test session.",
+        code: "TEST_AS_LOCKED",
+      },
+      { status: 403 },
+    );
   }
 
   const parsed = startSchema.safeParse(await request.json().catch(() => null));

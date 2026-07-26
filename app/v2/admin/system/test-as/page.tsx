@@ -1,8 +1,11 @@
+import { cookies } from "next/headers";
 import { Role } from "@prisma/client";
 import { requireRealSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EAlert, ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "@/components/v2/ui/primitives";
 import { TestAsPicker, type TestAsCandidate } from "@/components/admin/test-as-picker";
+import { TestAsLock } from "@/components/admin/test-as-lock";
+import { TEST_AS_UNLOCK_COOKIE, isTestAsUnlocked } from "@/lib/auth/test-as-unlock";
 
 export const metadata = { title: "Test as · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -34,6 +37,23 @@ export default async function TestAsPage() {
         <EAlert tone="danger" title="Admins only">
           Only a full admin can open another portal for testing.
         </EAlert>
+      </div>
+    );
+  }
+
+  // Password lock. Being an ADMIN gets you to this page; it does not get you the
+  // picker. The unlock is a signed 15-minute cookie minted by
+  // POST /api/admin/test-as/unlock — and POST /api/admin/impersonate demands it
+  // too, so this is a real gate rather than a UI curtain.
+  if (!isTestAsUnlocked(cookies().get(TEST_AS_UNLOCK_COOKIE)?.value, session.user.id)) {
+    return (
+      <div className="space-y-6">
+        <EPageHeader
+          eyebrow="Testing"
+          title="Test as"
+          description="Open any portal exactly as one of your users sees it, then come back."
+        />
+        <TestAsLock />
       </div>
     );
   }
