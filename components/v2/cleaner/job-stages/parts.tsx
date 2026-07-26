@@ -66,6 +66,7 @@ export function ClockCard({
   clockInDisabled,
   teamStarted,
   ownStarted,
+  isResume,
   onClockIn,
   onPause,
 }: {
@@ -82,6 +83,12 @@ export function ClockCard({
   teamStarted?: boolean;
   /** I have recorded time on this job. */
   ownStarted?: boolean;
+  /**
+   * Clocking in will RESUME my own timer rather than start a fresh arrival.
+   * Not the same as `hasCheckin` — the job-level check-in can belong to a
+   * previous cleaner on a reassigned job, who is not me.
+   */
+  isResume?: boolean;
   onClockIn: () => void;
   onPause: () => void;
 }) {
@@ -160,7 +167,7 @@ export function ClockCard({
               {busy === "clockin" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {/* Resuming only restarts the timer — it never re-captures the
                   arrival GPS, so don't promise a check-in in the label. */}
-              {ownStarted || hasCheckin ? "Resume timer" : "Clock in (GPS)"}
+              {(isResume ?? (ownStarted || hasCheckin)) ? "Resume timer" : "Clock in (GPS)"}
             </EButton>
           ) : null}
           {isRunning && !locked ? (
@@ -180,7 +187,7 @@ export function ClockCard({
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Team clean already underway — clock in to record your own time.
           </p>
-        ) : ownStarted || hasCheckin ? (
+        ) : (isResume ?? (ownStarted || hasCheckin)) ? (
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Resuming restarts your timer only — your arrival check-in stays as recorded.
           </p>

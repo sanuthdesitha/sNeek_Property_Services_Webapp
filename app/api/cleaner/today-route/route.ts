@@ -55,6 +55,10 @@ export async function GET(req: Request) {
           enRouteStartedAt: true,
           enRouteEtaMinutes: true,
           arrivedAt: true,
+          // Drive mode reads these to render Pause vs Resume and to suspend the
+          // ETA heartbeat. Without them the pause is invisible to the cleaner.
+          drivingPausedAt: true,
+          drivingPauseReason: true,
           property: {
             select: {
               name: true,
@@ -82,6 +86,8 @@ export async function GET(req: Request) {
     enRouteStartedAt: a.job.enRouteStartedAt,
     enRouteEtaMinutes: a.job.enRouteEtaMinutes,
     arrivedAt: a.job.arrivedAt,
+    drivingPausedAt: a.job.drivingPausedAt,
+    drivingPauseReason: a.job.drivingPauseReason,
     propertyName: a.job.property.name,
     address: a.job.property.address,
     suburb: a.job.property.suburb,
