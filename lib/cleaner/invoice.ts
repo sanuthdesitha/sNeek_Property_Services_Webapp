@@ -44,8 +44,17 @@ interface InvoiceOptions {
   excludePaidJobs?: boolean;
   /**
    * When recomputing the lines of an existing pay run, pass that run's id here so
-   * jobs already stamped with THIS run are still included (only jobs paid by a
+   * rows already stamped with THIS run are still included (only rows paid by a
    * DIFFERENT run are excluded). Only meaningful together with excludePaidJobs.
+   *
+   * This covers ALL THREE settlement streams, not just jobs: jobs
+   * (Job.payrollRunId), pay adjustments and QA inspections
+   * (`includedInPayrollRunId` on each). It is the payroll-run mirror of
+   * `includeInvoiceId` and maps straight onto the `includePayrollRunId` option of
+   * `isAdjustmentAvailableForInvoice` / `isQaAssignmentAvailableForSettlement`.
+   * Without the adjustment/QA half, a pay run that refreshed itself dropped its
+   * own adjustments and inspections as "already paid by someone else" and then
+   * released them — silently changing what it was about to pay.
    */
   includePaidRunId?: string;
   /**
@@ -315,7 +324,22 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     where: {
       cleanerId: options.userId,
       status: PayAdjustmentStatus.APPROVED,
-      includedInPayrollRunId: null,
+      // Payroll-run stamp. Normally "must be null"; when a pay run is recomputing
+      // ITSELF (includePaidRunId) its own rows stay selectable, exactly as
+      // includeInvoiceId does for the invoice stamp. Expressed via AND so it can
+      // coexist with the invoice-stamp OR below.
+      ...(options.includePaidRunId
+        ? {
+            AND: [
+              {
+                OR: [
+                  { includedInPayrollRunId: null },
+                  { includedInPayrollRunId: options.includePaidRunId },
+                ],
+              },
+            ],
+          }
+        : { includedInPayrollRunId: null }),
       ...(options.includeInvoiceId
         ? {
             OR: [
@@ -364,8 +388,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       assignedToId: options.userId,
       status: QaAssignmentStatus.COMPLETED,
       // Never touch an inspection a payroll run already paid — the cross-rail
-      // half of the double-pay guard.
-      includedInPayrollRunId: null,
+      // half of the double-pay guard. The ONE exception is a pay run recomputing
+      // ITSELF (includePaidRunId), handled in the AND block below so this run
+      // re-evaluates its own inspections instead of dropping them.
+      ...(options.includePaidRunId ? {} : { includedInPayrollRunId: null }),
       AND: [
         { OR: [{ completedAt: { lte: end } }, { completedAt: null }] },
         options.includeInvoiceId
@@ -376,6 +402,16 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
               ],
             }
           : { includedInCleanerInvoiceId: null },
+        ...(options.includePaidRunId
+          ? [
+              {
+                OR: [
+                  { includedInPayrollRunId: null },
+                  { includedInPayrollRunId: options.includePaidRunId },
+                ],
+              },
+            ]
+          : []),
       ],
     },
     select: {
@@ -404,6 +440,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .filter((row) =>
       isQaAssignmentAvailableForSettlement(row, {
         includeInvoiceId: options.includeInvoiceId ?? null,
+        // A pay run recomputing itself must still see its own inspections.
+        includePayrollRunId: options.includePaidRunId ?? null,
       })
     )
     .map((row) => {
@@ -442,6 +480,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const adjustmentSplit = partitionAdjustmentsForInvoice(settleableAdjustments, {
     jobIdsOnInvoice: jobIds,
     includeInvoiceId: options.includeInvoiceId ?? null,
+    // A pay run recomputing itself must still see its own adjustments.
+    includePayrollRunId: options.includePaidRunId ?? null,
   });
   const approvedAdjustments = adjustmentSplit.perJobRows;
   const pendingAdjustments = await db.cleanerPayAdjustment.findMany({
