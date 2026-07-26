@@ -16,6 +16,8 @@ import { roundCents } from "@/lib/finance/job-money";
 import { notifyBonusOutcomeToCleaner } from "@/lib/notifications/accountability";
 import { notifyPayAdjustmentOutcome } from "@/lib/notifications/pay-adjustments";
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
+import type { ApprovalQueueKey } from "@/lib/admin/approval-history";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -400,6 +402,57 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
     }
 
+    // Which Approval Center tab this row lives in. Mirrors the RECTIFICATION_SOURCES
+    // / BONUS_SOURCES split in /api/admin/all-approvals, so a history row lands in
+    // the same queue the admin actually decided it in.
+    const RECTIFICATION_SOURCES = [
+      "QA_RECTIFICATION_PAY",
+      "RECTIFICATION_DEDUCTION",
+      "REWORK_DEDUCTION",
+    ];
+    const BONUS_SOURCES = ["STREAK_5", "STREAK_10", "MONTHLY_RANK_1", "MONTHLY_RANK_2"];
+    const source = existing.source ?? null;
+    const approvalQueue: ApprovalQueueKey =
+      source && RECTIFICATION_SOURCES.includes(source)
+        ? "rectificationAdjustments"
+        : source && BONUS_SOURCES.includes(source)
+        ? "bonusProposals"
+        : "payAdjustments";
+
+    if (isStatusChange || isAmountEdit || isFieldEdit) {
+      void recordApprovalDecision({
+        queue: approvalQueue,
+        decision: isReverseToPending
+          ? "REVERSED"
+          : isStatusChange
+          ? updated.status === PayAdjustmentStatus.APPROVED
+            ? "APPROVED"
+            : "DECLINED"
+          : "EDITED",
+        userId: session.user.id,
+        entity: "CleanerPayAdjustment",
+        entityId: updated.id,
+        jobId: updated.job?.id ?? null,
+        label:
+          updated.title?.trim() ||
+          updated.job?.property?.name ||
+          updated.property?.name ||
+          "Pay adjustment",
+        // Signed: a deduction stays negative in the history exactly as it does
+        // in payroll.
+        amount: adjustmentSignedAmount({
+          status: PayAdjustmentStatus.APPROVED,
+          approvedAmount: updated.approvedAmount,
+          requestedAmount: updated.requestedAmount,
+        }),
+        note: updated.adminNote ?? null,
+        subjectUserId: updated.cleaner.id,
+        subjectName: updated.cleaner.name ?? updated.cleaner.email,
+        fromStatus: existing.status,
+        toStatus: updated.status,
+      });
+    }
+
     const auditAction = isReverseToPending
       ? "REVERSE_PAY_ADJUSTMENT"
       : isStatusChange
@@ -514,6 +567,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
           deletedClientApprovalIds: deletedApprovalIds,
         } as any,
       },
+    });
+
+    void recordApprovalDecision({
+      queue: "payAdjustments",
+      decision: "DELETED",
+      userId: session.user.id,
+      entity: "CleanerPayAdjustment",
+      entityId: existing.id,
+      jobId: existing.jobId ?? null,
+      label: existing.title ?? "Pay adjustment",
+      amount: Number(existing.approvedAmount ?? existing.requestedAmount ?? 0),
+      note: existing.adminNote ?? null,
+      subjectUserId: existing.cleanerId,
+      fromStatus: existing.status,
+      before: existing as any,
     });
 
     return NextResponse.json({ ok: true, deletedClientApprovalIds: deletedApprovalIds });

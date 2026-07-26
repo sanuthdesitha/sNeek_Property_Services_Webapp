@@ -28,6 +28,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Clock,
+  DollarSign,
   Inbox,
   Loader2,
   RefreshCw,
@@ -37,6 +38,7 @@ import {
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
+import { computeQaAssignmentPay, type QaPaySettingsInput } from "@/lib/finance/qa-pay";
 
 type Inspector = { id: string; name: string | null; email: string; role: string };
 type Toast = { id: string; title: string; description?: string; tone: "info" | "danger" };
@@ -129,7 +131,216 @@ function todayIso(offsetDays = 0): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors: Inspector[]; canAssign?: boolean }) {
+/**
+ * Per-inspection pay override (ADMIN/OPS only).
+ *
+ * "Admin needs to adjust everything": mode, flat amount, hourly rate and hours,
+ * plus a note the inspector sees on their pay screen. Every field left blank
+ * INHERITS — settings default -> the inspector's own hourly rate -> this
+ * override — so an admin can pin only the part that differs.
+ *
+ * A settled inspection (already paid by a payroll run or billed on a cleaner
+ * invoice) is read-only here and the server 409s if it is attempted anyway;
+ * money that has been paid is corrected with a new adjustment, never re-priced.
+ */
+function QaPayEditor({
+  assignment,
+  inspectorRate,
+  settings,
+  onSaved,
+  onError,
+}: {
+  assignment: any;
+  inspectorRate: number | null;
+  settings: QaPaySettingsInput;
+  onSaved: () => void | Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<string>(assignment?.payMode ?? "DEFAULT");
+  const [amount, setAmount] = useState<string>(
+    assignment?.payAmount != null ? String(assignment.payAmount) : ""
+  );
+  const [rate, setRate] = useState<string>(
+    assignment?.payHourlyRate != null ? String(assignment.payHourlyRate) : ""
+  );
+  const [hours, setHours] = useState<string>(
+    assignment?.payHoursAllocated != null ? String(assignment.payHoursAllocated) : ""
+  );
+  const [note, setNote] = useState<string>(assignment?.payNote ?? "");
+
+  const settled = Boolean(
+    assignment?.includedInPayrollRunId || assignment?.includedInCleanerInvoiceId
+  );
+
+  // Live preview through the SAME pure calculator the server and payroll use, so
+  // the number the admin sees before saving is the number that gets paid.
+  const preview = useMemo(
+    () =>
+      computeQaAssignmentPay({
+        assignment: {
+          payMode: (mode === "DEFAULT" ? null : mode) as any,
+          payAmount: amount.trim() === "" ? null : Number(amount),
+          payHourlyRate: rate.trim() === "" ? null : Number(rate),
+          payHoursAllocated: hours.trim() === "" ? null : Number(hours),
+          onSiteMinutes: assignment?.onSiteMinutes ?? null,
+        },
+        inspector: { hourlyRate: inspectorRate },
+        settings,
+      }),
+    [mode, amount, rate, hours, inspectorRate, settings, assignment?.onSiteMinutes]
+  );
+
+  const savedPay = useMemo(
+    () =>
+      computeQaAssignmentPay({
+        assignment: assignment ?? {},
+        inspector: { hourlyRate: inspectorRate },
+        settings,
+      }),
+    [assignment, inspectorRate, settings]
+  );
+  const displayAmount =
+    assignment?.paySettledAmount != null ? Number(assignment.paySettledAmount) : savedPay.amount;
+
+  async function save() {
+    setBusy(true);
+    const num = (value: string) => (value.trim() === "" ? null : Number(value));
+    const res = await fetch(`/api/admin/qa/assignments/${assignment.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        payMode: mode,
+        payAmount: num(amount),
+        payHourlyRate: num(rate),
+        payHoursAllocated: num(hours),
+        payNote: note.trim() || null,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      onError(body.error ?? "Could not save the inspection pay.");
+      return;
+    }
+    setOpen(false);
+    await onSaved();
+  }
+
+  const showHourlyFields =
+    mode === "HOURLY" || (mode === "DEFAULT" && settings.defaultMode === "HOURLY");
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))] underline-offset-2 hover:underline"
+      >
+        <DollarSign className="h-3.5 w-3.5" />
+        {savedPay.rateMissing && !settled ? "Pay not set" : `Pay $${displayAmount.toFixed(2)}`}
+        {settled ? " · settled" : ""}
+      </button>
+
+      {open ? (
+        <div className="mt-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] p-3">
+          {settled ? (
+            <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">
+              Already settled (payroll run or cleaner invoice). Raise a correcting pay
+              adjustment instead of re-pricing it.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                  Mode
+                  <ESelect
+                    className="h-8 w-[10rem] text-[0.75rem]"
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value)}
+                  >
+                    <option value="DEFAULT">Use default ({settings.defaultMode})</option>
+                    <option value="HOURLY">Hourly</option>
+                    <option value="FIXED">Fixed</option>
+                    <option value="NONE">Unpaid</option>
+                  </ESelect>
+                </label>
+                {mode === "FIXED" || (mode === "DEFAULT" && settings.defaultMode === "FIXED") ? (
+                  <label className="flex flex-col gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                    Amount ($)
+                    <EInput
+                      className="h-8 w-[7rem] text-[0.75rem]"
+                      inputMode="decimal"
+                      value={amount}
+                      placeholder={String(settings.defaultFixedAmount)}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </label>
+                ) : null}
+                {showHourlyFields ? (
+                  <>
+                    <label className="flex flex-col gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                      Rate ($/hr)
+                      <EInput
+                        className="h-8 w-[7rem] text-[0.75rem]"
+                        inputMode="decimal"
+                        value={rate}
+                        placeholder={String(inspectorRate ?? settings.defaultHourlyRate)}
+                        onChange={(e) => setRate(e.target.value)}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                      Hours
+                      <EInput
+                        className="h-8 w-[6rem] text-[0.75rem]"
+                        inputMode="decimal"
+                        value={hours}
+                        placeholder={String(settings.defaultHoursPerInspection)}
+                        onChange={(e) => setHours(e.target.value)}
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </div>
+              <label className="mt-2 flex flex-col gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                Note (visible to the inspector)
+                <EInput
+                  className="h-8 text-[0.75rem]"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Why this inspection is priced differently"
+                />
+              </label>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <EButton size="sm" variant="gold" disabled={busy} onClick={() => void save()}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save pay
+                </EButton>
+                <span className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                  Pays <span className="e-numeral">${preview.amount.toFixed(2)}</span>
+                  {preview.mode === "HOURLY"
+                    ? ` (${preview.hours.toFixed(2)}h x $${preview.rate.toFixed(2)})`
+                    : ""}
+                  {preview.rateMissing ? " — rate not configured" : ""}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function QaQueueWorkspace({
+  inspectors,
+  canAssign = false,
+  qaPaySettings,
+}: {
+  inspectors: Inspector[];
+  canAssign?: boolean;
+  qaPaySettings?: QaPaySettingsInput;
+}) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [scope, setScope] = useState<"active" | "completed">("active");
@@ -582,6 +793,17 @@ export function QaQueueWorkspace({ inspectors, canAssign = false }: { inspectors
                         {row.assigned ? "Reassign" : "Assign"}
                       </EButton>
                     </div>
+                  ) : null}
+                  {canAssign && row.assigned && qaPaySettings ? (
+                    <QaPayEditor
+                      assignment={row.assignment}
+                      inspectorRate={row.assignment?.assignedTo?.hourlyRate ?? null}
+                      settings={qaPaySettings}
+                      onSaved={load}
+                      onError={(message) =>
+                        pushToast({ title: "Pay not saved", description: message, tone: "danger" })
+                      }
+                    />
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

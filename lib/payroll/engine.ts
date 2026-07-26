@@ -93,6 +93,14 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   const includedAdjustmentIds = Array.from(
     new Set(payableCleaners.flatMap((c) => c.adjustments.map((a) => a.id)))
   );
+  // Completed QA inspections captured by this run — same idempotency. The stamp
+  // (not the date window) is what stops an inspection being paid twice, and it
+  // is checked against BOTH rails: a run will not pick up an inspection a
+  // cleaner invoice already billed, and vice versa.
+  const includedQaAssignments = payableCleaners.flatMap((c) =>
+    (c.qaInspections ?? []).map((q) => ({ id: q.id, amount: q.amount }))
+  );
+  const includedQaAssignmentIds = Array.from(new Set(includedQaAssignments.map((q) => q.id)));
 
   const grandTotal = payableCleaners.reduce((sum, c) => sum + c.totals.grossPay, 0);
   const totalShopping = payableCleaners.reduce((sum, c) => sum + c.totals.shoppingReimbursements, 0);
@@ -172,6 +180,27 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
         where: { id: { in: includedAdjustmentIds }, includedInPayrollRunId: null },
         data: { includedInPayrollRunId: createdRun.id },
       });
+    }
+
+    if (includedQaAssignmentIds.length > 0) {
+      const stampedAt = new Date();
+      // Freeze the amount per inspection alongside the stamp so a later rate or
+      // settings change can never retro-alter what this run paid. Guarded on
+      // BOTH stamps being null so a concurrent run/invoice can't double-settle.
+      for (const row of includedQaAssignments) {
+        await tx.qaAssignment.updateMany({
+          where: {
+            id: row.id,
+            includedInPayrollRunId: null,
+            includedInCleanerInvoiceId: null,
+          },
+          data: {
+            includedInPayrollRunId: createdRun.id,
+            includedInPayrollRunAt: stampedAt,
+            paySettledAmount: row.amount,
+          },
+        });
+      }
     }
 
     return createdRun;

@@ -6,6 +6,7 @@ import {
   cancelEarlyCheckoutRequest,
   decideEarlyCheckoutRequest,
 } from "@/lib/jobs/early-checkout-requests";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 const schema = z.object({
   status: z.enum(["APPROVED", "DECLINED", "CANCELLED"]).optional(),
@@ -34,6 +35,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     } else {
       return NextResponse.json({ error: "A decision status is required." }, { status: 400 });
     }
+    void recordApprovalDecision({
+      queue: "timingRequests",
+      decision:
+        body.status === "APPROVED"
+          ? "APPROVED"
+          : body.status === "DECLINED"
+          ? "DECLINED"
+          : "DISMISSED",
+      userId: session.user.id,
+      entity: "JobEarlyCheckoutRequest",
+      entityId: params.id,
+      jobId: (updated as any)?.jobId ?? null,
+      label: (updated as any)?.requestType === "EARLY_CHECKIN" ? "Early check-in" : "Late checkout",
+      note: body.decisionNote ?? null,
+      toStatus: body.status ?? "CANCELLED",
+    });
+
     return NextResponse.json(updated);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

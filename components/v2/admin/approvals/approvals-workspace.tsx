@@ -33,6 +33,7 @@ import {
   MessageCircle,
   RefreshCw,
   RotateCcw,
+  History,
   Scale,
   Send,
   ShieldAlert,
@@ -43,6 +44,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EModal, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
+import { ApprovalsHistory } from "@/components/v2/admin/approvals/approvals-history";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 type AllApprovals = {
@@ -83,6 +85,14 @@ const QUEUES = [
 ] as const;
 
 type QueueKey = (typeof QUEUES)[number]["key"];
+
+/**
+ * The History tab is a sibling of the queues, not one of them: it reads decided
+ * items out of the audit trail rather than pending ones out of /all-approvals,
+ * so it is tracked in the same `active` state but never carries a pending count.
+ */
+const HISTORY_TAB = "history" as const;
+type ActiveTab = QueueKey | typeof HISTORY_TAB;
 
 /* ── helpers ───────────────────────────────────────────────────────────── */
 function fmt(dateStr: string | null | undefined) {
@@ -669,7 +679,7 @@ function AccountabilityPayCard({
 export function ApprovalsWorkspace() {
   const [data, setData] = useState<AllApprovals | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<QueueKey>("continuations");
+  const [active, setActive] = useState<ActiveTab>("continuations");
   const [acting, setActing] = useState<string | null>(null);
   const [autoSelected, setAutoSelected] = useState(false);
 
@@ -817,6 +827,19 @@ export function ApprovalsWorkspace() {
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setActive(HISTORY_TAB)}
+          className={
+            "flex items-center gap-2 rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
+            (active === HISTORY_TAB
+              ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
+              : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-text-secondary))] hover:border-[hsl(var(--e-gold))] hover:text-[hsl(var(--e-foreground))]")
+          }
+        >
+          <History className="h-3.5 w-3.5 shrink-0" />
+          History
+        </button>
         <div className="ml-auto flex items-center gap-3">
           {total > 0 ? (
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
@@ -830,8 +853,11 @@ export function ApprovalsWorkspace() {
         </div>
       </div>
 
+      {/* ── History (decided items) ── */}
+      {active === HISTORY_TAB ? <ApprovalsHistory /> : null}
+
       {/* ── Queue content ── */}
-      {loading && !data ? (
+      {active === HISTORY_TAB ? null : loading && !data ? (
         <ECard className="px-6 py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
           Gathering requests…
         </ECard>

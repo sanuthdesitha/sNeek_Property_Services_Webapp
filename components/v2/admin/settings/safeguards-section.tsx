@@ -49,6 +49,14 @@ export type SafeguardsSettings = {
     failureThreshold: number;
     reworkDelayHours: number;
   };
+  /** What a QA inspection pays by default. Per-assignment overrides win, and an
+   *  inspector's own hourly rate (User.hourlyRate) sits between the two. */
+  qaPay: {
+    defaultMode: "FIXED" | "HOURLY" | "NONE";
+    defaultFixedAmount: number;
+    defaultHourlyRate: number;
+    defaultHoursPerInspection: number;
+  };
   evidenceStamp: {
     dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD" | "DD MMM YYYY";
     timeFormat: "HH:mm" | "hh:mm a";
@@ -104,6 +112,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
           recurringJobs: form.recurringJobs,
           autoAssign: form.autoAssign,
           qaAutomation: form.qaAutomation,
+          qaPay: form.qaPay,
           evidenceStamp: form.evidenceStamp,
         }),
       });
@@ -368,6 +377,87 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     setForm((p) => ({
                       ...p,
                       qaAutomation: { ...p.qaAutomation, reworkDelayHours: Number(e.target.value || p.qaAutomation.reworkDelayHours) },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </EField>
+            </div>
+          </div>
+        </ECard>
+        <ECard className="p-6">
+          <div className="space-y-4">
+            <div>
+              <p className="text-[0.875rem] font-medium">QA inspection pay</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                What an inspection pays when nothing more specific is set. Resolution order:
+                the per-inspection override on the QA board, then the inspector&apos;s own
+                hourly rate, then these defaults.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <EField label="Default pay mode">
+                <ESelectNative
+                  value={form.qaPay.defaultMode}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      qaPay: {
+                        ...p.qaPay,
+                        defaultMode: e.target.value as SafeguardsSettings["qaPay"]["defaultMode"],
+                      },
+                    }))
+                  }
+                  disabled={readOnly}
+                >
+                  <option value="HOURLY">Hourly (rate x hours)</option>
+                  <option value="FIXED">Fixed amount per inspection</option>
+                  <option value="NONE">Unpaid</option>
+                </ESelectNative>
+              </EField>
+              <EField label="Default fixed amount ($)">
+                <EInput
+                  type="number"
+                  min={0}
+                  max={10000}
+                  step="0.01"
+                  value={form.qaPay.defaultFixedAmount}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      qaPay: { ...p.qaPay, defaultFixedAmount: Number(e.target.value || 0) },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </EField>
+              <EField label="Default hourly rate ($/hr)">
+                <EInput
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step="0.01"
+                  value={form.qaPay.defaultHourlyRate}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      qaPay: { ...p.qaPay, defaultHourlyRate: Number(e.target.value || 0) },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </EField>
+              <EField label="Default hours per inspection">
+                <EInput
+                  type="number"
+                  min={0}
+                  max={24}
+                  step="0.25"
+                  value={form.qaPay.defaultHoursPerInspection}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      qaPay: { ...p.qaPay, defaultHoursPerInspection: Number(e.target.value || 0) },
                     }))
                   }
                   disabled={readOnly}

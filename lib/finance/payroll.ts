@@ -1,10 +1,14 @@
-import { PayAdjustmentStatus, Role } from "@prisma/client";
+import { PayAdjustmentStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
+import {
+  computeQaAssignmentPay,
+  qaAssignmentSettlementAmount,
+} from "@/lib/finance/qa-pay";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -19,7 +23,7 @@ export async function getPayrollSummary(input: {
   const start = sydneyDayStart(input.startDate);
   const endInclusive = sydneyDayEndInclusive(input.endDate);
 
-  const [cleaners, jobs, adjustments, shoppingRuns] = await Promise.all([
+  const [cleaners, jobs, adjustments, shoppingRuns, qaAssignments] = await Promise.all([
     db.user.findMany({
       where: { role: Role.CLEANER, isActive: true },
       select: { id: true, name: true, email: true, hourlyRate: true },
@@ -119,9 +123,46 @@ export async function getPayrollSummary(input: {
         lines: true,
       },
     }),
-    // Shopping time: approved minutes * rate (stored as JSON on ShoppingRun.notes or via separate tracking)
-    // For now, return empty — shopping time tracking needs a dedicated model
-    Promise.resolve([] as any[]),
+    // COMPLETED QA inspections in the period. QA inspectors are paid for the
+    // inspection itself (lib/finance/qa-pay.ts), not just for the adjustment
+    // credits they occasionally earn — this is the same rail as cleaner job
+    // pay, with the same "already settled" idempotency guard.
+    db.qaAssignment.findMany({
+      where: {
+        status: QaAssignmentStatus.COMPLETED,
+        completedAt: { gte: start, lte: endInclusive },
+        assignedToId: { not: null },
+        // A committable run must never re-pay an inspection already settled by a
+        // prior run OR already billed on a cleaner invoice (the two settlement
+        // rails). The read-only period view shows everything in the window.
+        ...(input.excludePaidJobs
+          ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null }
+          : {}),
+      },
+      select: {
+        id: true,
+        assignedToId: true,
+        status: true,
+        completedAt: true,
+        onSiteMinutes: true,
+        payMode: true,
+        payAmount: true,
+        payHourlyRate: true,
+        payHoursAllocated: true,
+        payNote: true,
+        paySettledAmount: true,
+        includedInPayrollRunId: true,
+        includedInCleanerInvoiceId: true,
+        job: {
+          select: {
+            id: true,
+            jobNumber: true,
+            property: { select: { name: true, suburb: true } },
+          },
+        },
+      },
+      orderBy: [{ completedAt: "asc" }],
+    }),
   ]);
 
   // Payees who are owed an approved adjustment but are NOT role CLEANER.
@@ -133,9 +174,18 @@ export async function getPayrollSummary(input: {
   // all and their approved credit was silently dropped from every run — the
   // approval "took" in the database and paid nobody. Append them as
   // adjustment-only rows (no job lines: they hold no cleaner assignments).
+  //
+  // The same applies to QA INSPECTORS who completed paid inspections: they hold
+  // no cleaner assignments, so without this they would never appear on a run at
+  // all and their inspection pay would be computed and then dropped.
   const cleanerIdSet = new Set(cleaners.map((row) => row.id));
   const extraPayeeIds = Array.from(
-    new Set(adjustments.map((row) => row.cleanerId).filter((id) => id && !cleanerIdSet.has(id)))
+    new Set(
+      [
+        ...adjustments.map((row) => row.cleanerId),
+        ...qaAssignments.map((row) => row.assignedToId),
+      ].filter((id): id is string => Boolean(id) && !cleanerIdSet.has(id as string))
+    )
   );
   const extraPayees = extraPayeeIds.length
     ? await db.user.findMany({
@@ -238,6 +288,36 @@ export async function getPayrollSummary(input: {
         }),
       }));
 
+    // QA inspection lines for this payee. Pay is FROZEN once settled
+    // (paySettledAmount) so a later rate or settings change can never retro-alter
+    // what a historical run actually paid out.
+    const qaRows = qaAssignments
+      .filter((row) => row.assignedToId === cleaner.id)
+      .map((row) => {
+        const pay = computeQaAssignmentPay({
+          assignment: row,
+          inspector: { hourlyRate: cleaner.hourlyRate },
+          settings: settings.qaPay,
+        });
+        return {
+          id: row.id,
+          jobId: row.job?.id ?? null,
+          jobNumber: row.job?.jobNumber ?? null,
+          propertyName: row.job?.property?.name ?? "Inspection",
+          suburb: row.job?.property?.suburb ?? null,
+          completedAt: row.completedAt,
+          mode: pay.mode,
+          basis: pay.basis,
+          hours: pay.hours,
+          rate: pay.rate,
+          rateMissing: pay.rateMissing,
+          note: row.payNote ?? null,
+          amount: qaAssignmentSettlementAmount(row, pay.amount),
+        };
+      })
+      // A $0 inspection (mode NONE, or nothing configured) is not a payable line.
+      .filter((row) => row.amount > 0);
+
     const shoppingRows = (shoppingByCleaner.get(cleaner.id) || []).map((row) => ({
       id: row.id,
       settlementId: row.settlementId,
@@ -256,19 +336,24 @@ export async function getPayrollSummary(input: {
     const adjustmentsTotal = adjustmentRows.reduce((sum, row) => sum + row.amount, 0);
     const shoppingTotal = shoppingRows.reduce((sum, row) => sum + row.amount, 0);
     const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
+    const qaTotal = qaRows.reduce((sum, row) => sum + row.amount, 0);
     return {
       cleaner,
       jobs: jobRows,
       adjustments: adjustmentRows,
+      qaInspections: qaRows,
       shoppingReimbursements: shoppingRows,
       shoppingTime: shoppingTimeRows,
       totals: {
         paidHours: Number(jobRows.reduce((sum, row) => sum + row.hours, 0).toFixed(2)),
         jobGross: Number(jobGross.toFixed(2)),
         adjustments: Number(adjustmentsTotal.toFixed(2)),
+        qaInspections: Number(qaTotal.toFixed(2)),
         shoppingReimbursements: Number(shoppingTotal.toFixed(2)),
         shoppingTime: Number(shoppingTimeTotal.toFixed(2)),
-        grossPay: Number((jobGross + adjustmentsTotal + shoppingTotal + shoppingTimeTotal).toFixed(2)),
+        grossPay: Number(
+          (jobGross + adjustmentsTotal + qaTotal + shoppingTotal + shoppingTimeTotal).toFixed(2)
+        ),
       },
     };
   });

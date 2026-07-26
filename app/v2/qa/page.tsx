@@ -6,6 +6,7 @@ import { EEyebrow, EStatCard } from "@/components/v2/ui/primitives";
 import { AlertTriangle, ClipboardCheck, Star, Timer } from "lucide-react";
 import { QaQueueWorkspace } from "@/components/v2/qa/qa-queue-workspace";
 import { QaDayPlanner } from "@/components/v2/qa/qa-day-planner";
+import { getAppSettings } from "@/lib/settings";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -32,6 +33,8 @@ async function getQuality() {
 export default async function QaTodayPage() {
   const session = await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
   const { awaiting, inProgress, completedToday, reworkToday } = await getQuality();
+  // QA-pay defaults drive the admin per-inspection pay editor preview.
+  const settings = await getAppSettings();
 
   // Assigning inspections is an admin/ops responsibility — inspectors only review
   // jobs handed to them. Load the roster + show assign controls for admin/ops.
@@ -63,7 +66,7 @@ export default async function QaTodayPage() {
 
       {canAssign ? <QaDayPlanner inspectors={inspectors} /> : null}
 
-      <QaQueueWorkspace inspectors={inspectors} canAssign={canAssign} />
+      <QaQueueWorkspace inspectors={inspectors} canAssign={canAssign} qaPaySettings={settings.qaPay} />
     </div>
   );
 }

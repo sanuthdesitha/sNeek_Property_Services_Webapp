@@ -1,7 +1,7 @@
 "use client";
 
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
-import { CalendarCheck, ClipboardCheck, AlertTriangle, MoreHorizontal } from "lucide-react";
+import { CalendarCheck, ClipboardCheck, AlertTriangle, Wallet, MoreHorizontal } from "lucide-react";
 
 // Phase 4 Stage 1 nav: Today · Reviews · Rework · More.
 // (Stage 2 adds a Map tab between Rework and More — its route placeholder lives
@@ -10,6 +10,9 @@ const NAV: NavItem[] = [
   { href: "/v2/qa", label: "Today", icon: CalendarCheck },
   { href: "/v2/qa/reviews", label: "Reviews", icon: ClipboardCheck },
   { href: "/v2/qa/rework", label: "Rework", icon: AlertTriangle },
+  // Inspections are paid work — the inspector gets the same first-class
+  // earnings tab the cleaner portal has, not a link buried under "More".
+  { href: "/v2/qa/pay", label: "Pay", icon: Wallet },
   { href: "/v2/qa/more", label: "More", icon: MoreHorizontal },
 ];
 
