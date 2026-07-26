@@ -22,6 +22,8 @@ import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
+import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
+import { getPreviousCleanLaundryCycle } from "@/lib/laundry/previous-cycle";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import {
   buildReworkFormSchema,
@@ -171,46 +173,13 @@ export async function GET(
     });
     const jobTasks = await listCleanerJobTasks(job.id);
 
-    // Laundry guidance: is fresh linen actually sitting at the property from the
-    // last successful drop, or was it already used by a later clean (so the
-    // cleaner must use the property's buffer sets)? Only meaningful for turnovers.
-    let laundryGuidance:
-      | { hasDrop: boolean; lastDropAt: string | null; linenSittingOutside: boolean; useBufferSets: boolean; bufferSets: number }
-      | null = null;
-    if (job.jobType === "AIRBNB_TURNOVER" && !job.isRework) {
-      const lastDrop = await db.laundryTask.findFirst({
-        where: {
-          propertyId: job.propertyId,
-          jobId: { not: job.id },
-          OR: [{ droppedAt: { not: null } }, { status: "DROPPED" }],
-        },
-        orderBy: [{ droppedAt: "desc" }, { updatedAt: "desc" }],
-        select: { droppedAt: true },
-      });
-      const dropAt = lastDrop?.droppedAt ?? null;
-      let cleanAfterDrop = false;
-      if (dropAt) {
-        const cleansSince = await db.job.count({
-          where: {
-            propertyId: job.propertyId,
-            jobType: "AIRBNB_TURNOVER",
-            isRework: false,
-            id: { not: job.id },
-            status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
-            OR: [{ completedAt: { gt: dropAt } }, { scheduledDate: { gt: dropAt } }],
-          },
-        });
-        cleanAfterDrop = cleansSince > 0;
-      }
-      const linenSittingOutside = Boolean(dropAt) && !cleanAfterDrop;
-      laundryGuidance = {
-        hasDrop: Boolean(dropAt),
-        lastDropAt: dropAt ? dropAt.toISOString() : null,
-        linenSittingOutside,
-        useBufferSets: !linenSittingOutside,
-        bufferSets: Number(job.property?.linenBufferSets ?? 0),
-      };
-    }
+    // Previous-clean laundry cycle: the cycle BELONGING TO THE PREVIOUS CLEAN
+    // of this property (its pickup/drop feeds THIS clean's fresh linen). This
+    // replaces the old `laundryGuidance` "last drop from any job" block, which
+    // kept reading like another property/job's laundry.
+    const previousLaundryCycle = isLaundryUpdateEligible(job, job.property)
+      ? await getPreviousCleanLaundryCycle(db, job.propertyId, job.id, job.scheduledDate)
+      : null;
 
     const configuredPropertyTemplateId =
       settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
@@ -637,7 +606,8 @@ export async function GET(
           }
         : null,
       laundryBagLocationOptions: settings.laundryBagLocationOptions,
-      laundryGuidance,
+      /** Laundry cycle of the PREVIOUS clean at this property (feeds this clean). */
+      previousLaundryCycle,
     });
   } catch (err: any) {
     const status =
