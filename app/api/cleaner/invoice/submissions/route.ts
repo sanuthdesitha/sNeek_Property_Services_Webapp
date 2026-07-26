@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import {
+  invoiceErrorMessage,
+  invoiceErrorStatus,
+  requireInvoicePayeeSession,
+} from "@/lib/invoicing/access";
 
-/** The cleaner's own past invoice submissions with their status. */
+/**
+ * The signed-in payee's own past invoice submissions with their status.
+ * Scoped to `session.user.id` — a QA inspector (now allowed on this route) can
+ * only ever read their own rows.
+ */
 export async function GET() {
   try {
-    const session = await requireRole([Role.CLEANER]);
+    const session = await requireInvoicePayeeSession();
     const rows = await db.cleanerInvoiceSubmission.findMany({
       where: { cleanerId: session.user.id },
       select: {
@@ -24,7 +31,9 @@ export async function GET() {
     });
     return NextResponse.json(rows);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not load submissions." }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }

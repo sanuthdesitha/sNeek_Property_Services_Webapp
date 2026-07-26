@@ -24,16 +24,28 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "This invoice has no line items to push." }, { status: 400 });
     }
 
-    const cleaner = await db.user.findUnique({ where: { id: sub.cleanerId }, select: { name: true, email: true, phone: true } });
+    const cleaner = await db.user.findUnique({
+      where: { id: sub.cleanerId },
+      select: { name: true, email: true, phone: true, role: true },
+    });
+
+    // The rail carries two kinds of payee (CLEANER, QA_INSPECTOR). Label the
+    // Xero bill for what it actually is — a QA inspector's bill can contain no
+    // cleaning at all. lineData.payeeRole is the snapshot written at send time;
+    // fall back to the user's current role for invoices raised before it existed.
+    const payeeRole = (data.payeeRole as string | undefined) ?? cleaner?.role ?? null;
+    const payeeLabel = payeeRole === Role.QA_INSPECTOR ? "QA inspector" : "Cleaner";
 
     const result = await pushCleanerBillToXero({
-      cleanerName: contact.name || cleaner?.name || "Cleaner",
+      cleanerName: contact.name || cleaner?.name || payeeLabel,
       cleanerEmail: contact.email || cleaner?.email || "no-reply@sneekops.com.au",
       cleanerPhone: contact.phone || cleaner?.phone || undefined,
       cleanerAddress: contact.address || undefined,
-      reference: `Cleaner invoice ${isoDate(sub.periodStart)} – ${isoDate(sub.periodEnd)}`,
+      reference: `${payeeLabel} invoice ${isoDate(sub.periodStart)} – ${isoDate(sub.periodEnd)}`,
       lineItems: lines.map((l: any) => ({
-        description: String(l.description ?? "Cleaning services"),
+        description: String(
+          l.description ?? (payeeRole === Role.QA_INSPECTOR ? "QA inspection services" : "Cleaning services")
+        ),
         quantity: Number(l.quantity ?? 1),
         unitAmount: Number(l.unitAmount ?? 0),
       })),

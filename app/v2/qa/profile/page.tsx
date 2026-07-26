@@ -34,6 +34,14 @@ export default async function QaProfilePage() {
         latitude: true,
         longitude: true,
         placeId: true,
+        // Inspectors self-invoice for their inspections on the cleaner invoice
+        // rail, so they need the same payee details a cleaner does (the invoice
+        // PDF prints ABN + bank; /api/cleaner/invoice/send refuses to email
+        // without them).
+        bankAccountName: true,
+        bankBsb: true,
+        bankAccountNumber: true,
+        abn: true,
         uiDensity: true,
         themePreference: true,
         invoicingCadence: true,
@@ -53,12 +61,13 @@ export default async function QaProfilePage() {
       <EPageHeader
         eyebrow="Account"
         title="Your profile"
-        description="Your contact details and preferences."
+        description="Your contact, banking and invoicing details, preferences and security."
       />
 
       <EstateProfile
         user={user as any}
         editingEnabled={editingEnabled}
+        showBanking
         initialCadence={(user as any).invoicingCadence ?? undefined}
         initialDayOfWeek={(user as any).invoiceDayOfWeek ?? null}
         initialDayOfMonth={(user as any).invoiceDayOfMonth ?? null}

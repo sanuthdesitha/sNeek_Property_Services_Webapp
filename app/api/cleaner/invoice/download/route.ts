@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import {
   buildCleanerInvoiceHtml,
   getCleanerInvoiceData,
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
+import {
+  invoiceErrorMessage,
+  invoiceErrorStatus,
+  invoiceFileStem,
+  requireInvoicePayeeSession,
+} from "@/lib/invoicing/access";
+
+// Payee = session.user.id, always. Never a caller-supplied id, which is what
+// makes it safe for this route to serve QA inspectors as well as cleaners.
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -41,9 +46,9 @@ async function buildInvoicePdfResponse(
   const data = await getCleanerInvoiceData({ ...input, excludeInvoicedJobs: true });
   const html = buildCleanerInvoiceHtml(data);
   const pdf = await renderCleanerInvoicePdf(html);
-  const fileName = `cleaner-invoice-${data.start.toISOString().slice(0, 10)}-to-${data.end
+  const fileName = `${invoiceFileStem(data.payeeRole)}-${data.start
     .toISOString()
-    .slice(0, 10)}.pdf`;
+    .slice(0, 10)}-to-${data.end.toISOString().slice(0, 10)}.pdf`;
 
   return new NextResponse(new Uint8Array(pdf), {
     headers: {
@@ -55,11 +60,7 @@ async function buildInvoicePdfResponse(
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLEANER]);
-    const settings = await getAppSettings();
-    if (!isCleanerModuleEnabled(settings, "invoices")) {
-      return NextResponse.json({ error: "Invoices are disabled for cleaners." }, { status: 403 });
-    }
+    const session = await requireInvoicePayeeSession();
     const { searchParams } = new URL(req.url);
     const startDate = searchParams.get("startDate") ?? undefined;
     const endDate = searchParams.get("endDate") ?? undefined;
@@ -79,18 +80,16 @@ export async function GET(req: NextRequest) {
       { inline }
     );
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLEANER]);
-    const settings = await getAppSettings();
-    if (!isCleanerModuleEnabled(settings, "invoices")) {
-      return NextResponse.json({ error: "Invoices are disabled for cleaners." }, { status: 403 });
-    }
+    const session = await requireInvoicePayeeSession();
     const body = schema.parse(await req.json().catch(() => ({})));
     return buildInvoicePdfResponse(
       {
@@ -107,7 +106,9 @@ export async function POST(req: NextRequest) {
       { inline: body.inline }
     );
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }

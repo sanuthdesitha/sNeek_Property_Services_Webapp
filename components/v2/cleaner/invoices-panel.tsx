@@ -1,9 +1,16 @@
 "use client";
 
 /**
- * Estate cleaner invoices tool. Fully native Estate (only /v2 primitives + the
- * estate-kit + Estate form fields + lucide), wired to the SAME cleaner invoice
- * endpoints the live workspace (components/cleaner/invoices-page.tsx) uses:
+ * Estate self-invoicing tool, shared by BOTH payee kinds on the cleaner invoice
+ * rail: cleaners (/v2/cleaner/invoices) and QA inspectors (/v2/qa/invoices).
+ * One component on purpose — a forked copy would drift away from the money
+ * rules that the shared endpoints enforce. Everything role-specific is a prop
+ * (`payeeKind`, `profileHref`); the data, totals and actions are identical
+ * because the API derives the payee from the session, not from the caller.
+ *
+ * Fully native Estate (only /v2 primitives + the estate-kit + Estate form
+ * fields + lucide), wired to the SAME cleaner invoice endpoints the live
+ * workspace (components/cleaner/invoices-page.tsx) uses:
  *   POST /api/cleaner/invoice/preview   { startDate?, endDate?, showSpentHours,
  *                                         jobComments, jobHourOverrides,
  *                                         excludedJobIds, excludedRunIds } → data
@@ -128,7 +135,20 @@ function presetRange(kind: "thisMonth" | "lastMonth" | "last2Weeks"): { start: s
   return { start: isoLocal(start), end: isoLocal(now) };
 }
 
-export function InvoicesPanel() {
+export type InvoicePayeeKind = "cleaner" | "inspector";
+
+export function InvoicesPanel({
+  payeeKind = "cleaner",
+  profileHref,
+}: {
+  /** Drives copy only. An inspector's invoice may legitimately contain no cleans. */
+  payeeKind?: InvoicePayeeKind;
+  /** Where "Complete profile" goes. Defaults to this payee kind's portal. */
+  profileHref?: string;
+} = {}) {
+  const isInspector = payeeKind === "inspector";
+  const resolvedProfileHref =
+    profileHref ?? (isInspector ? "/v2/qa/profile" : "/v2/cleaner/profile");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showSpentHours, setShowSpentHours] = useState(true);
@@ -167,6 +187,22 @@ export function InvoicesPanel() {
   }, []);
 
   const payableJobs = useMemo(() => invoicePreview?.rows ?? [], [invoicePreview]);
+  const qaInspectionRows = useMemo(
+    () => invoicePreview?.qaInspectionRows ?? [],
+    [invoicePreview]
+  );
+  const qaInspectionCount = qaInspectionRows.length;
+  // An invoice is issuable when it has ANY billable line — not only cleans. An
+  // inspections-only payee (every QA inspector, and any cleaner whose period
+  // held only inspections) has zero job rows yet a perfectly valid invoice, so
+  // gating the preview/issue buttons on job count alone locked them out of
+  // their own money.
+  const hasBillableWork =
+    payableJobs.length > 0 ||
+    qaInspectionCount > 0 ||
+    (invoicePreview?.extraLineRows?.length ?? 0) > 0 ||
+    (invoicePreview?.expenseRows?.length ?? 0) > 0 ||
+    (invoicePreview?.shoppingTimeRows?.length ?? 0) > 0;
 
   const breakdown = useMemo(() => {
     const rows = invoicePreview?.rows ?? [];
@@ -396,7 +432,7 @@ export function InvoicesPanel() {
           </p>
           <div className="mt-3">
             <EButton asChild variant="outline" size="sm">
-              <a href="/v2/cleaner/profile">Complete profile</a>
+              <a href={resolvedProfileHref}>Complete profile</a>
             </EButton>
           </div>
         </EAlert>
@@ -407,7 +443,8 @@ export function InvoicesPanel() {
         <ECardHeader>
           <ECardTitle>Choose a period</ECardTitle>
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Pick a range, review your paid hours, then download or email your invoice.
+            Pick a range, review {isInspector ? "your inspections" : "your paid hours"}, then
+            download or email your invoice.
           </p>
         </ECardHeader>
         <ECardBody className="space-y-4">
@@ -474,7 +511,13 @@ export function InvoicesPanel() {
         <EStatCard
           label="Total to invoice"
           value={loadingPreview && !invoicePreview ? "—" : money(invoicePreview?.estimatedPay)}
-          delta={`${payableJobs.length} job${payableJobs.length === 1 ? "" : "s"} · ${Number(invoicePreview?.hours ?? 0).toFixed(2)}h`}
+          delta={
+            isInspector
+              ? `${qaInspectionCount} inspection${qaInspectionCount === 1 ? "" : "s"}${
+                  payableJobs.length > 0 ? ` · ${payableJobs.length} job${payableJobs.length === 1 ? "" : "s"}` : ""
+                }`
+              : `${payableJobs.length} job${payableJobs.length === 1 ? "" : "s"} · ${Number(invoicePreview?.hours ?? 0).toFixed(2)}h`
+          }
           deltaTone="neutral"
           icon={<ReceiptText className="h-4 w-4" />}
         />
@@ -519,7 +562,7 @@ export function InvoicesPanel() {
       <ECard>
         <ECardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <ECardTitle>Jobs in this period</ECardTitle>
+            <ECardTitle>{isInspector ? "Cleaning jobs in this period" : "Jobs in this period"}</ECardTitle>
             {removedCount > 0 ? (
               <button
                 type="button"
@@ -545,9 +588,13 @@ export function InvoicesPanel() {
             <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">No preview available.</p>
           ) : payableJobs.length === 0 ? (
             <EEmptyState
-              eyebrow="Nothing yet"
-              title="No payable jobs"
-              description="No payable jobs in the selected range. Try a different period."
+              eyebrow={isInspector ? "None — that's normal" : "Nothing yet"}
+              title={isInspector ? "No cleaning jobs" : "No payable jobs"}
+              description={
+                isInspector
+                  ? "You have no cleaning jobs in this range — inspectors normally don't. Your inspections and adjustments are billed above and still make a complete invoice."
+                  : "No payable jobs in the selected range. Try a different period."
+              }
             />
           ) : (
             payableJobs.map((row) => {
@@ -621,6 +668,33 @@ export function InvoicesPanel() {
           )}
         </ECardBody>
       </ECard>
+
+      {/* QA inspections — for an inspector this IS the invoice, so the lines are
+          listed in full, not just summarised in the badge above. */}
+      {qaInspectionCount > 0 ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle>QA inspections · {money(invoicePreview?.qaInspectionTotal)}</ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Each completed inspection is billed once — on this invoice or a pay run, never both.
+            </p>
+          </ECardHeader>
+          <ECardBody className="space-y-2 pt-0">
+            {qaInspectionRows.map((row) => (
+              <div
+                key={row.assignmentId}
+                className="flex items-start justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-info)/0.3)] bg-[hsl(var(--e-info)/0.08)] p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[0.875rem] font-[550]">{row.property}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{row.date}</p>
+                </div>
+                <span className="e-numeral shrink-0 text-[0.9375rem]">{money(row.amount)}</span>
+              </div>
+            ))}
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       {/* Shopping reimbursements */}
       {expenseRows.length > 0 ? (
@@ -701,7 +775,7 @@ export function InvoicesPanel() {
         <ECardBody className="space-y-2 pt-0">
           <EButton
             onClick={() => void previewInvoicePdf()}
-            disabled={previewingPdf || loadingPreview || payableJobs.length === 0}
+            disabled={previewingPdf || loadingPreview || !hasBillableWork}
             variant="outline"
             className="w-full"
           >

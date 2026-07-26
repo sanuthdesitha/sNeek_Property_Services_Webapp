@@ -73,6 +73,8 @@ type ExpectedCleaner = {
   cleanerId: string;
   cleanerName: string;
   cleanerEmail: string;
+  /** CLEANER or QA_INSPECTOR — inspectors self-invoice on this same rail. */
+  role?: string;
   employmentType: string | null;
   expectedTotal: number;
   expectedHours: number;
@@ -84,6 +86,8 @@ type ExpectedCleaner = {
   rateMissingCount: number;
   expenseTotal: number;
   shoppingTimeTotal: number;
+  qaInspectionTotal?: number;
+  qaInspectionCount?: number;
   rows: ExpectedRow[];
   submission: ExpectedSubmission | null;
 };
@@ -419,6 +423,13 @@ function CleanerCard({
               <EBadge tone={contractor ? "gold" : "neutral"} soft>
                 {employmentLabel(c.employmentType)}
               </EBadge>
+              {/* An inspections-only payee has zero job lines, so without this
+                  their row reads like a cleaner who did nothing. */}
+              {c.role === "QA_INSPECTOR" ? (
+                <EBadge tone="info" soft>
+                  QA inspector
+                </EBadge>
+              ) : null}
             </div>
             <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{c.cleanerEmail}</p>
           </div>
@@ -428,6 +439,11 @@ function CleanerCard({
             <p className="e-numeral text-[1.75rem] leading-none">{money(c.expectedTotal)}</p>
             <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
               {c.jobCount} {c.jobCount === 1 ? "job" : "jobs"} · {c.expectedHours.toFixed(2)} hrs
+              {Number(c.qaInspectionCount ?? 0) > 0
+                ? ` · ${c.qaInspectionCount} QA ${
+                    c.qaInspectionCount === 1 ? "inspection" : "inspections"
+                  } (${money(Number(c.qaInspectionTotal ?? 0))})`
+                : ""}
             </p>
           </div>
         </div>

@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import {
   buildCleanerInvoiceHtml,
@@ -13,7 +10,17 @@ import {
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
 import { markCleanerShoppingRunsInvoiced } from "@/lib/inventory/shopping-runs";
-import { cleanerInvoiceMissingFields } from "@/lib/profile/completeness";
+import {
+  invoicePayeeMissingFields,
+  invoicePayeeProfileHref,
+} from "@/lib/profile/completeness";
+import {
+  adaptInvoiceEmailForPayee,
+  invoiceErrorMessage,
+  invoiceErrorStatus,
+  invoiceFileStem,
+  requireInvoicePayeeSession,
+} from "@/lib/invoicing/access";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -29,11 +36,11 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLEANER]);
+    // CLEANER or QA_INSPECTOR. Everything below keys off session.user.id, so a
+    // payee can only ever bill their OWN work — the widened role gate grants no
+    // access to anyone else's jobs, inspections, adjustments or submissions.
+    const session = await requireInvoicePayeeSession();
     const settings = await getAppSettings();
-    if (!isCleanerModuleEnabled(settings, "invoices")) {
-      return NextResponse.json({ error: "Invoices are disabled for cleaners." }, { status: 403 });
-    }
     const body = schema.parse(await req.json().catch(() => ({})));
     const data = await getCleanerInvoiceData({
       userId: session.user.id,
@@ -47,7 +54,7 @@ export async function POST(req: NextRequest) {
       excludedJobIds: body.excludedJobIds,
       excludedRunIds: body.excludedRunIds,
     });
-    const missingProfile = cleanerInvoiceMissingFields({
+    const missingProfile = invoicePayeeMissingFields({
       name: data.cleanerName,
       phone: data.cleanerPhone,
       email: data.cleanerEmail,
@@ -64,7 +71,7 @@ export async function POST(req: NextRequest) {
             .map((field) => field.label)
             .join(", ")}.`,
           missingProfileFields: missingProfile,
-          fixUrl: "/cleaner/profile",
+          fixUrl: invoicePayeeProfileHref(session.user.role),
         },
         { status: 400 }
       );
@@ -102,6 +109,9 @@ export async function POST(req: NextRequest) {
         address: data.cleanerAddress ?? null,
         abn: data.cleanerAbn ?? null,
       },
+      // CLEANER or QA_INSPECTOR — recorded so admin review, the Xero bill and any
+      // later audit can tell which kind of payee raised this invoice.
+      payeeRole: session.user.role ?? null,
       lines: billLines,
       // Jobs invoiced here — used to exclude them from future invoices so a
       // job can't be submitted twice and won't reappear once invoiced.
@@ -177,15 +187,20 @@ export async function POST(req: NextRequest) {
 
     const html = buildCleanerInvoiceHtml(data);
     const pdf = await renderCleanerInvoicePdf(html);
-    const fileName = `cleaner-invoice-${session.user.id}-${data.start.toISOString().slice(0, 10)}-to-${data.end
+    const fileName = `${invoiceFileStem(session.user.role)}-${session.user.id}-${data.start
       .toISOString()
-      .slice(0, 10)}.pdf`;
+      .slice(0, 10)}-to-${data.end.toISOString().slice(0, 10)}.pdf`;
 
-    const emailTemplate = renderEmailTemplate(settings, "cleanerInvoice", {
-      cleanerName: data.cleanerName,
-      accountsEmail,
-      jobCount: data.rows.length,
-    });
+    // One template for the whole rail; relabelled for an inspector so accounts
+    // aren't told a cleans-free invoice is a "Cleaner Invoice".
+    const emailTemplate = adaptInvoiceEmailForPayee(
+      session.user.role,
+      renderEmailTemplate(settings, "cleanerInvoice", {
+        cleanerName: data.cleanerName,
+        accountsEmail,
+        jobCount: data.rows.length,
+      })
+    );
     const emailResult = await sendEmailDetailed({
       to: accountsEmail,
       subject: emailTemplate.subject,
@@ -278,7 +293,9 @@ export async function POST(req: NextRequest) {
       qaInspectionTotal: data.qaInspectionTotal,
     });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json(
+      { error: invoiceErrorMessage(err?.message) },
+      { status: invoiceErrorStatus(err?.message) }
+    );
   }
 }
