@@ -19,6 +19,7 @@ import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { syncAdminJobTasks } from "@/lib/job-tasks/service";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { isRestartTransition, startArtifactResetFields } from "@/lib/jobs/job-reset";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 const FINISHED_JOB_STATUSES = new Set<JobStatus>([
@@ -264,6 +265,19 @@ export async function PATCH(
       data.sameDayCheckin = priority.sameDayCheckin;
       data.sameDayCheckinTime = priority.sameDayCheckinTime;
     }
+    // ── Restart transition ────────────────────────────────────────────────────
+    // Moving a started (or finished) job back to a pre-start status makes it
+    // startable again — so the job-level start artifacts have to go with it.
+    // They are job-GLOBAL (Job.gpsCheckInAt & co) while the cleaner start gate is
+    // per-cleaner: left behind, they told the workspace "already started" so a
+    // newly assigned cleaner never saw the start verification, while the server
+    // still demanded it from them. Result: they could neither start nor submit.
+    const restartTransition =
+      body.status !== undefined && isRestartTransition(current.status, body.status);
+    if (restartTransition) {
+      Object.assign(data, startArtifactResetFields());
+    }
+
     delete data.isDraft;
     delete data.tags;
     delete data.attachments;
@@ -319,7 +333,12 @@ export async function PATCH(
         action: "UPDATE_JOB",
         entity: "Job",
         entityId: params.id,
-        after: data as any,
+        after: {
+          ...data,
+          ...(restartTransition
+            ? { restartTransition: { from: current.status, to: body.status, clearedStartArtifacts: true } }
+            : {}),
+        } as any,
       },
     });
 

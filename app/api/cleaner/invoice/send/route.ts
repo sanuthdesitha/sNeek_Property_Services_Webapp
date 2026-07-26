@@ -207,6 +207,25 @@ export async function POST(req: NextRequest) {
       ),
     });
 
+    // Settle the approved pay adjustments this invoice billed. The stamp is the
+    // double-pay guard: a stamped row is no longer selectable by the next
+    // invoice (lib/finance/pay-adjustments.ts → isAdjustmentAvailableForInvoice),
+    // so re-running generation cannot bill it twice. Applied only after the
+    // email actually reached accounts — a failed send deletes the anchor above
+    // and stamps nothing, leaving the adjustments available for a retry.
+    // Conditioned on the stamp still being null so a concurrent invoice that
+    // already claimed a row cannot have it reassigned.
+    if (data.includedAdjustmentIds.length > 0) {
+      await db.cleanerPayAdjustment.updateMany({
+        where: {
+          id: { in: data.includedAdjustmentIds },
+          cleanerId: session.user.id,
+          includedInCleanerInvoiceId: null,
+        },
+        data: { includedInCleanerInvoiceId: anchorId, includedInCleanerInvoiceAt: new Date() },
+      });
+    }
+
     // Email + invoiced-marking succeeded → flip the anchor to its terminal state.
     await db.cleanerInvoiceSubmission.update({
       where: { id: anchorId },

@@ -89,7 +89,17 @@ function isLaundryTaskCompleted(task: NonNullable<PlannerJobWithLaundry["laundry
   );
 }
 
-function canPlannerOverrideStatus(task: NonNullable<PlannerJobWithLaundry["laundryTask"]>) {
+/**
+ * The planner only owns a task's status while it is still un-actioned. Anything
+ * a human moved (CONFIRMED / PICKED_UP / DROPPED / SKIPPED_PICKUP) is theirs.
+ *
+ * SKIPPED_PICKUP matters most here: it is what an admin "delete" (soft) and a
+ * cleaner's no-pickup-required outcome both write, and the whole point is that
+ * it survives the next plan run. Exported so `applyLaundryPlanDraft` — which
+ * upserts on the @unique jobId and used to clobber status unconditionally —
+ * applies the same rule as the sync draft.
+ */
+export function canPlannerOverrideStatus(task: { status: LaundryStatus }) {
   return task.status === LaundryStatus.PENDING || task.status === LaundryStatus.FLAGGED;
 }
 
@@ -348,17 +358,33 @@ export async function refreshLaundrySyncDraftForProperty(options: {
 export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
   if (items.length === 0) return [];
 
+  // Which of these jobs already have a task, and in what state? The upsert
+  // below must not reset a status a human owns — most importantly
+  // SKIPPED_PICKUP, which is how a task is removed from the boards. Without
+  // this the very next weekly plan run would resurrect every deleted set.
+  const existingTasks = await db.laundryTask.findMany({
+    where: { jobId: { in: items.map((item) => item.jobId) } },
+    select: { jobId: true, status: true },
+  });
+  const existingByJobId = new Map(existingTasks.map((task) => [task.jobId, task]));
+
   const applied = await db.$transaction(async (tx) => {
     const rows = [];
     for (const item of items) {
+      const current = existingByJobId.get(item.jobId);
+      const keepHumanStatus = current != null && !canPlannerOverrideStatus(current);
       const row = await tx.laundryTask.upsert({
         where: { jobId: item.jobId },
         update: {
           pickupDate: new Date(item.pickupDate),
           dropoffDate: new Date(item.dropoffDate),
-          status: item.status,
-          flagReason: item.flagReason,
-          flagNotes: item.flagNotes,
+          ...(keepHumanStatus
+            ? {}
+            : {
+                status: item.status,
+                flagReason: item.flagReason,
+                flagNotes: item.flagNotes,
+              }),
           notifyLaundry: false,
         },
         create: {

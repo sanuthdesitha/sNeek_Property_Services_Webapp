@@ -1,14 +1,18 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { isSegmentId } from "@/lib/marketing/segments";
 
 const audienceSchema = z.object({
-  type: z.enum(["all_clients", "inactive_clients", "service_type"]),
+  // "segment" delegates recipient resolution to lib/marketing/segments.ts; the
+  // other three are the original ad-hoc filters, kept for saved campaigns.
+  type: z.enum(["all_clients", "inactive_clients", "service_type", "segment"]),
   filters: z.object({
     daysSinceLastBooking: z.number().int().min(1).max(3650).optional(),
     jobTypes: z.array(z.string().trim().min(1)).optional(),
+    segmentId: z.string().trim().min(1).refine(isSegmentId, "Unknown segment").optional(),
   }).optional(),
 });
 

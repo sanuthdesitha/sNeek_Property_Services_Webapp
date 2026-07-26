@@ -15,6 +15,7 @@ import { resolveTemplate } from "@/lib/messages/variables";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { isSuppressed } from "@/lib/email/suppression";
+import { isSegmentId, resolveSegment } from "@/lib/marketing/segments";
 import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 
 export interface CampaignSendResult {
@@ -47,6 +48,17 @@ async function loadRecipients(audience: any): Promise<ResolvedRecipient[]> {
   // For SMS we additionally surface phone.
   const now = new Date();
   const aud = (audience && typeof audience === "object" && !Array.isArray(audience)) ? audience : { type: "all_clients" };
+
+  // Named-segment audiences resolve through lib/marketing/segments.ts.
+  if (aud.type === "segment" && isSegmentId(aud.filters?.segmentId)) {
+    const resolved = await resolveSegment(aud.filters.segmentId, now);
+    return resolved.recipients.map((r) => ({
+      clientId: r.clientId ?? "",
+      email: r.email,
+      phone: r.phone,
+    }));
+  }
+
   const type = aud.type === "inactive_clients" || aud.type === "service_type" ? aud.type : "all_clients";
   const filters = (aud.filters && typeof aud.filters === "object") ? aud.filters : {};
 
@@ -182,6 +194,13 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
           });
           if (res.ok) {
             sent++;
+            // Store the provider message id so Resend webhook events map back
+            // to this campaign (EmailCampaignEvent analytics).
+            if (res.externalId) {
+              await (db as any).campaignSend
+                .updateMany({ where: { campaignId, email: ledgerEmail }, data: { externalId: res.externalId } })
+                .catch(() => undefined);
+            }
           } else {
             failed++;
             // Drop the claim on hard failure so a later run retries this one

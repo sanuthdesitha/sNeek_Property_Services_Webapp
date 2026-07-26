@@ -56,6 +56,7 @@ import {
 } from "@/lib/jobs/meta";
 import { statusLabel, statusTone } from "./job-row";
 import { JobChatAdmin } from "./job-chat-admin";
+import { JobResetDialog } from "./job-reset-dialog";
 
 const TZ = "Australia/Sydney";
 
@@ -511,27 +512,6 @@ export function JobManageModal({
       toast({ title: "Update failed", description: err?.message ?? "Could not update skip state.", variant: "destructive" });
     } finally {
       setSkipBusy(false);
-    }
-  }
-
-  async function resetJob(credentials?: { pin?: string; password?: string }) {
-    setDangerBusy(true);
-    try {
-      const res = await fetch(`/api/admin/jobs/${job.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ security: credentials }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not reset job.");
-      toast({ title: "Job reset", description: "Assignments and progress cleared; back to Unassigned." });
-      setResetOpen(false);
-      onClose();
-      await onChanged();
-    } catch (err: any) {
-      toast({ title: "Reset failed", description: err?.message ?? "Could not reset job.", variant: "destructive" });
-    } finally {
-      setDangerBusy(false);
     }
   }
 
@@ -1001,7 +981,8 @@ export function JobManageModal({
                 <div>
                   <p className="text-[0.875rem] font-[550]">Reset job</p>
                   <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Clears assignments and operational progress; the job returns to Unassigned.
+                    Choose what to reset. By default only the status and start/progress markers are cleared —
+                    time logs, assignees, forms, photos and pay are kept.
                   </p>
                 </div>
                 <EButton variant="outline" onClick={() => setResetOpen(true)} disabled={dangerBusy}>Reset…</EButton>
@@ -1020,15 +1001,15 @@ export function JobManageModal({
         </div>
       </EModal>
 
-      <EConfirmModal
+      <JobResetDialog
         open={resetOpen}
+        jobId={job.id}
         onClose={() => setResetOpen(false)}
-        title="Reset this job?"
-        description="Assignments, time logs and progress will be cleared and the job returns to Unassigned. Enter your PIN or password to continue."
-        confirmLabel="Reset job"
-        requireSecurity
-        loading={dangerBusy}
-        onConfirm={resetJob}
+        onDone={async () => {
+          toast({ title: "Job reset" });
+          onClose();
+          await onChanged();
+        }}
       />
 
       <EConfirmModal

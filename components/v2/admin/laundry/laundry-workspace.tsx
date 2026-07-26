@@ -24,10 +24,16 @@ import {
   Scale,
   Shirt,
   Store,
+  Trash2,
   Truck,
   Weight,
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
+import { toast } from "@/hooks/use-toast";
+import {
+  useLaundryDeleteDialog,
+  type LaundryDeletePayload,
+} from "@/components/v2/laundry/laundry-delete-dialog";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { LaundrySuppliers } from "@/components/v2/admin/laundry/laundry-suppliers";
 import { LaundryEditDialog } from "./laundry-edit-dialog";
@@ -107,10 +113,14 @@ function TabBar({
 function TaskCard({
   task,
   onEdit,
+  onDelete,
+  busy,
   showMedia,
 }: {
   task: LaundryTaskDTO;
   onEdit: (task: LaundryTaskDTO) => void;
+  onDelete: (task: LaundryTaskDTO) => void;
+  busy?: boolean;
   showMedia?: boolean;
 }) {
   const { name, suburb } = propertyLine(task);
@@ -158,9 +168,20 @@ function TaskCard({
             <EBadge tone={statusTone(task.status)} soft>
               {statusLabel(task.status)}
             </EBadge>
-            <EButton variant="outline" size="sm" onClick={() => onEdit(task)}>
-              <Pencil className="h-3.5 w-3.5" /> Edit
-            </EButton>
+            <div className="flex items-center gap-1.5">
+              <EButton variant="outline" size="sm" onClick={() => onEdit(task)}>
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </EButton>
+              <EButton
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                aria-label={`Delete the laundry set for ${name}`}
+                onClick={() => onDelete(task)}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </EButton>
+            </div>
           </div>
         </div>
 
@@ -205,6 +226,57 @@ export function LaundryWorkspace() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  // Optimistic delete against DELETE /api/laundry/[taskId] — the row leaves the
+  // list straight away and is restored if the server refuses (e.g. 409 on a
+  // completed set without a forced confirm).
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const tasksRef = React.useRef<LaundryTaskDTO[]>([]);
+  React.useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  const removeTask = React.useCallback(
+    async (task: { id: string }, payload: LaundryDeletePayload) => {
+      const snapshot = tasksRef.current;
+      setDeletingId(task.id);
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      try {
+        const res = await fetch(`/api/laundry/${task.id}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setTasks(snapshot);
+          toast({
+            title: "Could not delete",
+            description: body?.error ?? "The laundry set could not be removed.",
+            variant: "destructive",
+          });
+          return false;
+        }
+        toast({
+          title: payload.mode === "PERMANENT" ? "Laundry set deleted" : "Removed from the boards",
+          description: body?.mayBeRecreated
+            ? "The plan generator may recreate this set from its job."
+            : undefined,
+        });
+        await load({ silent: true });
+        return true;
+      } catch (err: any) {
+        setTasks(snapshot);
+        toast({ title: "Delete failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+        return false;
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [load],
+  );
+
+  const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(removeTask);
 
   const todayTasks = React.useMemo(
     () => tasks.filter((t) => !isCompleted(t)).sort((a, b) => new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime()),
@@ -267,7 +339,15 @@ export function LaundryWorkspace() {
               action={<LaundryNewRun onApplied={() => void load()} />}
             />
           ) : (
-            todayTasks.map((task) => <TaskCard key={task.id} task={task} onEdit={setEditTask} />)
+            todayTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onEdit={setEditTask}
+                onDelete={requestDelete}
+                busy={deletingId === task.id}
+              />
+            ))
           )}
         </div>
       ) : null}
@@ -285,7 +365,16 @@ export function LaundryWorkspace() {
               description="Delivered and skipped laundry runs appear here with their evidence."
             />
           ) : (
-            completedTasks.map((task) => <TaskCard key={task.id} task={task} onEdit={setEditTask} showMedia />)
+            completedTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onEdit={setEditTask}
+                onDelete={requestDelete}
+                busy={deletingId === task.id}
+                showMedia
+              />
+            ))
           )}
         </div>
       ) : null}
@@ -295,6 +384,7 @@ export function LaundryWorkspace() {
       {tab === "suppliers" ? <LaundrySuppliers /> : null}
 
       <LaundryEditDialog task={editTask} onClose={() => setEditTask(null)} onSaved={() => void load()} />
+      {deleteModal}
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate workspace · live data from your operations.</p>
     </div>

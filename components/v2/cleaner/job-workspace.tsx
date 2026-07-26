@@ -496,8 +496,6 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     Boolean(laundryEarlySentAt) && laundrySentSnapshot !== null && laundryCurrentSignature !== laundrySentSnapshot;
   /** SENT + untouched → the card renders a read-only summary with "Edit update". */
   const laundryLocked = Boolean(laundryEarlySentAt) && !laundryEditingAfterSend && !laundryAmendedSinceSend;
-  // Visibility: own start OR team start (or a recorded GPS check-in).
-  const hasStarted = hasCheckin || isStartedForVisibility(teamState);
   const propertyCode: string = (property as any)?.name ?? "";
   const expectedDurationMinutes: number | null =
     (property as any)?.cleaningDurationMinutes != null
@@ -529,13 +527,25 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // Only the FIRST person to start does the heavyweight confirmations. A second
   // cleaner joining an in-progress clean isn't re-asked to verify the property
   // code the first starter already confirmed.
-  const startGateBlocks =
-    requiresStartConfirmations({
-      ...teamState,
-      requireStartConfirmation,
-      locked,
-      needsAcceptance,
-    }) && !hasCheckin;
+  //
+  // This used to also bail out on `hasCheckin` (the job-level, immutable
+  // Job.gpsCheckInAt). That scalar belongs to whoever arrived FIRST, so after an
+  // admin bounced a started job back to ASSIGNED and reassigned it, the new
+  // cleaner saw no start verification at all — while the server still demanded
+  // the confirmations from them (their own TimeLog is empty), rejecting every
+  // clock-in with JOB_START_CONFIRMATION_REQUIRED. The predicate now keys off
+  // "is the clean running right now?" instead of stale artifacts.
+  const startGateBlocks = requiresStartConfirmations({
+    ...teamState,
+    requireStartConfirmation,
+    locked,
+    needsAcceptance,
+    hasJobCheckIn: hasCheckin,
+  });
+  // Visibility: own start OR team start (or a recorded GPS check-in) — but never
+  // while this cleaner still owes their own start verification, or the workspace
+  // would skip Set-up and hide the very tick they need.
+  const hasStarted = !startGateBlocks && (hasCheckin || isStartedForVisibility(teamState));
   const startGateSatisfied =
     !startGateBlocks ||
     (propertyCodeConfirmed && (!laundryBagConfirmRequired || laundryBagConfirmed));
@@ -780,7 +790,10 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
    * check-in, so this is belt-and-braces.
    */
   async function clockIn() {
-    const isResume = ownStarted || hasCheckin;
+    // "Resume" = MY clock has run before. A job-level check-in left behind by a
+    // previous cleaner is not my arrival, so a fresh assignee still runs the
+    // arrival capture (the server preserves the original check-in regardless).
+    const isResume = ownStarted || (hasCheckin && !startGateBlocks);
 
     // Client-side gate: block until the pre-start confirmations are ticked. The
     // server enforces this too — this just gives a clear message before the POST.

@@ -68,6 +68,13 @@ export function DrivingMode({
   const [error, setError] = React.useState<string | null>(null);
   const [reason, setReason] = React.useState(modeMeta.pauseReasons[0]);
   const [lastPingAt, setLastPingAt] = React.useState<number | null>(null);
+  /**
+   * Optimistic pause state. The server is authoritative (`stop.drivingPausedAt`
+   * now travels with every route payload), but the refresh round-trip is a
+   * network hop — without this the button doesn't flip until the refetch lands.
+   * Cleared automatically the moment the server payload agrees.
+   */
+  const [pauseOverride, setPauseOverride] = React.useState<boolean | null>(null);
 
   // Consume the cleaner's saved order for today so Drive mode and the Timeline
   // walk the SAME sequence. Applied after mount (localStorage is client-only).
@@ -84,8 +91,18 @@ export function DrivingMode({
     stops.find((s) => s.status === "ASSIGNED") ??
     stops.find((s) => !["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"].includes(s.status)) ??
     null;
-  const paused = Boolean((activeStop as any)?.drivingPausedAt);
+  const serverPaused = Boolean(activeStop?.drivingPausedAt);
+  const paused = pauseOverride ?? serverPaused;
   const arrived = Boolean(activeStop?.arrivedAt);
+
+  // Drop the optimistic flag once the server payload reports the same state,
+  // and whenever the active stop changes (a new drive starts unpaused).
+  React.useEffect(() => {
+    if (pauseOverride !== null && pauseOverride === serverPaused) setPauseOverride(null);
+  }, [pauseOverride, serverPaused]);
+  React.useEffect(() => {
+    setPauseOverride(null);
+  }, [activeStop?.jobId]);
 
   async function refresh() {
     try {
@@ -130,9 +147,12 @@ export function DrivingMode({
     return data;
   }
 
-  // Heartbeat loop while a stop is en route (not arrived).
+  // Heartbeat loop while a stop is en route (not arrived) AND not paused.
+  // Pausing tears the interval down (and stops asking for GPS) — previously the
+  // loop kept pinging through a pause, so the cleaner's location kept flowing
+  // and the ETA machinery stayed warm even though the drive was "paused".
   React.useEffect(() => {
-    if (!activeStop || arrived) return;
+    if (!activeStop || arrived || paused) return;
     let alive = true;
     const send = async () => {
       const loc = await gps();
@@ -150,7 +170,7 @@ export function DrivingMode({
       alive = false;
       clearInterval(id);
     };
-  }, [activeStop?.jobId, arrived]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeStop?.jobId, arrived, paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
@@ -265,6 +285,13 @@ export function DrivingMode({
             {/* En-route secondary controls */}
             {activeStop && !arrived ? (
               <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                {paused ? (
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    Drive paused — location updates are stopped
+                    {activeStop.drivingPauseReason ? ` · ${activeStop.drivingPauseReason}` : ""}. Tap
+                    “Resume drive” when you’re moving again.
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-1.5">
                   {modeMeta.pauseReasons.map((r) => (
                     <button
@@ -288,18 +315,44 @@ export function DrivingMode({
                       variant="outline"
                       size="sm"
                       disabled={busy === "resume"}
-                      onClick={() => run("resume", () => post(`/api/cleaner/jobs/${activeStop.jobId}/resume-driving`).then(() => {}))}
+                      onClick={() =>
+                        run("resume", async () => {
+                          setPauseOverride(false);
+                          try {
+                            const loc = await gps();
+                            await post(
+                              `/api/cleaner/jobs/${activeStop.jobId}/resume-driving`,
+                              loc ? { lat: loc.lat, lng: loc.lng } : {}
+                            );
+                          } catch (e) {
+                            setPauseOverride(true); // roll back the optimistic flip
+                            throw e;
+                          }
+                        })
+                      }
                     >
-                      <TimerReset className="h-4 w-4" /> Resume
+                      {busy === "resume" ? <Loader2 className="h-4 w-4 animate-spin" /> : <TimerReset className="h-4 w-4" />}
+                      Resume drive
                     </EButton>
                   ) : (
                     <EButton
                       variant="outline"
                       size="sm"
                       disabled={busy === "pause"}
-                      onClick={() => run("pause", () => post(`/api/cleaner/jobs/${activeStop.jobId}/pause-driving`, { reason }).then(() => {}))}
+                      onClick={() =>
+                        run("pause", async () => {
+                          setPauseOverride(true); // stops the heartbeat immediately
+                          try {
+                            await post(`/api/cleaner/jobs/${activeStop.jobId}/pause-driving`, { reason });
+                          } catch (e) {
+                            setPauseOverride(false); // roll back the optimistic flip
+                            throw e;
+                          }
+                        })
+                      }
                     >
-                      <Pause className="h-4 w-4" /> Pause
+                      {busy === "pause" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
+                      Pause drive
                     </EButton>
                   )}
                   <EButton

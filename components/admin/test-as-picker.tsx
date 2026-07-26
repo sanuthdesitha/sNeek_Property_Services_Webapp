@@ -30,8 +30,14 @@ export function TestAsPicker({ users }: { users: TestAsCandidate[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, mode }),
       });
-      const data = (await res.json().catch(() => ({}))) as { home?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { home?: string; error?: string; code?: string };
       if (!res.ok) {
+        // The 15-minute unlock lapsed while the page sat open — send the admin
+        // back to the lock screen rather than showing a dead-end error.
+        if (data.code === "TEST_AS_LOCKED") {
+          window.location.reload();
+          return;
+        }
         setError(data.error ?? "Could not start the test session.");
         setPendingId(null);
         return;

@@ -14,6 +14,8 @@ import { getAppSettings } from "@/lib/settings";
 import { listClientApprovals, deleteClientApprovalById } from "@/lib/commercial/client-approvals";
 import { roundCents } from "@/lib/finance/job-money";
 import { notifyBonusOutcomeToCleaner } from "@/lib/notifications/accountability";
+import { notifyPayAdjustmentOutcome } from "@/lib/notifications/pay-adjustments";
+import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -92,6 +94,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             "The approved amount can only be edited on a request that is already approved. Approve the request first.",
         },
         { status: 400 }
+      );
+    }
+
+    // SETTLED MONEY IS IMMUTABLE. Once an approved adjustment has been paid by a
+    // payroll run or billed on a cleaner invoice, reversing it or editing its
+    // amount would silently desynchronise the books from what was actually paid
+    // out — the settlement stamp is what stops it being paid twice, so it can no
+    // longer be "un-decided". Raise a new, opposite adjustment instead.
+    const alreadySettledBy =
+      existing.includedInPayrollRunId ?? existing.includedInCleanerInvoiceId ?? null;
+    if (
+      alreadySettledBy &&
+      (Boolean(body.status) || body.approvedAmount !== undefined || body.requestedAmount !== undefined)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This adjustment has already been settled (paid by a payroll run or billed on a cleaner invoice) and can no longer be re-decided. Raise a new adjustment to correct it.",
+          settledBy: alreadySettledBy,
+        },
+        { status: 409 }
       );
     }
 
@@ -230,6 +253,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     });
 
+    // A cross-cleaner REWORK_DEDUCTION lands PENDING when the owner setting
+    // `reworkDeductionsRequireApproval` is on, and lib/qa/rework-jobs.ts
+    // deliberately leaves `Job.reworkDeductionApplied` false until the deduction
+    // is actually feeding payroll ("applied" means APPROVED, not "created").
+    // Nothing was flipping it on approval, so a later setReworkPayDecision read
+    // `deductionWasApplied === false`, took the first-decision branch, and
+    // applyReworkDeduction then bailed out on the (source, sourceKey) dedupe —
+    // the changed amount was never reconciled. Keep the flag in step with the
+    // decision here, in both directions.
+    if (isStatusChange && existing.source === "REWORK_DEDUCTION" && existing.jobId) {
+      await db.job
+        .updateMany({
+          where: { reworkOfJobId: existing.jobId, isRework: true },
+          data: { reworkDeductionApplied: updated.status === PayAdjustmentStatus.APPROVED },
+        })
+        .catch(() => undefined);
+    }
+
     if (isStatusChange || isAmountEdit) {
       const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
       const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
@@ -287,6 +328,37 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
         `,
       });
+
+      // MONEY-CHANGE NOTICE (web push + preference-aware delivery). The block
+      // above is the legacy in-app row + raw email and is kept so the cleaner's
+      // existing "extra payment request" thread is unchanged; this adds the push
+      // channel and, crucially, states the DIRECTION and AMOUNT explicitly — the
+      // legacy copy always reads as an "extra payment", which is wrong for a
+      // deduction (a QA rework/rectification deduction is stored negative).
+      //
+      // Guarded by `isStatusChange || isAmountEdit`, both of which require a real
+      // transition (isStatusChange compares against the previous status), so a
+      // retried or double-tapped approval fires nothing the second time.
+      const signedAmount = adjustmentSignedAmount({
+        status: PayAdjustmentStatus.APPROVED,
+        approvedAmount: updated.approvedAmount,
+        requestedAmount: updated.requestedAmount,
+      });
+      void notifyPayAdjustmentOutcome({
+        payeeUserId: updated.cleaner.id,
+        kind: isReverseToPending
+          ? "REVERSED_TO_PENDING"
+          : isAmountEdit
+          ? "AMOUNT_CHANGED"
+          : updated.status === PayAdjustmentStatus.APPROVED
+          ? "APPROVED"
+          : "REJECTED",
+        amount: signedAmount,
+        previousAmount: previousApprovedAmount ?? null,
+        reason: updated.title?.trim() || propertyName,
+        jobId: updated.job?.id ?? null,
+        adminNote: updated.adminNote,
+      }).catch(console.error);
     }
 
     // Accountability bonus outcome (Phase 8b): when an auto-proposed streak /

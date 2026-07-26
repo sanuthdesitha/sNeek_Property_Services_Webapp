@@ -217,6 +217,10 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         </ECardBody>
       </ECard>
 
+      {/* `teamStarted` / `isResume` are deliberately narrowed by startGateBlocks:
+          a stale team time log or a previous cleaner's job-level GPS check-in on
+          a job that was bounced back to ASSIGNED must not read as "clean already
+          underway" for a brand-new assignee. */}
       <ClockCard
         status={status}
         locked={locked}
@@ -227,8 +231,9 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         maxAllowedTotalSeconds={timeState.maxAllowedTotalSeconds ?? null}
         busy={busy}
         clockInDisabled={clockInDisabled}
-        teamStarted={api.teamStarted}
+        teamStarted={api.teamStarted && !api.startGateBlocks}
         ownStarted={api.ownStarted}
+        isResume={api.ownStarted || (api.hasCheckin && !api.startGateBlocks)}
         onClockIn={api.clockIn}
         onPause={api.pauseClock}
       />

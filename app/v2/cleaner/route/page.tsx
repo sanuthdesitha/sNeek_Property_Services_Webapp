@@ -23,6 +23,10 @@ interface Stop {
   enRouteStartedAt: string | null;
   enRouteEtaMinutes: number | null;
   arrivedAt: string | null;
+  /** Paused-drive state — Drive mode renders Resume from this, so it must be
+   *  part of the server payload (it survives a page refresh). */
+  drivingPausedAt: string | null;
+  drivingPauseReason: string | null;
   propertyName: string;
   address: string;
   suburb: string;
@@ -70,6 +74,8 @@ async function loadTodayStops(userId: string): Promise<{ stops: Stop[]; isoDate:
             enRouteStartedAt: true,
             enRouteEtaMinutes: true,
             arrivedAt: true,
+            drivingPausedAt: true,
+            drivingPauseReason: true,
             property: {
               select: {
                 name: true,
@@ -101,6 +107,8 @@ async function loadTodayStops(userId: string): Promise<{ stops: Stop[]; isoDate:
       enRouteStartedAt: a.job!.enRouteStartedAt ? a.job!.enRouteStartedAt.toISOString() : null,
       enRouteEtaMinutes: a.job!.enRouteEtaMinutes,
       arrivedAt: a.job!.arrivedAt ? a.job!.arrivedAt.toISOString() : null,
+      drivingPausedAt: a.job!.drivingPausedAt ? a.job!.drivingPausedAt.toISOString() : null,
+      drivingPauseReason: a.job!.drivingPauseReason,
       propertyName: a.job!.property!.name,
       address: a.job!.property!.address,
       suburb: a.job!.property!.suburb,

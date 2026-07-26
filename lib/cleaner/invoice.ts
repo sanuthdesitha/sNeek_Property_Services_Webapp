@@ -4,6 +4,10 @@ import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import {
+  adjustmentSignedAmount,
+  partitionAdjustmentsForInvoice,
+} from "@/lib/finance/pay-adjustments";
+import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
 } from "@/lib/inventory/shopping-runs";
@@ -53,6 +57,13 @@ interface InvoiceOptions {
   excludedJobIds?: string[];
   /** Shopping-run ids the cleaner removed from this invoice. */
   excludedRunIds?: string[];
+  /**
+   * When re-rendering an EXISTING CleanerInvoiceSubmission, pass its id so the
+   * adjustments it already settled stay visible on it (mirrors includePaidRunId
+   * for payroll runs). Without it, a previously-stamped adjustment is treated as
+   * spent and disappears from its own invoice.
+   */
+  includeInvoiceId?: string;
 }
 
 export interface CleanerInvoiceData {
@@ -127,6 +138,13 @@ export interface CleanerInvoiceData {
     amount: number;
   }>;
   extraLineTotal: number;
+  /**
+   * Ids of every CleanerPayAdjustment this invoice settles (both the ones
+   * folded into a job line and the standalone carry-over lines). The send route
+   * stamps these with includedInCleanerInvoiceId so the NEXT invoice cannot
+   * bill them again.
+   */
+  includedAdjustmentIds: string[];
   pendingAdjustmentCount: number;
   pendingAdjustmentAmount: number;
   companyName: string;
@@ -235,21 +253,57 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
   const jobIds = payableJobs.map((job) => job.id);
 
-  const approvedAdjustments = jobIds.length
-    ? await db.cleanerPayAdjustment.findMany({
-        where: {
-          cleanerId: options.userId,
-          jobId: { in: jobIds },
-          status: PayAdjustmentStatus.APPROVED,
-        },
-        select: {
-          jobId: true,
-          approvedAmount: true,
-          requestedAmount: true,
-          cleanerNote: true,
-        },
-      })
-    : [];
+  // EVERY approved, not-yet-settled adjustment for this cleaner — NOT just the
+  // ones whose job happens to be on this invoice.
+  //
+  // The old query was `jobId: { in: jobIds }`, and jobIds came from jobs the
+  // cleaner is CURRENTLY ASSIGNED to inside the period. That meant an approved
+  // adjustment vanished whenever its job wasn't on the invoice — most visibly
+  // the QA-inspector credit (lib/qa/rework-transfers.ts and the
+  // QA_RECTIFICATION_PAY row in app/api/admin/qa/issues/[id]/route.ts are
+  // written against the CLEANER's job, which the QA was never assigned to), and
+  // any adjustment approved after its job's period had already been invoiced.
+  // Approving it changed nothing the payee was ever paid.
+  //
+  // Selection is now purely "APPROVED and neither settlement stamp set"
+  // (lib/finance/pay-adjustments.ts). Rows with a job on this invoice fold into
+  // that job's line as before; everything else becomes its own carry-over line
+  // so it reaches the NEXT invoice exactly once.
+  const settleableAdjustments = await db.cleanerPayAdjustment.findMany({
+    where: {
+      cleanerId: options.userId,
+      status: PayAdjustmentStatus.APPROVED,
+      includedInPayrollRunId: null,
+      ...(options.includeInvoiceId
+        ? {
+            OR: [
+              { includedInCleanerInvoiceId: null },
+              { includedInCleanerInvoiceId: options.includeInvoiceId },
+            ],
+          }
+        : { includedInCleanerInvoiceId: null }),
+    },
+    select: {
+      id: true,
+      jobId: true,
+      title: true,
+      status: true,
+      approvedAmount: true,
+      requestedAmount: true,
+      includedInPayrollRunId: true,
+      includedInCleanerInvoiceId: true,
+      cleanerNote: true,
+      requestedAt: true,
+      reviewedAt: true,
+    },
+    orderBy: { requestedAt: "asc" },
+  });
+
+  const adjustmentSplit = partitionAdjustmentsForInvoice(settleableAdjustments, {
+    jobIdsOnInvoice: jobIds,
+    includeInvoiceId: options.includeInvoiceId ?? null,
+  });
+  const approvedAdjustments = adjustmentSplit.perJobRows;
   const pendingAdjustments = await db.cleanerPayAdjustment.findMany({
     where: {
       cleanerId: options.userId,
@@ -273,33 +327,18 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     },
   });
 
-  // Approved extra payments NOT tied to a job — surfaced as their own invoice
-  // lines. Windowed by request date since there is no job date to anchor them.
-  const unlinkedApprovedAdjustments = await db.cleanerPayAdjustment.findMany({
-    where: {
-      cleanerId: options.userId,
-      jobId: null,
-      status: PayAdjustmentStatus.APPROVED,
-      requestedAt: { gte: start, lte: end },
-    },
-    select: {
-      id: true,
-      title: true,
-      cleanerNote: true,
-      approvedAmount: true,
-      requestedAmount: true,
-      requestedAt: true,
-      reviewedAt: true,
-    },
-    orderBy: { requestedAt: "asc" },
-  });
+  // Approved adjustments with no line to fold into: unlinked extras AND
+  // job-linked ones whose job isn't on this invoice (QA credits, late
+  // approvals). They become their own lines, carried into whichever invoice is
+  // generated next, and are settled exactly once by the inclusion stamp.
+  // No date window: an adjustment approved after its period closed is still
+  // owed, and dropping it for being "out of period" is how money went missing.
+  const unlinkedApprovedAdjustments = adjustmentSplit.carryOverRows;
 
-  const extrasByJob = new Map<string, number>();
+  const extrasByJob = adjustmentSplit.perJobTotals;
   const extraNotesByJob = new Map<string, string[]>();
   for (const row of approvedAdjustments) {
     if (!row.jobId) continue;
-    const amount = Number(row.approvedAmount ?? row.requestedAmount ?? 0);
-    extrasByJob.set(row.jobId, (extrasByJob.get(row.jobId) ?? 0) + amount);
     const note = row.cleanerNote?.trim();
     if (note) {
       const existing = extraNotesByJob.get(row.jobId) ?? [];
@@ -461,14 +500,21 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   }));
   const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
 
-  const extraLineRows = unlinkedApprovedAdjustments.map((adj) => ({
-    id: adj.id,
-    date: new Date(adj.reviewedAt ?? adj.requestedAt).toLocaleDateString("en-AU", {
-      timeZone: "Australia/Sydney",
-    }),
-    description: adj.title?.trim() || adj.cleanerNote?.trim() || "Extra payment",
-    amount: Number(adj.approvedAmount ?? adj.requestedAmount ?? 0),
-  }));
+  const extraLineRows = unlinkedApprovedAdjustments.map((adj) => {
+    // Signed: a carry-over row can be a DEDUCTION (negative) as well as an
+    // addition — e.g. a QA rework deduction against a job that has already been
+    // invoiced. Both must reach the next invoice with the correct sign.
+    const amount = adjustmentSignedAmount(adj);
+    const label = adj.title?.trim() || adj.cleanerNote?.trim() || "Extra payment";
+    return {
+      id: adj.id,
+      date: new Date(adj.reviewedAt ?? adj.requestedAt).toLocaleDateString("en-AU", {
+        timeZone: "Australia/Sydney",
+      }),
+      description: amount < 0 ? `Deduction — ${label}` : label,
+      amount,
+    };
+  });
   const extraLineTotal = extraLineRows.reduce((sum, row) => sum + row.amount, 0);
 
   const hours = rows.reduce((sum, row) => sum + row.hours, 0);
@@ -505,6 +551,9 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     shoppingTimeTotal,
     extraLineRows,
     extraLineTotal,
+    includedAdjustmentIds: adjustmentSplit.includedRows
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
     pendingAdjustmentCount: pendingAdjustments.length,
     pendingAdjustmentAmount,
     companyName: settings.companyName,

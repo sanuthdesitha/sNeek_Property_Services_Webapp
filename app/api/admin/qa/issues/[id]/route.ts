@@ -16,6 +16,7 @@ import { getAppSettings } from "@/lib/settings";
 import {
   resolveRectificationBand,
   buildRectificationSourceKey,
+  resolveRectificationPayee,
 } from "@/lib/accountability/rectification";
 import { ratingForScore } from "@/lib/accountability/scoring";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
@@ -96,11 +97,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const label = categoryLabel(settings, issue.category);
 
     if (body.action === "rectify") {
-      const resolvedRectifiedById =
-        body.rectifiedById ??
-        (body.status === RectificationStatus.FIXED_BY_QA
-          ? session.user.id
-          : issue.rectifiedById ?? null);
+      // WHO gets the rectification pay. See resolveRectificationPayee — an
+      // ADMIN/OPS recording the fix on the inspector's behalf must NOT be
+      // credited; the money follows the QA who actually did the work.
+      const payee = resolveRectificationPayee({
+        explicitRectifiedById: body.rectifiedById ?? null,
+        issueRectifiedById: issue.rectifiedById,
+        issueRaisedById: issue.raisedById,
+        sessionUserId: session.user.id,
+        sessionRole: session.user.role,
+      });
+      const resolvedRectifiedById = payee.payeeUserId;
 
       const result = await db.$transaction(async (tx) => {
         let rectificationCost = issue.rectificationCost;
@@ -112,7 +119,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           const band = resolveRectificationBand(body.minutes, settings.accountability.rectification);
           requiresManagerReview = band.requiresManagerReview;
           bandAmount = band.amount;
-          if (!band.requiresManagerReview && band.amount > 0) {
+          // No resolvable QA payee ⇒ create NO money. Paying the wrong person
+          // is worse than not paying yet; the admin can re-save with an
+          // explicit rectifiedById.
+          if (!band.requiresManagerReview && band.amount > 0 && resolvedRectifiedById) {
             const sourceKey = buildRectificationSourceKey(issue.id);
             const existing = await tx.cleanerPayAdjustment.findFirst({
               where: { source: "QA_RECTIFICATION_PAY", sourceKey },
@@ -125,8 +135,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
                 data: {
                   jobId: issue.jobId,
                   propertyId: issue.propertyId,
-                  // PAY to the QA who fixed it (the rectifier), not the cleaner.
-                  cleanerId: resolvedRectifiedById ?? session.user.id,
+                  // PAY to the QA who fixed it (the rectifier), not the cleaner
+                  // and NOT the admin who happens to be recording it.
+                  cleanerId: resolvedRectifiedById,
                   scope: PayAdjustmentScope.JOB,
                   title: `QA rectification — ${label}`,
                   type: PayAdjustmentType.FIXED,
@@ -177,6 +188,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
               payAdjustmentId: updated.payAdjustmentId,
               bandAmount,
               requiresManagerReview,
+              // Provenance for the money: who was credited and by which rule.
+              rectificationPayeeId: resolvedRectifiedById,
+              rectificationPayeeSource: payee.source,
             } as any,
           },
         });

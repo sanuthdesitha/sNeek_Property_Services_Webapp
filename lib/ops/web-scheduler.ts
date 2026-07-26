@@ -63,8 +63,14 @@ const JOBS: FallbackJob[] = [
   { name: "admin-attention-summary", minIntervalMs: HOUR, run: async () => { await sendAdminAttentionSummary({ now: new Date() }); } },
   { name: "tomorrow-prep-dispatch", minIntervalMs: 2 * HOUR, run: async () => { await dispatchTomorrowPrepSummaries(new Date()); } },
   { name: "workforce-post-dispatch", minIntervalMs: HOUR, run: async () => { await dispatchScheduledWorkforcePosts(new Date()); } },
-  { name: "email-campaign-dispatch", minIntervalMs: HOUR, run: async () => { await dispatchScheduledEmailCampaigns(new Date()); } },
-  { name: "marketing-campaign-dispatch", minIntervalMs: HOUR, run: async () => {
+  // Scheduled marketing email. Both dispatchers tick every 5 minutes (the
+  // scheduler's own floor) so a campaign scheduled for 09:00 goes out at 09:00,
+  // not up to an hour later. Double-dispatch is impossible: each claims its row
+  // with a conditional updateMany (legacy: status scheduled->sending; engine:
+  // campaignStatus SCHEDULED->SENDING) and only the caller that transitions the
+  // row proceeds. The two dispatchers also exclude each other's rows.
+  { name: "email-campaign-dispatch", minIntervalMs: 5 * MIN, run: async () => { await dispatchScheduledEmailCampaigns(new Date()); } },
+  { name: "marketing-campaign-dispatch", minIntervalMs: 5 * MIN, run: async () => {
     const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
     await dispatchDueCampaigns(new Date());
   } },

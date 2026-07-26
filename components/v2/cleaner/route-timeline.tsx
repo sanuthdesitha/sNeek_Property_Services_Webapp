@@ -104,6 +104,11 @@ export interface RouteStop {
   enRouteStartedAt?: string | null;
   enRouteEtaMinutes?: number | null;
   arrivedAt?: string | null;
+  /** Set while the cleaner has paused the drive — drives the Pause/Resume
+   *  button and suspends the ETA heartbeat. MUST be carried by every payload
+   *  that feeds Drive mode, or the pause never becomes visible. */
+  drivingPausedAt?: string | null;
+  drivingPauseReason?: string | null;
   propertyName: string;
   address: string;
   suburb: string;
