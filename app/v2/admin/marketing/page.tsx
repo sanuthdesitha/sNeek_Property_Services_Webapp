@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getMarketingCampaigns, getMarketingSubscriptionPlans } from "@/lib/marketing/store";
 import { listEmailCampaigns } from "@/lib/marketing/email-campaigns";
+import { getCampaignStats } from "@/lib/marketing/campaign-analytics";
+import { getAppSettings } from "@/lib/settings";
 import { EPageHeader, EButton } from "@/components/v2/ui/primitives";
 import { MarketingHub } from "@/components/v2/admin/marketing/marketing-hub";
 
@@ -12,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function V2AdminMarketingPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const [campaigns, plans, emailCampaigns, socialPosts, assets] = await Promise.all([
+  const [campaigns, plans, emailCampaigns, socialPosts, assets, settings] = await Promise.all([
     getMarketingCampaigns().catch(() => []),
     getMarketingSubscriptionPlans().catch(() => []),
     listEmailCampaigns().catch(() => []),
@@ -22,7 +24,12 @@ export default async function V2AdminMarketingPage() {
     (db as any).marketingAsset
       .findMany({ orderBy: [{ createdAt: "desc" }], take: 500 })
       .catch(() => []),
+    getAppSettings().catch(() => ({ companyName: "sNeek Property Services", logoUrl: "" } as any)),
   ]);
+
+  // Resend webhook telemetry per campaign (delivered / opened / clicked /
+  // bounced / complained) — empty object when nothing has been ingested yet.
+  const emailStats = await getCampaignStats((emailCampaigns as any[]).map((c) => c.id)).catch(() => ({}));
 
   // Serialize dates to plain strings for the client components.
   const socialPlain = (socialPosts as any[]).map((p) => ({
@@ -67,6 +74,8 @@ export default async function V2AdminMarketingPage() {
         emailCampaigns={emailCampaigns as any[]}
         socialPosts={socialPlain}
         assets={assetsPlain}
+        brand={{ companyName: (settings as any).companyName ?? "sNeek Property Services", logoUrl: (settings as any).logoUrl ?? "" }}
+        emailStats={emailStats as any}
       />
     </div>
   );

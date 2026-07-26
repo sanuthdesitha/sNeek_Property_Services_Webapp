@@ -1,17 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Image as ImageIcon, Megaphone, Send, Share2 } from "lucide-react";
+import { Image as ImageIcon, LayoutTemplate, Megaphone, Send, Share2 } from "lucide-react";
 import { MarketingCampaignsManager } from "@/components/v2/admin/marketing/campaigns-manager";
-import { EmailCampaignsManager } from "@/components/v2/admin/marketing/email-campaigns-manager";
+import {
+  EmailCampaignsManager,
+  type CampaignStatsRow,
+} from "@/components/v2/admin/marketing/email-campaigns-manager";
+import { TemplateGallery } from "@/components/v2/admin/marketing/template-gallery";
 import { SocialManager } from "@/components/v2/admin/marketing/social-manager";
 import { AssetLibrary } from "@/components/v2/admin/marketing/asset-library";
 import { useEstateToast, EToastViewport } from "@/components/v2/admin/marketing/toast";
+import type { BrandChrome } from "@/components/v2/admin/marketing/email-block-editor";
 
-type Section = "campaigns" | "email" | "social" | "assets";
+type Section = "campaigns" | "templates" | "email" | "social" | "assets";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: "campaigns", label: "Campaigns & plans", icon: Megaphone },
+  { key: "templates", label: "Templates", icon: LayoutTemplate },
   { key: "email", label: "Email campaigns", icon: Send },
   { key: "social", label: "Social posts", icon: Share2 },
   { key: "assets", label: "Asset library", icon: ImageIcon },
@@ -23,15 +29,21 @@ export function MarketingHub({
   emailCampaigns,
   socialPosts,
   assets,
+  brand,
+  emailStats = {},
 }: {
   campaigns: any[];
   plans: any[];
   emailCampaigns: any[];
   socialPosts: any[];
   assets: any[];
+  brand: BrandChrome;
+  emailStats?: Record<string, CampaignStatsRow>;
 }) {
   const [section, setSection] = useState<Section>("campaigns");
   const { toast, push } = useEstateToast();
+  // Draft handed over from the template gallery → opened in the email manager.
+  const [handoffDraft, setHandoffDraft] = useState<any | null>(null);
 
   return (
     <div className="space-y-6">
@@ -63,7 +75,28 @@ export function MarketingHub({
       {section === "campaigns" ? (
         <MarketingCampaignsManager initialCampaigns={campaigns} initialPlans={plans} onToast={push} />
       ) : null}
-      {section === "email" ? <EmailCampaignsManager initialCampaigns={emailCampaigns} onToast={push} /> : null}
+      {section === "templates" ? (
+        <TemplateGallery
+          brand={brand}
+          onToast={push}
+          onUsed={(campaign) => {
+            setHandoffDraft(campaign);
+            setSection("email");
+          }}
+        />
+      ) : null}
+      {/* Kept mounted-on-demand: the email manager owns its own campaign list state. */}
+      {section === "email" ? (
+        <EmailCampaignsManager
+          initialCampaigns={emailCampaigns}
+          onToast={push}
+          assets={assets}
+          brand={brand}
+          stats={emailStats}
+          externalDraft={handoffDraft}
+          onExternalDraftConsumed={() => setHandoffDraft(null)}
+        />
+      ) : null}
       {section === "social" ? <SocialManager initialPosts={socialPosts} onToast={push} /> : null}
       {section === "assets" ? <AssetLibrary initialAssets={assets} onToast={push} /> : null}
 

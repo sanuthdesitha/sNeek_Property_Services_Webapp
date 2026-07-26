@@ -2743,10 +2743,30 @@ model EmailCampaign {
   templateId     String?
   template       MessageTemplate? @relation("MessageTemplateCampaigns", fields: [templateId], references: [id], onDelete: SetNull)
 
-  createdBy User           @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy User                 @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   sends     CampaignSend[]
+  events    EmailCampaignEvent[]
 
   @@index([campaignStatus, scheduledFor])
+}
+
+/// Resend webhook telemetry per campaign recipient (delivered / opened /
+/// clicked / bounced / complained). Written by app/api/webhooks/resend, which
+/// maps the provider's `email_id` back to a campaign via CampaignSend.externalId.
+/// Append-only — the per-campaign stats strip aggregates over it.
+model EmailCampaignEvent {
+  id         String   @id @default(cuid())
+  campaignId String
+  recipient  String
+  type       String // DELIVERED | OPENED | CLICKED | BOUNCED | COMPLAINED | DELAYED | SENT
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([campaignId, type])
+  @@index([recipient])
 }
 
 /// Per-recipient send ledger for email campaigns. A unique (campaignId, email)
@@ -2759,12 +2779,16 @@ model CampaignSend {
   email      String
   status     String   @default("SENT") // SENT | FAILED
   error      String?  @db.Text
+  /// Provider message id (Resend `email_id`). The only link back from a webhook
+  /// event to the campaign that produced it.
+  externalId String?
   createdAt  DateTime @default(now())
 
   campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, email])
   @@index([campaignId])
+  @@index([externalId])
 }
 
 /// Channel-independent email suppression list, keyed on the address itself so

@@ -2,12 +2,15 @@
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
+import { isSuppressed } from "@/lib/email/suppression";
+import { isSegmentId, resolveSegment, type SegmentId } from "@/lib/marketing/segments";
 
 export type EmailCampaignAudience = {
-  type: "all_clients" | "inactive_clients" | "service_type";
+  type: "all_clients" | "inactive_clients" | "service_type" | "segment";
   filters?: {
     daysSinceLastBooking?: number;
     jobTypes?: string[];
+    segmentId?: SegmentId;
   };
 };
 
@@ -16,7 +19,10 @@ function normalizeAudience(value: unknown): EmailCampaignAudience {
     return { type: "all_clients" };
   }
   const row = value as Record<string, unknown>;
-  const type = row.type === "inactive_clients" || row.type === "service_type" ? row.type : "all_clients";
+  const type =
+    row.type === "inactive_clients" || row.type === "service_type" || row.type === "segment"
+      ? row.type
+      : "all_clients";
   const filters = row.filters && typeof row.filters === "object" && !Array.isArray(row.filters)
     ? row.filters as Record<string, unknown>
     : {};
@@ -27,6 +33,7 @@ function normalizeAudience(value: unknown): EmailCampaignAudience {
       jobTypes: Array.isArray(filters.jobTypes)
         ? filters.jobTypes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         : undefined,
+      segmentId: isSegmentId(filters.segmentId) ? filters.segmentId : undefined,
     },
   };
 }
@@ -52,6 +59,21 @@ export async function listEmailCampaigns() {
 export async function resolveEmailCampaignRecipients(audienceInput: unknown) {
   const audience = normalizeAudience(audienceInput);
   const now = new Date();
+
+  // Named-segment audiences delegate wholesale to lib/marketing/segments.ts —
+  // the legacy ad-hoc filters below stay for campaigns saved before segments.
+  if (audience.type === "segment" && audience.filters?.segmentId) {
+    const resolved = await resolveSegment(audience.filters.segmentId, now);
+    const recipients = resolved.recipients
+      .filter((recipient) => Boolean(recipient.email))
+      .map((recipient) => ({
+        clientId: recipient.clientId ?? "",
+        clientName: recipient.name,
+        email: recipient.email,
+      }));
+    return { audience, recipients, count: recipients.length };
+  }
+
   const clients = await db.client.findMany({
     where: { isActive: true },
     select: {
@@ -126,8 +148,17 @@ export async function dispatchEmailCampaignById(campaignId: string) {
 
   const settings = await getAppSettings();
   let sent = 0;
+  let suppressedCount = 0;
   for (const recipient of recipients) {
     const ledgerEmail = recipient.email.toLowerCase();
+    // Campaigns are non-transactional marketing — bounced / complained /
+    // unsubscribed addresses must never be re-emailed. Checked BEFORE the
+    // ledger claim so a suppressed address leaves no phantom "contacted" row.
+    if (await isSuppressed(recipient.email)) {
+      suppressedCount += 1;
+      continue;
+    }
+
     // Claim via the unique (campaignId,email) ledger so a crashed/retried
     // dispatch never re-emails someone already contacted (audit: partial-send
     // resume double-email). Skip if a claim already exists.
@@ -150,6 +181,14 @@ export async function dispatchEmailCampaignById(campaignId: string) {
     });
     if (result.ok) {
       sent += 1;
+      // Record the provider message id so Resend webhook events can be mapped
+      // back to this campaign (analytics + suppression feedback).
+      if (result.externalId) {
+        await (db as any).campaignSend.updateMany({
+          where: { campaignId: campaign.id, email: ledgerEmail },
+          data: { externalId: result.externalId },
+        }).catch(() => undefined);
+      }
     } else {
       // Drop the claim so a later run can retry this recipient.
       await (db as any).campaignSend.deleteMany({
@@ -167,7 +206,7 @@ export async function dispatchEmailCampaignById(campaignId: string) {
     },
   });
 
-  return { sent };
+  return { sent, suppressed: suppressedCount };
 }
 
 export async function dispatchScheduledEmailCampaigns(now = new Date()) {
