@@ -66,6 +66,8 @@ export interface ClientPortalVisibility {
   showLaundryCosts: boolean;
   showChecklistPreview: boolean;
   showClientTaskRequests: boolean;
+  /** Live mid-clean checklist progress on the client job page. Ships OFF. */
+  showLiveProgress: boolean;
   showQuoteRequests: boolean;
   showApprovals: boolean;
   showReportDownloads: boolean;
@@ -613,6 +615,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showLaundryCosts: true,
     showChecklistPreview: true,
     showClientTaskRequests: true,
+    showLiveProgress: false,
     showQuoteRequests: true,
     showApprovals: true,
     showReportDownloads: true,
@@ -832,6 +835,8 @@ function sanitizeClientPortalVisibility(
       typeof row.showClientTaskRequests === "boolean"
         ? row.showClientTaskRequests
         : fallback.showClientTaskRequests,
+    showLiveProgress:
+      typeof row.showLiveProgress === "boolean" ? row.showLiveProgress : fallback.showLiveProgress,
     showQuoteRequests:
       typeof row.showQuoteRequests === "boolean" ? row.showQuoteRequests : fallback.showQuoteRequests,
     showApprovals:

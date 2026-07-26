@@ -2,18 +2,17 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { getClientPortalContext } from "@/lib/client/portal";
+import { computeJobProgressPercent } from "@/lib/jobs/progress";
 
 const STALE_LIVE_PING_MS = 2 * 60 * 1000;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const session = await requireRole([Role.CLIENT]);
 
-  const user = await db.user.findUnique({
-    where: { id: session.user.id },
-    select: { clientId: true },
-  });
-  if (!user?.clientId) return NextResponse.json({ error: "Client not found" }, { status: 404 });
-  const clientId = user.clientId;
+  const portal = await getClientPortalContext(session.user.id);
+  if (!portal.clientId) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+  const clientId = portal.clientId;
 
   const job = await db.job.findFirst({
     where: { id: params.id, property: { clientId } },
@@ -21,6 +20,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       id: true,
       jobNumber: true,
       jobType: true,
+      propertyId: true,
       status: true,
       scheduledDate: true,
       startTime: true,
@@ -137,11 +137,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
+  // Live mid-clean progress — OFF by default behind the showLiveProgress
+  // visibility switch; only computed while the job is IN_PROGRESS.
+  const progressPercent = portal.visibility.showLiveProgress
+    ? await computeJobProgressPercent(job, portal.settings, job.property as any)
+    : null;
+
   // Strip phone numbers unless admin has enabled cleaner contact visibility for this property
   const showContact = job.property.showCleanerContactToClient;
   const latestPing = job.cleanerLocationPings[0] ?? null;
   const sanitizedJob = {
     ...job,
+    progressPercent,
     liveTrip:
       job.status === "EN_ROUTE"
         ? {

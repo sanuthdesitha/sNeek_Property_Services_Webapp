@@ -125,8 +125,11 @@ export async function GET() {
               select: {
                 id: true,
                 jobNumber: true,
+                status: true,
                 scheduledDate: true,
                 startTime: true,
+                enRouteEtaMinutes: true,
+                report: { select: { clientVisible: true } },
                 property: { select: { name: true, suburb: true } },
               },
             },
@@ -238,6 +241,13 @@ export async function GET() {
       return meta?.type === "RESCHEDULE_REQUEST";
     });
 
+    // Light client requests (Ask for an update / ETA / report) — JobTasks with
+    // metadata.kind CLIENT_REQUEST. Decided via the same PATCH /api/admin/job-tasks/[id].
+    const clientRequests = allClientTasks.filter((t) => {
+      const meta = t.metadata as Record<string, unknown> | null;
+      return meta?.kind === "CLIENT_REQUEST";
+    });
+
     // Enrich continuation requests with job info
     const jobIds = Array.from(new Set(continuations.map((c) => c.jobId)));
     const jobs = jobIds.length
@@ -330,6 +340,7 @@ export async function GET() {
       clientApprovals: clientApprovalsForAdmin,
       flaggedLaundry,
       rescheduleRequests,
+      clientRequests,
       qaReworkTransfers,
       skipRequests: enrichedSkipRequests,
       rectificationAdjustments,
@@ -345,6 +356,7 @@ export async function GET() {
         clientApprovals: clientApprovalsForAdmin.length,
         flaggedLaundry: flaggedLaundry.length,
         rescheduleRequests: rescheduleRequests.length,
+        clientRequests: clientRequests.length,
         qaReworkTransfers: qaReworkTransfers.length,
         skipRequests: enrichedSkipRequests.length,
         rectificationAdjustments: rectificationAdjustments.length,
@@ -360,6 +372,7 @@ export async function GET() {
           clientApprovalsForAdmin.length +
           flaggedLaundry.length +
           rescheduleRequests.length +
+          clientRequests.length +
           qaReworkTransfers.length +
           enrichedSkipRequests.length +
           rectificationAdjustments.length +

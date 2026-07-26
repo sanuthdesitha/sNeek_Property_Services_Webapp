@@ -23,6 +23,7 @@ import {
   Link2,
   ListChecks,
   MapPin,
+  MessageCircle,
   PackagePlus,
   Receipt,
   RefreshCw,
@@ -42,6 +43,7 @@ import {
 } from "@/components/v2/admin/jobs/job-detail-reviews";
 import { SubmissionReview, type SubmissionRow } from "@/components/v2/admin/jobs/submission-review";
 import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
+import { JobChatAdmin } from "@/components/v2/admin/jobs/job-chat-admin";
 import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
 
@@ -702,6 +704,19 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           hasQaReview={Boolean(qa)}
         />
       </div>
+
+      {/* Per-job client↔admin chat — #chat is the deep-link target from the
+          approvals "Client requests" queue. */}
+      <ECard id="chat">
+        <ECardHeader className="pb-2">
+          <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+            <MessageCircle className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Client messages
+          </ECardTitle>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          <JobChatAdmin jobId={job.id} />
+        </ECardBody>
+      </ECard>
 
       {/* Extras & scope changes — add quote-style extras anytime; the client is
           emailed the updated total automatically. */}

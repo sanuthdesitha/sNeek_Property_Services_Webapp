@@ -7,8 +7,9 @@
  * Client messages sit on the right; the team's on the left. 10s refresh.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { format, isSameDay } from "date-fns";
-import { Loader2, SendHorizonal } from "lucide-react";
+import { Briefcase, Loader2, SendHorizonal } from "lucide-react";
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EInlineNotice } from "@/components/v2/client/fields";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,9 @@ type ThreadMessage = {
   isFromAdmin: boolean;
   createdAt: string;
   sentBy: { id: string; name: string | null; role: string } | null;
+  /** Set when the message belongs to a per-job thread (shown as a chip). */
+  jobId?: string | null;
+  job?: { id: string; jobNumber: string | null; propertyName: string | null } | null;
 };
 
 export function EstateMessagesThread() {
@@ -144,6 +148,19 @@ export function EstateMessagesThread() {
                 ) : null}
                 <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
                   <div className={cn("max-w-[78%]", mine ? "text-right" : "text-left")}>
+                    {message.jobId ? (
+                      <Link
+                        href={`/v2/client/jobs/${message.jobId}`}
+                        className={cn(
+                          "mb-1 inline-flex items-center gap-1 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))] hover:border-[hsl(var(--e-gold))] hover:text-[hsl(var(--e-foreground))]"
+                        )}
+                      >
+                        <Briefcase className="h-2.5 w-2.5" />
+                        {message.job?.jobNumber
+                          ? `Job #${message.job.jobNumber}`
+                          : message.job?.propertyName ?? "Job thread"}
+                      </Link>
+                    ) : null}
                     <div
                       className={cn(
                         "inline-block whitespace-pre-wrap rounded-[var(--e-radius-lg)] px-4 py-2.5 text-left text-[0.875rem] leading-relaxed",

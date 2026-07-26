@@ -5090,7 +5090,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                     </div>
                   </div>
                 ) : null}
-                {briefing?.laundryInstructions || payload?.laundryGuidance?.hasDrop ? (
+                {briefing?.laundryInstructions ? (
                   <div>
                     <p className="text-xs text-muted-foreground">Laundry</p>
                     {briefing?.laundryInstructions ? (
@@ -5104,29 +5104,11 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                           : ""}
                       </p>
                     ) : null}
-                    {payload?.laundryGuidance?.hasDrop ? (
-                      <p
-                        className={`mt-1 text-sm ${
-                          payload.laundryGuidance.linenSittingOutside
-                            ? "text-emerald-700 dark:text-emerald-400"
-                            : "text-amber-700 dark:text-amber-400"
-                        }`}
-                      >
-                        {payload.laundryGuidance.linenSittingOutside
-                          ? "Fresh linen from the last drop is on site — use it for this turnover."
-                          : `No fresh linen is sitting out (the last drop was already used by a later clean). Use the property's ${
-                              payload.laundryGuidance.bufferSets > 0
-                                ? `${payload.laundryGuidance.bufferSets} buffer set(s)`
-                                : "buffer linen"
-                            }.`}
-                      </p>
-                    ) : null}
                   </div>
                 ) : null}
                 {!briefing?.jobNotes &&
                 (!Array.isArray(briefing?.previousFlags) || briefing.previousFlags.length === 0) &&
-                !briefing?.laundryInstructions &&
-                !payload?.laundryGuidance?.hasDrop ? (
+                !briefing?.laundryInstructions ? (
                   <p className="text-xs text-muted-foreground">No extra briefing notes for this job.</p>
                 ) : null}
               </div>
