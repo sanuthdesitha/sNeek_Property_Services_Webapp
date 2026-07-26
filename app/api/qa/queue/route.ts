@@ -126,7 +126,8 @@ export async function GET(req: NextRequest) {
     const assignments = await db.qaAssignment.findMany({
       where,
       include: {
-        assignedTo: { select: { id: true, name: true, email: true } },
+        // hourlyRate feeds the admin pay editor preview (inspector-level default rate).
+        assignedTo: { select: { id: true, name: true, email: true, hourlyRate: true } },
         pickedUpBy: { select: { id: true, name: true, email: true } },
         job: {
           include: {

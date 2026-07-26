@@ -226,6 +226,23 @@ export interface QaAutomationSettings {
   createIssueTicket: boolean;
 }
 
+/**
+ * Global defaults for what a QA inspection pays. Per-assignment overrides live
+ * on QaAssignment (payMode/payAmount/payHourlyRate/payHoursAllocated) and an
+ * inspector-level default rate lives on User.hourlyRate; the resolution order is
+ * assignment → inspector → these settings. See lib/finance/qa-pay.ts.
+ */
+export interface QaPaySettings {
+  /** FIXED (flat per inspection) | HOURLY (rate × hours) | NONE (unpaid). */
+  defaultMode: "FIXED" | "HOURLY" | "NONE";
+  /** FIXED-mode default. 0 = "not configured" (surfaces as rate-missing). */
+  defaultFixedAmount: number;
+  /** HOURLY-mode fallback rate when neither the assignment nor the inspector has one. */
+  defaultHourlyRate: number;
+  /** HOURLY-mode fallback hours when neither an allocation nor an on-site timer exists. */
+  defaultHoursPerInspection: number;
+}
+
 export interface AccountabilityScoringSettings {
   minorDeduction: number;
   majorDeduction: number;
@@ -381,6 +398,8 @@ export interface AppSettings {
   autoAssign: AutoAssignSettings;
   routeOptimization: RouteOptimizationSettings;
   qaAutomation: QaAutomationSettings;
+  /** What a QA inspection pays by default (per-assignment overrides win). */
+  qaPay: QaPaySettings;
   accountability: AccountabilitySettings;
   /** Pre-submit final check-up acknowledgement dialog for cleaners (R7). */
   finalCheckup: FinalCheckupSettings;
@@ -503,6 +522,18 @@ export const DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES: { key: string; label: stri
   { key: "coffee_machine", label: "Coffee machine" },
   { key: "other", label: "Other" },
 ];
+
+/**
+ * QA pay defaults. HOURLY at the same $32/hr cost base the pricing rate card
+ * uses (settings.pricing.cleanerHourlyCost), 1 hour per inspection — a sane
+ * starting point the owner can retune from /admin/settings without a deploy.
+ */
+export const DEFAULT_QA_PAY_SETTINGS: QaPaySettings = {
+  defaultMode: "HOURLY",
+  defaultFixedAmount: 0,
+  defaultHourlyRate: 32,
+  defaultHoursPerInspection: 1,
+};
 
 export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
   scoring: {
@@ -714,6 +745,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reworkDelayHours: 24,
     createIssueTicket: true,
   },
+  qaPay: DEFAULT_QA_PAY_SETTINGS,
   accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
   finalCheckup: { enabled: false, items: [] },
   pricing: {
@@ -1137,6 +1169,34 @@ function sanitizeQaAutomationSettings(
       typeof row.createIssueTicket === "boolean"
         ? row.createIssueTicket
         : fallback.createIssueTicket,
+  };
+}
+
+export function sanitizeQaPaySettings(
+  input: unknown,
+  fallback: QaPaySettings
+): QaPaySettings {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const row = input as Record<string, unknown>;
+  const mode =
+    row.defaultMode === "FIXED" || row.defaultMode === "HOURLY" || row.defaultMode === "NONE"
+      ? row.defaultMode
+      : fallback.defaultMode;
+  // Money/hours are clamped to a sane, non-negative band. A non-numeric value
+  // falls back rather than becoming NaN — a NaN rate would silently pay $0.
+  const num = (value: unknown, fb: number, max: number) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? clamp(n, 0, max) : fb;
+  };
+  return {
+    defaultMode: mode,
+    defaultFixedAmount: num(row.defaultFixedAmount, fallback.defaultFixedAmount, 10000),
+    defaultHourlyRate: num(row.defaultHourlyRate, fallback.defaultHourlyRate, 1000),
+    defaultHoursPerInspection: num(
+      row.defaultHoursPerInspection,
+      fallback.defaultHoursPerInspection,
+      24
+    ),
   };
 }
 
@@ -1583,6 +1643,7 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).qaAutomation,
       DEFAULT_SETTINGS.qaAutomation
     ),
+    qaPay: sanitizeQaPaySettings((parsed as any).qaPay, DEFAULT_SETTINGS.qaPay),
     accountability: sanitizeAccountabilitySettings(
       (parsed as any).accountability,
       DEFAULT_SETTINGS.accountability
@@ -1663,6 +1724,9 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
     qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    // Merge rather than replace so a partial PATCH (e.g. just the default rate)
+    // doesn't blank the other QA-pay defaults.
+    qaPay: sanitizeQaPaySettings({ ...current.qaPay, ...(input.qaPay ?? {}) }, current.qaPay),
     accountability: input.accountability ?? current.accountability,
     finalCheckup: input.finalCheckup ?? current.finalCheckup,
     pricing: { ...current.pricing, ...(input.pricing ?? {}) },

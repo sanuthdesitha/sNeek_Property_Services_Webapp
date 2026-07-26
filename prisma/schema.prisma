@@ -1731,6 +1731,38 @@ model QaAssignment {
   reworkOfferStatus    String?
   reworkOfferedAt      DateTime?
   reworkOfferExpiresAt DateTime?
+
+  // ── Inspection pay ────────────────────────────────────────────────────
+  // QA inspections are paid work, exactly like a clean. These mirror the
+  // cleaner rail (Job.estimatedHours + JobAssignment.payRate + the per-job
+  // custom payout in job meta) but live on the assignment because THAT is the
+  // unit of QA work. All money is Float/DOUBLE PRECISION, matching every other
+  // money column in this schema (CleanerPayAdjustment.requestedAmount,
+  // User.hourlyRate, Job.fixedPrice).
+  //
+  /// Per-assignment override of the pay rule: FIXED | HOURLY | NONE.
+  /// Null (or "DEFAULT") = fall through to settings.qaPay.defaultMode.
+  payMode              String?
+  /// FIXED-mode flat amount for this inspection. Null = use the settings default.
+  payAmount            Float?
+  /// HOURLY-mode rate override. Null = inspector's User.hourlyRate, else settings.
+  payHourlyRate        Float?
+  /// HOURLY-mode allocated hours. Null = actual on-site hours, else settings default.
+  payHoursAllocated    Float?
+  /// Admin's reason for an override (shown to the inspector on their pay screen).
+  payNote              String?            @db.Text
+  /// Amount frozen at settlement time. Written ONLY when a payroll run or a
+  /// cleaner invoice settles this inspection, so a later rate/settings change
+  /// can never retro-alter what was actually paid.
+  paySettledAmount     Float?
+  // Settlement stamps — the SAME discipline as CleanerPayAdjustment: an
+  // inspection is money owed exactly once, and a row carrying EITHER stamp is
+  // spent. See lib/finance/qa-pay.ts `isQaAssignmentAvailableForSettlement`.
+  includedInPayrollRunId     String?
+  includedInPayrollRunAt     DateTime?
+  includedInCleanerInvoiceId String?
+  includedInCleanerInvoiceAt DateTime?
+
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -1745,6 +1777,8 @@ model QaAssignment {
   @@index([assignedToId, status])
   @@index([jobId, status])
   @@index([assignedToId, scheduledFor, sequence])
+  @@index([includedInPayrollRunId])
+  @@index([includedInCleanerInvoiceId])
 }
 
 /// Per-cleaner-per-property clean-duration statistics, rebuilt nightly from

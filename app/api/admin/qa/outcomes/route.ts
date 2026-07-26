@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
 import { scheduleJobFollowUps } from "@/lib/ops/follow-up-sequences";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import { logger } from "@/lib/logger";
 
 /**
@@ -71,6 +72,20 @@ export async function POST(req: NextRequest) {
             entityId: jobId,
             after: { from: JobStatus.QA_REVIEW, to: JobStatus.COMPLETED } as any,
           },
+        });
+        // Approval Center history. Approving a QA outcome moves the job to
+        // COMPLETED and unlocks invoicing — a terminal decision, which is why
+        // the capability map marks this queue as not undoable.
+        void recordApprovalDecision({
+          queue: "qaOutcomes",
+          decision: "APPROVED",
+          userId: session.user.id,
+          entity: "Job",
+          entityId: jobId,
+          jobId,
+          label: "QA outcome",
+          fromStatus: JobStatus.QA_REVIEW,
+          toStatus: JobStatus.COMPLETED,
         });
         approved.push(jobId);
       } catch (err) {

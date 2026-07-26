@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 // Best-effort: push an in-app notification to the client's portal users.
 async function notifyClientOfSkipDecision(jobId: string, approved: boolean) {
@@ -125,6 +126,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         cleanSkipRequestedById: true,
         cleanSkipDecidedById: true,
       },
+    });
+
+    // Approval Center history. `unskip` is the reversal of a previously granted
+    // skip, so it is recorded as REVERSED rather than as a fresh decision.
+    void recordApprovalDecision({
+      queue: "skipRequests",
+      decision:
+        body.action === "approve" || body.action === "set"
+          ? "APPROVED"
+          : body.action === "decline"
+          ? "DECLINED"
+          : "REVERSED",
+      userId: session.user.id,
+      entity: "Job",
+      entityId: job.id,
+      jobId: job.id,
+      label: "Skip clean",
+      note: body.reason?.trim() || updated.cleanSkipReason || null,
+      fromStatus: job.cleanSkipStatus,
+      toStatus: updated.cleanSkipStatus,
     });
 
     // Best-effort: notify the client of the decision on an approve/decline.

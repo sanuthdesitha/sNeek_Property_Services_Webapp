@@ -15,11 +15,22 @@ vi.mock("@/lib/db", () => ({
     job: { findMany: vi.fn(async () => []) },
     cleanerPayAdjustment: { findMany: adjFindMany },
     shoppingRun: { findMany: vi.fn(async () => []) },
+    // QA inspection pay is the other rail getPayrollSummary now reads. These
+    // cases are about ADJUSTMENT payees, so it returns nothing here.
+    qaAssignment: { findMany: vi.fn(async () => []) },
   },
 }));
 
 vi.mock("@/lib/settings", () => ({
-  getAppSettings: vi.fn(async () => ({ cleanerJobHourlyRates: {} })),
+  getAppSettings: vi.fn(async () => ({
+    cleanerJobHourlyRates: {},
+    qaPay: {
+      defaultMode: "HOURLY",
+      defaultFixedAmount: 0,
+      defaultHourlyRate: 32,
+      defaultHoursPerInspection: 1,
+    },
+  })),
 }));
 
 const CLEANER = { id: "c1", name: "Cleaner One", email: "c1@x.com", hourlyRate: 40 };

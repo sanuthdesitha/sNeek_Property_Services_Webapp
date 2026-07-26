@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { BarChart3, ChevronRight, ClipboardCheck, Map, User } from "lucide-react";
+import { BarChart3, ChevronRight, ClipboardCheck, Map, User, Wallet } from "lucide-react";
 
 export const metadata = { title: "More · Estate QA" };
 
 const ITEMS = [
   { href: "/v2/qa/reviews", label: "All reviews", desc: "History & pending", icon: ClipboardCheck },
+  { href: "/v2/qa/pay", label: "My pay", desc: "Inspection earnings & credits", icon: Wallet },
   { href: "/v2/qa/stats", label: "Stats", desc: "Your inspection performance", icon: BarChart3 },
   // Stage 2 promotes this to its own nav tab.
   { href: "/v2/qa", label: "Route map", desc: "Coming in Stage 2 — your day on a map", icon: Map },

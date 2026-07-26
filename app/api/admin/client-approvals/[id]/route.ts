@@ -7,6 +7,7 @@ import {
   getClientApprovalById,
   updateClientApprovalById,
 } from "@/lib/commercial/client-approvals";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 const updateSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
@@ -27,7 +28,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const existing = await getClientApprovalById(params.id);
     if (!existing) {
       return NextResponse.json({ error: "Approval not found." }, { status: 404 });
@@ -38,6 +39,46 @@ export async function PATCH(
     if (!updated) {
       return NextResponse.json({ error: "Approval not found." }, { status: 404 });
     }
+
+    // Only a real status transition is a "decision" — a title/description tidy-up
+    // is an edit, and the history must not read as if the item was re-approved.
+    if (body.status && body.status !== existing.status) {
+      void recordApprovalDecision({
+        queue: "clientApprovals",
+        decision:
+          body.status === "APPROVED"
+            ? "APPROVED"
+            : body.status === "DECLINED"
+            ? "DECLINED"
+            : body.status === "PENDING"
+            ? "REVERSED"
+            : "DISMISSED",
+        userId: session.user.id,
+        entity: "ClientApproval",
+        entityId: params.id,
+        jobId: (updated as any)?.jobId ?? null,
+        label: (updated as any)?.title ?? "Client approval",
+        amount: (updated as any)?.amount ?? null,
+        note: body.responseNote ?? null,
+        fromStatus: (existing as any)?.status ?? null,
+        toStatus: body.status,
+      });
+    } else if (body.amount !== undefined && body.amount !== (existing as any)?.amount) {
+      void recordApprovalDecision({
+        queue: "clientApprovals",
+        decision: "EDITED",
+        userId: session.user.id,
+        entity: "ClientApproval",
+        entityId: params.id,
+        jobId: (updated as any)?.jobId ?? null,
+        label: (updated as any)?.title ?? "Client approval",
+        amount: body.amount,
+        note: body.responseNote ?? null,
+        fromStatus: (existing as any)?.status ?? null,
+        toStatus: (updated as any)?.status ?? null,
+      });
+    }
+
     return NextResponse.json(updated);
   } catch (err: any) {
     const status =
@@ -51,11 +92,28 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const existing = await getClientApprovalById(params.id);
     const ok = await deleteClientApprovalById(params.id);
     if (!ok) {
       return NextResponse.json({ error: "Approval not found." }, { status: 404 });
     }
+
+    // The row is gone; the history row is now the ONLY record that it existed,
+    // so it carries the label and amount it had at deletion time.
+    void recordApprovalDecision({
+      queue: "clientApprovals",
+      decision: "DELETED",
+      userId: session.user.id,
+      entity: "ClientApproval",
+      entityId: params.id,
+      jobId: (existing as any)?.jobId ?? null,
+      label: (existing as any)?.title ?? "Client approval",
+      amount: (existing as any)?.amount ?? null,
+      fromStatus: (existing as any)?.status ?? null,
+      before: existing as any,
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status =

@@ -3,6 +3,7 @@ import { Role, TimeAdjustmentStatus } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { reviewTimeAdjustmentRequest } from "@/lib/time/adjustment-requests";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 const updateSchema = z.object({
   status: z.union([z.literal(TimeAdjustmentStatus.APPROVED), z.literal(TimeAdjustmentStatus.REJECTED)]),
@@ -21,6 +22,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       approvedDurationM: body.approvedDurationM,
       adminNote: body.adminNote,
     });
+
+    // Approval Center history (fire-and-forget — never fails the decision).
+    void recordApprovalDecision({
+      queue: "timeAdjustments",
+      decision: body.status === TimeAdjustmentStatus.APPROVED ? "APPROVED" : "DECLINED",
+      userId: session.user.id,
+      entity: "TimeLogAdjustmentRequest",
+      entityId: params.id,
+      jobId: (updated as any)?.jobId ?? null,
+      label: "Clock adjustment",
+      // A clock fix moves MINUTES, not dollars — recorded as `value` so the
+      // history never presents minutes as an amount of money.
+      value: body.approvedDurationM ?? (updated as any)?.approvedDurationM ?? null,
+      note: body.adminNote ?? null,
+      subjectUserId: (updated as any)?.cleanerId ?? null,
+      toStatus: body.status,
+    });
+
     return NextResponse.json(updated);
   } catch (err: any) {
     const status =

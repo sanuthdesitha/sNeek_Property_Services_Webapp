@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import {
@@ -274,6 +275,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         });
 
         return { updated, recompute: Boolean(reviewAfter) };
+      });
+
+      // Approval Center history for the False confirmations queue.
+      void recordApprovalDecision({
+        queue: "falseConfirmations",
+        decision: decision === FalseConfirmationStatus.CONFIRMED ? "APPROVED" : "DECLINED",
+        userId: session.user.id,
+        entity: "QaIssue",
+        entityId: issue.id,
+        jobId: issue.jobId,
+        label: "Suspected false completion confirmation",
+        subjectUserId: (issue as any).cleanerId ?? null,
+        fromStatus: issue.falseConfirmation,
+        toStatus: decision,
       });
 
       // Re-derive the job outcome after a score change (outside the txn so the

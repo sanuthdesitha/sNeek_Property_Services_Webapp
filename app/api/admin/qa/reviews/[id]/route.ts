@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 const patchSchema = z.object({
   score: z.number().min(0).max(100).optional(),
@@ -47,6 +48,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         entityId: params.id,
         after: { score: nextScore, passed: nextPassed } as any,
       },
+    });
+
+    // An admin edit IS how a management review is resolved (all-approvals filters
+    // the queue on editedById === null), so the edit is the decision.
+    void recordApprovalDecision({
+      queue: "managementReviews",
+      decision: "EDITED",
+      userId: session.user.id,
+      entity: "QAReview",
+      entityId: params.id,
+      jobId: existing.jobId,
+      label: "Management review",
+      value: nextScore,
+      note: body.notes ?? null,
+      fromStatus: String(existing.score),
+      toStatus: String(nextScore),
     });
 
     const outcome = await recomputeJobQaOutcome(existing.jobId);

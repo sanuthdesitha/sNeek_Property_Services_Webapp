@@ -151,6 +151,13 @@ const qaAutomationSchema = z.object({
   createIssueTicket: z.boolean().optional(),
 });
 
+const qaPaySchema = z.object({
+  defaultMode: z.enum(["FIXED", "HOURLY", "NONE"]).optional(),
+  defaultFixedAmount: z.number().min(0).max(10000).optional(),
+  defaultHourlyRate: z.number().min(0).max(1000).optional(),
+  defaultHoursPerInspection: z.number().min(0).max(24).optional(),
+});
+
 const pricingSchema = z.object({
   gstEnabled: z.boolean().optional(),
   cleanerHourlyCost: z.number().min(0).max(500).optional(),
@@ -212,6 +219,7 @@ const updateSchema = z.object({
   autoAssign: autoAssignSchema.optional(),
   routeOptimization: routeOptimizationSchema.optional(),
   qaAutomation: qaAutomationSchema.optional(),
+  qaPay: qaPaySchema.optional(),
   pricing: pricingSchema.optional(),
   emailTemplates: z
     .record(

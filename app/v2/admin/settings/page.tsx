@@ -225,6 +225,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               failureThreshold: appSettings.qaAutomation.failureThreshold,
               reworkDelayHours: appSettings.qaAutomation.reworkDelayHours,
             },
+            qaPay: {
+              defaultMode: appSettings.qaPay.defaultMode,
+              defaultFixedAmount: appSettings.qaPay.defaultFixedAmount,
+              defaultHourlyRate: appSettings.qaPay.defaultHourlyRate,
+              defaultHoursPerInspection: appSettings.qaPay.defaultHoursPerInspection,
+            },
             evidenceStamp: {
               dateFormat: appSettings.evidenceStamp.dateFormat,
               timeFormat: appSettings.evidenceStamp.timeFormat,
