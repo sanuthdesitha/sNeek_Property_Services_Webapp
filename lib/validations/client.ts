@@ -108,6 +108,7 @@ const clientPortalVisibilityOverrideSchema = z
     showLaundryCosts: z.boolean().optional(),
     showChecklistPreview: z.boolean().optional(),
     showClientTaskRequests: z.boolean().optional(),
+    showLiveProgress: z.boolean().optional(),
     showQuoteRequests: z.boolean().optional(),
     showApprovals: z.boolean().optional(),
     showReportDownloads: z.boolean().optional(),

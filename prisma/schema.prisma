@@ -2705,6 +2705,9 @@ model Referral {
 model ClientMessage {
   id          String   @id @default(cuid())
   clientId    String
+  // null = the client's global thread with ops (all pre-existing rows);
+  // set = a per-job conversation shown on that job's page.
+  jobId       String?
   sentById    String
   body        String   @db.Text
   isFromAdmin Boolean  @default(false)
@@ -2716,6 +2719,7 @@ model ClientMessage {
 
   @@index([clientId, createdAt])
   @@index([clientId, isRead])
+  @@index([jobId, createdAt])
 }
 
 model EmailCampaign {

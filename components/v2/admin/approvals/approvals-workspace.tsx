@@ -9,6 +9,10 @@
  *   clock         PATCH /api/admin/time-adjustments/[id]      { status, approvedDurationM?, adminNote? }
  *   client        PATCH /api/admin/client-approvals/[id]      { status }
  *   reschedule    PATCH /api/admin/job-tasks/[id]             { decision }
+ *   client req    PATCH /api/admin/job-tasks/[id]             { decision }
+ *                 (+ optional pre-action: POST /api/admin/messages/job/[jobId]
+ *                  for one-click ETA replies, or PATCH
+ *                  /api/admin/reports/[jobId]/visibility to publish the report)
  *   QA rework     PATCH /api/admin/qa/rework-transfers/[id]   { status }
  *   QA outcome    POST  /api/admin/qa/outcomes                { jobIds }
  *   skip          PATCH /api/admin/jobs/[id]/skip             { action }
@@ -26,6 +30,7 @@ import {
   Clock,
   DollarSign,
   Gift,
+  MessageCircle,
   RefreshCw,
   RotateCcw,
   Scale,
@@ -48,6 +53,7 @@ type AllApprovals = {
   clientApprovals: any[];
   flaggedLaundry: any[];
   rescheduleRequests: any[];
+  clientRequests: any[];
   qaReworkTransfers: any[];
   qaOutcomes: any[];
   skipRequests: any[];
@@ -66,6 +72,7 @@ const QUEUES = [
   { key: "clientApprovals", label: "Client approvals", icon: CheckCircle2 },
   { key: "flaggedLaundry", label: "Laundry", icon: Shirt },
   { key: "rescheduleRequests", label: "Reschedules", icon: CalendarClock },
+  { key: "clientRequests", label: "Client requests", icon: MessageCircle },
   { key: "qaReworkTransfers", label: "QA reworks", icon: RotateCcw },
   { key: "qaOutcomes", label: "QA outcomes", icon: ClipboardCheck },
   { key: "skipRequests", label: "Skips", icon: XCircle },
@@ -1320,6 +1327,156 @@ export function ApprovalsWorkspace() {
                             queue: "rescheduleRequests",
                             rowId: row.id,
                             successMsg: "Reschedule declined",
+                          })
+                        }
+                      />
+                      {row.jobId ? (
+                        <EButton size="sm" variant="ghost" asChild>
+                          <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                        </EButton>
+                      ) : null}
+                    </>
+                  }
+                />
+              );
+            })}
+
+          {/* ── Client requests (Ask for update / ETA / report) ── */}
+          {active === "clientRequests" &&
+            activeRows.map((row) => {
+              const meta = (row.metadata ?? {}) as { requestType?: string; note?: string | null };
+              const requestType = meta.requestType ?? "UPDATE";
+              const typeLabel =
+                requestType === "ETA"
+                  ? "ETA request"
+                  : requestType === "REPORT"
+                    ? "Report request"
+                    : "Update request";
+              const etaMinutes =
+                typeof row.job?.enRouteEtaMinutes === "number" ? row.job.enRouteEtaMinutes : null;
+              const reportVisible = row.job?.report?.clientVisible === true;
+              const chatHref = row.jobId ? `/v2/admin/jobs/${row.jobId}#chat` : null;
+
+              /** Optional pre-action (chat reply / publish), then mark decided. */
+              const handle = async (pre?: () => Promise<void>) => {
+                setActing(row.id);
+                try {
+                  if (pre) await pre();
+                } catch (err: any) {
+                  toast({
+                    title: "Failed",
+                    description: err?.message ?? "Action failed",
+                    variant: "destructive",
+                  });
+                  setActing(null);
+                  return;
+                }
+                setActing(null);
+                await decide({
+                  url: `/api/admin/job-tasks/${row.id}`,
+                  body: { decision: "APPROVE" },
+                  queue: "clientRequests",
+                  rowId: row.id,
+                  successMsg: "Client request handled",
+                });
+              };
+
+              return (
+                <QueueCard
+                  key={row.id}
+                  eyebrow="Client request"
+                  title={
+                    <>
+                      {typeLabel} — Job #{row.job?.jobNumber ?? String(row.jobId ?? "").slice(0, 8)}
+                      {row.job?.property?.name ? ` (${row.job.property.name})` : ""}
+                    </>
+                  }
+                  status={
+                    <EBadge tone={requestType === "ETA" ? "info" : requestType === "REPORT" ? "aubergine" : "neutral"} soft>
+                      {requestType}
+                    </EBadge>
+                  }
+                  lines={[
+                    [
+                      row.job?.property?.suburb,
+                      row.job?.scheduledDate ? fmtDay(row.job.scheduledDate) : null,
+                      row.job?.status ? String(row.job.status).replace(/_/g, " ") : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                    meta.note ? <>“{meta.note}”</> : null,
+                    <>Requested by {row.requestedBy?.name ?? row.requestedBy?.email ?? "Client"}</>,
+                  ]}
+                  footer={`Submitted ${fmt(row.createdAt)}`}
+                  actions={
+                    <>
+                      {requestType === "ETA" && etaMinutes != null && row.jobId ? (
+                        <EButton
+                          size="sm"
+                          variant="gold"
+                          disabled={busy}
+                          onClick={() =>
+                            handle(async () => {
+                              const res = await fetch(`/api/admin/messages/job/${row.jobId}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  body: `Your cleaner is about ~${etaMinutes} min away.`,
+                                }),
+                              });
+                              const json = await res.json().catch(() => ({}));
+                              if (!res.ok) throw new Error(json.error ?? "Could not send the ETA reply.");
+                            })
+                          }
+                        >
+                          <Send className="h-3.5 w-3.5" /> Send ETA reply (~{etaMinutes} min)
+                        </EButton>
+                      ) : null}
+                      {requestType === "REPORT" && row.jobId && !reportVisible ? (
+                        <EButton
+                          size="sm"
+                          variant="gold"
+                          disabled={busy}
+                          onClick={() =>
+                            handle(async () => {
+                              const res = await fetch(`/api/admin/reports/${row.jobId}/visibility`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ clientVisible: true }),
+                              });
+                              const json = await res.json().catch(() => ({}));
+                              if (!res.ok) throw new Error(json.error ?? "Could not publish the report.");
+                            })
+                          }
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Publish report
+                        </EButton>
+                      ) : null}
+                      {chatHref && (requestType !== "ETA" || etaMinutes == null) && requestType !== "REPORT" ? (
+                        <EButton size="sm" variant="outline-gold" asChild>
+                          <Link href={chatHref}>
+                            Reply in chat <ArrowRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </EButton>
+                      ) : null}
+                      <EButton size="sm" variant="outline" disabled={busy} onClick={() => handle()}>
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark handled
+                      </EButton>
+                      <ConfirmButton
+                        label={
+                          <>
+                            <XCircle className="h-3.5 w-3.5" /> Dismiss
+                          </>
+                        }
+                        confirmLabel="Confirm dismiss"
+                        disabled={busy}
+                        onConfirm={() =>
+                          decide({
+                            url: `/api/admin/job-tasks/${row.id}`,
+                            body: { decision: "REJECT" },
+                            queue: "clientRequests",
+                            rowId: row.id,
+                            successMsg: "Client request dismissed",
                           })
                         }
                       />

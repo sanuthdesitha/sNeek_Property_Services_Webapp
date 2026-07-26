@@ -18,8 +18,12 @@ import {
   EPageHeader,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { JobSkipAction } from "@/components/v2/client/job-skip-action";
 import { JobLivePanel } from "@/components/v2/client/job-live-panel";
+import { JobActionHub } from "@/components/v2/client/job-action-hub";
+import { JobProgressPanel } from "@/components/v2/client/job-progress";
+import { MediaGallery } from "@/components/shared/media-gallery";
+import { computeJobProgressPercent } from "@/lib/jobs/progress";
+import { clientRequestMeta } from "@/lib/job-tasks/client-requests";
 import {
   ArrowLeft,
   Briefcase,
@@ -90,7 +94,9 @@ async function getScopedJob(id: string, clientId: string) {
         id: true,
         jobNumber: true,
         jobType: true,
+        propertyId: true,
         status: true,
+        arrivedAt: true,
         scheduledDate: true,
         startTime: true,
         dueTime: true,
@@ -255,6 +261,44 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
   const job = await getScopedJob(params.id, clientId);
   if (!job) notFound();
 
+  // Open client requests on this job — drives the action hub's pending states.
+  const clientTasks = await db.jobTask
+    .findMany({
+      where: { jobId: job.id, clientId, source: "CLIENT", approvalStatus: "PENDING_APPROVAL" },
+      select: { id: true, metadata: true, approvalStatus: true, executionStatus: true },
+      take: 50,
+    })
+    .catch(() => []);
+  const reschedulePending = clientTasks.some(
+    (task) => (task.metadata as Record<string, unknown> | null)?.type === "RESCHEDULE_REQUEST"
+  );
+  const addonPending = clientTasks.filter((task) => {
+    const meta = task.metadata as Record<string, unknown> | null;
+    return meta?.type !== "RESCHEDULE_REQUEST" && clientRequestMeta(task) === null;
+  }).length;
+
+  // Live mid-clean progress (OFF by default behind showLiveProgress).
+  const showLiveProgress = portal?.visibility?.showLiveProgress ?? false;
+  const progressPercent =
+    showLiveProgress && job.status === "IN_PROGRESS" && portal?.settings
+      ? await computeJobProgressPercent(job, portal.settings, job.property as any).catch(() => null)
+      : null;
+
+  // Before/after gallery — the report's media (cleaner submission photos),
+  // only on finished jobs whose report is client-visible.
+  const galleryEligible =
+    ["COMPLETED", "INVOICED"].includes(job.status) && job.report?.clientVisible === true;
+  const galleryMedia = galleryEligible
+    ? await db.submissionMedia
+        .findMany({
+          where: { submission: { jobId: job.id } },
+          select: { id: true, url: true, mediaType: true, label: true },
+          orderBy: { createdAt: "asc" },
+          take: 150,
+        })
+        .catch(() => [])
+    : [];
+
   const scheduled = toZonedTime(job.scheduledDate, TZ);
   // Cleaner names are visibility-gated, mirroring the jobs board.
   const showCleanerNames = portal?.visibility?.showCleanerNames ?? false;
@@ -301,7 +345,12 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
       {/* Live arrival tracking (polls while EN_ROUTE) */}
       {job.status === "EN_ROUTE" ? <JobLivePanel jobId={job.id} /> : null}
 
-      {/* Skip-clean state */}
+      {/* Live checklist progress (visibility-gated, IN_PROGRESS only) */}
+      {showLiveProgress && job.status === "IN_PROGRESS" ? (
+        <JobProgressPanel jobId={job.id} initialPercent={progressPercent} />
+      ) : null}
+
+      {/* Skip-clean outcome */}
       {skipStatus === "SKIPPED" ? (
         <ECard variant="ceremony">
           <ECardBody className="pt-6">
@@ -312,22 +361,20 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
             </p>
           </ECardBody>
         </ECard>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {skipStatus === "REQUESTED" ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Skip request pending admin review.
-            </p>
-          ) : skipStatus === "DECLINED" ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              A previous skip request was declined — this clean will go ahead as scheduled.
-            </p>
-          ) : (
-            <span />
-          )}
-          {canSkip ? <JobSkipAction jobId={job.id} skipStatus={skipStatus} /> : null}
-        </div>
-      )}
+      ) : null}
+
+      {/* Manage this clean — reschedule / add-ons / skip / requests / chat */}
+      <JobActionHub
+        jobId={job.id}
+        jobLabel={`${job.property.name}${job.jobNumber ? ` · #${job.jobNumber}` : ""}`}
+        status={job.status}
+        skipStatus={skipStatus}
+        canSkip={canSkip}
+        showClientTaskRequests={portal?.visibility?.showClientTaskRequests ?? false}
+        reportAvailable={Boolean(showReportTab)}
+        initialReschedulePending={reschedulePending}
+        initialAddonPending={addonPending}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Property */}
@@ -574,7 +621,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
 
       {/* Report */}
       {showReportTab ? (
-        <ECard>
+        <ECard id="job-report">
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2 text-[1rem]">
               <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Cleaning report
@@ -597,6 +644,33 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
                 </EButton>
               </a>
             ) : null}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {/* Before/after gallery — report media on completed jobs */}
+      {galleryEligible && galleryMedia.length > 0 ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2 text-[1rem]">
+              <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Photo gallery
+            </ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Photos captured during this clean — tap any to view full size.
+            </p>
+          </ECardHeader>
+          <ECardBody>
+            <MediaGallery
+              items={galleryMedia.map((media) => ({
+                id: media.id,
+                url: media.url,
+                label: media.label ?? undefined,
+                mediaType: media.mediaType,
+              }))}
+              title="Clean photos"
+              emptyText="No photos"
+              className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"
+            />
           </ECardBody>
         </ECard>
       ) : null}

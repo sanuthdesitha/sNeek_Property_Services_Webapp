@@ -31,6 +31,7 @@ import {
   CircleDollarSign,
   CircleSlash,
   ClipboardList,
+  MessageCircle,
   Plus,
   ShieldAlert,
   Trash2,
@@ -54,16 +55,18 @@ import {
   type JobTimingPreset,
 } from "@/lib/jobs/meta";
 import { statusLabel, statusTone } from "./job-row";
+import { JobChatAdmin } from "./job-chat-admin";
 
 const TZ = "Australia/Sydney";
 
-type Section = "schedule" | "people" | "scope" | "billing" | "skip" | "danger";
+type Section = "schedule" | "people" | "scope" | "billing" | "chat" | "skip" | "danger";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "schedule", label: "Schedule", icon: <CalendarClock className="h-3.5 w-3.5" /> },
   { id: "people", label: "People & pay", icon: <Users className="h-3.5 w-3.5" /> },
   { id: "scope", label: "Scope & tasks", icon: <ClipboardList className="h-3.5 w-3.5" /> },
   { id: "billing", label: "Billing", icon: <CircleDollarSign className="h-3.5 w-3.5" /> },
+  { id: "chat", label: "Messages", icon: <MessageCircle className="h-3.5 w-3.5" /> },
   { id: "skip", label: "Skip", icon: <CircleSlash className="h-3.5 w-3.5" /> },
   { id: "danger", label: "Danger", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
 ];
@@ -941,6 +944,17 @@ export function JobManageModal({
                   </>
                 )}
               </div>
+            </div>
+          ) : null}
+
+          {/* ── Messages (per-job client↔admin chat) ─────────────────────── */}
+          {section === "chat" ? (
+            <div className="space-y-3">
+              <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                This job's thread with the client. Client↔admin only — use "Relay to cleaner" to
+                forward a client message to the assigned cleaner as a notification.
+              </p>
+              <JobChatAdmin jobId={String(job.id)} />
             </div>
           ) : null}
 

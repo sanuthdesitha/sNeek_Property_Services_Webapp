@@ -30,6 +30,7 @@ const CLIENT_PORTAL_OVERRIDE_FIELDS: Array<[keyof ClientPortalVisibility, string
   ["showLaundryImages", "Show laundry images"],
   ["showLaundryCosts", "Show laundry costs"],
   ["showClientTaskRequests", "Allow client task requests"],
+  ["showLiveProgress", "Show live mid-clean progress"],
   ["showCases", "Show cases/issues"],
   ["showExtraPayRequests", "Show extra pay requests"],
   ["showQuoteRequests", "Show quote requests"],

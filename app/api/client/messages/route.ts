@@ -9,11 +9,31 @@ import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/adm
 
 const schema = z.object({
   body: z.string().trim().min(1).max(4000),
+  // Optional per-job thread — null/omitted = the client's global thread.
+  jobId: z.string().cuid().optional().nullable(),
 });
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+/** Batch-resolve job chips (jobNumber + property name) for job-thread rows. */
+async function buildJobChips(rows: Array<{ jobId: string | null }>) {
+  const jobIds = Array.from(
+    new Set(rows.map((row) => row.jobId).filter((id): id is string => Boolean(id)))
+  );
+  if (jobIds.length === 0) return {} as Record<string, { id: string; jobNumber: string | null; propertyName: string | null }>;
+  const jobs = await db.job.findMany({
+    where: { id: { in: jobIds } },
+    select: { id: true, jobNumber: true, property: { select: { name: true } } },
+  });
+  return Object.fromEntries(
+    jobs.map((job) => [
+      job.id,
+      { id: job.id, jobNumber: job.jobNumber, propertyName: job.property?.name ?? null },
+    ])
+  );
+}
+
+export async function GET(req: NextRequest) {
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
@@ -22,8 +42,12 @@ export async function GET() {
       return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
     }
 
+    // ?jobId= scopes to that job's thread; absent = every message (global page
+    // shows job-thread rows with a job chip).
+    const jobId = req.nextUrl.searchParams.get("jobId")?.trim() || null;
+
     const rows = await db.clientMessage.findMany({
-      where: { clientId: portal.clientId },
+      where: { clientId: portal.clientId, ...(jobId ? { jobId } : {}) },
       include: {
         sentBy: {
           select: {
@@ -41,13 +65,17 @@ export async function GET() {
     await db.clientMessage.updateMany({
       where: {
         clientId: portal.clientId,
+        ...(jobId ? { jobId } : {}),
         isFromAdmin: true,
         isRead: false,
       },
       data: { isRead: true },
     });
 
-    return NextResponse.json(rows);
+    const jobChips = await buildJobChips(rows);
+    return NextResponse.json(
+      rows.map((row) => ({ ...row, job: row.jobId ? jobChips[row.jobId] ?? null : null }))
+    );
   } catch (error: any) {
     const status =
       error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
@@ -73,9 +101,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Client not found." }, { status: 404 });
     }
 
+    // Per-job thread: the job must belong to this client.
+    let job: { id: string; jobNumber: string | null; property: { name: string } | null } | null = null;
+    if (body.jobId) {
+      job = await db.job.findFirst({
+        where: { id: body.jobId, property: { clientId: client.id } },
+        select: { id: true, jobNumber: true, property: { select: { name: true } } },
+      });
+      if (!job) {
+        return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      }
+    }
+
     const message = await db.clientMessage.create({
       data: {
         clientId: client.id,
+        jobId: job?.id ?? null,
         sentById: session.user.id,
         body: body.body,
         isFromAdmin: false,
@@ -92,18 +133,29 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const jobLabel = job
+      ? ` about job${job.jobNumber ? ` #${job.jobNumber}` : ""}${job.property?.name ? ` (${job.property.name})` : ""}`
+      : "";
     await Promise.all([
       notifyAdminsByPush({
         subject: "New client message",
-        body: `${client.name} sent a new message in the client portal.`,
+        body: `${client.name} sent a new message${jobLabel} in the client portal.`,
       }),
       notifyAdminsByEmail({
         subject: `New client message from ${client.name}`,
-        html: `<p><strong>${client.name}</strong> sent a new portal message.</p><p>${body.body}</p>`,
+        html: `<p><strong>${client.name}</strong> sent a new portal message${jobLabel}.</p><p>${body.body}</p>`,
       }),
     ]);
 
-    return NextResponse.json(message, { status: 201 });
+    return NextResponse.json(
+      {
+        ...message,
+        job: job
+          ? { id: job.id, jobNumber: job.jobNumber, propertyName: job.property?.name ?? null }
+          : null,
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
     const status =
       error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;

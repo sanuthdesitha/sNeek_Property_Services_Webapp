@@ -295,6 +295,104 @@ export async function createClientJobTaskRequest(input: {
   return created;
 }
 
+/**
+ * Client "light request" (Ask for an update / Ask for ETA / Request the report).
+ * Rides on a JobTask (source CLIENT) with metadata
+ * { kind: "CLIENT_REQUEST", requestType, note } — but unlike an add-on task it
+ * is never shown to the cleaner and never auto-approves (autoApproveAt null),
+ * because "approving" one simply means an admin handled it.
+ */
+export async function createClientLightRequest(input: {
+  jobId: string;
+  clientId: string;
+  requestedByUserId: string;
+  requestType: "UPDATE" | "ETA" | "REPORT";
+  note?: string | null;
+  baseUrl?: RequestLike;
+}) {
+  const job = await db.job.findUnique({
+    where: { id: input.jobId },
+    select: {
+      id: true,
+      jobNumber: true,
+      scheduledDate: true,
+      startTime: true,
+      dueTime: true,
+      propertyId: true,
+      property: { select: { name: true, suburb: true, clientId: true } },
+    },
+  });
+  if (!job || job.property.clientId !== input.clientId) {
+    throw new Error("JOB_NOT_FOUND");
+  }
+
+  const titles: Record<typeof input.requestType, string> = {
+    UPDATE: "Client asked for an update",
+    ETA: "Client asked for an ETA",
+    REPORT: "Client asked for the report",
+  };
+  const note = input.note?.trim() || null;
+
+  const created = await db.jobTask.create({
+    data: {
+      jobId: job.id,
+      propertyId: job.propertyId,
+      clientId: input.clientId,
+      source: "CLIENT",
+      approvalStatus: "PENDING_APPROVAL",
+      executionStatus: "OPEN",
+      visibleToCleaner: false,
+      title: titles[input.requestType],
+      description: note,
+      requestedByUserId: input.requestedByUserId,
+      // Deliberately no autoApproveAt — light requests must never be swept up
+      // by autoApprovePendingClientJobTasks (that would push them onto the
+      // cleaner checklist).
+      metadata: { kind: "CLIENT_REQUEST", requestType: input.requestType, note },
+      events: {
+        create: {
+          actorUserId: input.requestedByUserId,
+          action: "CLIENT_REQUEST_CREATED",
+          note: note ?? titles[input.requestType],
+        },
+      },
+    },
+  });
+
+  const admins = await getAdminRecipients();
+  const jobReference = getJobReference(job);
+  const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
+  const actionUrl = resolveAppUrl(`/v2/admin/jobs/${job.id}`, input.baseUrl);
+  const subjectByType: Record<typeof input.requestType, string> = {
+    UPDATE: "Client asked for an update",
+    ETA: "Client asked for an ETA",
+    REPORT: "Client asked for their report",
+  };
+
+  await deliverNotificationToRecipients({
+    recipients: admins,
+    category: "approvals",
+    jobId: job.id,
+    web: {
+      subject: subjectByType[input.requestType],
+      body: `${jobReference} at ${propertyLabel}${note ? ` — “${note}”` : ""}`,
+    },
+    email: {
+      subject: `${subjectByType[input.requestType]} - ${jobReference}`,
+      html: `
+        <p>${subjectByType[input.requestType]}.</p>
+        <p><strong>Job:</strong> ${jobReference}</p>
+        <p><strong>Property:</strong> ${propertyLabel}</p>
+        ${note ? `<p><strong>Note:</strong> ${note}</p>` : ""}
+        <p><a href="${actionUrl}">Open job</a></p>
+      `,
+    },
+    sms: `${subjectByType[input.requestType]}: ${jobReference} at ${propertyLabel}.`,
+  });
+
+  return created;
+}
+
 export async function reviewJobTaskRequest(input: {
   taskId: string;
   actorUserId: string;
@@ -309,12 +407,19 @@ export async function reviewJobTaskRequest(input: {
     throw new Error("TASK_NOT_PENDING");
   }
 
+  // Light requests (metadata.kind CLIENT_REQUEST) are admin-handled inbox
+  // items, not cleaner checklist work — approving one must never surface it on
+  // the cleaner's task list, and it completes immediately.
+  const taskMeta = task.metadata as Record<string, unknown> | null;
+  const isLightRequest = taskMeta?.kind === "CLIENT_REQUEST";
+
   const approvalStatus = input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
   const updated = await db.jobTask.update({
     where: { id: input.taskId },
     data: {
       approvalStatus,
-      visibleToCleaner: input.decision === "APPROVE",
+      visibleToCleaner: input.decision === "APPROVE" && !isLightRequest,
+      ...(isLightRequest ? { executionStatus: "COMPLETED" as const, completedAt: new Date() } : {}),
       approvedByUserId: input.actorUserId,
       approvedAt: new Date(),
       events: {
@@ -355,13 +460,17 @@ export async function reviewJobTaskRequest(input: {
 
   const recipients = [];
   if (task.requestedBy) recipients.push(task.requestedBy);
-  if (task.jobId && input.decision === "APPROVE") {
+  if (task.jobId && input.decision === "APPROVE" && !isLightRequest) {
     recipients.push(...(await getAssignedCleanerRecipients(task.jobId)));
   }
 
   if (recipients.length > 0) {
     const actionUrl = resolveAppUrl(
-      input.decision === "APPROVE" && task.jobId ? `/cleaner/jobs/${task.jobId}` : "/client/jobs",
+      isLightRequest && task.jobId
+        ? `/v2/client/jobs/${task.jobId}`
+        : input.decision === "APPROVE" && task.jobId
+          ? `/cleaner/jobs/${task.jobId}`
+          : "/client/jobs",
       input.baseUrl
     );
     await deliverNotificationToRecipients({
