@@ -1,19 +1,45 @@
 import { randomUUID } from "crypto";
-import { JobStatus, Prisma, Role } from "@prisma/client";
+import { JobStatus, PayAdjustmentStatus, Prisma, QaAssignmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
 import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
+// The payee roles the invoice rail serves (CLEANER + QA_INSPECTOR). Imported, not
+// re-declared, so this rail can never drift from lib/invoicing/access.ts.
+import { INVOICE_PAYEE_ROLES } from "@/lib/profile/completeness";
 
 const PAYRUNS_KEY = "phase4_payruns_v1";
 
 export type PayRunStatus = "DRAFT" | "LOCKED" | "PAID";
 
+/**
+ * One payee's line on a pay run.
+ *
+ * NAMING: the `cleaner*` field names are load-bearing for BACKWARD COMPATIBILITY
+ * — stored runs in the AppSetting blob use them and `sanitizeLine` reads them.
+ * They are NOT honest: this rail pays every INVOICE_PAYEE_ROLE, so a line may
+ * belong to a QA inspector who holds no cleaner assignments at all. `payeeRole`
+ * records which, without renaming anything a stored run depends on.
+ */
 export interface PayRunLine {
+  /** Payee user id (not necessarily a CLEANER — see payeeRole). */
   cleanerId: string;
+  /** Payee display name. */
   cleanerName: string;
+  /** Payee email. */
   cleanerEmail: string;
+  /** Role of the payee at the time the line was computed (CLEANER / QA_INSPECTOR). */
+  payeeRole?: string | null;
   jobsCount: number;
+  /** Completed QA inspections billed on this line (0 for a cleans-only payee). */
+  inspectionsCount?: number;
+  /** Approved pay adjustments settled by this line. */
+  adjustmentsCount?: number;
   paidHours: number;
+  /**
+   * Total paid to this payee. SIGNED — a payee whose period contains only a
+   * deduction is owed a negative amount, and clamping it to 0 would silently
+   * delete the deduction (see lib/finance/pay-adjustments.ts).
+   */
   amount: number;
 }
 
@@ -60,13 +86,21 @@ function sanitizeLine(input: unknown): PayRunLine | null {
   const cleanerId = String(row.cleanerId ?? "").trim();
   const cleanerEmail = String(row.cleanerEmail ?? "").trim();
   if (!cleanerId || !cleanerEmail) return null;
+  // Signed, NOT clamped. `Math.max(0, …)` here used to erase a net-negative line
+  // (a payee whose period is dominated by an approved deduction) the moment the
+  // run was read back — the exact failure mode lib/finance/pay-adjustments.ts
+  // documents. Only NaN is coerced, and to 0.
+  const amountRaw = Number(row.amount ?? 0);
   return {
     cleanerId,
     cleanerName: String(row.cleanerName ?? cleanerEmail).trim() || cleanerEmail,
     cleanerEmail,
+    payeeRole: row.payeeRole ? String(row.payeeRole) : null,
     jobsCount: Math.max(0, Number(row.jobsCount ?? 0)),
+    inspectionsCount: Math.max(0, Number(row.inspectionsCount ?? 0)),
+    adjustmentsCount: Math.max(0, Number(row.adjustmentsCount ?? 0)),
     paidHours: Math.max(0, Number(row.paidHours ?? 0)),
-    amount: Math.max(0, Number(row.amount ?? 0)),
+    amount: Number.isFinite(amountRaw) ? amountRaw : 0,
   };
 }
 
@@ -125,18 +159,241 @@ async function writeStore(
   return writeSettingStore(PAYRUNS_KEY, { version, data }, client);
 }
 
-interface ComputedLines {
+export interface ComputedLines {
   lines: PayRunLine[];
   // Every job whose pay is captured by these lines. Stamped with the run id so the
   // same job can't be paid again by another phase4 run or by the primary engine.
   jobIds: string[];
+  /**
+   * Every approved CleanerPayAdjustment whose money is inside `lines`. These MUST
+   * be stamped with the run id: `estimatedPay` already includes their signed
+   * amount, so leaving them unstamped means the primary payroll engine or the
+   * payee's next invoice pays them a SECOND time.
+   */
+  adjustmentIds: string[];
+  /** Every COMPLETED QaAssignment whose money is inside `lines`. Same reason. */
+  qaAssignmentIds: string[];
+  /**
+   * Per-inspection amount THIS run pays, threaded through from
+   * `invoice.qaInspectionRows` rather than recomputed, so the figure frozen into
+   * `paySettledAmount` is provably the figure that was paid.
+   */
+  qaAssignmentAmounts: Array<{ id: string; amount: number }>;
+}
+
+/** The subset of a payee's invoice this rail needs. Keeps the merge logic pure. */
+export interface PayeeInvoiceSlice {
+  cleanerName: string;
+  cleanerEmail: string;
+  payeeRole?: string | null;
+  hours: number;
+  estimatedPay: number;
+  rows: Array<{ jobId: string }>;
+  qaInspectionRows: Array<{ assignmentId: string; amount: number }>;
+  includedQaAssignmentIds: string[];
+  includedAdjustmentIds: string[];
+}
+
+export interface PayeeInvoiceEntry {
+  payeeId: string;
+  payeeRole?: string | null;
+  invoice: PayeeInvoiceSlice;
 }
 
 /**
- * Compute the per-cleaner pay lines for a period.
+ * Merge the assignment-driven payee roster with payees discovered through the
+ * OTHER two settlement streams, deduped by id and preserving roster order.
  *
- * @param runId  When recomputing an existing run, pass its id so jobs already
- *               stamped with THIS run stay included (only jobs paid by a DIFFERENT
+ * Mirrors `getPayrollSummary`'s `extraPayees` step. Without it a QA inspector —
+ * who holds no cleaner assignments and therefore matches no job-assignment query
+ * — could never appear on a pay run, and neither could a cleaner whose period
+ * contains only an adjustment or an inspection.
+ */
+export function mergePayeeIds(
+  assignmentPayeeIds: readonly string[],
+  extraPayeeIds: readonly string[]
+): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const id of [...assignmentPayeeIds, ...extraPayeeIds]) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(id);
+  }
+  return merged;
+}
+
+/**
+ * Does this payee have anything at all to be paid for?
+ *
+ * The old test was `invoice.rows.length === 0` — jobs only — which filtered out
+ * exactly the payees BUG 2 was about (an inspections-only inspector, an
+ * adjustment-only cleaner) right after widening the query to find them. All three
+ * streams count now, and a zero-amount payee with no rows anywhere is skipped so
+ * the run isn't padded with empty lines. A NON-zero amount always earns a line,
+ * including a negative one (a net deduction is still a settlement).
+ */
+export function payeeHasPayableWork(invoice: PayeeInvoiceSlice): boolean {
+  if (invoice.rows.length > 0) return true;
+  if (invoice.qaInspectionRows.length > 0) return true;
+  if (invoice.includedAdjustmentIds.length > 0) return true;
+  return Number(invoice.estimatedPay.toFixed(2)) !== 0;
+}
+
+/**
+ * Fold per-payee invoices into the run's lines plus the id sets that must be
+ * stamped. Pure — every DB decision is made by the caller.
+ */
+export function buildComputedLines(entries: readonly PayeeInvoiceEntry[]): ComputedLines {
+  const lines: PayRunLine[] = [];
+  const jobIds = new Set<string>();
+  const adjustmentIds = new Set<string>();
+  const qaAmounts = new Map<string, number>();
+
+  for (const entry of entries) {
+    const invoice = entry.invoice;
+    if (!payeeHasPayableWork(invoice)) continue;
+    for (const row of invoice.rows) jobIds.add(row.jobId);
+    for (const id of invoice.includedAdjustmentIds) adjustmentIds.add(id);
+    // Take the amount from the ROW (what was billed), not from a recomputation.
+    for (const row of invoice.qaInspectionRows) {
+      qaAmounts.set(row.assignmentId, Number(Number(row.amount).toFixed(2)));
+    }
+    // Defensive: includedQaAssignmentIds is derived from qaInspectionRows, but if
+    // an id ever arrives without a row it is still money this run is paying and
+    // must be stamped — at the amount we can see, which is 0.
+    for (const id of invoice.includedQaAssignmentIds) {
+      if (!qaAmounts.has(id)) qaAmounts.set(id, 0);
+    }
+    lines.push({
+      cleanerId: entry.payeeId,
+      cleanerName: invoice.cleanerName,
+      cleanerEmail: invoice.cleanerEmail,
+      payeeRole: entry.payeeRole ?? invoice.payeeRole ?? null,
+      jobsCount: invoice.rows.length,
+      inspectionsCount: invoice.qaInspectionRows.length,
+      adjustmentsCount: invoice.includedAdjustmentIds.length,
+      paidHours: Number(invoice.hours.toFixed(2)),
+      amount: Number(invoice.estimatedPay.toFixed(2)),
+    });
+  }
+
+  const qaAssignmentAmounts = Array.from(qaAmounts.entries()).map(([id, amount]) => ({
+    id,
+    amount,
+  }));
+  return {
+    lines: lines.sort((a, b) => a.cleanerName.localeCompare(b.cleanerName)),
+    jobIds: Array.from(jobIds),
+    adjustmentIds: Array.from(adjustmentIds),
+    qaAssignmentIds: qaAssignmentAmounts.map((row) => row.id),
+    qaAssignmentAmounts,
+  };
+}
+
+/**
+ * Find every payee this run must consider.
+ *
+ * Three sources, because there are three settlement streams and a payee can hold
+ * ANY ONE of them alone:
+ *   1. cleaner job assignments in the period (the original query, widened from
+ *      `role: CLEANER` to the invoice rail's payee roles);
+ *   2. COMPLETED, unsettled QA inspections;
+ *   3. APPROVED, unsettled pay adjustments.
+ *
+ * DISCOVERY MUST BE A SUPERSET OF SELECTION. `getCleanerInvoiceData` selects
+ * adjustments with NO date window at all and inspections with only an upper
+ * bound (the stamp, never the window, is what prevents double payment), so the
+ * discovery queries below use the same bounds. Narrowing them to the period would
+ * hide a payee whose only unsettled row was approved/completed earlier — and the
+ * money would never be paid by anyone. Discovered payees with nothing payable are
+ * dropped later by `payeeHasPayableWork`, so a wide net costs nothing.
+ */
+async function findPayeeIds(start: Date, end: Date, runId?: string): Promise<string[]> {
+  // A row already stamped with THIS run is still ours when recomputing.
+  const ownRunClause = runId
+    ? { OR: [{ includedInPayrollRunId: null }, { includedInPayrollRunId: runId }] }
+    : { includedInPayrollRunId: null };
+
+  const [assignmentPayees, qaRows, adjustmentRows] = await Promise.all([
+    db.user.findMany({
+      where: {
+        role: { in: INVOICE_PAYEE_ROLES },
+        isActive: true,
+        jobAssignments: {
+          some: {
+            removedAt: null,
+            job: {
+              // Match the completedAt ?? scheduledDate window that the per-cleaner
+              // invoice (getCleanerInvoiceData) uses, so selection and totals agree.
+              OR: [
+                { completedAt: { gte: start, lte: end } },
+                { completedAt: null, scheduledDate: { gte: start, lte: end } },
+              ],
+              status: {
+                in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.qaAssignment.findMany({
+      where: {
+        status: QaAssignmentStatus.COMPLETED,
+        assignedToId: { not: null },
+        includedInCleanerInvoiceId: null,
+        AND: [
+          { OR: [{ completedAt: { lte: end } }, { completedAt: null }] },
+          ownRunClause,
+        ],
+      },
+      select: { assignedToId: true },
+    }),
+    db.cleanerPayAdjustment.findMany({
+      where: {
+        status: PayAdjustmentStatus.APPROVED,
+        includedInCleanerInvoiceId: null,
+        AND: [ownRunClause],
+      },
+      select: { cleanerId: true },
+    }),
+  ]);
+
+  const assignmentIds = assignmentPayees.map((row) => row.id);
+  const assignmentIdSet = new Set(assignmentIds);
+  const candidateExtraIds = Array.from(
+    new Set(
+      [
+        ...qaRows.map((row) => row.assignedToId),
+        ...adjustmentRows.map((row) => row.cleanerId),
+      ].filter((id): id is string => Boolean(id) && !assignmentIdSet.has(id as string))
+    )
+  );
+  // Extra payees still have to be an active user in a payee role — this rail must
+  // not invent a line for a deactivated account or a non-payee role.
+  const extraPayees = candidateExtraIds.length
+    ? await db.user.findMany({
+        where: {
+          id: { in: candidateExtraIds },
+          isActive: true,
+          role: { in: INVOICE_PAYEE_ROLES },
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+
+  return mergePayeeIds(assignmentIds, extraPayees.map((row) => row.id));
+}
+
+/**
+ * Compute the per-payee pay lines for a period.
+ *
+ * @param runId  When recomputing an existing run, pass its id so rows already
+ *               stamped with THIS run stay included (only rows paid by a DIFFERENT
  *               run are excluded). Omit for a brand-new run.
  */
 async function computeLines(
@@ -146,59 +403,26 @@ async function computeLines(
 ): Promise<ComputedLines> {
   const start = new Date(`${startDate}T00:00:00.000Z`);
   const end = new Date(`${endDate}T23:59:59.999Z`);
-  const cleaners = await db.user.findMany({
-    where: {
-      role: Role.CLEANER,
-      isActive: true,
-      jobAssignments: {
-        some: {
-          job: {
-            // Match the completedAt ?? scheduledDate window that the per-cleaner
-            // invoice (getCleanerInvoiceData) uses, so selection and totals agree.
-            OR: [
-              { completedAt: { gte: start, lte: end } },
-              { completedAt: null, scheduledDate: { gte: start, lte: end } },
-            ],
-            status: {
-              in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
-            },
-          },
-        },
-      },
-    },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-  });
+  const payeeIds = await findPayeeIds(start, end, runId);
 
-  const lines: PayRunLine[] = [];
-  const jobIds = new Set<string>();
-  for (const cleaner of cleaners) {
+  const entries: PayeeInvoiceEntry[] = [];
+  for (const payeeId of payeeIds) {
     const invoice = await getCleanerInvoiceData({
-      userId: cleaner.id,
+      userId: payeeId,
       startDate,
       endDate,
       showSpentHours: false,
-      // Idempotency: never recompute pay for a job already attached to another
-      // payroll run (phase4 OR the primary engine — both stamp Job.payrollRunId).
+      // Idempotency: never recompute pay for a job/adjustment/inspection already
+      // attached to another payroll run (phase4 OR the primary engine — both use
+      // the same stamps). includePaidRunId un-excludes THIS run's own rows across
+      // all three streams.
       excludePaidJobs: true,
       includePaidRunId: runId,
     });
-    if (invoice.rows.length === 0) continue;
-    for (const row of invoice.rows) jobIds.add(row.jobId);
-    lines.push({
-      cleanerId: cleaner.id,
-      cleanerName: invoice.cleanerName,
-      cleanerEmail: invoice.cleanerEmail,
-      jobsCount: invoice.rows.length,
-      paidHours: Number(invoice.hours.toFixed(2)),
-      amount: Number(invoice.estimatedPay.toFixed(2)),
-    });
+    entries.push({ payeeId, payeeRole: invoice.payeeRole ?? null, invoice });
   }
 
-  return {
-    lines: lines.sort((a, b) => a.cleanerName.localeCompare(b.cleanerName)),
-    jobIds: Array.from(jobIds),
-  };
+  return buildComputedLines(entries);
 }
 
 function computeTotals(lines: PayRunLine[]) {
@@ -234,7 +458,7 @@ export async function createPayRun(input: {
     readStore(),
     computeLines(periodStart, periodEnd),
   ]);
-  const { lines, jobIds } = computed;
+  const { lines, jobIds, adjustmentIds, qaAssignmentIds, qaAssignmentAmounts } = computed;
   const now = new Date().toISOString();
   const run: PayRunRecord = {
     id,
@@ -256,10 +480,15 @@ export async function createPayRun(input: {
     notes: null,
   };
   const nextData: PayRunStore = { runs: [run, ...store.data.runs].slice(0, 250) };
-  // Atomic: stamp every included job with this run id AND persist the run together.
-  // The updateMany guard (payrollRunId: null) mirrors the primary engine so a
-  // concurrent run can't double-stamp; the same field also makes the primary
-  // engine's excludePaidJobs filter skip these jobs.
+  // Atomic: stamp EVERY stream whose money is inside `lines` — jobs, approved pay
+  // adjustments and completed QA inspections — and persist the run together. Paying
+  // a stream without stamping it is a double-pay hole: the primary payroll engine
+  // and the payee's next cleaner invoice both select "approved/completed AND
+  // unsettled", so an unstamped row is paid a second time.
+  //
+  // Every updateMany is guarded on the stamp(s) being null, mirroring
+  // lib/payroll/engine.ts createPayrollRun, so a concurrent run/invoice can never
+  // be robbed of a row it already claimed.
   await db.$transaction(async (tx) => {
     if (jobIds.length > 0) {
       await tx.job.updateMany({
@@ -267,9 +496,82 @@ export async function createPayRun(input: {
         data: { payrollRunId: id },
       });
     }
+    if (adjustmentIds.length > 0) {
+      // CleanerPayAdjustment has no includedInPayrollRunAt column (only the
+      // invoice side is timestamped), so the id is the whole stamp.
+      await tx.cleanerPayAdjustment.updateMany({
+        where: {
+          id: { in: adjustmentIds },
+          includedInPayrollRunId: null,
+          includedInCleanerInvoiceId: null,
+        },
+        data: { includedInPayrollRunId: id },
+      });
+    }
+    if (qaAssignmentAmounts.length > 0) {
+      const stampedAt = new Date();
+      // Freeze the amount THIS run paid per inspection alongside the stamp, so a
+      // later rate/settings change can never retro-alter history. Row-by-row
+      // because the frozen figure differs per inspection.
+      for (const row of qaAssignmentAmounts) {
+        await tx.qaAssignment.updateMany({
+          where: {
+            id: row.id,
+            includedInPayrollRunId: null,
+            includedInCleanerInvoiceId: null,
+          },
+          data: {
+            includedInPayrollRunId: id,
+            includedInPayrollRunAt: stampedAt,
+            paySettledAmount: row.amount,
+          },
+        });
+      }
+    }
     await writeStore(store.version + 1, nextData, tx);
   });
   return run;
+}
+
+/**
+ * Release every settlement stamp belonging to `runId`, optionally keeping the rows
+ * that are still part of the run (`keep*`). Used by both refresh (reconcile) and
+ * delete (release everything).
+ *
+ * A released inspection also has its FROZEN amount cleared: `paySettledAmount`
+ * recorded what THIS run paid, and once the run no longer pays it that figure is
+ * a lie that would override the next rail's own computation.
+ */
+async function releaseRunStamps(
+  tx: Prisma.TransactionClient,
+  runId: string,
+  keep?: { jobIds: string[]; adjustmentIds: string[]; qaAssignmentIds: string[] }
+) {
+  await tx.job.updateMany({
+    where: {
+      payrollRunId: runId,
+      ...(keep && keep.jobIds.length > 0 ? { id: { notIn: keep.jobIds } } : {}),
+    },
+    data: { payrollRunId: null },
+  });
+  await tx.cleanerPayAdjustment.updateMany({
+    where: {
+      includedInPayrollRunId: runId,
+      ...(keep && keep.adjustmentIds.length > 0 ? { id: { notIn: keep.adjustmentIds } } : {}),
+    },
+    data: { includedInPayrollRunId: null },
+  });
+  await tx.qaAssignment.updateMany({
+    where: {
+      includedInPayrollRunId: runId,
+      ...(keep && keep.qaAssignmentIds.length > 0 ? { id: { notIn: keep.qaAssignmentIds } } : {}),
+    },
+    data: {
+      includedInPayrollRunId: null,
+      includedInPayrollRunAt: null,
+      paySettledAmount: null,
+    },
+  });
 }
 
 export async function refreshPayRun(id: string, userId: string) {
@@ -280,13 +582,14 @@ export async function refreshPayRun(id: string, userId: string) {
   if (existing.status !== "DRAFT") {
     throw new Error("Only draft pay runs can be refreshed.");
   }
-  // Recompute including this run's own previously-stamped jobs (includePaidRunId)
+  // Recompute including this run's own previously-stamped rows (includePaidRunId)
   // so a refresh re-evaluates them rather than dropping them as "already paid".
-  const { lines, jobIds } = await computeLines(
-    existing.periodStart,
-    existing.periodEnd,
-    existing.id
-  );
+  // That option now covers all THREE streams — jobs, adjustments and inspections
+  // (see getCleanerInvoiceData); before it reached only jobs, so a refresh
+  // silently dropped this run's own adjustments and inspections and then released
+  // them, changing what the run was about to pay.
+  const { lines, jobIds, adjustmentIds, qaAssignmentIds, qaAssignmentAmounts } =
+    await computeLines(existing.periodStart, existing.periodEnd, existing.id);
   const now = new Date().toISOString();
   const updated: PayRunRecord = {
     ...existing,
@@ -297,25 +600,65 @@ export async function refreshPayRun(id: string, userId: string) {
   };
   const next = [...store.data.runs];
   next[index] = updated;
-  // Reconcile stamps in one transaction: release jobs no longer in this run, claim
-  // newly-included jobs (guarded on payrollRunId: null so we never steal a job that
-  // another run has already claimed), and persist the run together.
+  // Reconcile all THREE streams in one transaction: release rows stamped with this
+  // run that are no longer included, then claim the newly-included ones (guarded on
+  // the stamps being null so we never steal a row another run/invoice has already
+  // claimed), and persist the run together.
   await db.$transaction(async (tx) => {
-    await tx.job.updateMany({
-      where: { payrollRunId: existing.id, id: { notIn: jobIds } },
-      data: { payrollRunId: null },
-    });
+    await releaseRunStamps(tx, existing.id, { jobIds, adjustmentIds, qaAssignmentIds });
     if (jobIds.length > 0) {
       await tx.job.updateMany({
         where: { id: { in: jobIds }, payrollRunId: null },
         data: { payrollRunId: existing.id },
       });
     }
+    if (adjustmentIds.length > 0) {
+      await tx.cleanerPayAdjustment.updateMany({
+        where: {
+          id: { in: adjustmentIds },
+          includedInPayrollRunId: null,
+          includedInCleanerInvoiceId: null,
+        },
+        data: { includedInPayrollRunId: existing.id },
+      });
+    }
+    if (qaAssignmentAmounts.length > 0) {
+      const stampedAt = new Date();
+      for (const row of qaAssignmentAmounts) {
+        // Re-freezes the amount for rows this run already held, so the frozen
+        // figure always matches the refreshed line.
+        await tx.qaAssignment.updateMany({
+          where: {
+            id: row.id,
+            OR: [
+              { includedInPayrollRunId: null },
+              { includedInPayrollRunId: existing.id },
+            ],
+            includedInCleanerInvoiceId: null,
+          },
+          data: {
+            includedInPayrollRunId: existing.id,
+            includedInPayrollRunAt: stampedAt,
+            paySettledAmount: row.amount,
+          },
+        });
+      }
+    }
     await writeStore(store.version + 1, { runs: next }, tx);
   });
   return updated;
 }
 
+/**
+ * LOCKED / PAID are metadata only — deliberately no settlement work here.
+ *
+ * Settlement happens at CREATE time on this rail (the stamps are what make the
+ * lines idempotent), and the primary rail does the same: lib/payroll/engine.ts
+ * `confirmPayrollRun` / `processPayrollRun` change status and move money but touch
+ * no `includedInPayrollRunId` / `paySettledAmount` — those were already written by
+ * `createPayrollRun`. Refresh + delete are already blocked outside DRAFT, so a
+ * LOCKED/PAID run's stamps can no longer be released.
+ */
 export async function updatePayRunStatus(input: {
   id: string;
   status: PayRunStatus;
@@ -354,13 +697,12 @@ export async function deletePayRun(id: string) {
     throw new Error("Only draft pay runs can be deleted.");
   }
   const next = store.data.runs.filter((row) => row.id !== id);
-  // Release this run's job stamps so the jobs are payable again, and remove the
-  // run, atomically.
+  // Release ALL THREE of this run's settlement stamps — jobs, adjustments and
+  // inspections — so the work is payable again, and remove the run, atomically.
+  // Releasing only jobs left the adjustments and inspections stamped with a run
+  // that no longer exists: money marked "already paid" that nothing had paid.
   await db.$transaction(async (tx) => {
-    await tx.job.updateMany({
-      where: { payrollRunId: id },
-      data: { payrollRunId: null },
-    });
+    await releaseRunStamps(tx, id);
     await writeStore(store.version + 1, { runs: next }, tx);
   });
   return true;
