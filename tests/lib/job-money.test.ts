@@ -59,6 +59,58 @@ describe("computeCleanerPay", () => {
     expect(pay.rateMissing).toBe(false);
   });
 
+  it("a NEGATIVE approved adjustment (deduction) actually reduces pay", () => {
+    // Regression: `Math.max(0, approvedAdjustments)` clamped every deduction to
+    // zero, so approving a QA rework/rectification deduction in the Approval
+    // Center changed the cleaner's invoice by exactly nothing.
+    const pay = computeCleanerPay(
+      { jobType: JT, estimatedHours: 2 },
+      { payRate: 50 },
+      {},
+      { cleanerId: "c1", activeAssignmentCount: 1, approvedAdjustments: -30 }
+    );
+    expect(pay.base).toBe(100);
+    expect(pay.adjustments).toBe(-30);
+    expect(pay.total).toBe(70);
+  });
+
+  it("a deduction larger than the job base nets negative rather than silently zeroing", () => {
+    const pay = computeCleanerPay(
+      { jobType: JT, estimatedHours: 1 },
+      { payRate: 40 },
+      {},
+      { cleanerId: "c1", activeAssignmentCount: 1, approvedAdjustments: -60 }
+    );
+    expect(pay.total).toBe(-20);
+  });
+
+  it("mixed additions and deductions net out to the signed sum", () => {
+    const pay = computeCleanerPay(
+      { jobType: JT, estimatedHours: 2 },
+      { payRate: 50 },
+      {},
+      {
+        cleanerId: "c1",
+        activeAssignmentCount: 1,
+        approvedAdjustments: 25 - 40,
+        transportAllowance: 10,
+      }
+    );
+    expect(pay.adjustments).toBe(-15);
+    expect(pay.total).toBe(95); // 100 − 15 + 10
+  });
+
+  it("a non-finite adjustment cannot poison the total with NaN", () => {
+    const pay = computeCleanerPay(
+      { jobType: JT, estimatedHours: 2 },
+      { payRate: 50 },
+      {},
+      { cleanerId: "c1", activeAssignmentCount: 1, approvedAdjustments: Number.NaN }
+    );
+    expect(pay.adjustments).toBe(0);
+    expect(pay.total).toBe(100);
+  });
+
   it("custom payout of 0 is honored (pay nothing for the job)", () => {
     const pay = computeCleanerPay(
       { jobType: JT, estimatedHours: 4 },

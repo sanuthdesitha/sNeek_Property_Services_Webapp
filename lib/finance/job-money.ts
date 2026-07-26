@@ -163,7 +163,14 @@ export function computeCleanerPay(
 
   const base = hasCustomPayout ? roundCents(Number(customPayout)) : roundCents(paidHours * rate);
 
-  const adjustments = roundCents(Math.max(0, Number(context.approvedAdjustments ?? 0)));
+  // Adjustments are ALREADY SIGNED at the row level: a deduction is stored
+  // negative (see lib/finance/pay-adjustments.ts). This used to be clamped with
+  // Math.max(0, …), which silently deleted every approved deduction — a QA
+  // rework/rectification deduction could be approved in the Approval Center and
+  // change the cleaner's invoice by exactly nothing. Never clamp the sign here;
+  // only guard against a non-finite value.
+  const adjustmentsRaw = Number(context.approvedAdjustments ?? 0);
+  const adjustments = Number.isFinite(adjustmentsRaw) ? roundCents(adjustmentsRaw) : 0;
   const transportRaw = Number(context.transportAllowance ?? 0);
   const transportAllowance =
     Number.isFinite(transportRaw) && transportRaw > 0 ? roundCents(transportRaw) : 0;

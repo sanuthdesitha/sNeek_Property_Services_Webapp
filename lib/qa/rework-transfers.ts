@@ -37,6 +37,10 @@ import {
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
+import {
+  notifyPayAdjustmentOutcome,
+  notifyReworkMinutesChanged,
+} from "@/lib/notifications/pay-adjustments";
 
 export const QA_REWORK_INCLUDE = {
   job: {
@@ -52,6 +56,11 @@ export const QA_REWORK_INCLUDE = {
   qaUser: { select: { id: true, name: true, email: true, image: true, role: true } },
   reviewedBy: { select: { id: true, name: true, email: true } },
 } as const;
+
+/** Dedupe/provenance key for the adjustment pair a rework transfer writes. */
+export function buildReworkTransferSourceKey(transferId: string): string {
+  return `rework-transfer:${transferId}`;
+}
 
 export function severityLabel(severity: QaReworkSeverity) {
   switch (severity) {
@@ -195,6 +204,10 @@ export async function reviewQaReworkTransfer(params: {
       }
 
       // 2. Deduct pay from the cleaner (negative approved amount).
+      //
+      // Both rows carry (source, sourceKey) provenance so the pair is traceable
+      // and a duplicated approval could never write a second copy undetected.
+      // The status guard above (PENDING only) is the primary idempotency gate.
       if (amount > 0) {
         await tx.cleanerPayAdjustment.create({
           data: {
@@ -211,10 +224,16 @@ export async function reviewQaReworkTransfer(params: {
             adminNote,
             reviewedById: params.reviewerUserId,
             reviewedAt: new Date(),
+            source: "REWORK_TRANSFER_DEDUCTION",
+            sourceKey: buildReworkTransferSourceKey(existing.id),
           },
         });
 
-        // 3. Credit the QA inspector (positive approved amount).
+        // 3. Credit the QA inspector who actually did the rework. The payee is
+        //    `QaReworkTransfer.qaUserId`, stamped at creation from the session of
+        //    the inspector who filed it (app/api/qa/jobs/[id]/self-rework and the
+        //    inspection submit route) — NOT the admin approving it here, and not
+        //    the review's author.
         await tx.cleanerPayAdjustment.create({
           data: {
             jobId: existing.jobId,
@@ -230,6 +249,8 @@ export async function reviewQaReworkTransfer(params: {
             adminNote,
             reviewedById: params.reviewerUserId,
             reviewedAt: new Date(),
+            source: "REWORK_TRANSFER_CREDIT",
+            sourceKey: buildReworkTransferSourceKey(existing.id),
           },
         });
       }
@@ -279,6 +300,46 @@ export async function reviewQaReworkTransfer(params: {
       },
     });
   });
+
+  // ── MONEY NOTICES (post-commit, fire-and-forget). The in-transaction
+  //    notification above tells the cleaner a rework was recorded; it does not
+  //    tell either party what happened to their PAY, and it told the QA
+  //    inspector nothing at all even though an approved credit was written
+  //    straight into their pay. Both sides now get amount + direction + reason.
+  //
+  //    Idempotent by construction: this function throws on any transfer that is
+  //    not PENDING, so a repeated approval never reaches here a second time.
+  if (params.status === QaReworkTransferStatus.APPROVED) {
+    const reason = `${severityLabel(existing.severity)} QA rework at ${propertyName}`;
+    if (amount > 0) {
+      void notifyPayAdjustmentOutcome({
+        payeeUserId: existing.cleanerUserId,
+        kind: "APPROVED",
+        amount: -amount,
+        reason,
+        jobId: existing.jobId,
+        adminNote,
+      }).catch(() => undefined);
+      void notifyPayAdjustmentOutcome({
+        payeeUserId: existing.qaUserId,
+        kind: "APPROVED",
+        amount,
+        reason: `redoing missed work at ${propertyName}`,
+        jobId: existing.jobId,
+        adminNote,
+      }).catch(() => undefined);
+    }
+    if (minutes > 0) {
+      void notifyReworkMinutesChanged({
+        userId: existing.cleanerUserId,
+        jobId: existing.jobId,
+        minutes,
+        propertyName,
+        reason: existing.reason,
+        removed: true,
+      }).catch(() => undefined);
+    }
+  }
 
   return db.qaReworkTransfer.findUnique({ where: { id: existing.id }, include: QA_REWORK_INCLUDE });
 }

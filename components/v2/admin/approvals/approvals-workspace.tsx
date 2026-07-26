@@ -604,10 +604,17 @@ function AccountabilityPayCard({
 }) {
   const amount = Number(row.requestedAmount ?? 0);
   const isDeduction = amount < 0 || (row.source ?? "").includes("DEDUCTION");
+  // WHO the money lands on. `row.cleaner` is CleanerPayAdjustment.cleanerId —
+  // for a QA rectification/rework credit that is the QA INSPECTOR, not a
+  // cleaner. Show it as an explicit, labelled payee line (with the role) so a
+  // mis-attributed credit is visible BEFORE it is approved, rather than being
+  // buried in the card title where it reads as "the cleaner".
+  const payeeName = row.cleaner?.name ?? row.cleaner?.email ?? "Unknown payee";
+  const payeeRole = row.cleaner?.role ? String(row.cleaner.role).replace(/_/g, " ") : null;
   return (
     <QueueCard
       eyebrow={eyebrow}
-      title={<>{row.cleaner?.name ?? row.cleaner?.email ?? "Cleaner"} — {row.title ?? row.job?.property?.name ?? row.property?.name ?? "Adjustment"}</>}
+      title={<>{payeeName} — {row.title ?? row.job?.property?.name ?? row.property?.name ?? "Adjustment"}</>}
       status={
         <>
           <StatusPill status={row.status} />
@@ -622,6 +629,11 @@ function AccountabilityPayCard({
         ]
           .filter(Boolean)
           .join(" · "),
+        <>
+          {isDeduction ? "Deducted from" : "Paid to"}:{" "}
+          <span className="font-[550]">{payeeName}</span>
+          {payeeRole ? <span className="text-[hsl(var(--e-text-secondary))]"> ({payeeRole})</span> : null}
+        </>,
         <>
           {isDeduction ? "Deduction" : "Amount"}:{" "}
           <span className="e-numeral text-[0.9375rem]" style={{ color: isDeduction ? "hsl(var(--e-danger))" : undefined }}>

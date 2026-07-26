@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
+import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -61,7 +62,16 @@ export async function getPayrollSummary(input: {
     }),
     db.cleanerPayAdjustment.findMany({
       where: {
-        reviewedAt: { gte: start, lte: endInclusive },
+        // Committable run: everything approved up to the end of the period that
+        // no run has paid yet. The lower bound is deliberately dropped here —
+        // with it, an adjustment approved AFTER its period closed fell outside
+        // every subsequent run's window too and was never paid at all. The
+        // includedInPayrollRunId guard is what prevents double payment, not the
+        // date window. The read-only period view keeps the bounded window so a
+        // historical report of a period doesn't change under it.
+        reviewedAt: input.excludePaidJobs
+          ? { lte: endInclusive }
+          : { gte: start, lte: endInclusive },
         status: PayAdjustmentStatus.APPROVED,
         // When building a committable run, never re-include an adjustment already
         // paid by a prior run (idempotency).
@@ -114,6 +124,28 @@ export async function getPayrollSummary(input: {
     Promise.resolve([] as any[]),
   ]);
 
+  // Payees who are owed an approved adjustment but are NOT role CLEANER.
+  //
+  // QA rework credits and QA_RECTIFICATION_PAY are written as a positive
+  // CleanerPayAdjustment against the QA INSPECTOR (lib/qa/rework-transfers.ts,
+  // app/api/admin/qa/issues/[id]/route.ts). The cleaner query above filters on
+  // `role: CLEANER`, so a QA_INSPECTOR payee never appeared as a payroll row at
+  // all and their approved credit was silently dropped from every run — the
+  // approval "took" in the database and paid nobody. Append them as
+  // adjustment-only rows (no job lines: they hold no cleaner assignments).
+  const cleanerIdSet = new Set(cleaners.map((row) => row.id));
+  const extraPayeeIds = Array.from(
+    new Set(adjustments.map((row) => row.cleanerId).filter((id) => id && !cleanerIdSet.has(id)))
+  );
+  const extraPayees = extraPayeeIds.length
+    ? await db.user.findMany({
+        where: { id: { in: extraPayeeIds } },
+        select: { id: true, name: true, email: true, hourlyRate: true },
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+      })
+    : [];
+  const payees = [...cleaners, ...extraPayees];
+
   // Build shopping reimbursement map by cleaner
   const shoppingByCleaner = new Map<string, { id: string; settlementId: string; title: string; amount: number; updatedAt: Date }[]>();
   for (const run of shoppingRuns) {
@@ -133,7 +165,7 @@ export async function getPayrollSummary(input: {
   // Shopping time tracking not yet implemented — empty map
   const shoppingTimeByCleaner = new Map<string, { id: string; minutes: number; rate: number; amount: number }[]>();
 
-  return cleaners.map((cleaner) => {
+  return payees.map((cleaner) => {
     const jobRows = jobs.flatMap((job) => {
       const activeAssignments = job.assignments;
       const assignment = activeAssignments.find((row) => row.userId === cleaner.id);
@@ -198,7 +230,12 @@ export async function getPayrollSummary(input: {
         id: row.id,
         label: row.title || row.property?.name || "Approved adjustment",
         reviewedAt: row.reviewedAt,
-        amount: Number(row.approvedAmount ?? row.requestedAmount ?? 0),
+        // Signed — deductions are stored negative and must stay negative.
+        amount: adjustmentSignedAmount({
+          status: PayAdjustmentStatus.APPROVED,
+          approvedAmount: row.approvedAmount,
+          requestedAmount: row.requestedAmount,
+        }),
       }));
 
     const shoppingRows = (shoppingByCleaner.get(cleaner.id) || []).map((row) => ({

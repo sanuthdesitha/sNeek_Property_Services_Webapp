@@ -1347,6 +1347,14 @@ model CleanerPayAdjustment {
   // never be included in a second run (idempotency — mirrors Job.payrollRunId
   // and ShoppingSettlement.includedInPayrollRunId).
   includedInPayrollRunId String?
+  // Stamped with the CleanerInvoiceSubmission that billed this approved
+  // adjustment. Cleaner invoices are the OTHER settlement rail beside payroll
+  // runs; without a marker, selection was purely date/job-window based, so an
+  // approved addition either never reached an invoice at all (its job was not
+  // on the payee's invoice) or could be billed twice by two overlapping
+  // periods. Selection is now "APPROVED and neither stamp set".
+  includedInCleanerInvoiceId String?
+  includedInCleanerInvoiceAt DateTime?
   // Accountability provenance. source: STREAK_5 | STREAK_10 | MONTHLY_RANK_1 |
   // MONTHLY_RANK_2 | QA_RECTIFICATION_PAY | RECTIFICATION_DEDUCTION |
   // REWORK_DEDUCTION (null = manual/legacy). sourceKey is the dedupe key for
@@ -1366,6 +1374,7 @@ model CleanerPayAdjustment {
   @@index([jobId, status])
   @@index([propertyId, status])
   @@index([includedInPayrollRunId])
+  @@index([includedInCleanerInvoiceId])
   @@index([source, sourceKey])
 }
 
