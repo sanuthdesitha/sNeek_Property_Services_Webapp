@@ -17,6 +17,11 @@ import {
   listCleanerApprovedShoppingTimeRuns,
   listCleanerReimbursableShoppingRuns,
 } from "@/lib/inventory/shopping-runs";
+import {
+  shoppingExpenseSettlementAmount,
+  shoppingTimeSettlementAmount,
+  sumShoppingPay,
+} from "@/lib/finance/shopping-settlement";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 
 interface InvoiceOptions {
@@ -652,22 +657,41 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
   const excludedRunSet = new Set(options.excludedRunIds ?? []);
+  // Shopping is the FOURTH settlement stream and folds into estimatedPay below,
+  // so it needs the same double-pay guard as jobs, adjustments and inspections:
+  // select only what NEITHER rail has settled, un-excluding rows this very pay
+  // run / invoice stamped. Until these options existed the selectors filtered on
+  // status + date window alone, and a reimbursement already paid by a payroll run
+  // was billed all over again here (and by the next overlapping invoice).
+  const shoppingSelection = {
+    cleanerId: options.userId,
+    start,
+    end,
+    includePayrollRunId: options.includePaidRunId ?? null,
+    includeInvoiceId: options.includeInvoiceId ?? null,
+  };
   const shoppingExpenseRuns = (
-    await listCleanerReimbursableShoppingRuns({ cleanerId: options.userId, start, end })
+    await listCleanerReimbursableShoppingRuns(shoppingSelection)
   ).filter((run) => !excludedRunSet.has(run.id));
-  const shoppingTimeRuns = (
-    await listCleanerApprovedShoppingTimeRuns({ cleanerId: options.userId, start, end })
-  ).filter((run) => !excludedRunSet.has(run.id));
+  const shoppingTimeRuns = (await listCleanerApprovedShoppingTimeRuns(shoppingSelection)).filter(
+    (run) => !excludedRunSet.has(run.id)
+  );
   const expenseRows = shoppingExpenseRuns.map((run) => ({
     runId: run.id,
     date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
     runName: run.name,
     properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
-    amount: Number(run.totals.actualTotalCost ?? 0),
+    // The FROZEN figure wins once a rail has settled this run: editing its line
+    // costs afterwards must not retro-alter what accounts was billed (exactly
+    // the rule qaAssignmentSettlementAmount applies to inspections).
+    amount: shoppingExpenseSettlementAmount(
+      run.settlement ?? {},
+      Number(run.totals.actualTotalCost ?? 0)
+    ),
     paymentMethod: run.payment.method.replace(/_/g, " "),
     note: run.reimbursementNote || run.payment.note || undefined,
   }));
-  const expenseTotal = expenseRows.reduce((sum, row) => sum + row.amount, 0);
+  const expenseTotal = sumShoppingPay(expenseRows);
   const shoppingTimeRows = shoppingTimeRuns.map((run) => ({
     runId: run.id,
     date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
@@ -675,10 +699,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     properties: Array.from(new Set(run.rows.map((row) => row.propertyName))).join(", "),
     minutes: Number(run.shoppingTime.approvedMinutes ?? 0),
     hourlyRate: Number(run.shoppingTime.approvedRate ?? 0),
-    amount: Number(run.shoppingTime.approvedAmount ?? 0),
+    amount: shoppingTimeSettlementAmount(
+      run.settlement ?? {},
+      Number(run.shoppingTime.approvedAmount ?? 0)
+    ),
     note: run.shoppingTime.note || undefined,
   }));
-  const shoppingTimeTotal = shoppingTimeRows.reduce((sum, row) => sum + row.amount, 0);
+  const shoppingTimeTotal = sumShoppingPay(shoppingTimeRows);
 
   const extraLineRows = unlinkedApprovedAdjustments.map((adj) => {
     // Signed: a carry-over row can be a DEDUCTION (negative) as well as an

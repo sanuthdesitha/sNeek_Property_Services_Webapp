@@ -9,7 +9,10 @@ import {
   getCleanerInvoiceData,
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
-import { markCleanerShoppingRunsInvoiced } from "@/lib/inventory/shopping-runs";
+import {
+  markCleanerShoppingRunsInvoiced,
+  stampShoppingSettlementsForCleanerInvoice,
+} from "@/lib/inventory/shopping-runs";
 import {
   invoicePayeeMissingFields,
   invoicePayeeProfileHref,
@@ -216,15 +219,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: emailResult.error ?? "Failed to send invoice email." }, { status: 502 });
     }
 
-    await markCleanerShoppingRunsInvoiced({
-      cleanerId: session.user.id,
-      runIds: Array.from(
-        new Set([
-          ...data.expenseRows.map((row) => row.runId),
-          ...data.shoppingTimeRows.map((row) => row.runId),
-        ])
-      ),
-    });
+    // Settle the SHOPPING this invoice billed — the fourth stream, and until now
+    // the only one settled by status alone. `estimatedPay` folds in both the
+    // out-of-pocket reimbursement and the approved shopping time, so an unstamped
+    // run was billed all over again by the next invoice AND payable a second time
+    // by a payroll run.
+    //
+    // Order matters: markCleanerShoppingRunsInvoiced runs FIRST because it is what
+    // guarantees a ShoppingSettlement row exists (a time-only run normally has
+    // none) — the stamping updateMany would otherwise match nothing and silently
+    // leave the money unguarded. Both steps share one transaction so a failure
+    // can't leave runs marked INVOICED but unstamped.
+    const invoicedRunIds = Array.from(
+      new Set([
+        ...data.expenseRows.map((row) => row.runId),
+        ...data.shoppingTimeRows.map((row) => row.runId),
+      ])
+    );
+    if (invoicedRunIds.length > 0) {
+      await db.$transaction(async (tx) => {
+        const ownedRunIds = await markCleanerShoppingRunsInvoiced(
+          { cleanerId: session.user.id, runIds: invoicedRunIds },
+          tx
+        );
+        await stampShoppingSettlementsForCleanerInvoice(
+          {
+            // Only runs the previous call confirmed this cleaner OWNS — that is
+            // where the ownership check lives, so nothing here can stamp someone
+            // else's money as paid to them.
+            ownedRunIds,
+            invoiceId: anchorId,
+            // The amounts rendered on the PDF, frozen as-is — never a recomputation.
+            expense: data.expenseRows.map((row) => ({ runId: row.runId, amount: row.amount })),
+            time: data.shoppingTimeRows.map((row) => ({ runId: row.runId, amount: row.amount })),
+          },
+          tx
+        );
+      });
+    }
 
     // Settle the approved pay adjustments this invoice billed. The stamp is the
     // double-pay guard: a stamped row is no longer selectable by the next

@@ -2507,10 +2507,31 @@ model ShoppingSettlement {
   adminApprovedForCleanerReimbursement Boolean               @default(false)
   includeInCleanerInvoice              Boolean               @default(false)
   includedInClientInvoiceId            String?
+  /// Opaque legacy marker ("run:<id>" / "legacy:<id>"). Audit trail only — it
+  /// cannot identify WHICH invoice consumed the row, which is why the real
+  /// stamps below exist. Never use it as a double-pay guard.
   includedInCleanerInvoiceReference    String?
-  // Set when this reimbursement has been captured by a payroll run, so it is
-  // never paid to the cleaner again in a later/overlapping run.
+  // ── Settlement stamps ─────────────────────────────────────────────────
+  // Shopping is money owed exactly once, and a row carrying EITHER stamp of a
+  // stream is spent. EXPENSE and TIME settle independently (the primary payroll
+  // engine pays reimbursements but not shopping time), so each has its own pair.
+  // THE rules: lib/finance/shopping-settlement.ts.
+  //
+  // Expense — the out-of-pocket reimbursement.
   includedInPayrollRunId               String?
+  includedInPayrollRunAt               DateTime?
+  includedInCleanerInvoiceId           String?
+  includedInCleanerInvoiceAt           DateTime?
+  /// Expense amount frozen at settlement, so editing a run's line costs after it
+  /// was billed can never retro-alter what was actually paid.
+  paySettledAmount                     Float?
+  // Approved shopping time — hours at the approved rate.
+  timeIncludedInPayrollRunId           String?
+  timeIncludedInPayrollRunAt           DateTime?
+  timeIncludedInCleanerInvoiceId       String?
+  timeIncludedInCleanerInvoiceAt       DateTime?
+  /// Shopping-time amount frozen at settlement. Same reason as paySettledAmount.
+  timePaySettledAmount                 Float?
   createdAt                            DateTime              @default(now())
   updatedAt                            DateTime              @updatedAt
 
@@ -2519,6 +2540,9 @@ model ShoppingSettlement {
   clientInvoice ClientInvoice? @relation(fields: [includedInClientInvoiceId], references: [id])
 
   @@index([includedInPayrollRunId])
+  @@index([includedInCleanerInvoiceId])
+  @@index([timeIncludedInPayrollRunId])
+  @@index([timeIncludedInCleanerInvoiceId])
 }
 
 model StockRun {

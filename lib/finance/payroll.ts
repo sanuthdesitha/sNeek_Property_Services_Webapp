@@ -101,8 +101,14 @@ export async function getPayrollSummary(input: {
             clientBillable: false,
             adminApprovedForCleanerReimbursement: true,
             includeInCleanerInvoice: false,
-            // When creating a run, never re-include a reimbursement already paid.
-            ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
+            // When creating a run, never re-include a reimbursement already
+            // settled by EITHER rail. `includeInCleanerInvoice` above is a
+            // routing flag, not a settlement record — it says the run is meant
+            // for the invoice rail, not that an invoice actually billed it. Only
+            // `includedInCleanerInvoiceId` proves that, so both are checked.
+            ...(input.excludePaidJobs
+              ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null }
+              : {}),
           },
         },
       },
@@ -117,7 +123,11 @@ export async function getPayrollSummary(input: {
             clientBillable: false,
             adminApprovedForCleanerReimbursement: true,
             includeInCleanerInvoice: false,
-            ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
+            // Must mirror the `some` filter above exactly, or the run matches and
+            // then arrives with an empty settlements array.
+            ...(input.excludePaidJobs
+              ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null }
+              : {}),
           },
         },
         lines: true,

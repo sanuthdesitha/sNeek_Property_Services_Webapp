@@ -7,8 +7,21 @@ import {
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { resolveClientContactEmail } from "@/lib/clients/contact-sync";
+import {
+  isShoppingExpenseAvailableForSettlement,
+  isShoppingTimeAvailableForSettlement,
+} from "@/lib/finance/shopping-settlement";
 
 const SHOPPING_RUNS_KEY = "inventory_shopping_runs_v1";
+
+/**
+ * The slice of the Prisma client the stamping helpers need. Structural so a
+ * `$transaction` client, the bare `db`, or a test double all satisfy it —
+ * stamping must be able to commit inside the caller's transaction.
+ */
+export type ShoppingSettlementWriter = {
+  shoppingSettlement: { updateMany: (args: any) => Promise<unknown> };
+};
 
 export type ShoppingRunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 export type ShoppingRunOwnerScope = "CLIENT" | "CLEANER";
@@ -123,6 +136,36 @@ export type ShoppingRunTotals = {
   }>;
 };
 
+/**
+ * The run's settlement stamps, flattened off its single `ShoppingSettlement`
+ * row. All-null when the run has no settlement yet — an unsettled run, which is
+ * exactly what "available for payment" means.
+ *
+ * `settlementId` is deliberately NOT used as the stamping key: every write path
+ * in this module replaces the settlement (`deleteMany` + `create`), so the id a
+ * caller captured while rendering an invoice may no longer exist by the time it
+ * stamps. Stamping is keyed on the RUN id, which is stable.
+ */
+export type ShoppingRunSettlementStamps = {
+  settlementId: string | null;
+  expensePayrollRunId: string | null;
+  expenseCleanerInvoiceId: string | null;
+  expenseSettledAmount: number | null;
+  timePayrollRunId: string | null;
+  timeCleanerInvoiceId: string | null;
+  timeSettledAmount: number | null;
+};
+
+export const EMPTY_SHOPPING_SETTLEMENT_STAMPS: ShoppingRunSettlementStamps = {
+  settlementId: null,
+  expensePayrollRunId: null,
+  expenseCleanerInvoiceId: null,
+  expenseSettledAmount: null,
+  timePayrollRunId: null,
+  timeCleanerInvoiceId: null,
+  timeSettledAmount: null,
+};
+
 export type ShoppingRunRecord = {
   id: string;
   name: string;
@@ -143,6 +186,13 @@ export type ShoppingRunRecord = {
   clientChargePaidAt?: string | null;
   cleanerReimbursementInvoicedAt?: string | null;
   cleanerReimbursementPaidAt?: string | null;
+  /**
+   * Which rail (if any) has already paid this run's expense and time. THE
+   * double-pay guard — see lib/finance/shopping-settlement.ts. Statuses above
+   * describe what happened; only these say who paid and can therefore be
+   * trusted to stop a second payment.
+   */
+  settlement: ShoppingRunSettlementStamps;
   reimbursementNote?: string;
   ownerName?: string;
   ownerEmail?: string;
@@ -516,6 +566,10 @@ function sanitizeRun(value: unknown): ShoppingRunRecord | null {
     cleanerReimbursementInvoicedAt:
       trimText(v.cleanerReimbursementInvoicedAt, 40) || null,
     cleanerReimbursementPaidAt: trimText(v.cleanerReimbursementPaidAt, 40) || null,
+    // The legacy JSON store predates settlement rows entirely. Runs imported from
+    // it are stamped by the migration's backfill once they reach the DB; here
+    // they read as unstamped, and their compat status is what the importer used.
+    settlement: { ...EMPTY_SHOPPING_SETTLEMENT_STAMPS },
     reimbursementNote: trimText(v.reimbursementNote, 1000) || undefined,
     createdAt: typeof v.createdAt === "string" ? v.createdAt : new Date().toISOString(),
     updatedAt: typeof v.updatedAt === "string" ? v.updatedAt : new Date().toISOString(),
@@ -1132,6 +1186,30 @@ async function ensureLegacyShoppingRunsMigrated() {
   await legacyMigrationPromise;
 }
 
+/**
+ * Every settlement stamp, copied verbatim off the row being replaced.
+ *
+ * Each write path in this module replaces the settlement (`deleteMany` +
+ * `create`) rather than updating it, so anything not explicitly carried forward
+ * is silently reset to null. For a stamp that means "never paid" — and the next
+ * payroll run or cleaner invoice pays it a second time. This helper exists so a
+ * NEW stamp column can never be forgotten by one of the three call sites.
+ */
+function carryForwardSettlementStamps(previous: any) {
+  return {
+    includedInPayrollRunId: previous?.includedInPayrollRunId ?? null,
+    includedInPayrollRunAt: previous?.includedInPayrollRunAt ?? null,
+    includedInCleanerInvoiceId: previous?.includedInCleanerInvoiceId ?? null,
+    includedInCleanerInvoiceAt: previous?.includedInCleanerInvoiceAt ?? null,
+    paySettledAmount: previous?.paySettledAmount ?? null,
+    timeIncludedInPayrollRunId: previous?.timeIncludedInPayrollRunId ?? null,
+    timeIncludedInPayrollRunAt: previous?.timeIncludedInPayrollRunAt ?? null,
+    timeIncludedInCleanerInvoiceId: previous?.timeIncludedInCleanerInvoiceId ?? null,
+    timeIncludedInCleanerInvoiceAt: previous?.timeIncludedInCleanerInvoiceAt ?? null,
+    timePaySettledAmount: previous?.timePaySettledAmount ?? null,
+  };
+}
+
 function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
   const compat = parseCompatData(run.legacySource);
   const ownerScope =
@@ -1237,6 +1315,17 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
       totals.actualTotalCost,
       settlement?.includedInCleanerInvoiceReference
     ),
+    settlement: {
+      settlementId: settlement?.id ?? null,
+      expensePayrollRunId: settlement?.includedInPayrollRunId ?? null,
+      expenseCleanerInvoiceId: settlement?.includedInCleanerInvoiceId ?? null,
+      expenseSettledAmount:
+        settlement?.paySettledAmount == null ? null : Number(settlement.paySettledAmount),
+      timePayrollRunId: settlement?.timeIncludedInPayrollRunId ?? null,
+      timeCleanerInvoiceId: settlement?.timeIncludedInCleanerInvoiceId ?? null,
+      timeSettledAmount:
+        settlement?.timePaySettledAmount == null ? null : Number(settlement.timePaySettledAmount),
+    },
     clientChargeSentAt: compat.clientChargeSentAt ?? null,
     clientChargePaidAt: compat.clientChargePaidAt ?? null,
     cleanerReimbursementInvoicedAt: compat.cleanerReimbursementInvoicedAt ?? null,
@@ -1415,39 +1504,238 @@ export async function getShoppingRunBillingContextById(id: string) {
   return runs.find((run) => run.id === id) ?? null;
 }
 
-export async function listCleanerReimbursableShoppingRuns(input: {
+/** The window a run falls into. Completion date if known, else last touch. */
+export function shoppingRunEffectiveDate(run: ShoppingRunRecord): Date {
+  return new Date(run.completedAt || run.updatedAt || run.createdAt);
+}
+
+/**
+ * Options every cleaner-facing shopping selector accepts, mirroring the
+ * `includePaidRunId` / `includeInvoiceId` pair already threaded through the job,
+ * adjustment and QA streams (see lib/cleaner/invoice.ts).
+ *
+ * Without them a pay run or invoice that RECOMPUTES itself reads its own stamped
+ * rows as "already paid by someone else", drops them, and then releases the
+ * stamps — silently changing what it was about to pay.
+ */
+export interface ShoppingRunSelectionOptions {
   cleanerId: string;
   start: Date;
   end: Date;
-}) {
+  /** Recomputing this payroll run: rows it already stamped stay selectable. */
+  includePayrollRunId?: string | null;
+  /** Recomputing this cleaner invoice: rows it already stamped stay selectable. */
+  includeInvoiceId?: string | null;
+}
+
+/**
+ * Shopping runs whose out-of-pocket EXPENSE this cleaner is still owed.
+ *
+ * Selection = "the cleaner paid for it, it cost something, and NEITHER rail has
+ * settled it". The date window only chooses which period the run is displayed
+ * in; the stamps are what prevent double payment (see
+ * lib/finance/shopping-settlement.ts). Filtering on status + window alone — as
+ * this did — is how a reimbursement paid by a payroll run got billed again on
+ * the next cleaner invoice.
+ */
+export async function listCleanerReimbursableShoppingRuns(input: ShoppingRunSelectionOptions) {
   const runs = await listShoppingRunsForAdmin();
   return runs.filter((run) => {
     if (run.ownerScope !== "CLEANER") return false;
     if (run.payment.paidByScope !== "CLEANER") return false;
     if (run.payment.paidByUserId && run.payment.paidByUserId !== input.cleanerId) return false;
-    if (run.cleanerReimbursementStatus !== "READY") return false;
     if (run.totals.actualTotalCost <= 0) return false;
-    const effectiveDate = run.completedAt || run.updatedAt || run.createdAt;
-    const when = new Date(effectiveDate);
+    if (
+      !isShoppingExpenseAvailableForSettlement(
+        {
+          id: run.id,
+          cleanerReimbursementStatus: run.cleanerReimbursementStatus,
+          ...run.settlement,
+        },
+        {
+          includePayrollRunId: input.includePayrollRunId ?? null,
+          includeInvoiceId: input.includeInvoiceId ?? null,
+        }
+      )
+    ) {
+      return false;
+    }
+    const when = shoppingRunEffectiveDate(run);
     return when >= input.start && when <= input.end;
   });
 }
 
-export async function listCleanerApprovedShoppingTimeRuns(input: {
-  cleanerId: string;
-  start: Date;
-  end: Date;
-}) {
+/**
+ * Shopping runs whose approved TIME this cleaner is still owed.
+ *
+ * Checked against the TIME stamps only: an expense reimbursement already paid by
+ * payroll must not drag the (never-paid) time off the invoice with it. Payroll
+ * has historically paid reimbursements but never shopping time, so the two
+ * streams routinely settle on different rails.
+ */
+export async function listCleanerApprovedShoppingTimeRuns(input: ShoppingRunSelectionOptions) {
   const runs = await listShoppingRunsForAdmin();
   return runs.filter((run) => {
     if (run.ownerScope !== "CLEANER") return false;
     if (run.ownerUserId !== input.cleanerId) return false;
-    if (run.shoppingTime.status !== "APPROVED") return false;
     if (run.shoppingTime.approvedMinutes <= 0) return false;
     if ((run.shoppingTime.approvedRate ?? 0) <= 0) return false;
-    const effectiveDate = run.completedAt || run.updatedAt || run.createdAt;
-    const when = new Date(effectiveDate);
+    if (
+      !isShoppingTimeAvailableForSettlement(
+        { id: run.id, shoppingTimeStatus: run.shoppingTime.status, ...run.settlement },
+        {
+          includePayrollRunId: input.includePayrollRunId ?? null,
+          includeInvoiceId: input.includeInvoiceId ?? null,
+        }
+      )
+    ) {
+      return false;
+    }
+    const when = shoppingRunEffectiveDate(run);
     return when >= input.start && when <= input.end;
+  });
+}
+
+/**
+ * Stamp the shopping money a CLEANER INVOICE has just billed.
+ *
+ * Keyed on run id, not settlement id: every write path here replaces the
+ * settlement row, so an id captured at render time may already be gone. Each
+ * update is guarded on BOTH stamps of that stream still being null, so a
+ * concurrent payroll run or invoice that already claimed the row cannot be
+ * robbed of it — the loser simply updates 0 rows and the money stays paid
+ * exactly once.
+ *
+ * Accepts a transaction client so it commits together with the rest of the
+ * invoice's settlement work.
+ */
+export async function stampShoppingSettlementsForCleanerInvoice(
+  input: {
+    /**
+     * Runs this cleaner is confirmed to own — the return value of
+     * `markCleanerShoppingRunsInvoiced`, which is what performs the ownership
+     * check. Anything outside this set is silently skipped: stamping a run the
+     * cleaner does not own would mark someone else's money as paid to them.
+     */
+    ownedRunIds: readonly string[];
+    invoiceId: string;
+    expense?: readonly { runId: string; amount: number }[];
+    time?: readonly { runId: string; amount: number }[];
+  },
+  client: ShoppingSettlementWriter = db
+) {
+  const owned = new Set(input.ownedRunIds);
+  const settledAt = new Date();
+  for (const row of (input.expense ?? []).filter((row) => owned.has(row.runId))) {
+    await client.shoppingSettlement.updateMany({
+      where: {
+        shoppingRunId: row.runId,
+        includedInPayrollRunId: null,
+        includedInCleanerInvoiceId: null,
+      },
+      data: {
+        includedInCleanerInvoiceId: input.invoiceId,
+        includedInCleanerInvoiceAt: settledAt,
+        // Freeze what was actually billed, never a recomputation.
+        paySettledAmount: row.amount,
+      },
+    });
+  }
+  for (const row of (input.time ?? []).filter((row) => owned.has(row.runId))) {
+    await client.shoppingSettlement.updateMany({
+      where: {
+        shoppingRunId: row.runId,
+        timeIncludedInPayrollRunId: null,
+        timeIncludedInCleanerInvoiceId: null,
+      },
+      data: {
+        timeIncludedInCleanerInvoiceId: input.invoiceId,
+        timeIncludedInCleanerInvoiceAt: settledAt,
+        timePaySettledAmount: row.amount,
+      },
+    });
+  }
+}
+
+/** Stamp the shopping money a PAYROLL RUN has just claimed. Same discipline. */
+export async function stampShoppingSettlementsForPayrollRun(
+  input: {
+    payrollRunId: string;
+    expense?: readonly { runId: string; amount: number }[];
+    time?: readonly { runId: string; amount: number }[];
+  },
+  client: ShoppingSettlementWriter = db
+) {
+  const settledAt = new Date();
+  for (const row of input.expense ?? []) {
+    await client.shoppingSettlement.updateMany({
+      where: {
+        shoppingRunId: row.runId,
+        // "null OR mine": a refresh re-freezes the amount on rows it already held.
+        OR: [{ includedInPayrollRunId: null }, { includedInPayrollRunId: input.payrollRunId }],
+        includedInCleanerInvoiceId: null,
+      },
+      data: {
+        includedInPayrollRunId: input.payrollRunId,
+        includedInPayrollRunAt: settledAt,
+        paySettledAmount: row.amount,
+      },
+    });
+  }
+  for (const row of input.time ?? []) {
+    await client.shoppingSettlement.updateMany({
+      where: {
+        shoppingRunId: row.runId,
+        OR: [
+          { timeIncludedInPayrollRunId: null },
+          { timeIncludedInPayrollRunId: input.payrollRunId },
+        ],
+        timeIncludedInCleanerInvoiceId: null,
+      },
+      data: {
+        timeIncludedInPayrollRunId: input.payrollRunId,
+        timeIncludedInPayrollRunAt: settledAt,
+        timePaySettledAmount: row.amount,
+      },
+    });
+  }
+}
+
+/**
+ * Release every shopping stamp belonging to `payrollRunId`, optionally keeping
+ * the runs still on it (`keep`). Mirrors lib/phase4/payruns.ts releaseRunStamps.
+ *
+ * A released row also has its FROZEN amount cleared: that figure recorded what
+ * THIS run paid, and once the run no longer pays it the number is a lie that
+ * would override the next rail's own computation.
+ */
+export async function releaseShoppingSettlementsForPayrollRun(
+  input: { payrollRunId: string; keepExpenseRunIds?: string[]; keepTimeRunIds?: string[] },
+  client: ShoppingSettlementWriter = db
+) {
+  const keepExpense = input.keepExpenseRunIds ?? [];
+  const keepTime = input.keepTimeRunIds ?? [];
+  await client.shoppingSettlement.updateMany({
+    where: {
+      includedInPayrollRunId: input.payrollRunId,
+      ...(keepExpense.length > 0 ? { shoppingRunId: { notIn: keepExpense } } : {}),
+    },
+    data: {
+      includedInPayrollRunId: null,
+      includedInPayrollRunAt: null,
+      paySettledAmount: null,
+    },
+  });
+  await client.shoppingSettlement.updateMany({
+    where: {
+      timeIncludedInPayrollRunId: input.payrollRunId,
+      ...(keepTime.length > 0 ? { shoppingRunId: { notIn: keepTime } } : {}),
+    },
+    data: {
+      timeIncludedInPayrollRunId: null,
+      timeIncludedInPayrollRunAt: null,
+      timePaySettledAmount: null,
+    },
   });
 }
 
@@ -1612,9 +1900,10 @@ export async function saveShoppingRunForOwner(input: {
         compat.shoppingTimeStatus === "INVOICED" ||
         compat.shoppingTimeStatus === "PAID",
       includedInClientInvoiceId: existing?.settlements?.[0]?.includedInClientInvoiceId ?? null,
-      // Preserve the payroll stamp across a delete+recreate — otherwise editing a
-      // reimbursed run reset it to null and payroll paid the cleaner AGAIN.
-      includedInPayrollRunId: existing?.settlements?.[0]?.includedInPayrollRunId ?? null,
+      // Preserve EVERY settlement stamp across a delete+recreate — otherwise
+      // editing a settled run reset them to null and the next rail paid the
+      // cleaner AGAIN.
+      ...carryForwardSettlementStamps(existing?.settlements?.[0]),
       includedInCleanerInvoiceReference:
         compat.cleanerReimbursementStatus === "INVOICED" ||
         compat.cleanerReimbursementStatus === "REIMBURSED" ||
@@ -1878,9 +2167,10 @@ export async function updateShoppingRunByAdmin(input: {
               compat.shoppingTimeStatus === "INVOICED" ||
               compat.shoppingTimeStatus === "PAID",
             includedInClientInvoiceId: existing.settlements?.[0]?.includedInClientInvoiceId ?? null,
-            // Preserve the payroll stamp across a delete+recreate — otherwise editing
-            // a reimbursed run reset it to null and payroll paid the cleaner AGAIN.
-            includedInPayrollRunId: existing.settlements?.[0]?.includedInPayrollRunId ?? null,
+            // Preserve EVERY settlement stamp across a delete+recreate — otherwise
+            // editing a settled run reset them to null and the next rail paid the
+            // cleaner AGAIN.
+            ...carryForwardSettlementStamps(existing.settlements?.[0]),
             includedInCleanerInvoiceReference:
               compat.cleanerReimbursementStatus === "INVOICED" ||
               compat.cleanerReimbursementStatus === "REIMBURSED" ||
@@ -1899,13 +2189,31 @@ export async function updateShoppingRunByAdmin(input: {
   return saved;
 }
 
-export async function markCleanerShoppingRunsInvoiced(input: {
-  cleanerId: string;
-  runIds: string[];
-}) {
-  if (input.runIds.length === 0) return;
+/**
+ * Flip the compat STATUS of the runs a cleaner invoice billed to INVOICED.
+ *
+ * Audit/display only since the settlement stamps became the double-pay guard —
+ * but still load-bearing for one reason: it guarantees every billed run HAS a
+ * settlement row (it creates one where none existed, which is the normal state
+ * for a time-only run). Call it BEFORE
+ * `stampShoppingSettlementsForCleanerInvoice`, whose `updateMany` would
+ * otherwise match nothing and leave the money unstamped.
+ *
+ * @returns the run ids it actually processed — i.e. the ones this cleaner is
+ *   confirmed to OWN and that have a settlement row. Feed exactly these to the
+ *   stamping helper as `ownedRunIds`; that is where the ownership check lives.
+ */
+export async function markCleanerShoppingRunsInvoiced(
+  input: {
+    cleanerId: string;
+    runIds: string[];
+  },
+  client: { shoppingRun: { update: (args: any) => Promise<unknown> } } = db
+): Promise<string[]> {
+  if (input.runIds.length === 0) return [];
   const dbRuns = await loadShoppingRunsFromDb({ id: { in: input.runIds } });
   const now = new Date().toISOString();
+  const processed: string[] = [];
   for (const run of dbRuns) {
     const current = buildShoppingRunRecordFromDb(run);
     if (current.ownerUserId !== input.cleanerId) continue;
@@ -1939,7 +2247,7 @@ export async function markCleanerShoppingRunsInvoiced(input: {
       paidByName: current.payment.paidByName ?? null,
       source: parseCompatData(run.legacySource).source ?? "db",
     };
-    await db.shoppingRun.update({
+    await client.shoppingRun.update({
       where: { id: run.id },
       data: {
         status: reconcileDbStatusFromCompat(run.status, compat),
@@ -1960,9 +2268,10 @@ export async function markCleanerShoppingRunsInvoiced(input: {
               adminApprovedForCleanerReimbursement: shouldInvoiceReimbursement,
               includeInCleanerInvoice: shouldInvoiceReimbursement || shouldInvoiceTime,
               includedInClientInvoiceId: run.settlements?.[0]?.includedInClientInvoiceId ?? null,
-              // Preserve the payroll stamp across a delete+recreate — otherwise editing
-              // a reimbursed run reset it to null and payroll paid the cleaner AGAIN.
-              includedInPayrollRunId: run.settlements?.[0]?.includedInPayrollRunId ?? null,
+              // Preserve EVERY settlement stamp across a delete+recreate — otherwise
+              // editing a settled run reset them to null and the next rail paid the
+              // cleaner AGAIN.
+              ...carryForwardSettlementStamps(run.settlements?.[0]),
               includedInCleanerInvoiceReference:
                 shouldInvoiceReimbursement || shouldInvoiceTime
                   ? run.settlements?.[0]?.includedInCleanerInvoiceReference ?? `run:${run.id}`
@@ -1972,7 +2281,9 @@ export async function markCleanerShoppingRunsInvoiced(input: {
         },
       },
     });
+    processed.push(run.id);
   }
+  return processed;
 }
 
 function escapeHtml(value: string) {
