@@ -3,6 +3,10 @@ import { JobStatus, PayAdjustmentStatus, Prisma, QaAssignmentStatus } from "@pri
 import { db } from "@/lib/db";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
 import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
+import {
+  releaseShoppingSettlementsForPayrollRun,
+  stampShoppingSettlementsForPayrollRun,
+} from "@/lib/inventory/shopping-runs";
 // The payee roles the invoice rail serves (CLEANER + QA_INSPECTOR). Imported, not
 // re-declared, so this rail can never drift from lib/invoicing/access.ts.
 import { INVOICE_PAYEE_ROLES } from "@/lib/profile/completeness";
@@ -179,6 +183,19 @@ export interface ComputedLines {
    * `paySettledAmount` is provably the figure that was paid.
    */
   qaAssignmentAmounts: Array<{ id: string; amount: number }>;
+  /**
+   * The FOURTH stream: shopping. `estimatedPay` folds in BOTH the out-of-pocket
+   * reimbursement and the approved shopping time, so both must be stamped for
+   * exactly the reason the adjustments above must be — an unstamped row is paid
+   * a second time by the payee's next cleaner invoice or by another payroll run.
+   *
+   * Keyed on shopping RUN id, not settlement id: every write path in
+   * lib/inventory/shopping-runs.ts REPLACES the settlement row, so a settlement
+   * id captured here would be stale by the time we stamped it.
+   */
+  shoppingExpenseAmounts: Array<{ runId: string; amount: number }>;
+  /** Approved shopping TIME. Settles independently of the expense above. */
+  shoppingTimeAmounts: Array<{ runId: string; amount: number }>;
 }
 
 /** The subset of a payee's invoice this rail needs. Keeps the merge logic pure. */
@@ -192,6 +209,10 @@ export interface PayeeInvoiceSlice {
   qaInspectionRows: Array<{ assignmentId: string; amount: number }>;
   includedQaAssignmentIds: string[];
   includedAdjustmentIds: string[];
+  /** Shopping reimbursements billed on this payee's slice. */
+  expenseRows: Array<{ runId: string; amount: number }>;
+  /** Approved shopping time billed on this payee's slice. */
+  shoppingTimeRows: Array<{ runId: string; amount: number }>;
 }
 
 export interface PayeeInvoiceEntry {
@@ -237,6 +258,8 @@ export function payeeHasPayableWork(invoice: PayeeInvoiceSlice): boolean {
   if (invoice.rows.length > 0) return true;
   if (invoice.qaInspectionRows.length > 0) return true;
   if (invoice.includedAdjustmentIds.length > 0) return true;
+  if ((invoice.expenseRows ?? []).length > 0) return true;
+  if ((invoice.shoppingTimeRows ?? []).length > 0) return true;
   return Number(invoice.estimatedPay.toFixed(2)) !== 0;
 }
 
@@ -249,12 +272,23 @@ export function buildComputedLines(entries: readonly PayeeInvoiceEntry[]): Compu
   const jobIds = new Set<string>();
   const adjustmentIds = new Set<string>();
   const qaAmounts = new Map<string, number>();
+  const shoppingExpense = new Map<string, number>();
+  const shoppingTime = new Map<string, number>();
 
   for (const entry of entries) {
     const invoice = entry.invoice;
     if (!payeeHasPayableWork(invoice)) continue;
     for (const row of invoice.rows) jobIds.add(row.jobId);
     for (const id of invoice.includedAdjustmentIds) adjustmentIds.add(id);
+    // Shopping, same rule as the inspections below: take the amount from the ROW
+    // (what this run is paying) rather than recomputing it, so the figure frozen
+    // into the settlement is provably the figure that was paid.
+    for (const row of invoice.expenseRows ?? []) {
+      shoppingExpense.set(row.runId, Number(Number(row.amount).toFixed(2)));
+    }
+    for (const row of invoice.shoppingTimeRows ?? []) {
+      shoppingTime.set(row.runId, Number(Number(row.amount).toFixed(2)));
+    }
     // Take the amount from the ROW (what was billed), not from a recomputation.
     for (const row of invoice.qaInspectionRows) {
       qaAmounts.set(row.assignmentId, Number(Number(row.amount).toFixed(2)));
@@ -288,18 +322,27 @@ export function buildComputedLines(entries: readonly PayeeInvoiceEntry[]): Compu
     adjustmentIds: Array.from(adjustmentIds),
     qaAssignmentIds: qaAssignmentAmounts.map((row) => row.id),
     qaAssignmentAmounts,
+    shoppingExpenseAmounts: Array.from(shoppingExpense.entries()).map(([runId, amount]) => ({
+      runId,
+      amount,
+    })),
+    shoppingTimeAmounts: Array.from(shoppingTime.entries()).map(([runId, amount]) => ({
+      runId,
+      amount,
+    })),
   };
 }
 
 /**
  * Find every payee this run must consider.
  *
- * Three sources, because there are three settlement streams and a payee can hold
+ * Four sources, because there are four settlement streams and a payee can hold
  * ANY ONE of them alone:
  *   1. cleaner job assignments in the period (the original query, widened from
  *      `role: CLEANER` to the invoice rail's payee roles);
  *   2. COMPLETED, unsettled QA inspections;
- *   3. APPROVED, unsettled pay adjustments.
+ *   3. APPROVED, unsettled pay adjustments;
+ *   4. unsettled shopping — reimbursement or approved time.
  *
  * DISCOVERY MUST BE A SUPERSET OF SELECTION. `getCleanerInvoiceData` selects
  * adjustments with NO date window at all and inspections with only an upper
@@ -315,7 +358,7 @@ async function findPayeeIds(start: Date, end: Date, runId?: string): Promise<str
     ? { OR: [{ includedInPayrollRunId: null }, { includedInPayrollRunId: runId }] }
     : { includedInPayrollRunId: null };
 
-  const [assignmentPayees, qaRows, adjustmentRows] = await Promise.all([
+  const [assignmentPayees, qaRows, adjustmentRows, shoppingRows] = await Promise.all([
     db.user.findMany({
       where: {
         role: { in: INVOICE_PAYEE_ROLES },
@@ -360,6 +403,31 @@ async function findPayeeIds(start: Date, end: Date, runId?: string): Promise<str
       },
       select: { cleanerId: true },
     }),
+    // 4. unsettled shopping — either stream. A cleaner whose only unpaid work in
+    //    the period is a shopping run holds no assignment, no adjustment and no
+    //    inspection, so without this query they were never even considered and
+    //    the reimbursement was simply never paid by this rail.
+    db.shoppingSettlement.findMany({
+      where: {
+        OR: [
+          { AND: [{ includedInCleanerInvoiceId: null }, ownRunClause] },
+          {
+            AND: [
+              { timeIncludedInCleanerInvoiceId: null },
+              runId
+                ? {
+                    OR: [
+                      { timeIncludedInPayrollRunId: null },
+                      { timeIncludedInPayrollRunId: runId },
+                    ],
+                  }
+                : { timeIncludedInPayrollRunId: null },
+            ],
+          },
+        ],
+      },
+      select: { shoppingRun: { select: { ownerUserId: true } } },
+    }),
   ]);
 
   const assignmentIds = assignmentPayees.map((row) => row.id);
@@ -369,6 +437,7 @@ async function findPayeeIds(start: Date, end: Date, runId?: string): Promise<str
       [
         ...qaRows.map((row) => row.assignedToId),
         ...adjustmentRows.map((row) => row.cleanerId),
+        ...shoppingRows.map((row) => row.shoppingRun?.ownerUserId ?? null),
       ].filter((id): id is string => Boolean(id) && !assignmentIdSet.has(id as string))
     )
   );
@@ -458,7 +527,15 @@ export async function createPayRun(input: {
     readStore(),
     computeLines(periodStart, periodEnd),
   ]);
-  const { lines, jobIds, adjustmentIds, qaAssignmentIds, qaAssignmentAmounts } = computed;
+  const {
+    lines,
+    jobIds,
+    adjustmentIds,
+    qaAssignmentIds,
+    qaAssignmentAmounts,
+    shoppingExpenseAmounts,
+    shoppingTimeAmounts,
+  } = computed;
   const now = new Date().toISOString();
   const run: PayRunRecord = {
     id,
@@ -528,6 +605,13 @@ export async function createPayRun(input: {
         });
       }
     }
+    // The FOURTH stream. `estimatedPay` already contains the reimbursement and
+    // the approved shopping time, so without these stamps the payee's next
+    // cleaner invoice bills both again — the exact hole this rail had.
+    await stampShoppingSettlementsForPayrollRun(
+      { payrollRunId: id, expense: shoppingExpenseAmounts, time: shoppingTimeAmounts },
+      tx
+    );
     await writeStore(store.version + 1, nextData, tx);
   });
   return run;
@@ -545,7 +629,13 @@ export async function createPayRun(input: {
 async function releaseRunStamps(
   tx: Prisma.TransactionClient,
   runId: string,
-  keep?: { jobIds: string[]; adjustmentIds: string[]; qaAssignmentIds: string[] }
+  keep?: {
+    jobIds: string[];
+    adjustmentIds: string[];
+    qaAssignmentIds: string[];
+    shoppingExpenseRunIds: string[];
+    shoppingTimeRunIds: string[];
+  }
 ) {
   await tx.job.updateMany({
     where: {
@@ -572,6 +662,14 @@ async function releaseRunStamps(
       paySettledAmount: null,
     },
   });
+  await releaseShoppingSettlementsForPayrollRun(
+    {
+      payrollRunId: runId,
+      keepExpenseRunIds: keep?.shoppingExpenseRunIds,
+      keepTimeRunIds: keep?.shoppingTimeRunIds,
+    },
+    tx
+  );
 }
 
 export async function refreshPayRun(id: string, userId: string) {
@@ -588,8 +686,15 @@ export async function refreshPayRun(id: string, userId: string) {
   // (see getCleanerInvoiceData); before it reached only jobs, so a refresh
   // silently dropped this run's own adjustments and inspections and then released
   // them, changing what the run was about to pay.
-  const { lines, jobIds, adjustmentIds, qaAssignmentIds, qaAssignmentAmounts } =
-    await computeLines(existing.periodStart, existing.periodEnd, existing.id);
+  const {
+    lines,
+    jobIds,
+    adjustmentIds,
+    qaAssignmentIds,
+    qaAssignmentAmounts,
+    shoppingExpenseAmounts,
+    shoppingTimeAmounts,
+  } = await computeLines(existing.periodStart, existing.periodEnd, existing.id);
   const now = new Date().toISOString();
   const updated: PayRunRecord = {
     ...existing,
@@ -605,7 +710,13 @@ export async function refreshPayRun(id: string, userId: string) {
   // the stamps being null so we never steal a row another run/invoice has already
   // claimed), and persist the run together.
   await db.$transaction(async (tx) => {
-    await releaseRunStamps(tx, existing.id, { jobIds, adjustmentIds, qaAssignmentIds });
+    await releaseRunStamps(tx, existing.id, {
+      jobIds,
+      adjustmentIds,
+      qaAssignmentIds,
+      shoppingExpenseRunIds: shoppingExpenseAmounts.map((row) => row.runId),
+      shoppingTimeRunIds: shoppingTimeAmounts.map((row) => row.runId),
+    });
     if (jobIds.length > 0) {
       await tx.job.updateMany({
         where: { id: { in: jobIds }, payrollRunId: null },
@@ -644,6 +755,17 @@ export async function refreshPayRun(id: string, userId: string) {
         });
       }
     }
+    // Re-claims (and re-freezes) the shopping this run still pays. Its guard is
+    // "unstamped OR already mine", so a refresh keeps its own rows without ever
+    // stealing one a concurrent invoice/run has claimed in the meantime.
+    await stampShoppingSettlementsForPayrollRun(
+      {
+        payrollRunId: existing.id,
+        expense: shoppingExpenseAmounts,
+        time: shoppingTimeAmounts,
+      },
+      tx
+    );
     await writeStore(store.version + 1, { runs: next }, tx);
   });
   return updated;

@@ -84,9 +84,15 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   const includedJobIds = Array.from(
     new Set(payableCleaners.flatMap((c) => c.jobs.map((j) => j.id)))
   );
-  // Shopping-reimbursement settlement IDs captured by this run — same idempotency.
-  const includedSettlementIds = Array.from(
-    new Set(payableCleaners.flatMap((c) => c.shoppingReimbursements.map((s) => s.settlementId)))
+  // Shopping-reimbursement settlements captured by this run — same idempotency,
+  // carrying the amount so it can be FROZEN alongside the stamp (a later edit to
+  // the run's line costs must not retro-alter what this run paid).
+  const includedSettlements = Array.from(
+    new Map(
+      payableCleaners
+        .flatMap((c) => c.shoppingReimbursements)
+        .map((s) => [s.settlementId, { settlementId: s.settlementId, amount: s.amount }])
+    ).values()
   );
   // Approved-adjustment IDs captured by this run — stamped so an adjustment
   // can't be paid again in a later/overlapping run.
@@ -159,11 +165,26 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       data: payoutRows.map((row) => ({ ...row, payrollRunId: createdRun.id })),
     });
 
-    if (includedSettlementIds.length > 0) {
-      await tx.shoppingSettlement.updateMany({
-        where: { id: { in: includedSettlementIds }, includedInPayrollRunId: null },
-        data: { includedInPayrollRunId: createdRun.id },
-      });
+    if (includedSettlements.length > 0) {
+      const shoppingStampedAt = new Date();
+      // Guarded on BOTH stamps being null, so a cleaner invoice committed in
+      // between cannot be overwritten: the loser of the race updates 0 rows and
+      // the reimbursement stays paid exactly once. Row-by-row because the frozen
+      // figure differs per settlement.
+      for (const row of includedSettlements) {
+        await tx.shoppingSettlement.updateMany({
+          where: {
+            id: row.settlementId,
+            includedInPayrollRunId: null,
+            includedInCleanerInvoiceId: null,
+          },
+          data: {
+            includedInPayrollRunId: createdRun.id,
+            includedInPayrollRunAt: shoppingStampedAt,
+            paySettledAmount: row.amount,
+          },
+        });
+      }
     }
 
     if (includedJobIds.length > 0) {

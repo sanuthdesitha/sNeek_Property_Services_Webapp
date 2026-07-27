@@ -32,12 +32,15 @@ const adjFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const jobUpdateMany = vi.fn(async (_args?: any) => ({ count: 0 }));
 const adjUpdateMany = vi.fn(async (_args?: any) => ({ count: 0 }));
 const qaUpdateMany = vi.fn(async (_args?: any) => ({ count: 0 }));
+const shoppingFindMany = vi.fn(async (_args?: any) => [] as any[]);
+const shoppingUpdateMany = vi.fn(async (_args?: any) => ({ count: 0 }));
 
 const dbMock: any = {
   appSetting: { findUnique: appSettingFindUnique, upsert: appSettingUpsert },
   user: { findMany: userFindMany },
   qaAssignment: { findMany: qaFindMany, updateMany: qaUpdateMany },
   cleanerPayAdjustment: { findMany: adjFindMany, updateMany: adjUpdateMany },
+  shoppingSettlement: { findMany: shoppingFindMany, updateMany: shoppingUpdateMany },
   job: { updateMany: jobUpdateMany },
   $transaction: async (fn: (tx: any) => Promise<any>) => fn(dbMock),
 };
@@ -61,6 +64,8 @@ function invoice(over: Record<string, unknown> = {}) {
     qaInspectionRows: [] as Array<{ assignmentId: string; amount: number }>,
     includedQaAssignmentIds: [] as string[],
     includedAdjustmentIds: [] as string[],
+    expenseRows: [] as Array<{ runId: string; amount: number }>,
+    shoppingTimeRows: [] as Array<{ runId: string; amount: number }>,
     ...over,
   } as any;
 }
@@ -88,6 +93,8 @@ beforeEach(() => {
   jobUpdateMany.mockResolvedValue({ count: 0 });
   adjUpdateMany.mockResolvedValue({ count: 0 });
   qaUpdateMany.mockResolvedValue({ count: 0 });
+  shoppingFindMany.mockResolvedValue([]);
+  shoppingUpdateMany.mockResolvedValue({ count: 0 });
   getCleanerInvoiceData.mockImplementation(async () => invoice());
 });
 
@@ -633,6 +640,249 @@ describe("deletePayRun", () => {
     const { deletePayRun } = await mod();
     await expect(deletePayRun("run-1")).rejects.toThrow(/Only draft/i);
     expect(jobUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHOPPING — the fourth settlement stream
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `estimatedPay` folds in shopping reimbursements AND approved shopping time,
+ * and this rail pays that figure — but it used to stamp nothing for either, so
+ * the payee's next cleaner invoice billed the same money all over again.
+ *
+ * Expense and time carry SEPARATE stamp pairs because they settle
+ * independently: the primary payroll engine pays reimbursements and has never
+ * paid shopping time.
+ */
+function shoppingInvoice(over: Record<string, unknown> = {}) {
+  return invoice({
+    estimatedPay: 70,
+    expenseRows: [{ runId: "sr1", amount: 40 }],
+    shoppingTimeRows: [{ runId: "sr1", amount: 30 }],
+    ...over,
+  });
+}
+
+describe("pay runs — shopping", () => {
+  it("buildComputedLines collects both shopping streams, deduped, at the billed amount", async () => {
+    const { buildComputedLines } = await mod();
+    const computed = buildComputedLines([
+      { payeeId: "u1", invoice: shoppingInvoice() },
+      {
+        payeeId: "u2",
+        invoice: shoppingInvoice({
+          cleanerName: "Zed",
+          expenseRows: [{ runId: "sr2", amount: 15.005 }],
+          shoppingTimeRows: [],
+        }),
+      },
+    ]);
+    expect(computed.shoppingExpenseAmounts).toEqual([
+      { runId: "sr1", amount: 40 },
+      { runId: "sr2", amount: 15.01 },
+    ]);
+    // Time is tracked on its own list — sr1 has both, sr2 has expense only.
+    expect(computed.shoppingTimeAmounts).toEqual([{ runId: "sr1", amount: 30 }]);
+  });
+
+  it("a shopping-only payee earns a line (they hold no job, adjustment or inspection)", async () => {
+    const { payeeHasPayableWork } = await mod();
+    expect(
+      payeeHasPayableWork(shoppingInvoice({ estimatedPay: 0, shoppingTimeRows: [] }) as any)
+    ).toBe(true);
+    expect(payeeHasPayableWork(invoice() as any)).toBe(false);
+  });
+
+  it("createPayRun stamps BOTH streams, guarded and frozen", async () => {
+    userFindMany.mockResolvedValueOnce([{ id: "u1" }]);
+    getCleanerInvoiceData.mockImplementation(async () => shoppingInvoice());
+    const { createPayRun } = await mod();
+    const run = await createPayRun({
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+      createdByUserId: "admin",
+    });
+
+    const [expenseCall, timeCall] = shoppingUpdateMany.mock.calls.map((call) => call[0]);
+    // Keyed on the RUN id: every write path in lib/inventory/shopping-runs.ts
+    // replaces the settlement row, so a settlement id would already be stale.
+    expect(expenseCall.where.shoppingRunId).toBe("sr1");
+    // "unstamped OR already mine" — a refresh keeps its own rows…
+    expect(expenseCall.where.OR).toEqual([
+      { includedInPayrollRunId: null },
+      { includedInPayrollRunId: run.id },
+    ]);
+    // …but the OTHER rail's stamp is an absolute bar.
+    expect(expenseCall.where.includedInCleanerInvoiceId).toBeNull();
+    expect(expenseCall.data.includedInPayrollRunId).toBe(run.id);
+    expect(expenseCall.data.includedInPayrollRunAt).toBeInstanceOf(Date);
+    expect(expenseCall.data.paySettledAmount).toBe(40);
+
+    // Time uses its OWN columns — sharing the expense stamp would write off
+    // hours this rail has never actually paid.
+    expect(timeCall.where.shoppingRunId).toBe("sr1");
+    expect(timeCall.where.timeIncludedInCleanerInvoiceId).toBeNull();
+    expect(timeCall.data.timeIncludedInPayrollRunId).toBe(run.id);
+    expect(timeCall.data.timePaySettledAmount).toBe(30);
+    // The expense stamp must not appear on the time write, or vice versa.
+    expect(timeCall.data.includedInPayrollRunId).toBeUndefined();
+    expect(expenseCall.data.timeIncludedInPayrollRunId).toBeUndefined();
+  });
+
+  it("stamped shopping is invisible to the next invoice and to another run", async () => {
+    userFindMany.mockResolvedValueOnce([{ id: "u1" }]);
+    getCleanerInvoiceData.mockImplementation(async () => shoppingInvoice());
+    const { createPayRun } = await mod();
+    const run = await createPayRun({
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+      createdByUserId: "admin",
+    });
+    const { isShoppingExpenseAvailableForSettlement, isShoppingTimeAvailableForSettlement } =
+      await import("@/lib/finance/shopping-settlement");
+
+    // Reconstruct the run exactly as the stamps left it.
+    const stamped = {
+      cleanerReimbursementStatus: "READY",
+      shoppingTimeStatus: "APPROVED",
+      expensePayrollRunId: shoppingUpdateMany.mock.calls[0][0].data.includedInPayrollRunId,
+      expenseCleanerInvoiceId: null,
+      timePayrollRunId: shoppingUpdateMany.mock.calls[1][0].data.timeIncludedInPayrollRunId,
+      timeCleanerInvoiceId: null,
+    };
+    expect(stamped.expensePayrollRunId).toBe(run.id);
+    expect(isShoppingExpenseAvailableForSettlement(stamped, {})).toBe(false);
+    expect(isShoppingExpenseAvailableForSettlement(stamped, { includeInvoiceId: "inv-9" })).toBe(
+      false
+    );
+    expect(isShoppingTimeAvailableForSettlement(stamped, {})).toBe(false);
+    // …and visible only to the run that paid it.
+    expect(
+      isShoppingExpenseAvailableForSettlement(stamped, { includePayrollRunId: run.id })
+    ).toBe(true);
+  });
+
+  it("writes no shopping stamps when the run pays no shopping", async () => {
+    userFindMany.mockResolvedValueOnce([{ id: "u1" }]);
+    getCleanerInvoiceData.mockImplementation(async () => cleanJobInvoice());
+    const { createPayRun } = await mod();
+    await createPayRun({ startDate: "2026-01-01", endDate: "2026-01-31", createdByUserId: "admin" });
+    // deletePayRun-style release calls are the only shopping writes allowed here,
+    // and createPayRun does not release.
+    expect(shoppingUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("discovers a payee whose only unsettled work is a shopping run", async () => {
+    userFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "sc1" }]);
+    shoppingFindMany.mockResolvedValue([{ shoppingRun: { ownerUserId: "sc1" } }]);
+    getCleanerInvoiceData.mockImplementation(async () =>
+      shoppingInvoice({ cleanerName: "Shopper", cleanerEmail: "s@example.com" })
+    );
+    const { createPayRun } = await mod();
+    const run = await createPayRun({
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+      createdByUserId: "admin",
+    });
+    expect(run.lines).toHaveLength(1);
+    expect(run.lines[0]).toMatchObject({ cleanerId: "sc1", jobsCount: 0, amount: 70 });
+
+    // Discovery must be a SUPERSET of selection: unsettled on EITHER stream, and
+    // (when recomputing) rows this run already holds still count as its own.
+    const where = shoppingFindMany.mock.calls[0][0].where;
+    expect(where.OR[0].AND).toEqual([
+      { includedInCleanerInvoiceId: null },
+      { includedInPayrollRunId: null },
+    ]);
+    expect(where.OR[1].AND).toEqual([
+      { timeIncludedInCleanerInvoiceId: null },
+      { timeIncludedInPayrollRunId: null },
+    ]);
+  });
+
+  it("refreshPayRun releases the shopping it no longer pays and re-claims what it does", async () => {
+    storedValue = {
+      version: 3,
+      data: {
+        runs: [
+          {
+            id: "run-1",
+            name: "Pay Run",
+            periodStart: "2026-01-01",
+            periodEnd: "2026-01-31",
+            status: "DRAFT",
+            lines: [],
+            createdByUserId: "admin",
+            createdAt: "2026-02-01T00:00:00.000Z",
+            updatedAt: "2026-02-01T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+    userFindMany.mockResolvedValueOnce([{ id: "u1" }]);
+    getCleanerInvoiceData.mockImplementation(async () => shoppingInvoice());
+    const { refreshPayRun } = await mod();
+    await refreshPayRun("run-1", "admin");
+
+    const calls = shoppingUpdateMany.mock.calls.map((call) => call[0]);
+    // Release first — everything this run stamped EXCEPT what it still pays…
+    expect(calls[0]).toEqual({
+      where: { includedInPayrollRunId: "run-1", shoppingRunId: { notIn: ["sr1"] } },
+      data: {
+        includedInPayrollRunId: null,
+        includedInPayrollRunAt: null,
+        // The frozen figure belonged to a line this run no longer pays.
+        paySettledAmount: null,
+      },
+    });
+    expect(calls[1].where).toEqual({
+      timeIncludedInPayrollRunId: "run-1",
+      shoppingRunId: { notIn: ["sr1"] },
+    });
+    expect(calls[1].data.timePaySettledAmount).toBeNull();
+    // …then re-claim, re-freezing the refreshed amounts.
+    expect(calls[2].data.paySettledAmount).toBe(40);
+    expect(calls[3].data.timePaySettledAmount).toBe(30);
+  });
+
+  it("deletePayRun releases both shopping streams so the money is payable again", async () => {
+    storedValue = {
+      version: 5,
+      data: {
+        runs: [
+          {
+            id: "run-1",
+            name: "Pay Run",
+            periodStart: "2026-01-01",
+            periodEnd: "2026-01-31",
+            status: "DRAFT",
+            lines: [],
+            createdByUserId: "admin",
+            createdAt: "2026-02-01T00:00:00.000Z",
+            updatedAt: "2026-02-01T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+    const { deletePayRun } = await mod();
+    expect(await deletePayRun("run-1")).toBe(true);
+
+    const calls = shoppingUpdateMany.mock.calls.map((call) => call[0]);
+    // No keepers, so no notIn — everything this run held goes back.
+    expect(calls[0].where).toEqual({ includedInPayrollRunId: "run-1" });
+    expect(calls[1].where).toEqual({ timeIncludedInPayrollRunId: "run-1" });
+
+    const { isShoppingExpenseAvailableForSettlement } = await import(
+      "@/lib/finance/shopping-settlement"
+    );
+    expect(
+      isShoppingExpenseAvailableForSettlement({
+        cleanerReimbursementStatus: "READY",
+        expensePayrollRunId: calls[0].data.includedInPayrollRunId,
+        expenseCleanerInvoiceId: null,
+      })
+    ).toBe(true);
   });
 });
 
