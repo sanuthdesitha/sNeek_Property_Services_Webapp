@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { computeQaAssignmentPay, qaAssignmentSettlementAmount } from "@/lib/finance/qa-pay";
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
+import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 
 /**
@@ -86,6 +87,11 @@ export interface QaPayAdjustmentLine {
   requestedAmount: number;
   reviewedAt: Date | null;
   source: string | null;
+  /** AUTOMATIC (system-generated) vs MANUAL — canonical derivation shared with
+   *  the admin job pay card and the cleaner invoice (pay-transparency wave). */
+  origin: "AUTOMATIC" | "MANUAL";
+  /** Display label, e.g. "Automatic — QA rectification pay" / "Manual". */
+  originLabel: string;
   settlement: "PAID" | "PENDING";
   settledVia: SettlementRail;
   settledByLabel: string | null;
@@ -203,6 +209,7 @@ export async function getQaPaySummary(options: {
         jobId: true,
         status: true,
         source: true,
+        sourceKey: true,
         requestedAmount: true,
         approvedAmount: true,
         reviewedAt: true,
@@ -245,7 +252,10 @@ export async function getQaPaySummary(options: {
 
   const adjustments: QaPayAdjustmentLine[] = adjustmentRows.map((row) => {
     const settled = resolveSettlementRail(row);
+    const originInfo = deriveAdjustmentOrigin(row.source ?? null, row.sourceKey ?? null);
     return {
+      origin: originInfo.origin,
+      originLabel: originInfo.label,
       id: row.id,
       title: row.title || row.job?.property?.name || row.property?.name || "Adjustment",
       jobId: row.jobId,

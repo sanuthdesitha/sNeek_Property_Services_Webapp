@@ -20,6 +20,14 @@ const createSchema = z.object({
   // Admin-added payments are approved by default so they flow straight into the
   // cleaner's invoice; pass false to leave it pending review.
   autoApprove: z.boolean().optional().default(true),
+  // Row-level sign convention (lib/finance/pay-adjustments.ts): a DEDUCTION is
+  // stored NEGATIVE. `amount` above stays positive (the magnitude); direction
+  // decides the sign. Default ADDITION preserves the historical behaviour.
+  direction: z.enum(["ADDITION", "DEDUCTION"]).optional().default("ADDITION"),
+  // When this row corrects a SETTLED adjustment (which is immutable — the PATCH
+  // route 409s), pass the original id so provenance is traceable: the new row
+  // gets sourceKey "correction:<id>" and stays MANUAL in origin terms.
+  correctionOfId: z.string().trim().optional().nullable(),
 });
 
 // Admin adds an extra payment for a cleaner (linked to a job or standalone).
@@ -28,11 +36,27 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createSchema.parse(await req.json());
 
+    // Payees on this rail are cleaners AND QA inspectors (a QA credit /
+    // correcting adjustment is written against the inspector, who self-invoices
+    // on the same rail — see lib/cleaner/invoice.ts).
     const cleaner = await db.user.findFirst({
-      where: { id: body.cleanerId, role: Role.CLEANER },
+      where: { id: body.cleanerId, role: { in: [Role.CLEANER, Role.QA_INSPECTOR] } },
       select: { id: true },
     });
-    if (!cleaner) return NextResponse.json({ error: "Cleaner not found." }, { status: 404 });
+    if (!cleaner) return NextResponse.json({ error: "Payee not found." }, { status: 404 });
+
+    // A correction must reference a real adjustment; carry its job/property
+    // link forward by default so the new row lands on the same job's pay card.
+    let correctionOf: { id: string; jobId: string | null; propertyId: string | null } | null = null;
+    if (body.correctionOfId) {
+      correctionOf = await db.cleanerPayAdjustment.findUnique({
+        where: { id: body.correctionOfId },
+        select: { id: true, jobId: true, propertyId: true },
+      });
+      if (!correctionOf) {
+        return NextResponse.json({ error: "The adjustment being corrected was not found." }, { status: 404 });
+      }
+    }
 
     let jobId: string | null = null;
     let propertyId: string | null = body.propertyId?.trim() || null;
@@ -46,7 +70,13 @@ export async function POST(req: NextRequest) {
       propertyId = job.propertyId ?? propertyId;
     }
 
+    if (!jobId && correctionOf?.jobId) jobId = correctionOf.jobId;
+    if (!propertyId && correctionOf?.propertyId) propertyId = correctionOf.propertyId;
+
     const approved = body.autoApprove !== false;
+    // Signed at the row level: a deduction is stored negative (canonical rule
+    // in lib/finance/pay-adjustments.ts — nothing downstream may re-sign it).
+    const signedAmount = body.direction === "DEDUCTION" ? -Math.abs(body.amount) : Math.abs(body.amount);
     const created = await db.cleanerPayAdjustment.create({
       data: {
         cleanerId: body.cleanerId,
@@ -55,13 +85,16 @@ export async function POST(req: NextRequest) {
         scope: jobId ? "JOB" : "STANDALONE",
         title: body.title.trim(),
         type: body.type ?? PayAdjustmentType.FIXED,
-        requestedAmount: body.amount,
-        approvedAmount: approved ? body.amount : null,
+        requestedAmount: signedAmount,
+        approvedAmount: approved ? signedAmount : null,
         status: approved ? PayAdjustmentStatus.APPROVED : PayAdjustmentStatus.PENDING,
         adminNote: body.note?.trim() || null,
         cleanerNote: "Added by admin.",
         reviewedById: approved ? session.user.id : null,
         reviewedAt: approved ? new Date() : null,
+        ...(correctionOf
+          ? { source: "ADMIN_CORRECTION", sourceKey: `correction:${correctionOf.id}` }
+          : {}),
       },
     });
 
@@ -72,7 +105,14 @@ export async function POST(req: NextRequest) {
         action: "PAY_ADJUSTMENT_ADMIN_CREATED",
         entity: "CleanerPayAdjustment",
         entityId: created.id,
-        after: { amount: body.amount, approved, jobId, cleanerId: body.cleanerId } as any,
+        after: {
+          amount: signedAmount,
+          direction: body.direction,
+          approved,
+          jobId,
+          cleanerId: body.cleanerId,
+          correctionOfId: correctionOf?.id ?? null,
+        } as any,
       },
     });
 

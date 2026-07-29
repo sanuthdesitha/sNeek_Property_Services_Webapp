@@ -640,7 +640,21 @@ function JobLines({ rows }: { rows: ExpectedRow[] }) {
           </td>
           <td className="px-4 py-3 text-right text-[0.8125rem]">{money(r.baseAmount)}</td>
           <td className="px-4 py-3 text-right text-[0.8125rem]">
-            {r.approvedExtraAmount ? money(r.approvedExtraAmount) : "—"}
+            {/* Universal edit-or-navigate rule: this figure is the sum of the
+                job's approved adjustments, so it links to the job's canonical
+                "Cleaner pay" card where each one is listed and editable. */}
+            {r.approvedExtraAmount ? (
+              <Link
+                href={`/v2/admin/jobs/${r.jobId}`}
+                title="See and edit every adjustment behind this figure"
+                className="inline-flex items-center gap-1 hover:text-[hsl(var(--e-gold-ink))]"
+              >
+                {money(r.approvedExtraAmount)}
+                <ExternalLink className="h-3 w-3 opacity-50" />
+              </Link>
+            ) : (
+              "—"
+            )}
           </td>
           <td className="px-4 py-3 text-right text-[0.8125rem]">
             {r.transportAllowance ? money(r.transportAllowance) : "—"}

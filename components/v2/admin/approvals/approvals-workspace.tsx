@@ -45,6 +45,10 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EModal, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 import { ApprovalsHistory } from "@/components/v2/admin/approvals/approvals-history";
+import {
+  PayAdjustmentDisplay,
+  toPayAdjustmentListItem,
+} from "@/components/v2/shared/pay-adjustment-list";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 type AllApprovals = {
@@ -650,7 +654,9 @@ function AccountabilityPayCard({
             {isDeduction ? "−" : ""}${Math.abs(amount).toFixed(2)}
           </span>
         </>,
-        row.cleanerNote ?? null,
+        // Shared what-changed / origin / settled body (pay-transparency wave)
+        // so this card reads identically to the job pay card + invoice panel.
+        <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row)} />,
       ]}
       footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
       actions={
@@ -1000,7 +1006,9 @@ export function ApprovalsWorkspace() {
                       <span className="e-numeral text-[0.9375rem]">${primaryPayAmount(row).toFixed(2)}</span>
                       {row.requestedHours != null ? ` (${row.requestedHours}h @ $${Number(row.requestedRate ?? 0).toFixed(2)})` : ""}
                     </>,
-                    row.cleanerNote ?? row.reason ?? null,
+                    // Shared what-changed / origin / settled body — reads
+                    // identically to the job pay card and the invoice panel.
+                    <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row)} />,
                   ]}
                   footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
                   actions={

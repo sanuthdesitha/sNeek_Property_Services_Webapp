@@ -11,6 +11,8 @@ import {
   resolveFinalCheckupItems,
 } from "@/lib/forms/final-checkup";
 import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
+import { describeAdjustment } from "@/lib/finance/job-pay-summary";
+import { sumAdjustments } from "@/lib/finance/pay-adjustments";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { getJobStartReminders } from "@/lib/accountability/patterns";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
@@ -146,6 +148,12 @@ export async function GET(
     // math (rework rule honored) as the briefing/payroll. Only for the cleaner
     // role; admins/ops get null.
     let payForJob: number | null = null;
+    // Pay-transparency (2026-07): the cleaner's OWN adjustments on this job,
+    // serialized through the canonical summary shape so the job screen reads
+    // identically to the admin pay card / invoice. Gated by the existing
+    // cleaner-portal pay visibility flag (showPayRequests).
+    let payAdjustmentsForJob: unknown[] = [];
+    let payTotalForJob: number | null = null;
     if (session.user.role === Role.CLEANER) {
       const cleanerUser = await db.user
         .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
@@ -164,6 +172,36 @@ export async function GET(
         cleanerPayouts: jobMeta.cleanerPayouts,
         transportAllowances: jobMeta.transportAllowances,
       });
+
+      if (settings.cleanerPortalVisibility?.showPayRequests !== false) {
+        const myAdjustments = await db.cleanerPayAdjustment
+          .findMany({
+            where: { jobId: job.id, cleanerId: session.user.id },
+            select: {
+              id: true,
+              cleanerId: true,
+              title: true,
+              status: true,
+              requestedAmount: true,
+              approvedAmount: true,
+              cleanerNote: true,
+              adminNote: true,
+              source: true,
+              sourceKey: true,
+              requestedAt: true,
+              reviewedAt: true,
+              includedInPayrollRunId: true,
+              includedInCleanerInvoiceId: true,
+              includedInCleanerInvoiceAt: true,
+            },
+            orderBy: { requestedAt: "asc" },
+          })
+          .catch(() => []);
+        payAdjustmentsForJob = myAdjustments.map((adj) => describeAdjustment(adj));
+        const approvedSum = sumAdjustments(myAdjustments);
+        payTotalForJob =
+          payForJob != null ? Number((payForJob + approvedSum).toFixed(2)) : null;
+      }
     }
     await attachPendingCarryForwardTasksToJob({
       jobId: job.id,
@@ -520,6 +558,10 @@ export async function GET(
       finalCheckup: { items: finalCheckupItems },
       keyPickupLocation,
       payForJob,
+      /** The cleaner's OWN adjustments on this job (canonical summary shape). */
+      payAdjustmentsForJob,
+      /** payForJob + approved adjustments — what this job will actually pay. */
+      payTotalForJob,
       continuationProgressSnapshot,
       viewerName: session.user.name ?? session.user.email ?? "Cleaner",
       branding: {

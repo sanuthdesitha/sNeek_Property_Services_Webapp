@@ -206,10 +206,25 @@ export default async function QaPayPage({
               {summary.adjustments.map((row) => (
                 <div key={row.id} className="flex items-start justify-between gap-3 py-3 first:pt-0">
                   <div className="min-w-0">
-                    <p className="truncate text-[0.875rem] font-medium">{row.title}</p>
+                    {/* Universal edit-or-navigate rule: an inspector cannot edit
+                        their own pay, so each adjustment links to the job whose
+                        pay card is the ONE editable source. */}
+                    <p className="truncate text-[0.875rem] font-medium">
+                      {row.jobId ? (
+                        <Link href={`/v2/qa/jobs/${row.jobId}`} className="hover:underline">
+                          {row.title}
+                        </Link>
+                      ) : (
+                        row.title
+                      )}
+                    </p>
                     <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       {row.property ? `${row.property} · ` : ""}
                       {row.reviewedAt ? shortDate(row.reviewedAt) : "awaiting review"}
+                    </p>
+                    {/* Same origin wording as the admin job pay card + invoice. */}
+                    <p className="mt-0.5 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                      {row.originLabel}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">

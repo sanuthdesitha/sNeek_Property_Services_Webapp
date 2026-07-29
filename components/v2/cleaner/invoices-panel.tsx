@@ -41,6 +41,10 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { EField, EInput, ESwitch, ETextarea } from "@/components/v2/cleaner/fields";
+import {
+  PayAdjustmentList,
+  type PayAdjustmentListItem,
+} from "@/components/v2/shared/pay-adjustment-list";
 import { toast } from "@/hooks/use-toast";
 
 interface InvoiceRow {
@@ -91,7 +95,16 @@ interface InvoicePreview {
   expenseTotal?: number;
   shoppingTimeRows?: ShoppingTimeRow[];
   shoppingTimeTotal?: number;
-  extraLineRows?: Array<{ id: string; date: string; description: string; amount: number }>;
+  extraLineRows?: Array<{
+    id: string;
+    date: string;
+    description: string;
+    amount: number;
+    origin?: "AUTOMATIC" | "MANUAL";
+    originLabel?: string;
+    jobId?: string | null;
+    reason?: string | null;
+  }>;
   extraLineTotal?: number;
   qaInspectionRows?: Array<{ assignmentId: string; date: string; property: string; amount: number }>;
   qaInspectionTotal?: number;
@@ -760,6 +773,46 @@ export function InvoicesPanel({
                 {row.note ? <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{row.note}</p> : null}
               </div>
             ))}
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {/* Adjustments carried onto this invoice as their own lines (approved
+          extras/deductions with no job line here). Shown via the SHARED
+          pay-adjustment display so origin + reason read identically to the
+          admin job pay card; read-only for the payee, with a link to the pay
+          page where each one is explained in full. */}
+      {(invoicePreview?.extraLineRows?.length ?? 0) > 0 ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle>Adjustments on this invoice · {money(invoicePreview?.extraLineTotal)}</ECardTitle>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Approved pay adjustments billed as their own lines — automatic (rework, rectification,
+              bonuses) or manual. Each is settled exactly once.
+            </p>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <PayAdjustmentList
+              variant="self"
+              detailsHref={isInspector ? "/v2/qa/pay" : "/v2/cleaner/pay-requests"}
+              items={(invoicePreview?.extraLineRows ?? []).map(
+                (row): PayAdjustmentListItem => ({
+                  id: row.id,
+                  amount: Number(row.amount ?? 0),
+                  kind: row.origin === "AUTOMATIC" ? "AUTOMATIC" : "MANUAL",
+                  title: row.description,
+                  reason: row.reason ?? null,
+                  origin: row.origin ?? "MANUAL",
+                  originLabel: row.originLabel ?? "Manual",
+                  status: "APPROVED",
+                  createdAt: null,
+                  decidedAt: null,
+                  decidedBy: null,
+                  settled: null,
+                  editable: false,
+                })
+              )}
+            />
           </ECardBody>
         </ECard>
       ) : null}
