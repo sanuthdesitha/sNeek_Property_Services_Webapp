@@ -2,18 +2,20 @@ import { describe, it, expect } from "vitest";
 import { SEED_REPORT_THEMES } from "@/lib/reports/seed-themes";
 
 describe("seed report themes", () => {
-  it("exports 4 themes", () => expect(SEED_REPORT_THEMES).toHaveLength(4));
+  it("exports 5 themes", () => expect(SEED_REPORT_THEMES).toHaveLength(5));
 
   it("exactly one is marked isDefault", () => {
     expect(SEED_REPORT_THEMES.filter((t) => t.isDefault)).toHaveLength(1);
   });
 
-  it("luxury is the default", () => {
-    expect(SEED_REPORT_THEMES.find((t) => t.name === "Luxury")?.isDefault).toBe(true);
+  it("estate is the default and uses the estate template", () => {
+    const estate = SEED_REPORT_THEMES.find((t) => t.name === "Estate");
+    expect(estate?.isDefault).toBe(true);
+    expect(estate?.layout.template).toBe("estate");
   });
 
-  it("the old themes (compact/magazine/detailed) remain present and selectable", () => {
-    for (const name of ["Compact", "Magazine", "Detailed"]) {
+  it("the old themes (luxury/compact/magazine/detailed) remain present and selectable", () => {
+    for (const name of ["Luxury", "Compact", "Magazine", "Detailed"]) {
       expect(SEED_REPORT_THEMES.find((t) => t.name === name)).toBeDefined();
     }
   });

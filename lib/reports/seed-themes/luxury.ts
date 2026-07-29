@@ -3,13 +3,13 @@ import type { ReportThemeSeed } from "./types";
 /**
  * Luxury — the premium, magazine-grade report skin. Uses kind CUSTOM (no enum
  * migration needed) and layout.template = "luxury" to select the refined
- * renderer in lib/reports/generator.ts. Ships as the default theme while the
- * Compact/Magazine/Detailed themes stay active + selectable (the "old format").
+ * renderer in lib/reports/generator.ts. Superseded as default by the Estate
+ * theme; stays active + selectable for rollback.
  */
 export const luxuryTheme: ReportThemeSeed = {
   name: "Luxury",
   kind: "CUSTOM",
-  isDefault: true,
+  isDefault: false,
   layout: {
     template: "luxury",
     sections: [

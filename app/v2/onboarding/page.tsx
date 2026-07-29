@@ -8,8 +8,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { ECard, ECardBody, EButton, EEyebrow } from "@/components/v2/ui/primitives";
+import { EstateLoader } from "@/components/v2/ui/estate-loader";
 import { EField, EInput } from "@/components/v2/admin/estate-kit";
 
 type Resp = {
@@ -124,9 +125,7 @@ export default function V2OnboardingPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center gap-2 py-8 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-            </div>
+            <EstateLoader size="inline" label="Loading" className="py-8" />
           ) : (
             <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
