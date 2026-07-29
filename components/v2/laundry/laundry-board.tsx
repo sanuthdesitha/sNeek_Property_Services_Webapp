@@ -17,11 +17,13 @@
  */
 import * as React from "react";
 import { format, startOfDay } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import jsQR from "jsqr";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
   Copy,
@@ -52,6 +54,8 @@ import {
 } from "@/components/v2/laundry/laundry-delete-dialog";
 import { useLaundryDateScope, type LaundryDateRange } from "@/components/v2/laundry/date-scope";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+import { sydneyRelativeDayLabel } from "@/lib/jobs/date-grouping";
+import { SYDNEY_TZ, sydneyDateKey, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { toast } from "@/hooks/use-toast";
@@ -194,6 +198,60 @@ function NavButton({ task }: { task: BoardTask }) {
         Navigate
       </a>
     </EButton>
+  );
+}
+
+/* ── Stage-relevant date (Sydney-aware) ────────────────────────────────────
+   With a multi-day scope active the same property can appear several times
+   across columns (multiple sets), so every card names its day. The date shown
+   is the one that matters for the card's stage:
+     PENDING / CONFIRMED / FLAGGED / SKIPPED → pickup date
+     PICKED_UP                              → drop-off due date
+     DROPPED                                → actual dropped date (falls back
+                                              to the planned drop-off date)   */
+type StageDateInfo = { prefix: string; label: string; overdue: boolean };
+
+function stageDateInfo(t: BoardTask, now: Date = new Date()): StageDateInfo | null {
+  let raw: string | null | undefined;
+  let prefix: string;
+  switch (t.status) {
+    case "PICKED_UP":
+      raw = t.dropoffDate;
+      prefix = "Return";
+      break;
+    case "DROPPED":
+      raw = t.droppedAt ?? t.dropoffDate;
+      prefix = "Returned";
+      break;
+    default:
+      raw = t.pickupDate;
+      prefix = "Pickup";
+      break;
+  }
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  const dayKey = sydneyDateKey(date);
+  // yyyy-MM-dd keys compare lexicographically; DROPPED is done, never overdue.
+  const overdue = t.status !== "DROPPED" && dayKey < sydneyTodayKey(now);
+  return { prefix, label: sydneyRelativeDayLabel(dayKey, now), overdue };
+}
+
+/** Compact per-card date line — danger-toned when the stage date has passed. */
+function StageDateChip({ task }: { task: BoardTask }) {
+  const info = stageDateInfo(task);
+  if (!info) return null;
+  return (
+    <p
+      className={`mt-0.5 inline-flex items-center gap-1 text-[0.75rem] ${
+        info.overdue
+          ? "font-[550] text-[hsl(var(--e-danger))]"
+          : "text-[hsl(var(--e-muted-foreground))]"
+      }`}
+    >
+      <CalendarDays className="h-3 w-3 shrink-0" />
+      {info.overdue ? `Overdue · ${info.prefix} ${info.label}` : `${info.prefix} ${info.label}`}
+    </p>
   );
 }
 
@@ -589,6 +647,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium">{propertyLabel(t)}</p>
+                  <StageDateChip task={t} />
                   {t.status === "SKIPPED_PICKUP" ? (
                     <div className="mt-0.5 space-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       <p>
@@ -654,6 +713,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
                                 <span className="truncate">{taskAddressText(it)}</span>
                               </p>
                             ) : null}
+                            <StageDateChip task={it} />
                             <div className="mt-0.5 flex items-center justify-between gap-2">
                               <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                                 {bags} bag{bags === 1 ? "" : "s"}
@@ -848,11 +908,24 @@ function RunColumn({
                         <span className="truncate">{taskAddressText(t)}</span>
                       </p>
                     ) : null}
-                    <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {kind === "pickup"
-                        ? `Pickup ${format(new Date(t.pickupDate), "HH:mm")}`
-                        : `Return ${format(new Date(t.dropoffDate), "HH:mm")}`}
-                    </p>
+                    {(() => {
+                      // Day + time so multi-day scopes stay unambiguous.
+                      const when = new Date(kind === "pickup" ? t.pickupDate : t.dropoffDate);
+                      if (Number.isNaN(when.getTime())) return null;
+                      const late = !complete && sydneyDateKey(when) < sydneyTodayKey();
+                      return (
+                        <p
+                          className={`mt-0.5 inline-flex items-center gap-1 text-[0.75rem] ${
+                            late ? "font-[550] text-[hsl(var(--e-danger))]" : "text-[hsl(var(--e-muted-foreground))]"
+                          }`}
+                        >
+                          <CalendarDays className="h-3 w-3 shrink-0" />
+                          {`${kind === "pickup" ? "Pickup" : "Return"} ${sydneyRelativeDayLabel(
+                            sydneyDateKey(when)
+                          )} · ${formatInTimeZone(when, SYDNEY_TZ, "HH:mm")}`}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
                     <NavButton task={t} />

@@ -15,8 +15,8 @@ export interface ReportThemeLayout {
   }>;
   photoSize: "small" | "medium" | "large" | "hero";
   density: "compact" | "default" | "comfortable";
-  /** Visual skin: "classic" (default) | "luxury". */
-  template?: "classic" | "luxury";
+  /** Visual skin: "classic" | "luxury" | "estate" (the modern default). */
+  template?: "classic" | "luxury" | "estate";
 }
 
 export interface ReportThemeSeed {

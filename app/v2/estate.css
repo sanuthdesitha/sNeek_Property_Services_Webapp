@@ -222,3 +222,103 @@
   [data-skin="estate"] .e-rise { animation: none; }
   [data-skin="estate"] * { scroll-behavior: auto; }
 }
+
+/* ============================================================================
+   EstateLoader (components/v2/ui/estate-loader.tsx)
+   The v2 loading mark: a champagne arc drawing around a breathing emerald
+   diamond, with an optional serif wordmark shimmer beneath (page variant).
+   Pure transform/opacity + stroke animation — GPU-friendly, no dependencies.
+   Under prefers-reduced-motion everything collapses to a subtle opacity fade.
+   ============================================================================ */
+.e-loader {
+  display: inline-flex;
+  align-items: center;
+  color: hsl(var(--e-foreground));
+}
+.e-loader--page {
+  display: flex;
+  width: 100%;
+  min-height: 60vh;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.125rem;
+}
+.e-loader--inline { gap: 0.5rem; }
+
+.e-loader__mark { position: relative; display: inline-block; flex: none; }
+.e-loader__ring { display: block; width: 100%; height: 100%; }
+.e-loader__track { stroke: hsl(var(--e-border-strong)); opacity: 0.45; }
+.e-loader__arc {
+  stroke: hsl(var(--e-gold));
+  transform-origin: 50% 50%;
+  animation:
+    e-loader-spin 1.8s linear infinite,
+    e-loader-draw 2.7s var(--e-ease-standard, ease-in-out) infinite;
+}
+/* Centered emerald diamond that gently breathes. */
+.e-loader__gem {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 24%;
+  height: 24%;
+  background: hsl(var(--e-primary));
+  animation: e-loader-breathe 2.7s ease-in-out infinite;
+}
+.e-loader--inline .e-loader__gem { display: none; }
+
+/* Serif wordmark with a slow champagne shimmer sweeping through. */
+.e-loader__wordmark {
+  font-family: var(--e-font-serif);
+  font-size: 1.25rem;
+  font-weight: 480;
+  letter-spacing: 0.14em;
+  background: linear-gradient(
+    100deg,
+    hsl(var(--e-foreground)) 42%,
+    hsl(var(--e-gold)) 50%,
+    hsl(var(--e-foreground)) 58%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: e-loader-shimmer 3.2s linear infinite;
+}
+.e-loader__inline-label {
+  font-size: 0.875rem;
+  color: hsl(var(--e-muted-foreground));
+}
+
+@keyframes e-loader-spin { to { transform: rotate(360deg); } }
+@keyframes e-loader-draw {
+  0%   { stroke-dasharray: 24 259; }
+  50%  { stroke-dasharray: 150 133; }
+  100% { stroke-dasharray: 24 259; }
+}
+@keyframes e-loader-breathe {
+  0%, 100% { transform: rotate(45deg) scale(0.82); opacity: 0.55; }
+  50%      { transform: rotate(45deg) scale(1.04); opacity: 1; }
+}
+@keyframes e-loader-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@keyframes e-loader-soft-fade {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .e-loader__arc,
+  .e-loader__gem,
+  .e-loader__wordmark { animation: none; }
+  .e-loader__gem { transform: rotate(45deg); }
+  .e-loader__wordmark {
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: hsl(var(--e-foreground));
+  }
+  .e-loader__mark { animation: e-loader-soft-fade 2.4s ease-in-out infinite; }
+}

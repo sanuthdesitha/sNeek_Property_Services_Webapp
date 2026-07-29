@@ -20,7 +20,7 @@ type Layout = {
   sections: Section[];
   photoSize: "small" | "medium" | "large" | "hero";
   density: "compact" | "default" | "comfortable";
-  template?: "classic" | "luxury";
+  template?: "classic" | "luxury" | "estate";
 };
 
 type Theme = {
@@ -49,7 +49,7 @@ const SECTION_LABELS: Record<string, string> = {
 
 const PHOTO_SIZES: Array<Layout["photoSize"]> = ["small", "medium", "large", "hero"];
 const DENSITIES: Array<Layout["density"]> = ["compact", "default", "comfortable"];
-const TEMPLATE_STYLES: Array<NonNullable<Layout["template"]>> = ["classic", "luxury"];
+const TEMPLATE_STYLES: Array<NonNullable<Layout["template"]>> = ["estate", "classic", "luxury"];
 
 export function ThemeEditor({ initial }: { initial: Theme }) {
   const router = useRouter();

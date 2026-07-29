@@ -34,6 +34,18 @@ function dayLabel(dayKey: string): string {
   return formatInTimeZone(new Date(`${dayKey}T12:00:00+10:00`), SYDNEY_TZ, "EEE d MMM");
 }
 
+/**
+ * Compact relative Sydney-day label for chips/cards: "Today", "Tomorrow",
+ * otherwise "Fri 1 Aug". Shared by the jobs agenda and the laundry boards so
+ * every surface names days the same way.
+ */
+export function sydneyRelativeDayLabel(dayKey: string, now: Date = new Date()): string {
+  const todayKey = sydneyTodayKey(now);
+  if (dayKey === todayKey) return "Today";
+  if (dayKey === addDaysToKey(todayKey, 1)) return "Tomorrow";
+  return dayLabel(dayKey);
+}
+
 export function groupJobsBySydneyDay<T extends { scheduledDate: string | Date | null }>(
   jobs: T[],
   now: Date,

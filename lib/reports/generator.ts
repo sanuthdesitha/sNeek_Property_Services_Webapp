@@ -13,8 +13,11 @@ import {
 import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
 import { publicUrl } from "@/lib/s3";
 
+import { buildReportViewModel } from "./report-view-model";
+import { renderEstateReport } from "./estate-template";
+
 const TZ = "Australia/Sydney";
-export const REPORT_TEMPLATE_VERSION = "v4-themeable-evidence-branding";
+export const REPORT_TEMPLATE_VERSION = "v5-estate-modern";
 
 type ReportThemeRecord = {
   id: string;
@@ -654,7 +657,45 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
   const showQaSummary = isSectionVisible(themeRec, "qa-summary");
   const renderedTitle = renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`;
   const customFooter = themeRec?.footerHtml?.trim() || "";
-  const template = String(themeRec?.layout?.template ?? "classic");
+  // Theme-selected skin. Themes without an explicit template keep their old
+  // "classic" look; when NO theme exists at all we default to the modern
+  // "estate" skin (which is also the seeded default theme).
+  const template = String(themeRec?.layout?.template ?? (themeRec ? "classic" : "estate"));
+
+  // "estate" renders from the pure view model (report-view-model.ts) so the
+  // template stays thin and the mapping is unit-tested. It honours the same
+  // theme section-visibility flags as the legacy skins.
+  if (template === "estate") {
+    const vm = buildReportViewModel({
+      job,
+      submission,
+      qa,
+      qaSubmission,
+      localDate,
+      resolveKeyUrl: (key: string) => publicUrl(key),
+      includeQa: showQaSummary,
+    });
+    return renderEstateReport(vm, {
+      headTags: `<meta charset="UTF-8"/>
+<!-- report-template:${REPORT_TEMPLATE_VERSION} -->
+<!-- report-theme:${escapeHtml(themeRec?.kind ?? "DEFAULT")}:${escapeHtml(themeRec?.id ?? "none")} -->
+<!-- report-style:estate -->`,
+      primaryHsl,
+      accentHsl,
+      companyName,
+      logoUrl,
+      renderedTitle,
+      photoDims,
+      showHeader,
+      showSummary,
+      showTaskChecklist,
+      showGallery,
+      showQaSummary,
+      showSupplies: isSectionVisible(themeRec, "supplies"),
+      showFooter,
+      customFooter,
+    });
+  }
 
   const densityPad = density === "compact" ? "24px" : density === "comfortable" ? "56px" : "40px";
   const sectionMargin = density === "compact" ? "14px" : density === "comfortable" ? "32px" : "24px";
