@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { EFieldIcon } from "./field-icon";
 import { ReferenceMediaEditor } from "./reference-media-editor";
-import { ConditionEditor } from "./condition-editor";
+import { ConditionEditor, type ConditionSourceField } from "./condition-editor";
 
 function num(value: string): number | undefined {
   if (value.trim() === "") return undefined;
@@ -66,7 +66,7 @@ export function PropertiesPanel({
   onUpdate: (field: FormField) => void;
   onRemove: () => void;
   onDuplicate?: () => void;
-  availableFields?: Array<{ id: string; label: string }>;
+  availableFields?: ConditionSourceField[];
 }) {
   const def = getFieldTypeDef(field.type);
   const hasOptions = Boolean(def?.hasOptions);
@@ -259,8 +259,8 @@ export function PropertiesPanel({
                   value={field.mediaMode === "both" ? "both" : field.type === "video" ? "video" : "photo"}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === "both") onUpdate({ ...field, type: "photo", mediaMode: "both", maxDurationSec: field.maxDurationSec ?? 60 });
-                    else if (v === "video") onUpdate({ ...field, type: "video", mediaMode: undefined, maxDurationSec: field.maxDurationSec ?? 60 });
+                    if (v === "both") onUpdate({ ...field, type: "photo", mediaMode: "both" });
+                    else if (v === "video") onUpdate({ ...field, type: "video", mediaMode: undefined });
                     else onUpdate({ ...field, type: "photo", mediaMode: undefined });
                   }}
                 >
@@ -297,17 +297,8 @@ export function PropertiesPanel({
               <EField label="Max files">
                 <EInput type="number" min={0} value={field.maxFiles ?? ""} onChange={(e) => onUpdate({ ...field, maxFiles: num(e.target.value) })} />
               </EField>
-              {(field.type === "video" || field.mediaMode === "both") && (
-                <EField label="Max duration (sec)">
-                  <EInput
-                    type="number"
-                    min={1}
-                    placeholder="60"
-                    value={field.maxDurationSec ?? ""}
-                    onChange={(e) => onUpdate({ ...field, maxDurationSec: num(e.target.value) })}
-                  />
-                </EField>
-              )}
+              {/* No "Max duration" control: nothing in the capture path enforces
+                  a video length, so the builder no longer promises one. */}
             </div>
           </Section>
         )}
@@ -417,7 +408,7 @@ function SubFieldsEditor({
 }: {
   field: FormField;
   onUpdate: (field: FormField) => void;
-  availableFields: Array<{ id: string; label: string }>;
+  availableFields: ConditionSourceField[];
 }) {
   const children = field.children ?? [];
 
@@ -428,7 +419,10 @@ function SubFieldsEditor({
     setChildren(children.map((c, i) => (i === index ? child : c)));
   }
 
-  const conditionFields = [{ id: field.id, label: `${field.label || field.id} (parent)` }, ...availableFields];
+  const conditionFields: ConditionSourceField[] = [
+    { id: field.id, label: `${field.label || field.id} (parent)`, type: field.type, options: field.options },
+    ...availableFields,
+  ];
 
   return (
     <div className="space-y-2">

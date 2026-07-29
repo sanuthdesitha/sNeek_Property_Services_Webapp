@@ -222,7 +222,6 @@ function arrivalEvidenceSection() {
         required: true,
         instructions:
           "Record a short walkthrough capturing the property state as you find it on arrival.",
-        maxDurationSec: 120,
       },
       {
         id: "arrival-evidence.before-photos",

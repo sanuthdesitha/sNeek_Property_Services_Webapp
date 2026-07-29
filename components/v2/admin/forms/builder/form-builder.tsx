@@ -24,7 +24,7 @@ import {
   Palette,
   X,
 } from "lucide-react";
-import type { FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
+import type { FieldCondition, FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
 import { getFieldTypeDef, isUploadFieldType } from "@/lib/forms/field-types";
 import { isStandardSectionId, standardSectionDeleteWarning } from "@/lib/forms/standard-sections";
 import { lintTemplateSchema, type LintIssue } from "@/lib/forms/lint-template";
@@ -36,6 +36,7 @@ import { PropertiesPanel } from "./properties-panel";
 import { ThemeEditor } from "./theme-editor";
 import { InventorySettingsCard } from "./inventory-settings";
 import { FormPreview } from "./form-preview";
+import { TemplateImpactPanel } from "./template-impact";
 import { DIVIDER_LABEL } from "./blocks";
 
 /* Job service types — must match the Prisma JobType enum (see v1 new page). */
@@ -123,6 +124,7 @@ export function EstateFormBuilder({
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [publishNotice, setPublishNotice] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(initialIsActive);
   const [archived, setArchived] = React.useState(initialArchived);
   const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
@@ -132,6 +134,9 @@ export function EstateFormBuilder({
   // template's evidence gates — deleting one is confirmed, never silent.
   const [pendingRemoveSectionId, setPendingRemoveSectionId] = React.useState<string | null>(null);
   const [showLint, setShowLint] = React.useState(true);
+  // Bumped after every save / publish so the "where this template applies"
+  // panel re-resolves against the runtime rule instead of showing stale advice.
+  const [impactKey, setImpactKey] = React.useState(0);
 
   const mutate = React.useCallback((fn: (s: FormSchema) => FormSchema) => {
     setSchema((prev) => fn(prev));
@@ -156,7 +161,10 @@ export function EstateFormBuilder({
     if (f.required) return sum + Math.max(1, f.minPhotos ?? 1);
     return sum + (f.minPhotos ?? 0);
   }, 0);
-  const allFields = flatFields.map((f) => ({ id: f.id, label: f.label }));
+  // Condition sources: the type + options ride along so the condition editor can
+  // offer the real answer values (Yes/No, the dropdown's options) instead of a
+  // free-text box where a typo silently produces a rule that never fires.
+  const allFields = flatFields.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options }));
 
   /* ── governance lint (duplicate ids, dangling conditionals, legacy shapes) ── */
   const lintIssues = React.useMemo<LintIssue[]>(() => lintTemplateSchema(schema), [schema]);
@@ -205,6 +213,30 @@ export function EstateFormBuilder({
   }
   function updateSectionTitle(sectionId: string, title: string) {
     mutate((s) => ({ ...s, sections: s.sections.map((x) => (x.id === sectionId ? { ...x, title } : x)) }));
+  }
+  function updateSectionConditional(sectionId: string, conditional: FieldCondition | undefined) {
+    mutate((s) => ({
+      ...s,
+      sections: s.sections.map((x) => {
+        if (x.id !== sectionId) return x;
+        const next = { ...x };
+        if (conditional) next.conditional = conditional;
+        else delete next.conditional;
+        return next;
+      }),
+    }));
+  }
+  function toggleSectionCollapsible(sectionId: string, collapsible: boolean) {
+    mutate((s) => ({
+      ...s,
+      sections: s.sections.map((x) => {
+        if (x.id !== sectionId) return x;
+        const next = { ...x };
+        if (collapsible) next.collapsible = true;
+        else delete next.collapsible;
+        return next;
+      }),
+    }));
   }
   function updateSectionDescription(sectionId: string, description: string) {
     mutate((s) => ({
@@ -299,6 +331,7 @@ export function EstateFormBuilder({
       }
       setSavedAt(new Date());
       setDirty(false);
+      setImpactKey((k) => k + 1);
     } catch (err: any) {
       setError(err?.message ?? "Save failed");
     } finally {
@@ -319,9 +352,21 @@ export function EstateFormBuilder({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `Action failed (${res.status})`);
       }
-      const { template } = await res.json();
+      const { template, archivedPrevious } = await res.json();
       setIsActive(Boolean(template?.isActive));
       setArchived(Boolean(template?.archivedAt));
+      setImpactKey((k) => k + 1);
+      if (action === "publish" && Number(archivedPrevious) > 0) {
+        setPublishNotice(
+          `Published. ${archivedPrevious} previously published template${
+            Number(archivedPrevious) === 1 ? " was" : "s were"
+          } archived so jobs resolve to this one.`
+        );
+      } else if (action === "publish") {
+        setPublishNotice("Published — live for jobs that have no property-specific form.");
+      } else {
+        setPublishNotice(null);
+      }
     } catch (err: any) {
       setError(err?.message ?? "Publish failed");
     }
@@ -395,8 +440,19 @@ export function EstateFormBuilder({
           <EButton variant="outline" size="sm" onClick={() => setShowTheme(true)}>
             <Palette className="size-4" /> Theme &amp; settings
           </EButton>
-          <EButton variant="outline" size="sm" onClick={togglePublish}>
-            {isActive ? "Archive" : "Publish"}
+          {/* A draft is edited-but-invisible: publishing is the step admins miss,
+              so it is the emphasised action until the template is live. */}
+          <EButton
+            variant={isActive ? "outline" : "gold"}
+            size="sm"
+            onClick={togglePublish}
+            title={
+              isActive
+                ? "Archive this template — jobs stop resolving to it."
+                : "Publish — make these edits live for jobs of this service type."
+            }
+          >
+            {isActive ? "Archive" : "Publish (make live)"}
           </EButton>
           <EButton size="sm" onClick={save} disabled={saving || !dirty}>
             {saving ? "Saving…" : "Save draft"}
@@ -428,6 +484,15 @@ export function EstateFormBuilder({
           {error}
         </p>
       ) : null}
+
+      {publishNotice ? (
+        <p className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
+          {publishNotice}
+        </p>
+      ) : null}
+
+      {/* Guard rail: which jobs/properties these edits will (and will not) reach. */}
+      <TemplateImpactPanel templateId={templateId} refreshKey={impactKey} />
 
       {/* ── Template lint: blocking errors + advisory warnings ── */}
       {lintIssues.length > 0 && showLint ? (
@@ -480,7 +545,7 @@ export function EstateFormBuilder({
       {showPreview ? (
         <div className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--e-surface-sunken))] p-4 md:p-8">
           <p className="mb-3 text-center text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">
-            Live preview — what the cleaner sees (read-only)
+            Live preview — try it exactly as the cleaner will (answers aren&apos;t saved)
           </p>
           <FormPreview schema={schema} name={name} />
         </div>
@@ -502,6 +567,9 @@ export function EstateFormBuilder({
               onSelectField={setSelectedFieldId}
               onUpdateSectionTitle={updateSectionTitle}
               onUpdateSectionDescription={updateSectionDescription}
+              onUpdateSectionConditional={updateSectionConditional}
+              onToggleSectionCollapsible={toggleSectionCollapsible}
+              conditionFields={allFields}
               onAddSection={addSection}
               onRemoveSection={removeSection}
               onDuplicateSection={duplicateSection}

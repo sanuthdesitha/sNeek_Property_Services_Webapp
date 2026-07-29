@@ -25,6 +25,7 @@ import {
   isTemplateNodeVisible,
 } from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
 
 type ProgressJob = {
   id: string;
@@ -33,6 +34,8 @@ type ProgressJob = {
   status: string;
   arrivedAt?: Date | string | null;
   estimatedHours?: number | null;
+  /** Job-level template pin (quote-minted one-off) — wins over any override. */
+  formTemplateId?: string | null;
 };
 
 function isEmptyAnswer(value: unknown) {
@@ -70,39 +73,35 @@ export function countRequiredProgress(
   return { done, total };
 }
 
-/** Same template resolution as GET /api/jobs/[id]/form (simplified copy). */
+/**
+ * Same template resolution as GET /api/jobs/[id]/form — literally the same
+ * function now (lib/forms/resolve-job-template.ts), so the progress bar can
+ * never be computed against a different template than the cleaner is filling.
+ * That includes the job-level pin: a quote-converted job renders its own
+ * one-off form, and the progress bar must count THOSE required fields.
+ */
 async function resolveJobTemplate(job: ProgressJob, settings: AppSettings) {
-  const overrides = (settings as any).propertyFormTemplateOverrides as
-    | Record<string, Record<string, string>>
-    | undefined;
-  const configuredId = overrides?.[job.propertyId]?.[String(job.jobType)] ?? null;
-
-  const propertyScopedTemplateIds = new Set<string>();
-  for (const perProperty of Object.values(overrides ?? {})) {
-    for (const templateId of Object.values(perProperty ?? {})) {
-      if (typeof templateId === "string" && templateId) propertyScopedTemplateIds.add(templateId);
-    }
-  }
-
-  let template = configuredId
-    ? await db.formTemplate.findFirst({
-        where: { id: configuredId, serviceType: job.jobType, isActive: true },
-        select: { id: true, schema: true },
-      })
-    : null;
-  if (!template) {
-    template = await db.formTemplate.findFirst({
-      where: {
-        serviceType: job.jobType,
-        isActive: true,
-        ...(propertyScopedTemplateIds.size > 0
-          ? { id: { notIn: Array.from(propertyScopedTemplateIds) } }
-          : {}),
-      },
-      orderBy: { version: "desc" },
-      select: { id: true, schema: true },
-    });
-  }
+  const templates = await db.formTemplate.findMany({
+    where: { serviceType: job.jobType, isActive: true },
+    select: {
+      id: true,
+      schema: true,
+      serviceType: true,
+      isActive: true,
+      version: true,
+      publishedAt: true,
+      updatedAt: true,
+      createdAt: true,
+      isJobScoped: true,
+    },
+  });
+  const { template } = resolveJobFormTemplate({
+    jobType: String(job.jobType),
+    propertyId: job.propertyId,
+    overrides: settings.propertyFormTemplateOverrides,
+    templates,
+    jobTemplateId: job.formTemplateId ?? null,
+  });
   return template;
 }
 

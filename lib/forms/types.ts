@@ -40,6 +40,9 @@ export type FieldConditionOperator =
   | "notEquals"
   | "answered"
   | "notAnswered"
+  // multi-value (multiselect / checkbox group) membership, or substring for text
+  | "contains"
+  | "notContains"
   | "oneOf"
   | "gt"
   | "lt";
@@ -119,8 +122,9 @@ export interface FormField {
   // media
   minPhotos?: number;
   maxFiles?: number;
-  // video: max recording length in seconds for in-app recording (default ~60).
-  maxDurationSec?: number;
+  // NOTE: there is deliberately no `maxDurationSec`. The builder used to collect
+  // a max video length but no capture path enforced it, so the setting was
+  // removed; normalizeFormSchema drops the key from stored templates.
   // Capture type for media/upload fields. Only meaningful when type is
   // "photo" or "video". "both" lets the cleaner capture photos AND videos for
   // the same field (offers both capture buttons + the in-app recorder).

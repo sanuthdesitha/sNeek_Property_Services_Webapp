@@ -170,7 +170,14 @@ export function PortalShell({
                   active ? "text-[hsl(var(--e-accent-portal))]" : "text-[hsl(var(--e-muted-foreground))]"
                 )}
               >
-                <Icon className="h-5 w-5" />
+                <span className="relative">
+                  <Icon className="h-5 w-5" />
+                  {item.badge ? (
+                    <span className="absolute -right-2 -top-1 min-w-[1rem] rounded-full bg-[hsl(var(--e-gold))] px-1 text-[0.5625rem] font-semibold leading-4 text-[hsl(var(--e-gold-foreground))]">
+                      {item.badge > 9 ? "9+" : item.badge}
+                    </span>
+                  ) : null}
+                </span>
                 {item.label}
               </Link>
             );

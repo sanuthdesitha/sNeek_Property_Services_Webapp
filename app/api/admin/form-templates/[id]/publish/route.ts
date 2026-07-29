@@ -35,7 +35,8 @@ async function propertyScopedTemplateIds(): Promise<Set<string>> {
  *               its predecessor) — otherwise every publish leaves another
  *               selectable duplicate behind and the runtime "highest active
  *               version wins" fallback drifts. Property-scoped templates are
- *               skipped on both sides.
+ *               skipped on both sides, as are job-scoped one-offs
+ *               (`isJobScoped`) minted by quote → job conversion.
  *  - archive:   isActive=false, archivedAt=now
  *  - unarchive: archivedAt=null (does NOT republish — left as draft)
  */
@@ -75,6 +76,10 @@ export async function POST(
             serviceType: template.serviceType,
             isActive: true,
             id: { notIn: excluded },
+            // One-off forms minted for a single job (quote → job conversion)
+            // are not competing global defaults — archiving them would blank
+            // the form of the job they were minted for.
+            isJobScoped: false,
           },
           data: { isActive: false, archivedAt: new Date() },
         });

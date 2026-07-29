@@ -414,6 +414,13 @@ export function AccountabilitySection({
             label="Self-inspection blocks submit"
             description="A cleaner cannot submit until the self-inspection checklist is complete."
           />
+          <EToggle
+            checked={draft.requiredChecklistTicksBlockSubmit}
+            disabled={readOnly}
+            onChange={(v) => setDraft((prev) => ({ ...prev, requiredChecklistTicksBlockSubmit: v }))}
+            label="Required tick-boxes block submit"
+            description="Require every ticked-item to be completed before a cleaner can submit — this includes every generated checklist item, not just confirmations. Off by default: an unticked box does not block. The final self-inspection keeps its own gate either way."
+          />
         </div>
       </ECard>
 

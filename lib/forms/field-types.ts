@@ -44,8 +44,11 @@ export interface FieldTypeDef {
 const EMPTY = "-";
 
 function fmtBoolean(value: unknown): string {
-  if (value === true || value === "true") return "Yes";
-  if (value === false || value === "false") return "No";
+  // Yes/No + checkbox answers are stored as booleans, but older submissions (and
+  // the v2 cleaner before it was aligned) wrote the strings "yes"/"no", so both
+  // shapes must format — otherwise an answered field prints as "-" in reports.
+  if (value === true || value === "true" || value === "yes" || value === "Yes") return "Yes";
+  if (value === false || value === "false" || value === "no" || value === "No") return "No";
   return EMPTY;
 }
 
@@ -108,14 +111,18 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
   },
 
   // ---- scale ----
-  rating: { type: "rating", label: "Star rating", icon: "Star", category: "scale", hasRange: true, scorable: true, formatValue: fmtNumberWithUnit },
+  // max = number of stars. Seeded so the builder's Range panel shows the value
+  // the renderer actually uses (it falls back to 5) instead of an empty box.
+  rating: { type: "rating", label: "Star rating", icon: "Star", category: "scale", hasRange: true, scorable: true, defaultConfig: { min: 1, max: 5, step: 1 }, formatValue: fmtNumberWithUnit },
   slider: { type: "slider", label: "Slider", icon: "SlidersHorizontal", category: "scale", hasRange: true, scorable: true, defaultConfig: { min: 0, max: 10, step: 1 }, formatValue: fmtNumberWithUnit },
   counter: { type: "counter", label: "Counter", icon: "Plus", category: "scale", hasRange: true, scorable: true, defaultConfig: { min: 0, step: 1 }, formatValue: fmtNumberWithUnit },
   scale: { type: "scale", label: "Scale (1–N)", icon: "Gauge", category: "scale", hasRange: true, scorable: true, defaultConfig: { min: 1, max: 5, step: 1 }, formatValue: fmtNumberWithUnit },
 
   // ---- media ----
   photo: { type: "photo", label: "Photo", icon: "Camera", category: "media", isUpload: true, scorable: true, defaultConfig: { minPhotos: 1 }, formatValue: fmtUpload },
-  video: { type: "video", label: "Video", icon: "Video", category: "media", isUpload: true, defaultConfig: { maxDurationSec: 60 }, formatValue: fmtUpload },
+  // No max-duration default: nothing in the capture path enforces a recording
+  // length, so the setting was removed rather than kept as an empty promise.
+  video: { type: "video", label: "Video", icon: "Video", category: "media", isUpload: true, formatValue: fmtUpload },
   file: { type: "file", label: "Document / file", icon: "FileText", category: "media", isUpload: true, formatValue: fmtUpload },
   signature: { type: "signature", label: "Signature", icon: "PenLine", category: "media", formatValue: (_f, v) => (typeof v === "string" && v.startsWith("data:image/") ? "Signed" : EMPTY) },
 

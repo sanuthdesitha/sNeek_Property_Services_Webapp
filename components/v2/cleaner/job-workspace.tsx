@@ -522,6 +522,10 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     ? payload.recurringIssues.filter((r: unknown): r is string => typeof r === "string")
     : [];
   const requireStartConfirmation = payload?.requireJobStartConfirmation !== false;
+  // Admin opt-in (default OFF): an unticked required checkbox blocks submit.
+  // Read strictly as `=== true` so a payload from an older server (flag absent)
+  // keeps the historic, non-blocking behaviour.
+  const requiredChecklistTicksBlockSubmit = payload?.requiredChecklistTicksBlockSubmit === true;
   // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
   const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
   // Only the FIRST person to start does the heavyweight confirmations. A second
@@ -908,13 +912,27 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         answers,
         uploadCounts,
         property ?? {},
-        laundryEnabled ? laundryOutcome === "READY_FOR_PICKUP" : undefined
+        laundryEnabled ? laundryOutcome === "READY_FOR_PICKUP" : undefined,
+        requiredChecklistTicksBlockSubmit
       );
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
+        // Name the actual items (with their section) instead of a bare count —
+        // an unticked confirmation checkbox is invisible in a long form, so
+        // "3 items incomplete" left the cleaner hunting. The tappable rows in
+        // the wrap-up list still jump straight to each field.
+        const named = formErrors
+          .slice(0, 3)
+          .map((err) =>
+            err.sectionLabel && err.sectionLabel !== err.label
+              ? `${err.sectionLabel}: ${err.label}`
+              : err.label
+          )
+          .join("; ");
+        const more = formErrors.length > 3 ? ` (+${formErrors.length - 3} more)` : "";
         flash(
           "danger",
-          `${formErrors.length} required item${formErrors.length > 1 ? "s" : ""} incomplete — please review the highlighted fields.`
+          `${formErrors.length} required item${formErrors.length > 1 ? "s" : ""} incomplete — ${named}${more}. Tap an item below to jump to it.`
         );
         return;
       }
@@ -1148,6 +1166,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     contact,
     restockNeeds,
     recurringIssues,
+    requiredChecklistTicksBlockSubmit,
     setupGuideEntries,
     teamStarted,
     ownStarted,

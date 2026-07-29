@@ -12,6 +12,7 @@
 //  - backfill a stable `id` on any section/field missing one (deterministic, so
 //    read and submit derive the same id from the same raw schema)
 //  - keep one-level `children`
+//  - drop retired field keys (`maxDurationSec`) carried by older saved templates
 // Then apply `withStandardSections` (arrival evidence + exception report +
 // sign-off) IDEMPOTENTLY so double application can never duplicate them.
 
@@ -50,6 +51,11 @@ function normalizeField(field: unknown, sectionId: string, index: number, depth:
   const raw = field as AnyRec;
   const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : `${sectionId}.field-${index}`;
   const out: AnyRec = { ...raw, id, type: aliasType(raw.type) };
+  // Retired setting: the builder used to collect a max video duration that
+  // nothing enforced. Templates saved before its removal still carry the key —
+  // drop it silently (never throw) so those templates keep loading, and so a
+  // read → save round-trip cleans the stale value out of storage.
+  delete out.maxDurationSec;
   const cond = normalizeConditional(raw.conditional);
   if (cond) out.conditional = cond;
   else delete out.conditional;
@@ -92,10 +98,19 @@ export function normalizeFormSchema(
   const withStandard = withStandardSections(canonical, {
     standardSections: optedOut ? false : undefined,
   }) as any[];
-  const out: { sections: any[]; theme?: any; standardSections?: boolean; inventoryConfig?: InventoryConfig } = {
+  // Carry every OTHER root key through untouched. The template save route stores
+  // the schema verbatim (formTemplateSchemaZ is passthrough), so anything the
+  // builder puts at the root must survive a read → normalize → save round-trip;
+  // rebuilding the object from a fixed key list silently dropped new/unknown
+  // root config the first time a template was re-saved.
+  const out: AnyRec & { sections: any[]; theme?: any; standardSections?: boolean; inventoryConfig?: InventoryConfig } = {
+    ...raw,
     sections: withStandard,
   };
   if (raw.theme && typeof raw.theme === "object") out.theme = raw.theme;
+  else delete out.theme;
+  delete out.inventoryConfig;
+  delete out.standardSections;
   // Template-level inventory capture config (R8a) rides on the schema root —
   // carry it through so a read → save round-trip (or the form read route) never
   // silently widens the selection back to "all items".

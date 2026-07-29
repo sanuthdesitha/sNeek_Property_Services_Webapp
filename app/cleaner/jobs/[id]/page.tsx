@@ -5699,11 +5699,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                             payload.startVerification.timezone) ||
                           "Australia/Sydney"
                         }
-                        maxDurationSec={
-                          typeof field.maxDurationSec === "number" && field.maxDurationSec > 0
-                            ? field.maxDurationSec
-                            : 60
-                        }
                         disabled={
                           field.maxFiles !== undefined &&
                           (uploads[field.id]?.length ?? 0) >= field.maxFiles
@@ -5775,11 +5770,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                           (typeof payload?.startVerification?.timezone === "string" &&
                             payload.startVerification.timezone) ||
                           "Australia/Sydney"
-                        }
-                        maxDurationSec={
-                          typeof field.maxDurationSec === "number" && field.maxDurationSec > 0
-                            ? field.maxDurationSec
-                            : 60
                         }
                         disabled={
                           field.maxFiles !== undefined &&
