@@ -35,6 +35,10 @@ import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { formatDuration } from "@/lib/time/format-duration";
 import { LAUNDRY_SKIP_REASONS, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import {
+  PayAdjustmentList,
+  type PayAdjustmentListItem,
+} from "@/components/v2/shared/pay-adjustment-list";
 
 const LAUNDRY_CARD_ID = "wrapup-laundry";
 
@@ -65,10 +69,21 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   // submitted" screen: confirmation, quality-pending, time on site, back home).
   if (locked) {
     const onSiteSeconds = Number(api.timeState?.completedSeconds ?? 0);
-    const payForJob: number | null =
+    const basePayForJob: number | null =
       api.payload?.payForJob != null && Number.isFinite(Number(api.payload.payForJob))
         ? Number(api.payload.payForJob)
         : null;
+    // Canonical total (base + approved adjustments) when the API provides it;
+    // fall back to the base figure for older payloads.
+    const payForJob: number | null =
+      api.payload?.payTotalForJob != null && Number.isFinite(Number(api.payload.payTotalForJob))
+        ? Number(api.payload.payTotalForJob)
+        : basePayForJob;
+    const payAdjustments: PayAdjustmentListItem[] = Array.isArray(
+      api.payload?.payAdjustmentsForJob
+    )
+      ? (api.payload.payAdjustmentsForJob as PayAdjustmentListItem[])
+      : [];
     const fmtAud = (n: number) =>
       `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return (
@@ -109,6 +124,19 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                     </span>
                   </span>
                 ) : null}
+              </div>
+            ) : null}
+            {/* Your pay for this job — every adjustment that changed it, read
+                through the SAME canonical summary as the admin card/invoice.
+                Read-only here; "View details" goes to the pay-requests page. */}
+            {payAdjustments.length > 0 ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5 text-left">
+                <p className="e-eyebrow mb-1.5">Pay adjustments on this job</p>
+                <PayAdjustmentList
+                  items={payAdjustments}
+                  variant="self"
+                  detailsHref={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}
+                />
               </div>
             ) : null}
             <Link href="/v2/cleaner" className="block">

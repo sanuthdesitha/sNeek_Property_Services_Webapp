@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
@@ -347,7 +348,20 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                     <span>Shopping: {money(payout.shoppingReimbursement)}</span>
                   ) : null}
                   {payout.transportAllowance > 0 ? <span>Transport: {money(payout.transportAllowance)}</span> : null}
-                  {payout.adjustments > 0 ? <span>Adjustments: {money(payout.adjustments)}</span> : null}
+                  {/* Universal edit-or-navigate rule: this run's adjustment
+                      total is settled money (immutable here), so it navigates
+                      to the canonical adjustments surface where each row is
+                      listed with its origin, settlement stamp and the
+                      correcting-adjustment path. */}
+                  {payout.adjustments !== 0 ? (
+                    <Link
+                      href="/v2/admin/finance?tab=adjustments"
+                      title="See every adjustment behind this figure"
+                      className="underline-offset-2 hover:underline"
+                    >
+                      Adjustments: {money(payout.adjustments)}
+                    </Link>
+                  ) : null}
                 </div>
                 {payout.failureReason ? (
                   <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-danger))]">Failed: {payout.failureReason}</p>

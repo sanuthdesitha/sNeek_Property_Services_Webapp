@@ -57,6 +57,7 @@ import {
 import { statusLabel, statusTone } from "./job-row";
 import { JobChatAdmin } from "./job-chat-admin";
 import { JobResetDialog } from "./job-reset-dialog";
+import { JobPayCard } from "@/components/v2/shared/job-pay-card";
 
 const TZ = "Australia/Sydney";
 
@@ -737,6 +738,11 @@ export function JobManageModal({
                   {savingPeople ? "Saving…" : "Save changes"}
                 </EButton>
               </div>
+
+              {/* Canonical per-payee pay summary: base + every adjustment
+                  (automatic or manual, editable in place when unsettled) +
+                  the exact total the invoice/payroll will pay. */}
+              <JobPayCard jobId={String(job.id)} />
             </div>
           ) : null}
 

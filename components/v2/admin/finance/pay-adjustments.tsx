@@ -18,6 +18,10 @@ import { BadgeDollarSign, Link2, Pencil, Plus, RefreshCw, Send, Undo2 } from "lu
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import {
+  adjustmentSettlement,
+  deriveAdjustmentOrigin,
+} from "@/lib/finance/job-pay-summary";
+import {
   EConfirmModal,
   EField,
   EInput,
@@ -497,6 +501,13 @@ export function EstatePayAdjustments() {
                 row.job?.property?.name ??
                 row.property?.name ??
                 (row.scope === "STANDALONE" ? "Standalone" : "—");
+              // Canonical origin + settlement (pay-transparency wave): same
+              // derivation as the job pay card / invoice, so labels match.
+              const originInfo = deriveAdjustmentOrigin(
+                (row as any).source ?? null,
+                (row as any).sourceKey ?? null
+              );
+              const settled = adjustmentSettlement(row as any);
               return (
                 <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                   <div className="min-w-0">
@@ -505,6 +516,16 @@ export function EstatePayAdjustments() {
                       <p className="font-[550]">{row.title || "Pay request"}</p>
                       <EBadge tone={STATUS_TONE[row.status]} soft>{row.status}</EBadge>
                       <EBadge tone="neutral" soft>{row.scope}</EBadge>
+                      <EBadge tone={originInfo.origin === "AUTOMATIC" ? "info" : "neutral"} soft>
+                        {originInfo.label}
+                      </EBadge>
+                      {settled ? (
+                        <EBadge tone="success" soft>
+                          {settled.rail === "PAYROLL"
+                            ? `Paid · pay run ${settled.id.slice(0, 6)}`
+                            : "Paid · invoice"}
+                        </EBadge>
+                      ) : null}
                       {row.clientApproval?.status === "PENDING" ? (
                         <EBadge tone="info" soft>Awaiting client approval</EBadge>
                       ) : row.clientApproval?.status === "APPROVED" ? (
@@ -536,7 +557,16 @@ export function EstatePayAdjustments() {
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {row.status === "PENDING" ? (
+                      {settled ? (
+                        // Settled money is immutable — the PATCH route 409s. Say
+                        // so instead of offering buttons the server will refuse.
+                        <span
+                          title="Settled money is immutable — it was paid by a payroll run or billed on an invoice. Raise a correcting adjustment instead."
+                          className="cursor-help text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
+                        >
+                          Settled — raise a correcting adjustment
+                        </span>
+                      ) : row.status === "PENDING" ? (
                         <>
                           <EButton size="sm" variant="gold" onClick={() => openReview(row, "APPROVED")}>
                             Approve…

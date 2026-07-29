@@ -7,6 +7,7 @@ import {
   adjustmentSignedAmount,
   partitionAdjustmentsForInvoice,
 } from "@/lib/finance/pay-adjustments";
+import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
 import {
   computeQaAssignmentPay,
   isQaAssignmentAvailableForSettlement,
@@ -163,6 +164,14 @@ export interface CleanerInvoiceData {
     date: string;
     description: string;
     amount: number;
+    /** Where the adjustment came from — AUTOMATIC (system-generated) or MANUAL. */
+    origin: "AUTOMATIC" | "MANUAL";
+    /** Display label, e.g. "Automatic — rework deduction" / "Manual". */
+    originLabel: string;
+    /** The job the adjustment is linked to, when any (not on this invoice). */
+    jobId: string | null;
+    /** Free-text reason (the payee's note), when any. */
+    reason: string | null;
   }>;
   extraLineTotal: number;
   /**
@@ -366,6 +375,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       cleanerNote: true,
       requestedAt: true,
       reviewedAt: true,
+      // Provenance, so the invoice line can say WHERE the money came from
+      // ("Automatic — rework deduction" vs "Manual") — pay-transparency wave.
+      source: true,
+      sourceKey: true,
     },
     orderBy: { requestedAt: "asc" },
   });
@@ -713,6 +726,9 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     // invoiced. Both must reach the next invoice with the correct sign.
     const amount = adjustmentSignedAmount(adj);
     const label = adj.title?.trim() || adj.cleanerNote?.trim() || "Extra payment";
+    // Provenance for the line (pay transparency): AUTOMATIC vs MANUAL derived
+    // from the same (source, sourceKey) conventions as the job pay summary.
+    const originInfo = deriveAdjustmentOrigin(adj.source ?? null, adj.sourceKey ?? null);
     return {
       id: adj.id,
       date: new Date(adj.reviewedAt ?? adj.requestedAt).toLocaleDateString("en-AU", {
@@ -720,6 +736,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       }),
       description: amount < 0 ? `Deduction — ${label}` : label,
       amount,
+      origin: originInfo.origin,
+      originLabel: originInfo.label,
+      jobId: adj.jobId ?? null,
+      reason: adj.cleanerNote?.trim() || null,
     };
   });
   const extraLineTotal = extraLineRows.reduce((sum, row) => sum + row.amount, 0);
@@ -828,10 +848,18 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
     .join("");
   const extraLineRowsHtml = data.extraLineRows
     .map(
+      // The origin label ("Automatic — rework deduction" / "Manual") prints
+      // under the description so the payee can see WHAT created each line.
       (row) => `
         <tr>
           <td class="cell">${row.date}</td>
-          <td class="cell">${escapeHtml(row.description)}</td>
+          <td class="cell">${escapeHtml(row.description)}${
+            row.originLabel
+              ? `<div style="color:#666;font-size:10px;margin-top:2px;">${escapeHtml(row.originLabel)}${
+                  row.reason ? ` — ${escapeHtml(row.reason)}` : ""
+                }</div>`
+              : ""
+          }</td>
           <td class="cell right">${formatCurrency(row.amount)}</td>
         </tr>
       `
